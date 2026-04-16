@@ -795,9 +795,24 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "            {fail_ret}").ok();
                 writeln!(out, "        }}").ok();
                 writeln!(out, "    }};").ok();
-                // Add 'mut' if the parameter needs to be mutably borrowed
+                // Add 'mut' if the parameter needs to be mutably borrowed.
+                // Add explicit type annotation to avoid inference issues when the result is
+                // only used through a reference (e.g. &mut vec -> Rust might infer [T] instead of Vec<T>).
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
-                writeln!(out, "    let {mut_keyword}{rs_name} = match serde_json::from_str({rs_name}_str) {{").ok();
+                let type_hint = if param.is_ref || param.is_mut {
+                    match &param.ty {
+                        TypeRef::Vec(_) => "::<Vec<_>>",
+                        TypeRef::Map(_, _) => "::<std::collections::HashMap<_, _>>",
+                        _ => "",
+                    }
+                } else {
+                    ""
+                };
+                writeln!(
+                    out,
+                    "    let {mut_keyword}{rs_name} = match serde_json::from_str{type_hint}({rs_name}_str) {{"
+                )
+                .ok();
                 writeln!(out, "        Ok(v) => v,").ok();
                 writeln!(out, "        Err(e) => {{").ok();
                 writeln!(out, "            set_last_error(2, &e.to_string());").ok();

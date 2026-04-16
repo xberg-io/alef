@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- FFI: add explicit `Vec<_>` type annotations for serde deserialization of ref/mut params (prevents unsized type inference)
 - Codegen: correct float literal defaults (`0.0f32`/`0.0f64`) in unimplemented body for float return types
 - Codegen: handle `&mut T` parameters via new `is_mut` IR field — emit `&mut` refs instead of `&`
 - Codegen: parse `TypeRef::Json` parameters with `serde_json::from_str()` instead of passing raw String

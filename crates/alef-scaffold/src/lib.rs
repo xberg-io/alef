@@ -57,6 +57,8 @@ fn cargo_package_header(
     version: &str,
     edition: &str,
     license: &str,
+    description: &str,
+    keywords: &[String],
     ws: &WorkspacePackageInheritance,
 ) -> String {
     let version_line = if ws.version {
@@ -71,37 +73,35 @@ fn cargo_package_header(
         format!("license = \"{license}\"")
     };
     let readme_line = if ws.readme {
-        Some("readme.workspace = true".to_string())
+        "readme.workspace = true".to_string()
     } else {
-        None
+        "readme = \"README.md\"".to_string()
     };
     let keywords_line = if ws.keywords {
-        Some("keywords.workspace = true".to_string())
+        "keywords.workspace = true".to_string()
+    } else if keywords.is_empty() {
+        "keywords = []".to_string()
     } else {
-        None
+        let quoted: Vec<String> = keywords.iter().map(|k| format!("\"{k}\"")).collect();
+        format!("keywords = [{}]", quoted.join(", "))
     };
     let categories_line = if ws.categories {
-        Some("categories.workspace = true".to_string())
+        "categories.workspace = true".to_string()
     } else {
-        None
+        "categories = [\"text-processing\"]".to_string()
     };
 
-    let mut lines = vec![
+    let lines = vec![
         "[package]".to_string(),
         format!("name = \"{name}\""),
         version_line,
         edition_line,
         license_line,
+        format!("description = \"{description}\""),
+        readme_line,
+        keywords_line,
+        categories_line,
     ];
-    if let Some(l) = readme_line {
-        lines.push(l);
-    }
-    if let Some(l) = keywords_line {
-        lines.push(l);
-    }
-    if let Some(l) = categories_line {
-        lines.push(l);
-    }
     lines.join("\n")
 }
 
@@ -224,7 +224,15 @@ fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-py"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-py"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
@@ -339,7 +347,15 @@ fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-node"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-node"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
@@ -450,7 +466,15 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-rb"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-rb"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
@@ -683,7 +707,15 @@ fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<V
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-php"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-php"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
@@ -780,7 +812,15 @@ fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &nif_name,
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
@@ -1236,11 +1276,18 @@ fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-ffi"), version, "2021", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-ffi"),
+        version,
+        "2021",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
-description = "{description}"
 repository = "{repository}"
 
 [lib]
@@ -1258,7 +1305,6 @@ default = []
 cbindgen = "0.29"
 "#,
         pkg_header = pkg_header,
-        description = meta.description,
         repository = meta.repository,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
@@ -1387,11 +1433,18 @@ fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-wasm"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-wasm"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
-description = "{description}"
 repository = "{repository}"
 
 [lib]
@@ -1410,7 +1463,6 @@ wasm-opt = false
 ignored = ["wasm-bindgen-futures"]
 "#,
         pkg_header = pkg_header,
-        description = meta.description,
         repository = meta.repository,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
@@ -1853,7 +1905,15 @@ fn scaffold_r_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
-    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta.license, &ws);
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-r"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
 
     let content = format!(
         r#"{pkg_header}
