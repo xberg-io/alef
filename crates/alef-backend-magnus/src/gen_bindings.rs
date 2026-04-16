@@ -1232,7 +1232,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     if let Some(reg) = config.custom_registrations.for_language(Language::Ruby) {
         for class in &reg.classes {
             lines.push(format!(
-                r#"    let class = module.define_class("{class}", ruby.class_object())?;"#
+                r#"    let _class = module.define_class("{class}", ruby.class_object())?;"#
             ));
         }
         for func in &reg.functions {
@@ -1244,8 +1244,11 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        let class_used = (!typ.is_opaque && !typ.fields.is_empty())
+            || typ.methods.iter().any(|m| !m.is_static);
+        let binding = if class_used { "class" } else { "_class" };
         lines.push(format!(
-            r#"    let class = module.define_class("{}", ruby.class_object())?;"#,
+            r#"    let {binding} = module.define_class("{}", ruby.class_object())?;"#,
             typ.name
         ));
 
