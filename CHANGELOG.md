@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: convert `Vec<BindingType>` to `Vec<CoreType>` via let bindings before passing to core functions
+- Codegen: fix `Option<&T>` double-reference — don't add extra `&` when let binding already produces `Option<&T>`
 - FFI: add explicit `Vec<_>` type annotations for serde deserialization of ref/mut params (prevents unsized type inference)
 - Codegen: correct float literal defaults (`0.0f32`/`0.0f64`) in unimplemented body for float return types
 - Codegen: handle `&mut T` parameters via new `is_mut` IR field — emit `&mut` refs instead of `&`

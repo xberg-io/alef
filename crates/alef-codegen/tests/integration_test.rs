@@ -970,6 +970,52 @@ fn test_gen_named_let_bindings_optional_ref_param() {
 }
 
 #[test]
+fn test_gen_call_args_with_let_bindings_optional_ref_param() {
+    // When a core function takes Option<&T> where T is a non-opaque type,
+    // and we have a let binding `let config_core = config.as_ref();` that creates Option<&T>,
+    // the call args should use `config_core` directly (NOT `&config_core`).
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
+    // The result should be `config_core` (Option<&Config>) not `&config_core` (&Option<&Config>)
+    assert_eq!(result, "config_core");
+}
+
+#[test]
+fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
+    // When a core function takes Option<&[T]> where T is a non-opaque type,
+    // and `optional=true, is_ref=true` for Vec<Named>, no let binding is generated.
+    // The call args should use `param.as_deref()` directly.
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
+    // The result should be `items.as_deref()` which converts Option<Vec<Item>> to Option<&[Item]>
+    assert_eq!(result, "items.as_deref()");
+}
+
+#[test]
 fn test_gen_named_let_bindings_opaque_skipped() {
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("MyOpaque".to_string());
