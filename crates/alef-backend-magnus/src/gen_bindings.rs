@@ -149,7 +149,7 @@ impl Backend for MagnusBackend {
                 if generates_default {
                     builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
                 }
-                builder.add_item(&gen_struct_methods(typ, &mapper, &opaque_types, &core_import));
+                builder.add_item(&gen_struct_methods(typ, &mapper, &opaque_types, &core_import, generates_default));
             }
         }
 
@@ -587,13 +587,18 @@ fn gen_struct_methods(
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    generates_default: bool,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     if !typ.fields.is_empty() {
         let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-        // Generate config builder if type has Default, otherwise generate normal constructor
+        // Generate config builder if type has Default semantics (accepts optional kwargs).
+        // This uses unwrap_or_default() which requires Default on the type, but for types
+        // where can_generate_default_impl is false we still need kwargs (too many params
+        // for Magnus function! macro). The kwargs constructor handles this by using
+        // the core type's Default impl via the core crate, not the binding struct's Default.
         if typ.has_default {
             let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(typ, &map_fn);
             impl_builder.add_method(&config_method);
