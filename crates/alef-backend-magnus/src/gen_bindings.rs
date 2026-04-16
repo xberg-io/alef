@@ -144,9 +144,9 @@ impl Backend for MagnusBackend {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
-                builder.add_item(&gen_struct(typ, &mapper, &module_name));
-                // Only generate Default impl if all fields can be safely defaulted
-                if typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types) {
+                let generates_default = typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
+                builder.add_item(&gen_struct(typ, &mapper, &module_name, api, generates_default));
+                if generates_default {
                     builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
                 }
                 builder.add_item(&gen_struct_methods(typ, &mapper, &opaque_types, &core_import));
@@ -509,7 +509,7 @@ fn gen_opaque_async_instance_method(
 }
 
 /// Generate a Magnus-wrapped struct definition using the shared TypeMapper.
-fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String {
+fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str, api: &ApiSurface, generates_default: bool) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
     let mut struct_builder = StructBuilder::new(&typ.name);
@@ -519,11 +519,33 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String
     struct_builder.add_derive("Clone");
     struct_builder.add_derive("Debug");
     // serde derives allow accepting Ruby hashes via serde_magnus and serializing back,
-    // but only when the core type actually supports serde
-    if typ.has_serde {
+    // but only when the core type AND all its Named field types support serde.
+    // A type with has_serde=true may still have fields whose types have has_serde=false,
+    // which would cause Deserialize derive errors.
+    let all_fields_serde = typ.fields.iter().all(|f| {
+        let name = match &f.ty {
+            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+            alef_core::ir::TypeRef::Vec(inner) => {
+                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+            }
+            alef_core::ir::TypeRef::Optional(inner) => {
+                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+            }
+            _ => None,
+        };
+        match name {
+            Some(n) => {
+                api.types.iter().any(|t| t.name == n && t.has_serde)
+                    || api.enums.iter().any(|e| e.name == n)
+                    || !api.types.iter().any(|t| t.name == n)
+            }
+            None => true,
+        }
+    });
+    if typ.has_serde && all_fields_serde {
         struct_builder.add_derive("serde::Serialize");
         struct_builder.add_derive("serde::Deserialize");
-        if typ.has_default {
+        if generates_default {
             struct_builder.add_attr("serde(default)");
         }
     }
