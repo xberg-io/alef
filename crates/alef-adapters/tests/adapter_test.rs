@@ -609,7 +609,7 @@ fn test_sync_function_ruby() {
         body
     );
     assert!(
-        body.contains("magnus::exception::runtime_error()"),
+        body.contains("exception_runtime_error()"),
         "Ruby body should raise runtime error"
     );
 }

@@ -95,7 +95,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
     format!(
         "{core_path}({call_str})\n        \
          .map({returns}::from)\n        \
-         .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))"
+         .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
     )
 }
 

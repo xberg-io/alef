@@ -330,7 +330,7 @@ pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String
     lines.push("#[allow(dead_code)]".to_string());
     lines.push(format!("fn {fn_name}(e: {rust_path}) -> magnus::Error {{"));
     lines.push("    let msg = e.to_string();".to_string());
-    lines.push("    magnus::Error::new(magnus::exception::runtime_error(), msg)".to_string());
+    lines.push("    magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)".to_string());
     lines.push("}".to_string());
     lines.join("\n")
 }
@@ -853,7 +853,7 @@ mod tests {
                 "fn conversion_error_to_magnus_err(e: html_to_markdown_rs::ConversionError) -> magnus::Error {"
             )
         );
-        assert!(output.contains("magnus::Error::new(magnus::exception::runtime_error(), msg)"));
+        assert!(output.contains("magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)"));
         assert!(output.contains("#[allow(dead_code)]"));
     }
 

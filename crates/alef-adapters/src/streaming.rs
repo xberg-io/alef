@@ -136,7 +136,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Opti
     let body = format!(
         "use futures::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
-             .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
          let stream = self.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
              stream\n            \
@@ -145,7 +145,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Opti
                  .into_iter()\n            \
                  .collect::<Result<Vec<_>, _>>()\n    \
          }})\n    \
-         .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))"
+         .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
     );
 
     (body, None)

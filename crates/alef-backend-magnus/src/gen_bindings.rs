@@ -412,7 +412,7 @@ fn gen_opaque_instance_method(
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
                 format!(
-                    "{core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok(())"
+                    "{core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(())"
                 )
             } else {
                 let wrap = generators::wrap_return(
@@ -425,7 +425,7 @@ fn gen_opaque_instance_method(
                     method.returns_cow,
                 );
                 format!(
-                    "let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok({wrap})"
+                    "let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok({wrap})"
                 )
             }
         } else {
@@ -482,13 +482,13 @@ fn gen_opaque_async_instance_method(
         );
         if method.error_type.is_some() {
             format!(
-                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok({result_wrap})"
             )
         } else {
             format!(
-                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }});\n        \
                  {result_wrap}"
             )
@@ -658,7 +658,7 @@ fn gen_instance_method(
         };
         if method.error_type.is_some() {
             format!(
-                "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
+                "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
             )
         } else {
             format!("{field_conversions}{core_call}{result_wrap}")
@@ -704,14 +704,14 @@ fn gen_async_instance_method(
         };
         if method.error_type.is_some() {
             format!(
-                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
-                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok(result{result_wrap})",
                 name = method.name
             )
         } else {
             format!(
-                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ core_self.{name}({call_args}).await }});\n        \
                  result{result_wrap}",
                 name = method.name
@@ -863,7 +863,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
         writeln!(out, "        let s: String = magnus::TryConvert::try_convert(val)?;").ok();
         writeln!(
             out,
-            "        serde_json::from_str(&s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))"
+            "        serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))"
         )
         .ok();
         writeln!(out, "    }}").ok();
@@ -953,11 +953,11 @@ fn gen_function(
                 let binding_ty = &p.name;
                 if p.optional {
                     deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
                     ));
                 } else {
                     deser_lines.push(format!(
-                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; core.into() }};"
+                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
                     ));
                 }
             }
@@ -996,13 +996,13 @@ fn gen_function(
             );
             if func.error_type.is_some() {
                 format!(
-                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
-                     let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+                     let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
                      Ok({wrap})"
                 )
             } else {
                 format!(
-                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
                      let result = rt.block_on(async {{ {core_call}.await }});\n    \
                      Ok({wrap})"
                 )
@@ -1018,7 +1018,7 @@ fn gen_function(
                 false,
             );
             format!(
-                "let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    Ok({wrap})"
+                "let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    Ok({wrap})"
             )
         } else {
             generators::wrap_return(
@@ -1071,11 +1071,11 @@ fn gen_async_function(
                 let binding_ty = &p.name;
                 if p.optional {
                     deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
                     ));
                 } else {
                     deser_lines.push(format!(
-                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; core.into() }};"
+                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
                     ));
                 }
             }
@@ -1111,14 +1111,14 @@ fn gen_async_function(
         );
         if func.error_type.is_some() {
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
                  Ok({result_wrap})"
             )
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
                  Ok({result_wrap})"
             )
@@ -1143,7 +1143,7 @@ fn gen_magnus_unimplemented_body(return_type: &alef_core::ir::TypeRef, fn_name: 
     use alef_core::ir::TypeRef;
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
-        format!("Err(magnus::Error::new(magnus::exception::runtime_error(), \"{err_msg}\"))")
+        format!("Err(magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), \"{err_msg}\"))")
     } else {
         match return_type {
             TypeRef::Unit => "()".to_string(),
