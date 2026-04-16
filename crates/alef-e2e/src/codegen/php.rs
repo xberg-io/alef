@@ -258,9 +258,7 @@ fn render_test_file(
     });
 
     let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
-    if !result_is_simple {
-        let _ = writeln!(out, "use {namespace}\\{class_name};");
-    }
+    let _ = writeln!(out, "use {namespace}\\{class_name};");
     if needs_crawl_config_import {
         let _ = writeln!(out, "use {namespace}\\CrawlConfig;");
     }
