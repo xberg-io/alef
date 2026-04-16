@@ -518,11 +518,14 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String
     // Magnus requires Clone for TryConvert on owned types
     struct_builder.add_derive("Clone");
     struct_builder.add_derive("Debug");
-    // serde derives allow accepting Ruby hashes via serde_magnus and serializing back
-    struct_builder.add_derive("serde::Serialize");
-    struct_builder.add_derive("serde::Deserialize");
-    if typ.has_default {
-        struct_builder.add_attr("serde(default)");
+    // serde derives allow accepting Ruby hashes via serde_magnus and serializing back,
+    // but only when the core type actually supports serde
+    if typ.has_serde {
+        struct_builder.add_derive("serde::Serialize");
+        struct_builder.add_derive("serde::Deserialize");
+        if typ.has_default {
+            struct_builder.add_attr("serde(default)");
+        }
     }
 
     for field in &typ.fields {
