@@ -1096,14 +1096,28 @@ fn gen_function(
         };
         let core_call = format!("{core_fn_path}({call_args})");
         let body = if func.error_type.is_some() {
-            let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
+            let wrap = wasm_wrap_return_fn(
+                "result",
+                &func.return_type,
+                opaque_types,
+                func.returns_ref,
+                func.returns_cow,
+                prefix,
+            );
             format!(
                 "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
             )
         } else {
             format!(
                 "{let_bindings}{}",
-                wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
+                wasm_wrap_return_fn(
+                    &core_call,
+                    &func.return_type,
+                    opaque_types,
+                    func.returns_ref,
+                    func.returns_cow,
+                    prefix
+                )
             )
         };
         format!(
@@ -1222,7 +1236,7 @@ fn wasm_wrap_return(
             opaque_types,
             self_is_opaque,
             returns_ref,
-            false,
+            returns_cow,
         ),
     }
 }
@@ -1233,6 +1247,7 @@ fn wasm_wrap_return_fn(
     return_type: &TypeRef,
     opaque_types: &AHashSet<String>,
     returns_ref: bool,
+    returns_cow: bool,
     prefix: &str,
 ) -> String {
     match return_type {
@@ -1244,7 +1259,9 @@ fn wasm_wrap_return_fn(
             }
         }
         TypeRef::Named(_) => {
-            if returns_ref {
+            if returns_cow {
+                format!("{expr}.into_owned().into()")
+            } else if returns_ref {
                 format!("{expr}.clone().into()")
             } else {
                 format!("{expr}.into()")

@@ -45,6 +45,9 @@ pub fn wrap_return(
             // Non-opaque Named return type — use .into() for core→binding From conversion.
             // When the core returns a Cow, call .into_owned() first to get an owned T.
             // When the core returns a reference, clone first since From<&T> typically doesn't exist.
+            // NOTE: If this type was sanitized to String in the binding, From won't exist.
+            // The calling backend should check method.sanitized before delegating.
+            // This code assumes non-sanitized Named types have From impls.
             if returns_cow {
                 format!("{expr}.into_owned().into()")
             } else if returns_ref {

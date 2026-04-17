@@ -1282,17 +1282,6 @@ fn core_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
     }
 }
 
-fn napi_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    match p {
-        alef_core::ir::PrimitiveType::U32
-        | alef_core::ir::PrimitiveType::U64
-        | alef_core::ir::PrimitiveType::Usize
-        | alef_core::ir::PrimitiveType::Isize => "i64",
-        alef_core::ir::PrimitiveType::F32 => "f64",
-        _ => unreachable!(),
-    }
-}
-
 /// Generate a global Tokio runtime for NAPI async support.
 fn gen_tokio_runtime() -> String {
     "static WORKER_POOL: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {

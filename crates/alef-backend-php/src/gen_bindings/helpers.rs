@@ -52,10 +52,11 @@ pub(crate) fn has_enum_named_field(typ: &alef_core::ir::TypeDef, enum_names: &AH
 /// Generate PHP-specific function parameter list.
 /// Non-opaque Named types use `&T` (ext-php-rs only provides `FromZvalMut` for `&mut T`/`&T`,
 /// not owned `T`, when `T` is a `#[php_class]`).
+/// Vec<NonOpaqueCustomType> also needs &Vec<T> since the elements are php_class types.
 pub(crate) fn gen_php_function_params(
     params: &[alef_core::ir::ParamDef],
     mapper: &PhpMapper,
-    _opaque_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
 ) -> String {
     params
         .iter()
@@ -76,6 +77,34 @@ pub(crate) fn gen_php_function_params(
                         format!("Option<&{base_ty}>")
                     } else {
                         format!("&{base_ty}")
+                    }
+                }
+                TypeRef::Vec(inner) => {
+                    // Vec<NonOpaqueCustomType> also needs &Vec<T> since the inner type is a php_class.
+                    // Check if inner is a Named type that's not an enum.
+                    if let TypeRef::Named(name) = inner.as_ref() {
+                        if !mapper.enum_names.contains(name.as_str()) && !opaque_types.contains(name.as_str()) {
+                            // Non-opaque named type inside Vec: need &Vec
+                            if p.optional {
+                                format!("Option<&{base_ty}>")
+                            } else {
+                                format!("&{base_ty}")
+                            }
+                        } else {
+                            // Enum or opaque type: can use owned Vec
+                            if p.optional {
+                                format!("Option<{base_ty}>")
+                            } else {
+                                base_ty
+                            }
+                        }
+                    } else {
+                        // Primitive types inside Vec: can use owned Vec
+                        if p.optional {
+                            format!("Option<{base_ty}>")
+                        } else {
+                            base_ty
+                        }
                     }
                 }
                 _ => {
@@ -163,18 +192,48 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     p.name.clone()
                 }
             }
-            TypeRef::Vec(_) => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+            TypeRef::Vec(inner) => {
+                // Vec<NonOpaqueCustomType> is passed as &Vec when inner is non-opaque Named.
+                // Use let bindings for conversion (handled in gen_php_named_let_bindings).
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        // Non-opaque named type inside Vec: use the _core binding
+                        if p.is_ref {
+                            if p.optional {
+                                format!("{}_core.as_ref().map(|v| &v[..])", p.name)
+                            } else {
+                                format!("&{}_core[..]", p.name)
+                            }
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        // Opaque or enum named type inside Vec
+                        if p.optional {
+                            if p.is_ref {
+                                format!("{}.as_deref()", p.name)
+                            } else {
+                                p.name.clone()
+                            }
+                        } else if p.is_ref {
+                            format!("&{}[..]", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                } else {
+                    // Primitive types inside Vec
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}[..]", p.name)
                     } else {
                         p.name.clone()
                     }
-                } else if p.is_ref {
-                    // Core expects &[T], so convert Vec<T> to &[T]
-                    format!("&{}[..]", p.name)
-                } else {
-                    p.name.clone()
                 }
             }
             TypeRef::Duration => {
@@ -193,6 +252,7 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
 /// Generate let bindings for non-opaque Named params in free functions.
 /// Creates `let {name}_core: {core_import}::{TypeName} = {name}.clone().into();`
 /// so the function body can pass `&{name}_core` instead of `{name}.clone().into()`.
+/// Also handles Vec<NonOpaqueCustomType> by creating let bindings for the converted vector.
 pub(crate) fn gen_php_named_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -200,8 +260,8 @@ pub(crate) fn gen_php_named_let_bindings(
 ) -> String {
     let mut out = String::new();
     for p in params {
-        if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     writeln!(
                         out,
@@ -218,6 +278,29 @@ pub(crate) fn gen_php_named_let_bindings(
                     .ok();
                 }
             }
+            TypeRef::Vec(inner) => {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        // Vec<NonOpaqueCustomType>: create a binding that converts each element
+                        if p.optional {
+                            writeln!(
+                                out,
+                                "let {}_core: Option<Vec<{core_import}::{name}>> = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());",
+                                p.name, p.name
+                            )
+                            .ok();
+                        } else {
+                            writeln!(
+                                out,
+                                "let {}_core: Vec<{core_import}::{name}> = {}.iter().map(|x| x.clone().into()).collect();",
+                                p.name, p.name
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
     out
@@ -298,18 +381,39 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     p.name.clone()
                 }
             }
-            TypeRef::Vec(_) => {
-                if p.optional {
+            TypeRef::Vec(inner) => {
+                // Check if inner is a non-opaque Named type that needs let binding
+                let uses_binding = if let TypeRef::Named(name) = inner.as_ref() {
+                    !opaque_types.contains(name.as_str())
+                } else {
+                    false
+                };
+
+                if uses_binding {
+                    // Use the _core binding
                     if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                        if p.optional {
+                            format!("{}_core.as_ref().map(|v| &v[..])", p.name)
+                        } else {
+                            format!("&{}_core[..]", p.name)
+                        }
+                    } else {
+                        format!("{}_core", p.name)
+                    }
+                } else {
+                    // Opaque or primitive types: no binding needed
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        // Core expects &[T], so convert Vec<T> to &[T]
+                        format!("&{}[..]", p.name)
                     } else {
                         p.name.clone()
                     }
-                } else if p.is_ref {
-                    // Core expects &[T], so convert Vec<T> to &[T]
-                    format!("&{}[..]", p.name)
-                } else {
-                    p.name.clone()
                 }
             }
             TypeRef::Map(_, _) => {
