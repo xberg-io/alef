@@ -197,4 +197,68 @@ mod tests {
         assert!(result.contains("my_crate::Backend::Cpu => Self::Cpu"));
         assert!(result.contains("my_crate::Backend::Gpu => Self::Gpu"));
     }
+
+    #[test]
+    fn test_from_binding_to_core_with_cfg_gated_field() {
+        // Create a type with a cfg-gated field
+        let mut typ = simple_type();
+        typ.has_stripped_cfg_fields = true;
+        typ.fields.push(FieldDef {
+            name: "layout".into(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: Some("feature = \"layout-detection\"".into()),
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+
+        let result = gen_from_binding_to_core(&typ, "my_crate");
+
+        // The impl should exist
+        assert!(result.contains("impl From<Config> for my_crate::Config"));
+        // Regular fields should be present
+        assert!(result.contains("name: val.name"));
+        assert!(result.contains("timeout: val.timeout"));
+        // cfg-gated field should NOT be accessed from val (it doesn't exist in binding struct)
+        assert!(!result.contains("layout: val.layout"));
+        // But ..Default::default() should be present to fill cfg-gated fields
+        assert!(result.contains("..Default::default()"));
+    }
+
+    #[test]
+    fn test_from_core_to_binding_with_cfg_gated_field() {
+        // Create a type with a cfg-gated field
+        let mut typ = simple_type();
+        typ.fields.push(FieldDef {
+            name: "layout".into(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: Some("feature = \"layout-detection\"".into()),
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+
+        // The impl should exist
+        assert!(result.contains("impl From<my_crate::Config> for Config"));
+        // Regular fields should be present
+        assert!(result.contains("name: val.name"));
+        // cfg-gated field should NOT be in the struct literal
+        assert!(!result.contains("layout:"));
+    }
 }

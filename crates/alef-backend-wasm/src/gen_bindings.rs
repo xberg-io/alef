@@ -630,6 +630,15 @@ fn gen_struct_methods(
 
     if !exclude_types.contains(&typ.name) {
         for method in &typ.methods {
+            // Skip methods whose params or return type reference excluded types
+            let refs_excluded = method
+                .params
+                .iter()
+                .any(|p| field_references_excluded_type(&p.ty, exclude_types))
+                || field_references_excluded_type(&method.return_type, exclude_types);
+            if refs_excluded {
+                continue;
+            }
             impl_builder.add_method(&gen_method(
                 method,
                 mapper,
@@ -1019,7 +1028,7 @@ fn gen_function(
 
     if func.is_async {
         let let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
-            alef_codegen::generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+            alef_codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };
@@ -1076,7 +1085,7 @@ fn gen_function(
         )
     } else if can_delegate {
         let let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
-            alef_codegen::generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+            alef_codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };

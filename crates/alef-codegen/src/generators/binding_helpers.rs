@@ -501,16 +501,35 @@ pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<S
     gen_named_let_bindings(params, opaque_types, core_import)
 }
 
+/// Like `gen_named_let_bindings_pub` but without optional-promotion semantics.
+/// Use this for backends (e.g. WASM) that do not promote non-optional params to `Option<T>`.
+pub fn gen_named_let_bindings_no_promote(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    gen_named_let_bindings_inner(params, opaque_types, core_import, false)
+}
+
 pub(super) fn gen_named_let_bindings(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
+    gen_named_let_bindings_inner(params, opaque_types, core_import, true)
+}
+
+fn gen_named_let_bindings_inner(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+    promote: bool,
+) -> String {
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                let promoted = crate::shared::is_promoted_optional(params, idx);
+                let promoted = promote && crate::shared::is_promoted_optional(params, idx);
                 let core_type_path = format!("{}::{}", core_import, name);
                 if p.optional {
                     if p.is_ref {
@@ -549,7 +568,7 @@ pub(super) fn gen_named_let_bindings(
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
-                let promoted = crate::shared::is_promoted_optional(params, idx);
+                let promoted = promote && crate::shared::is_promoted_optional(params, idx);
                 if p.optional && p.is_ref {
                     // Option<Vec<Named>> with is_ref: convert to Option<Vec<CoreType>>, then use as_deref()
                     // This ensures elements are converted from binding to core type.

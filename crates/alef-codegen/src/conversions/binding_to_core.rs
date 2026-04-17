@@ -64,6 +64,10 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         writeln!(out, "        let mut __result = {core_path}::default();").ok();
         let optionalized = config.optionalize_defaults && typ.has_default;
         for field in &typ.fields {
+            // Skip cfg-gated fields — they don't exist in the binding struct.
+            if field.cfg.is_some() {
+                continue;
+            }
             if field.sanitized {
                 // sanitized fields keep the default value — skip
                 continue;
@@ -104,13 +108,25 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     writeln!(out, "        Self {{").ok();
     let optionalized = config.optionalize_defaults && typ.has_default;
     for field in &typ.fields {
-        // Fields referencing excluded types don't exist in the binding struct;
-        // use Default::default() to fill them in the core type.
+        // Skip cfg-gated fields — they don't exist in the binding struct.
+        // When the binding is compiled, these fields are absent, and accessing them would fail.
+        // The ..Default::default() at the end fills in these fields when the core type is compiled
+        // with the required feature enabled.
+        if field.cfg.is_some() {
+            continue;
+        }
+        // Fields referencing excluded types don't exist in the binding struct.
+        // When the type has stripped cfg-gated fields, these fields may also be
+        // cfg-gated and absent from the core struct — skip them entirely and let
+        // ..Default::default() fill them in.
+        // Otherwise, use Default::default() to fill them in the core type.
         // Sanitized fields also use Default::default() (lossy but functional).
-        let conversion = if field.sanitized
-            || (!config.exclude_types.is_empty()
-                && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types))
-        {
+        let references_excluded = !config.exclude_types.is_empty()
+            && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types);
+        if references_excluded && typ.has_stripped_cfg_fields {
+            continue;
+        }
+        let conversion = if field.sanitized || references_excluded {
             format!("{}: Default::default()", field.name)
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
