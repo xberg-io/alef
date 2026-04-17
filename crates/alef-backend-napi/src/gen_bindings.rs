@@ -848,15 +848,16 @@ fn gen_function(
             let serde_bindings =
                 generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
             let core_call = format!("{core_fn_path}({call_args})");
+            let await_kw = if func.is_async { ".await" } else { "" };
 
             if matches!(func.return_type, TypeRef::Unit) {
-                format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
+                format!("{serde_bindings}{core_call}{await_kw}{err_conv}?;\n    Ok(())")
             } else {
                 let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
                 if wrapped == "val" {
-                    format!("{serde_bindings}{core_call}{err_conv}")
+                    format!("{serde_bindings}{core_call}{await_kw}{err_conv}")
                 } else {
-                    format!("{serde_bindings}{core_call}.map(|val| {wrapped}){err_conv}")
+                    format!("{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){err_conv}")
                 }
             }
         } else {

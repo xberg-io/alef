@@ -7,7 +7,7 @@ use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
 use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
-    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings,
+    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
 
 /// Generate an instance method binding for an opaque struct.
@@ -44,7 +44,7 @@ pub(crate) fn gen_instance_method(
                     "{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
                 )
             } else {
-                let wrap = generators::wrap_return(
+                let wrap = php_wrap_return(
                     "result",
                     &method.return_type,
                     type_name,
@@ -58,7 +58,7 @@ pub(crate) fn gen_instance_method(
                 )
             }
         } else {
-            generators::wrap_return(
+            php_wrap_return(
                 &core_call,
                 &method.return_type,
                 type_name,
@@ -107,7 +107,11 @@ pub(crate) fn gen_instance_method_non_opaque(
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
+    // Skip RefMut receivers — can't delegate because we don't have a mutable reference.
+    let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+
     let can_delegate = !method.sanitized
+        && !is_ref_mut_receiver
         && method
             .params
             .iter()
@@ -120,33 +124,43 @@ pub(crate) fn gen_instance_method_non_opaque(
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let field_conversions = gen_php_lossy_binding_to_core_fields(typ, core_import, &mapper.enum_names, enums);
         let core_call = format!("core_self.{}({})", method.name, call_args);
-        let result_wrap = match &method.return_type {
-            TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()) => {
-                // Enum return type: PHP maps enums to String via format!("{:?}")
-                String::new()
-            }
-            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
-                ".into()".to_string()
-            }
-            _ => String::new(),
-        };
-        // For enum return types, wrap with format!("{:?}", ...)
-        let format_enum_return =
-            matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
+
+        // Use php_wrap_return for proper type conversions
+        let wrapped_call = php_wrap_return(
+            &core_call,
+            &method.return_type,
+            &typ.name,
+            opaque_types,
+            typ.is_opaque,
+            method.returns_ref,
+            method.returns_cow,
+        );
+
+        let is_enum_return = matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
+
         if method.error_type.is_some() {
-            if format_enum_return {
+            if is_enum_return {
                 format!(
                     "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(format!(\"{{:?}}\", result))"
                 )
             } else {
+                let wrap = php_wrap_return(
+                    "result",
+                    &method.return_type,
+                    &typ.name,
+                    opaque_types,
+                    typ.is_opaque,
+                    method.returns_ref,
+                    method.returns_cow,
+                );
                 format!(
-                    "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(result{result_wrap})"
+                    "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
                 )
             }
-        } else if format_enum_return {
+        } else if is_enum_return {
             format!("{field_conversions}format!(\"{{:?}}\", {core_call})")
         } else {
-            format!("{field_conversions}{core_call}{result_wrap}")
+            format!("{field_conversions}{wrapped_call}")
         }
     } else {
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -190,13 +204,25 @@ pub(crate) fn gen_static_method(
     let core_type_path = typ.rust_path.replace('-', "_");
     let call_args = gen_php_call_args(&method.params, opaque_types);
 
-    // Exclude methods with non-opaque Named params (FromZvalMut issue with php_class)
-    let has_non_opaque_named_params = method
-        .params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+    // Exclude methods with unsupported parameter types for PHP bindings.
+    // ext-php-rs has limited FromZval support:
+    // - Vec<T> where T is a struct: not supported
+    // - Map<K,V>: not directly supported
+    // - Non-opaque Named params: not supported (no owned FromZval)
+    let has_unsupported_params = method.params.iter().any(|p| {
+        match &p.ty {
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true, // non-opaque struct
+            TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
+            TypeRef::Map(_, _) => true, // Maps not directly supported
+            TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
+                    || matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+            }
+            _ => false,
+        }
+    });
 
-    let body = if can_delegate && !has_non_opaque_named_params {
+    let body = if can_delegate && !has_unsupported_params {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         let is_enum_return = matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
         if method.error_type.is_some() {
@@ -205,7 +231,7 @@ pub(crate) fn gen_static_method(
                     "{core_call}.map(|val| format!(\"{{:?}}\", val)).map_err(|e| PhpException::default(e.to_string()))"
                 )
             } else {
-                let wrap = generators::wrap_return(
+                let wrap = php_wrap_return(
                     "val",
                     &method.return_type,
                     &typ.name,
@@ -223,7 +249,7 @@ pub(crate) fn gen_static_method(
         } else if is_enum_return {
             format!("format!(\"{{:?}}\", {core_call})")
         } else {
-            generators::wrap_return(
+            php_wrap_return(
                 &core_call,
                 &method.return_type,
                 &typ.name,
@@ -305,7 +331,7 @@ fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_i
         };
         let core_call = format!("{core_fn_path}({call_args})");
         if func.error_type.is_some() {
-            let wrap = generators::wrap_return(
+            let wrap = php_wrap_return(
                 "result",
                 &func.return_type,
                 "",
@@ -320,7 +346,7 @@ fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_i
         } else {
             format!(
                 "{let_bindings}{}",
-                generators::wrap_return(
+                php_wrap_return(
                     &core_call,
                     &func.return_type,
                     "",
@@ -381,7 +407,7 @@ fn gen_async_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, 
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let result_wrap = generators::wrap_return(
+        let result_wrap = php_wrap_return(
             "result",
             &func.return_type,
             "",
@@ -428,7 +454,7 @@ pub(crate) fn gen_async_instance_method(
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let inner_clone = "let inner = self.inner.clone();\n    ";
         let core_call = format!("inner.{}({})", method.name, call_args);
-        let result_wrap = generators::wrap_return(
+        let result_wrap = php_wrap_return(
             "result",
             &method.return_type,
             type_name,

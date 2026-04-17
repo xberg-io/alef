@@ -94,10 +94,19 @@ pub(crate) fn gen_php_function_params(
 
 /// Generate PHP-specific call arguments.
 /// Non-opaque Named types are passed as `&T`, so we clone before `.into()`.
+/// Handles i64->usize/u64 casts for primitive types that need conversion.
 pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
         .map(|p| match &p.ty {
+            TypeRef::Primitive(prim) if needs_i64_cast(prim) => {
+                let core_ty = core_prim_str(prim);
+                if p.optional {
+                    format!("{}.map(|v| v as {})", p.name, core_ty)
+                } else {
+                    format!("{} as {}", p.name, core_ty)
+                }
+            }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     format!("{}.as_ref().map(|v| &v.inner)", p.name)
@@ -122,13 +131,21 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     } else {
                         p.name.clone()
                     }
-                } else {
+                } else if p.is_ref {
                     format!("&{}", p.name)
+                } else {
+                    p.name.clone()
                 }
             }
             TypeRef::Path => {
                 if p.optional {
-                    format!("{}.map(std::path::PathBuf::from)", p.name)
+                    if p.is_ref {
+                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                    } else {
+                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                    }
+                } else if p.is_ref {
+                    format!("std::path::Path::new(&{})", p.name)
                 } else {
                     format!("std::path::PathBuf::from({})", p.name)
                 }
@@ -140,11 +157,32 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     } else {
                         p.name.clone()
                     }
-                } else {
+                } else if p.is_ref {
                     format!("&{}", p.name)
+                } else {
+                    p.name.clone()
                 }
             }
-            TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+            TypeRef::Vec(_) => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Duration => {
+                if p.optional {
+                    format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
+                } else {
+                    format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
+                }
+            }
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -192,6 +230,14 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
     params
         .iter()
         .map(|p| match &p.ty {
+            TypeRef::Primitive(prim) if needs_i64_cast(prim) => {
+                let core_ty = core_prim_str(prim);
+                if p.optional {
+                    format!("{}.map(|v| v as {})", p.name, core_ty)
+                } else {
+                    format!("{} as {}", p.name, core_ty)
+                }
+            }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     format!("{}.as_ref().map(|v| &v.inner)", p.name)
@@ -209,13 +255,21 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     } else {
                         p.name.clone()
                     }
-                } else {
+                } else if p.is_ref {
                     format!("&{}", p.name)
+                } else {
+                    p.name.clone()
                 }
             }
             TypeRef::Path => {
                 if p.optional {
-                    format!("{}.map(std::path::PathBuf::from)", p.name)
+                    if p.is_ref {
+                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                    } else {
+                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                    }
+                } else if p.is_ref {
+                    format!("std::path::Path::new(&{})", p.name)
                 } else {
                     format!("std::path::PathBuf::from({})", p.name)
                 }
@@ -227,11 +281,45 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     } else {
                         p.name.clone()
                     }
-                } else {
+                } else if p.is_ref {
                     format!("&{}", p.name)
+                } else {
+                    p.name.clone()
                 }
             }
-            TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+            TypeRef::Vec(_) => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Map(_, _) => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_ref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Duration => {
+                if p.optional {
+                    format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
+                } else {
+                    format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
+                }
+            }
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -244,12 +332,124 @@ fn needs_i64_cast(p: &PrimitiveType) -> bool {
 }
 
 /// Returns the core primitive type string for i64-cast primitives.
-fn core_prim_str(p: &PrimitiveType) -> &'static str {
+pub(crate) fn core_prim_str(p: &PrimitiveType) -> &'static str {
     match p {
         PrimitiveType::U64 => "u64",
         PrimitiveType::Usize => "usize",
         PrimitiveType::Isize => "isize",
         _ => unreachable!(),
+    }
+}
+
+/// PHP-specific return wrapping that handles i64 casts for u64/usize/isize primitives.
+/// Extends the shared `wrap_return` with type conversions for primitives that are i64 in PHP.
+pub(crate) fn php_wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &ahash::AHashSet<String>,
+    self_is_opaque: bool,
+    returns_ref: bool,
+    returns_cow: bool,
+) -> String {
+    match return_type {
+        TypeRef::Primitive(p) if needs_i64_cast(p) => {
+            format!("{expr} as i64")
+        }
+        TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        // Opaque Named returns need Arc wrapper
+        TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            if returns_cow {
+                format!("Self {{ inner: Arc::new({expr}.into_owned()) }}")
+            } else if returns_ref {
+                format!("Self {{ inner: Arc::new({expr}.clone()) }}")
+            } else {
+                format!("Self {{ inner: Arc::new({expr}) }}")
+            }
+        }
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            if returns_cow {
+                format!("{n} {{ inner: Arc::new({expr}.into_owned()) }}")
+            } else if returns_ref {
+                format!("{n} {{ inner: Arc::new({expr}.clone()) }}")
+            } else {
+                format!("{n} {{ inner: Arc::new({expr}) }}")
+            }
+        }
+        TypeRef::Named(_) => {
+            // Non-opaque Named return type — use .into() for core→binding From conversion.
+            if returns_cow {
+                format!("{expr}.into_owned().into()")
+            } else if returns_ref {
+                format!("{expr}.clone().into()")
+            } else {
+                format!("{expr}.into()")
+            }
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Primitive(p) if needs_i64_cast(p) => {
+                format!("{expr}.map(|v| v as i64)")
+            }
+            TypeRef::Duration => format!("{expr}.map(|d| d.as_millis() as i64)"),
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v.clone()) }})")
+                } else {
+                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v) }})")
+                }
+            }
+            TypeRef::Named(_) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| v.clone().into())")
+                } else {
+                    format!("{expr}.map(Into::into)")
+                }
+            }
+            _ => {
+                // Fall back to shared wrap_return for other Option types
+                use alef_codegen::generators;
+                generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    returns_cow,
+                )
+            }
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Primitive(p) if needs_i64_cast(p) => {
+                format!("{expr}.into_iter().map(|v| v as i64).collect()")
+            }
+            _ => {
+                // Fall back to shared wrap_return for other Vec types
+                use alef_codegen::generators;
+                generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    returns_cow,
+                )
+            }
+        },
+        _ => {
+            // Fall back to shared wrap_return for all other types
+            use alef_codegen::generators;
+            generators::wrap_return(
+                expr,
+                return_type,
+                type_name,
+                opaque_types,
+                self_is_opaque,
+                returns_ref,
+                returns_cow,
+            )
+        }
     }
 }
 

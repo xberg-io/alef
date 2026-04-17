@@ -62,6 +62,7 @@ pub fn gen_function(
         if let Some(adapter_body) = adapter_bodies.get(&func.name) {
             adapter_body.clone()
         } else if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
+            // MARKER_SERDE_PATH
             // Serde-based param conversion: serialize binding types to JSON, deserialize to core types.
             // This handles Named params (e.g., ProcessConfig) that lack binding→core From impls.
             // For async functions with Pyo3FutureIntoPy, serde bindings use indented format.
@@ -144,13 +145,16 @@ pub fn gen_function(
                 format!("{serde_bindings}{async_body}")
             } else if matches!(func.return_type, TypeRef::Unit) {
                 // Unit return with error: avoid let_unit_value
-                format!("{serde_bindings}{core_call}{serde_err_conv}?;\n    Ok(())")
+                let await_kw = if func.is_async { ".await" } else { "" };
+                let debug_marker = if func.is_async { "/*ASYNC_UNIT*/ " } else { "" };
+                format!("{serde_bindings}{debug_marker}{core_call}{await_kw}{serde_err_conv}?;\n    Ok(())")
             } else {
                 let wrapped = wrap_return("val");
+                let await_kw = if func.is_async { ".await" } else { "" };
                 if wrapped == "val" {
-                    format!("{serde_bindings}{core_call}{serde_err_conv}")
+                    format!("{serde_bindings}{core_call}{await_kw}{serde_err_conv}")
                 } else {
-                    format!("{serde_bindings}{core_call}.map(|val| {wrapped}){serde_err_conv}")
+                    format!("{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){serde_err_conv}")
                 }
             }
         } else {
@@ -164,6 +168,7 @@ pub fn gen_function(
             )
         }
     } else if func.is_async {
+        // MARKER_DELEGATE_ASYNC
         let core_call = format!("{core_fn_path}({call_args})");
         // In async contexts (future_into_py, etc.), the compiler often can't infer the
         // target type for .into(). Use explicit From::from() / collect::<Vec<T>>() instead.
