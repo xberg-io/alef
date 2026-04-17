@@ -76,10 +76,10 @@ impl Backend for NapiBackend {
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
 
-        // Import serde_json when available (needed for serde-based param conversion)
-        if has_serde {
-            builder.add_import("serde_json");
-        }
+        // Always import serde_json for type conversion in From/Into impls,
+        // even if the binding crate doesn't explicitly list it as a dependency.
+        // serde_json is needed for conversions of types with serde-serializable fields.
+        builder.add_import("serde_json");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
@@ -353,6 +353,8 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str) -> String {
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
     struct_builder.add_derive("Clone");
+    struct_builder.add_derive("serde::Serialize");
+    struct_builder.add_derive("serde::Deserialize");
     // Types with has_default get #[derive(Default)] instead of a manual impl.
     if typ.has_default {
         struct_builder.add_derive("Default");
@@ -433,10 +435,13 @@ fn gen_opaque_instance_method(
 
     let type_name = &typ.name;
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
+    let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
     // Use the shared can_auto_delegate check for opaque instance methods.
+    // Skip delegation if the receiver is RefMut, since Arc<T> doesn't support &mut T.
     let opaque_can_delegate = !method.sanitized
+        && !is_ref_mut_receiver
         && (!is_owned_receiver || typ.is_clone)
         && method
             .params
@@ -702,7 +707,7 @@ fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
 
     let mut lines = vec![
         string_enum_attr,
-        "#[derive(Clone)]".to_string(),
+        "#[derive(Clone, serde::Serialize, serde::Deserialize)]".to_string(),
         format!("pub enum {prefix}{} {{", enum_def.name),
     ];
 
@@ -743,7 +748,7 @@ fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let mut lines = vec![
-        "#[derive(Clone)]".to_string(),
+        "#[derive(Clone, serde::Serialize, serde::Deserialize)]".to_string(),
         "#[napi(object)]".to_string(),
         format!("pub struct {prefix}{} {{", enum_def.name),
         format!("    #[napi(js_name = \"{tag_field}\")]"),
@@ -838,6 +843,7 @@ fn gen_function(
 
     let body = if !can_delegate_fn {
         // Try serde-based conversion for non-delegatable functions with Named params
+        // Only use serde conversion if cfg.has_serde is true (binding crate has serde deps)
         if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             let serde_bindings =
                 generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
@@ -863,6 +869,12 @@ fn gen_function(
             )
         }
     } else if func.is_async {
+        // For async delegatable functions, generate let bindings if needed before the async call
+        let let_bindings = if use_let_bindings {
+            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
         let return_type = mapper.map_type(&func.return_type);
@@ -872,7 +884,7 @@ fn gen_function(
             func.error_type.is_some(),
             &return_wrap,
             false,
-            "",
+            &let_bindings,
             matches!(func.return_type, TypeRef::Unit),
             Some(&return_type),
         )
