@@ -191,9 +191,9 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                 TypeRef::Named(_) => {
                     if p.optional {
                         if p.is_ref {
-                            // Option<T> (binding) -> Option<&CoreT> (core expects reference to core type)
-                            // Convert the inner type with .map(Into::into) to get Option<CoreT>, then .as_ref()
-                            format!("{}.map(Into::into).as_ref()", p.name)
+                            // Option<T> (binding) -> Option<&CoreT>: use as_ref() only
+                            // The Into conversion must happen in a let binding to avoid E0716
+                            format!("{}.as_ref()", p.name)
                         } else {
                             format!("{}.map(Into::into)", p.name)
                         }
@@ -512,11 +512,11 @@ pub(super) fn gen_named_let_bindings(
                 if p.optional {
                     if p.is_ref {
                         // Option<T> (binding) -> Option<&CoreT> (core expects reference to core type)
-                        // Convert the inner type with .map(Into::into) to get Option<CoreT>, then .as_ref()
+                        // Split into two bindings to avoid temporary value dropped while borrowed (E0716)
                         write!(
                             bindings,
-                            "let {}_core = {}.map(Into::into).as_ref();\n    ",
-                            p.name, p.name
+                            "let {name}_owned: Option<{core_type_path}> = {name}.map(Into::into);\n    let {name}_core = {name}_owned.as_ref();\n    ",
+                            name = p.name
                         )
                         .ok();
                     } else {
