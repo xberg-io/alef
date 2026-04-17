@@ -484,9 +484,19 @@ fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> Str
     if typ.has_default {
         // Config types use NifMap so partial maps can be passed —
         // unspecified keys use Rust Default values instead of Elixir zero values.
-        writeln!(out, "#[derive(Debug, Clone, Default, rustler::NifMap)]").ok();
+        // Binding types always derive Default, Serialize, and Deserialize.
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifMap)]"
+        )
+        .ok();
     } else {
-        writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").ok();
+        // Binding types always derive Serialize and Deserialize for FFI/type conversion.
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifStruct)]"
+        )
+        .ok();
         writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).ok();
     }
     writeln!(out, "pub struct {} {{", typ.name).ok();

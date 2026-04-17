@@ -82,6 +82,19 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     )
     .ok();
     writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
+    writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
+    writeln!(
+        out,
+        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
+    )
+    .ok();
+    writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
+    writeln!(out, "        Ok(Self {{ inner }})").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
 
     out
 }
@@ -102,9 +115,12 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // handle the lossy mapping (discarding / providing defaults for field data).
     let mut out = String::with_capacity(512);
     let mut derives: Vec<&str> = cfg.enum_derives.to_vec();
-    if cfg.has_serde {
-        derives.push("serde::Serialize");
-    }
+    // Binding enums always derive Default, Serialize, and Deserialize.
+    // Default: enables using unwrap_or_default() in constructors.
+    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
+    derives.push("Default");
+    derives.push("serde::Serialize");
+    derives.push("serde::Deserialize");
     if !derives.is_empty() {
         writeln!(out, "#[derive({})]", derives.join(", ")).ok();
     }
@@ -122,16 +138,6 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         writeln!(out, "    {} = {idx},", variant.name).ok();
     }
     writeln!(out, "}}").ok();
-
-    // Generate Default impl (first variant) so enums can be used with unwrap_or_default()
-    // in config constructors for types with has_default.
-    if let Some(first) = enum_def.variants.first() {
-        writeln!(out).ok();
-        writeln!(out, "#[allow(clippy::derivable_impls)]").ok();
-        writeln!(out, "impl Default for {} {{", enum_def.name).ok();
-        writeln!(out, "    fn default() -> Self {{ Self::{} }}", first.name).ok();
-        writeln!(out, "}}").ok();
-    }
 
     out
 }

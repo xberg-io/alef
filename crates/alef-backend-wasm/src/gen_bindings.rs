@@ -564,11 +564,11 @@ fn gen_opaque_static_method(
 fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut out = String::with_capacity(512);
-    if typ.has_default {
-        writeln!(out, "#[derive(Clone, Default)]").ok();
-    } else {
-        writeln!(out, "#[derive(Clone)]").ok();
-    }
+    // Binding types derive Clone and Default.
+    // Default: enables using unwrap_or_default() in constructors.
+    // Note: Do NOT derive Serialize/Deserialize on WASM types. wasm-bindgen handles conversion
+    // across the JS boundary, and many WASM struct fields (like JsValue) don't implement Serialize.
+    writeln!(out, "#[derive(Clone, Default)]").ok();
     writeln!(out, "#[wasm_bindgen]").ok();
     writeln!(out, "pub struct {} {{", js_name).ok();
 

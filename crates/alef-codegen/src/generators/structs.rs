@@ -88,12 +88,12 @@ pub fn gen_struct_with_per_field_attrs(
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    if typ.has_default {
-        sb.add_derive("Default");
-    }
-    if cfg.has_serde {
-        sb.add_derive("serde::Serialize");
-    }
+    // Binding types always derive Default, Serialize, and Deserialize.
+    // Default: enables using unwrap_or_default() in constructors for types with has_default.
+    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
+    sb.add_derive("Default");
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
     for field in &typ.fields {
         if field.cfg.is_some() {
             continue;
@@ -130,14 +130,12 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    // Types with has_default get #[derive(Default)] — all fields use Default::default()
-    // so the manual impl is unnecessary and triggers clippy::derivable_impls.
-    if typ.has_default {
-        sb.add_derive("Default");
-    }
-    if cfg.has_serde {
-        sb.add_derive("serde::Serialize");
-    }
+    // Binding types always derive Default, Serialize, and Deserialize.
+    // Default: enables using unwrap_or_default() in constructors for types with has_default.
+    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
+    sb.add_derive("Default");
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to

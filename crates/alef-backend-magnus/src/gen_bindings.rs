@@ -520,8 +520,8 @@ fn gen_struct(
     typ: &TypeDef,
     mapper: &MagnusMapper,
     module_name: &str,
-    api: &ApiSurface,
-    generates_default: bool,
+    _api: &ApiSurface,
+    _generates_default: bool,
 ) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
@@ -531,50 +531,14 @@ fn gen_struct(
     // Magnus requires Clone for TryConvert on owned types
     struct_builder.add_derive("Clone");
     struct_builder.add_derive("Debug");
-    // serde derives allow accepting Ruby hashes via serde_magnus and serializing back,
-    // but only when the core type AND all its Named field types support serde.
-    // A type with has_serde=true may still have fields whose types have has_serde=false,
-    // which would cause Deserialize derive errors.
-    let all_fields_serde = typ.fields.iter().all(|f| {
-        let name = match &f.ty {
-            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-            alef_core::ir::TypeRef::Vec(inner) => {
-                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            alef_core::ir::TypeRef::Optional(inner) => {
-                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        match name {
-            Some(n) => {
-                api.types.iter().any(|t| t.name == n && t.has_serde)
-                    || api.enums.iter().any(|e| e.name == n)
-                    || !api.types.iter().any(|t| t.name == n)
-            }
-            None => true,
-        }
-    });
-    if typ.has_serde && all_fields_serde {
-        struct_builder.add_derive("serde::Serialize");
-        struct_builder.add_derive("serde::Deserialize");
-        if typ.has_default {
-            struct_builder.add_attr("serde(default)");
-        }
-    }
-    // Derive Default for types where the manual Default impl won't be generated
-    // (can_generate_default_impl returned false) but the type still needs Default
-    // for kwargs constructors. Types with generates_default=true get a manual impl instead.
-    if typ.has_default && !generates_default {
-        struct_builder.add_derive("Default");
+    // Binding types always derive Default, Serialize, and Deserialize.
+    // Default: enables using unwrap_or_default() in constructors.
+    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
+    struct_builder.add_derive("Default");
+    struct_builder.add_derive("serde::Serialize");
+    struct_builder.add_derive("serde::Deserialize");
+    if typ.has_default {
+        struct_builder.add_attr("serde(default)");
     }
 
     for field in &typ.fields {

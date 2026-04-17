@@ -353,12 +353,12 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str) -> String {
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
     struct_builder.add_derive("Clone");
+    // Binding types always derive Default, Serialize, and Deserialize.
+    // Default: enables using unwrap_or_default() in constructors for types with has_default.
+    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
+    struct_builder.add_derive("Default");
     struct_builder.add_derive("serde::Serialize");
     struct_builder.add_derive("serde::Deserialize");
-    // Types with has_default get #[derive(Default)] instead of a manual impl.
-    if typ.has_default {
-        struct_builder.add_derive("Default");
-    }
 
     for field in &typ.fields {
         let mapped_type = mapper.map_type(&field.ty);
@@ -760,7 +760,13 @@ fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str) -> String {
     for variant in &enum_def.variants {
         for field in &variant.fields {
             if seen_fields.insert(field.name.clone()) {
-                let field_type = mapper.map_type(&field.ty);
+                // Sanitized fields (especially Named types) are represented as String
+                // and converted via serde_json in From/Into impls
+                let field_type = if field.sanitized && matches!(&field.ty, TypeRef::Named(_)) {
+                    "String".to_string()
+                } else {
+                    mapper.map_type(&field.ty).to_string()
+                };
                 let js_name = alef_codegen::naming::to_node_name(&field.name);
                 if js_name != field.name {
                     lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
@@ -1507,7 +1513,16 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             }
                         }
                     } else if f.sanitized {
-                        "Default::default()".to_string()
+                        match &f.ty {
+                            TypeRef::Named(_) => {
+                                // Sanitized Named fields are stored as String, use serde_json for conversion
+                                format!(
+                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
+                                    f.name
+                                )
+                            }
+                            _ => "Default::default()".to_string(),
+                        }
                     } else {
                         match &f.ty {
                             TypeRef::Named(_) => {
@@ -1653,11 +1668,21 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                         if field.optional {
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
+                                TypeRef::Named(_) if field.sanitized => {
+                                    // Sanitized Named fields convert to JSON string via serde
+                                    format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
+                                }
                                 TypeRef::Named(_) => format!("{f}: {f}.map(Into::into)"),
                                 _ => format!("{f}: {f}"),
                             }
                         } else if field.sanitized {
-                            format!("{f}: None")
+                            match &field.ty {
+                                TypeRef::Named(_) => {
+                                    // Sanitized Named fields convert to JSON string via serde
+                                    format!("{f}: serde_json::to_string(&{f}).ok()")
+                                }
+                                _ => format!("{f}: None"),
+                            }
                         } else {
                             match &field.ty {
                                 TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
