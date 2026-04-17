@@ -78,7 +78,7 @@ pub fn gen_function(
                 gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_async, serde_indent);
             let core_call = format!("{core_fn_path}({call_args})");
 
-            // Determine return wrapping strategy (same as delegatable case)
+            // Determine return wrapping strategy for serde async (uses explicit types to avoid E0283)
             let returns_ref = func.returns_ref;
             let wrap_return = |expr: &str| -> String {
                 match &func.return_type {
@@ -89,11 +89,12 @@ pub fn gen_function(
                             format!("{name} {{ inner: Arc::new({expr}) }}")
                         }
                     }
-                    TypeRef::Named(_name) => {
+                    TypeRef::Named(_) => {
+                        // Use explicit type with ::from() to avoid E0283 type inference issues in async context
                         if returns_ref {
-                            format!("{expr}.clone().into()")
+                            format!("{return_type}::from({expr}.clone())")
                         } else {
-                            format!("{expr}.into()")
+                            format!("{return_type}::from({expr})")
                         }
                     }
                     TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
@@ -113,7 +114,17 @@ pub fn gen_function(
                 let inner_body = if is_unit {
                     format!("{serde_bindings}{core_await};\n            Ok(())")
                 } else {
-                    format!("{serde_bindings}let result = {core_await};\n            Ok({wrapped})")
+                    // When wrapped contains type conversions like .into() or ::from(),
+                    // bind to a variable to help type inference for the generic future_into_py.
+                    // This avoids E0283 "type annotations needed".
+                    if wrapped.contains(".into()") || wrapped.contains("::from(") {
+                        // Add explicit type annotation to help type inference
+                        format!(
+                            "{serde_bindings}let result = {core_await};\n            let wrapped_result: {return_type} = {wrapped};\n            Ok(wrapped_result)"
+                        )
+                    } else {
+                        format!("{serde_bindings}let result = {core_await};\n            Ok({wrapped})")
+                    }
                 };
                 format!("pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n{inner_body}\n        }})")
             } else if matches!(func.return_type, TypeRef::Unit) {
@@ -177,6 +188,7 @@ pub fn gen_function(
             false,
             "",
             matches!(func.return_type, TypeRef::Unit),
+            Some(&return_type),
         );
         format!("{let_bindings}{async_body}")
     } else {

@@ -457,8 +457,11 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     // Vec<Named>: use let binding that converts each element
                     if matches!(inner.as_ref(), TypeRef::Named(_)) {
                         if p.optional && p.is_ref {
-                            // No let binding generated for this case — use param directly with as_deref()
-                            format!("{}.as_deref()", p.name)
+                            // Let binding creates Option<Vec<CoreType>>, use as_deref() to get Option<&[CoreType]>
+                            format!("{}_core.as_deref()", p.name)
+                        } else if p.optional {
+                            // Let binding creates Option<Vec<CoreType>>, no ref needed
+                            format!("{}_core", p.name)
                         } else if p.is_ref {
                             format!("&{}_core", p.name)
                         } else {
@@ -548,9 +551,14 @@ pub(super) fn gen_named_let_bindings(
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
                 let promoted = crate::shared::is_promoted_optional(params, idx);
                 if p.optional && p.is_ref {
-                    // Option<Vec<Named>> with is_ref: use as_deref() in call args which handles both Option and slice deref.
-                    // The element type conversion happens implicitly via Deref trait and Into trait.
-                    // Skip generating a let binding — the call_args logic will emit param.as_deref().
+                    // Option<Vec<Named>> with is_ref: convert to Option<Vec<CoreType>>, then use as_deref()
+                    // This ensures elements are converted from binding to core type.
+                    write!(
+                        bindings,
+                        "let {}_core: Option<Vec<_>> = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
                 } else if p.optional {
                     // Option<Vec<Named>> without is_ref: convert to concrete Vec
                     write!(
@@ -819,6 +827,7 @@ pub fn gen_async_body(
     is_opaque: bool,
     inner_clone_line: &str,
     is_unit_return: bool,
+    return_type: Option<&str>,
 ) -> String {
     let pattern_body = match cfg.async_pattern {
         AsyncPattern::Pyo3FutureIntoPy => {
@@ -832,15 +841,27 @@ pub fn gen_async_body(
             } else {
                 format!("let result = {core_call}.await;")
             };
-            let ok_expr = if is_unit_return && !has_error {
-                "()"
+            let (ok_expr, extra_binding) = if is_unit_return && !has_error {
+                ("()".to_string(), String::new())
+            } else if return_wrap.contains(".into()") || return_wrap.contains("::from(") {
+                // When return_wrap contains type conversions like .into() or ::from(),
+                // bind to a variable to help type inference for the generic future_into_py.
+                // This avoids E0283 "type annotations needed".
+                let wrapped_var = "wrapped_result";
+                let binding = if let Some(ret_type) = return_type {
+                    // Add explicit type annotation to help type inference
+                    format!("let {wrapped_var}: {ret_type} = {return_wrap};\n            ")
+                } else {
+                    format!("let {wrapped_var} = {return_wrap};\n            ")
+                };
+                (wrapped_var.to_string(), binding)
             } else {
-                return_wrap
+                (return_wrap.to_string(), String::new())
             };
             format!(
                 "pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
                  {result_handling}\n            \
-                 Ok({ok_expr})\n        }})"
+                 {extra_binding}Ok({ok_expr})\n        }})"
             )
         }
         AsyncPattern::WasmNativeAsync => {

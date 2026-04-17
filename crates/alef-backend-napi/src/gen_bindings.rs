@@ -511,6 +511,7 @@ fn gen_opaque_instance_method(
             true,
             inner_clone_line,
             matches!(method.return_type, TypeRef::Unit),
+            Some(&return_type),
         )
     } else {
         let core_call = make_core_call(&method.name);
@@ -617,6 +618,7 @@ fn gen_static_method(
             false,
             "",
             matches!(method.return_type, TypeRef::Unit),
+            Some(&return_type),
         )
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
@@ -863,6 +865,7 @@ fn gen_function(
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
+        let return_type = mapper.map_type(&func.return_type);
         generators::gen_async_body(
             &core_call,
             cfg,
@@ -871,6 +874,7 @@ fn gen_function(
             false,
             "",
             matches!(func.return_type, TypeRef::Unit),
+            Some(&return_type),
         )
     } else {
         let core_call = format!("{core_fn_path}({call_args})");

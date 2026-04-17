@@ -1113,7 +1113,7 @@ fn test_gen_async_body_pyo3_with_error() {
     let mut cfg = default_cfg();
     cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
 
-    let result = binding_helpers::gen_async_body("inner.process()", &cfg, true, "result", false, "", false);
+    let result = binding_helpers::gen_async_body("inner.process()", &cfg, true, "result", false, "", false, None);
 
     assert!(result.contains("pyo3_async_runtimes::tokio::future_into_py"));
     assert!(result.contains("await"));
@@ -1125,7 +1125,7 @@ fn test_gen_async_body_napi_with_error() {
     let mut cfg = default_cfg();
     cfg.async_pattern = AsyncPattern::NapiNativeAsync;
 
-    let result = binding_helpers::gen_async_body("CoreType::process()", &cfg, true, "result", false, "", false);
+    let result = binding_helpers::gen_async_body("CoreType::process()", &cfg, true, "result", false, "", false, None);
 
     assert!(result.contains("await"));
     assert!(result.contains("map_err"));
@@ -1137,7 +1137,7 @@ fn test_gen_async_body_wasm_with_error() {
     let mut cfg = default_cfg();
     cfg.async_pattern = AsyncPattern::WasmNativeAsync;
 
-    let result = binding_helpers::gen_async_body("process_async()", &cfg, true, "result", false, "", false);
+    let result = binding_helpers::gen_async_body("process_async()", &cfg, true, "result", false, "", false, None);
 
     assert!(result.contains("await"));
     assert!(result.contains("JsValue"));
@@ -1156,6 +1156,7 @@ fn test_gen_async_body_with_inner_clone_line() {
         false,
         "let inner = self.inner.clone();\n        ",
         true,
+        None,
     );
 
     assert!(result.contains("let inner = self.inner.clone();"));

@@ -356,6 +356,7 @@ pub fn gen_method(
             is_opaque,
             inner_clone_line,
             matches!(method.return_type, TypeRef::Unit),
+            Some(&return_type),
         )
     } else {
         let core_call = make_core_call(&method.name);
@@ -508,12 +509,10 @@ pub fn gen_static_method(
 
     let core_import = cfg.core_import;
 
-    // Use let bindings when non-opaque Named params have is_ref=true
-    let has_ref_named_params = method
-        .params
-        .iter()
-        .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-    let (call_args, ref_let_bindings) = if has_ref_named_params {
+    // Use let bindings when any non-opaque Named or Vec<Named> params exist.
+    // This includes Vec<Named> without is_ref=true, which need element conversion.
+    let use_let_bindings = has_named_params(&method.params, opaque_types);
+    let (call_args, ref_let_bindings) = if use_let_bindings {
         (
             gen_call_args_with_let_bindings(&method.params, opaque_types),
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
@@ -549,6 +548,7 @@ pub fn gen_static_method(
             false,
             "",
             matches!(method.return_type, TypeRef::Unit),
+            Some(&return_type),
         )
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
