@@ -353,6 +353,25 @@ impl AlefConfig {
             .unwrap_or_else(|| format!("github.com/kreuzberg-dev/{}", self.crate_config.name))
     }
 
+    /// Get the GitHub repository URL.
+    ///
+    /// Resolution order:
+    /// 1. `[e2e.registry] github_repo`
+    /// 2. `[scaffold] repository`
+    /// 3. Default: `https://github.com/kreuzberg-dev/{crate.name}`
+    pub fn github_repo(&self) -> String {
+        if let Some(e2e) = &self.e2e {
+            if let Some(url) = &e2e.registry.github_repo {
+                return url.clone();
+            }
+        }
+        self.scaffold
+            .as_ref()
+            .and_then(|s| s.repository.as_ref())
+            .cloned()
+            .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{}", self.crate_config.name))
+    }
+
     /// Get the Java package name.
     pub fn java_package(&self) -> String {
         self.java

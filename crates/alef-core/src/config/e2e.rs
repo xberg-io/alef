@@ -31,6 +31,13 @@ pub struct RegistryConfig {
     /// registry-mode generation (useful for shipping a curated subset).
     #[serde(default)]
     pub categories: Vec<String>,
+    /// GitHub repository URL for downloading prebuilt artifacts (e.g., FFI
+    /// shared libraries) from GitHub Releases.
+    ///
+    /// Falls back to `[scaffold] repository` when not set, then to
+    /// `https://github.com/kreuzberg-dev/{crate.name}`.
+    #[serde(default)]
+    pub github_repo: Option<String>,
 }
 
 impl Default for RegistryConfig {
@@ -39,6 +46,7 @@ impl Default for RegistryConfig {
             output: default_test_apps_dir(),
             packages: HashMap::new(),
             categories: Vec::new(),
+            github_repo: None,
         }
     }
 }
