@@ -328,13 +328,9 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 /// Returns true if the type was sanitized (changed from original).
 fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) -> bool {
     match ty {
-        TypeRef::Named(name) => {
-            if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) {
-                *ty = TypeRef::String;
-                true
-            } else {
-                false
-            }
+        TypeRef::Named(name) if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) => {
+            *ty = TypeRef::String;
+            true
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
         TypeRef::Map(k, v) => {
@@ -510,10 +506,10 @@ fn collect_named_types(
     changed: &mut bool,
 ) {
     match ty {
-        TypeRef::Named(name) => {
-            if (all_types.contains_key(name) || all_enums.contains(name)) && needed.insert(name.clone()) {
-                *changed = true;
-            }
+        TypeRef::Named(name)
+            if (all_types.contains_key(name) || all_enums.contains(name)) && needed.insert(name.clone()) =>
+        {
+            *changed = true;
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
             collect_named_types(inner, needed, all_types, all_enums, changed);
@@ -530,7 +526,7 @@ fn collect_named_types(
 /// Matches the longest prefix first.
 fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
     let mut sorted: Vec<_> = mappings.iter().collect();
-    sorted.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
     for (from, to) in sorted {
         if path.starts_with(from.as_str()) {
             return format!("{}{}", to, &path[from.len()..]);

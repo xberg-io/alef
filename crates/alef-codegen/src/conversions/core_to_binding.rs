@@ -367,6 +367,18 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: val.{name} as {cast_to}")
             }
         }
+        // Optional(large_int) with i64 casting
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_i64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let cast_to = binding_prim_str(p);
+                format!("{name}: val.{name}.map(|v| v as {cast_to})")
+            } else {
+                field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
         // f32→f64 casting (NAPI only)
         TypeRef::Primitive(PrimitiveType::F32) if config.cast_f32_to_f64 => {
             if optional {

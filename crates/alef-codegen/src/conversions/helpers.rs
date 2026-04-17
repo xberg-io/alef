@@ -1,6 +1,8 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
+use crate::conversions::ConversionConfig;
+
 /// Collect all Named type names that appear in the API surface — both as
 /// function/method input parameters AND as function/method return types.
 /// These are types that need binding→core `From` impls.
@@ -540,6 +542,79 @@ pub fn binding_to_core_match_arm(binding_prefix: &str, variant_name: &str, field
 
 /// Like `binding_to_core_match_arm` but `binding_has_data` controls whether the binding
 /// enum has the variant's fields (true) or is unit-only (false, e.g. Rustler/Elixir).
+/// Generate match arm for binding->core conversion with config (handles type conversions).
+pub fn binding_to_core_match_arm_ext_cfg(
+    binding_prefix: &str,
+    variant_name: &str,
+    fields: &[FieldDef],
+    binding_has_data: bool,
+    config: &ConversionConfig,
+) -> String {
+    use super::binding_to_core::field_conversion_to_core_cfg;
+
+    if fields.is_empty() {
+        format!("{binding_prefix}::{variant_name} => Self::{variant_name},")
+    } else if !binding_has_data {
+        // Binding is unit-only: use Default for core fields
+        if is_tuple_variant(fields) {
+            let defaults: Vec<&str> = fields.iter().map(|_| "Default::default()").collect();
+            format!(
+                "{binding_prefix}::{variant_name} => Self::{variant_name}({}),",
+                defaults.join(", ")
+            )
+        } else {
+            let defaults: Vec<String> = fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            format!(
+                "{binding_prefix}::{variant_name} => Self::{variant_name} {{ {} }},",
+                defaults.join(", ")
+            )
+        }
+    } else if is_tuple_variant(fields) {
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let binding_pattern = field_names.join(", ");
+        let core_args: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                // Use the conversion logic from field_conversion_to_core_cfg
+                let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
+                // Extract the RHS from "name: expr" format
+                if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    expr.to_string()
+                } else {
+                    conv
+                }
+            })
+            .collect();
+        format!(
+            "{binding_prefix}::{variant_name} {{ {binding_pattern} }} => Self::{variant_name}({}),",
+            core_args.join(", ")
+        )
+    } else {
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let pattern = field_names.join(", ");
+        let core_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                // Use the conversion logic from field_conversion_to_core_cfg
+                let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
+                // Extract the RHS from "name: expr" format
+                if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    format!("{}: {}", f.name, expr)
+                } else {
+                    conv
+                }
+            })
+            .collect();
+        format!(
+            "{binding_prefix}::{variant_name} {{ {pattern} }} => Self::{variant_name} {{ {} }},",
+            core_fields.join(", ")
+        )
+    }
+}
+
 pub fn binding_to_core_match_arm_ext(
     binding_prefix: &str,
     variant_name: &str,
@@ -624,6 +699,71 @@ pub fn core_to_binding_match_arm(core_prefix: &str, variant_name: &str, fields: 
 
 /// Like `core_to_binding_match_arm` but `binding_has_data` controls whether the binding
 /// enum has the variant's fields (true) or is unit-only (false).
+/// Generate match arm for core->binding conversion with config (handles type conversions).
+pub fn core_to_binding_match_arm_ext_cfg(
+    core_prefix: &str,
+    variant_name: &str,
+    fields: &[FieldDef],
+    binding_has_data: bool,
+    config: &ConversionConfig,
+) -> String {
+    use super::core_to_binding::field_conversion_from_core_cfg;
+    use ahash::AHashSet;
+
+    if fields.is_empty() {
+        format!("{core_prefix}::{variant_name} => Self::{variant_name},")
+    } else if !binding_has_data {
+        // Binding is unit-only: discard core data
+        if is_tuple_variant(fields) {
+            format!("{core_prefix}::{variant_name}(..) => Self::{variant_name},")
+        } else {
+            format!("{core_prefix}::{variant_name} {{ .. }} => Self::{variant_name},")
+        }
+    } else if is_tuple_variant(fields) {
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let core_pattern = field_names.join(", ");
+        let binding_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                // Use the conversion logic from field_conversion_from_core_cfg
+                let conv =
+                    field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
+                // Extract the RHS from "name: expr" format
+                if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    format!("{}: {}", f.name, expr)
+                } else {
+                    conv
+                }
+            })
+            .collect();
+        format!(
+            "{core_prefix}::{variant_name}({core_pattern}) => Self::{variant_name} {{ {} }},",
+            binding_fields.join(", ")
+        )
+    } else {
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let pattern = field_names.join(", ");
+        let binding_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                // Use the conversion logic from field_conversion_from_core_cfg
+                let conv =
+                    field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
+                // Extract the RHS from "name: expr" format
+                if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    format!("{}: {}", f.name, expr)
+                } else {
+                    conv
+                }
+            })
+            .collect();
+        format!(
+            "{core_prefix}::{variant_name} {{ {pattern} }} => Self::{variant_name} {{ {} }},",
+            binding_fields.join(", ")
+        )
+    }
+}
+
 pub fn core_to_binding_match_arm_ext(
     core_prefix: &str,
     variant_name: &str,

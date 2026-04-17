@@ -214,6 +214,17 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
             let core_ty = core_prim_str(p);
             format!("{name}: val.{name}.map(|v| v as {core_ty}).unwrap_or_default()")
         }
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_i64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let core_ty = core_prim_str(p);
+                format!("{name}: val.{name}.map(|v| v as {core_ty})")
+            } else {
+                field_conversion_to_core(name, ty, false)
+            }
+        }
         TypeRef::Duration if config.cast_large_ints_to_i64 => {
             format!("{name}: val.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_default()")
         }
@@ -222,6 +233,10 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
         }
         TypeRef::Path => {
             format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+            // Binding has Option<String>, core has Option<PathBuf>
+            format!("{name}: val.{name}.map(|s| std::path::PathBuf::from(s))")
         }
         // Char: binding uses Option<String>, core uses char
         TypeRef::Char => {
@@ -244,6 +259,24 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
             }
             _ => format!("{name}: val.{name}.unwrap_or_default()"),
         },
+        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
+            // Map with Json values: binding uses HashMap<K, String>, core uses HashMap<K, serde_json::Value>
+            let k_is_json = matches!(k.as_ref(), TypeRef::Json);
+            let k_expr = if k_is_json {
+                "serde_json::from_str(&k).unwrap_or_default()"
+            } else {
+                "k"
+            };
+            format!(
+                "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or(serde_json::json!(v)))).collect()"
+            )
+        }
+        TypeRef::Map(k, _v) if matches!(k.as_ref(), TypeRef::Json) => {
+            // Map with Json keys: binding uses HashMap<String, V>, core uses HashMap<serde_json::Value, V>
+            format!(
+                "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (serde_json::from_str(&k).unwrap_or_default(), v)).collect()"
+            )
+        }
         TypeRef::Map(_, _) => {
             // Collect to handle HashMap↔BTreeMap conversion
             format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")

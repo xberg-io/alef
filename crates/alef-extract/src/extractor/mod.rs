@@ -545,129 +545,118 @@ fn extract_items(
     // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {
         match item {
-            syn::Item::Struct(item_struct) => {
-                if is_pub(&item_struct.vis) {
-                    if let Some(td) = extract_struct(item_struct, crate_name, module_path) {
-                        surface.types.push(td);
+            syn::Item::Struct(item_struct) if is_pub(&item_struct.vis) => {
+                if let Some(td) = extract_struct(item_struct, crate_name, module_path) {
+                    surface.types.push(td);
+                }
+            }
+            syn::Item::Enum(item_enum) if is_pub(&item_enum.vis) => {
+                if is_thiserror_enum(&item_enum.attrs) {
+                    if let Some(ed) = extract_error_enum(item_enum, crate_name, module_path) {
+                        surface.errors.push(ed);
                     }
+                } else if let Some(ed) = extract_enum(item_enum, crate_name, module_path) {
+                    surface.enums.push(ed);
                 }
             }
-            syn::Item::Enum(item_enum) => {
-                if is_pub(&item_enum.vis) {
-                    if is_thiserror_enum(&item_enum.attrs) {
-                        if let Some(ed) = extract_error_enum(item_enum, crate_name, module_path) {
-                            surface.errors.push(ed);
-                        }
-                    } else if let Some(ed) = extract_enum(item_enum, crate_name, module_path) {
-                        surface.enums.push(ed);
-                    }
+            syn::Item::Fn(item_fn) if is_pub(&item_fn.vis) => {
+                if let Some(fd) = extract_function(item_fn, crate_name, module_path) {
+                    surface.functions.push(fd);
                 }
             }
-            syn::Item::Fn(item_fn) => {
-                if is_pub(&item_fn.vis) {
-                    if let Some(fd) = extract_function(item_fn, crate_name, module_path) {
-                        surface.functions.push(fd);
-                    }
-                }
+            syn::Item::Type(item_type) if is_pub(&item_type.vis) && item_type.generics.params.is_empty() => {
+                // Type alias: pub type Foo = Bar;
+                // Extract as a TypeDef with the aliased type
+                let name = item_type.ident.to_string();
+                let _ty = type_resolver::resolve_type(&item_type.ty);
+                let rust_path = build_rust_path(crate_name, module_path, &name);
+                let doc = extract_doc_comments(&item_type.attrs);
+                surface.types.push(TypeDef {
+                    name,
+                    rust_path,
+                    fields: vec![],
+                    methods: vec![],
+                    is_opaque: true, // type aliases are opaque (no fields)
+                    is_clone: false,
+                    is_trait: false,
+                    has_default: false,
+                    has_stripped_cfg_fields: false,
+                    is_return_type: false,
+                    doc,
+                    cfg: None,
+                    serde_rename_all: None,
+                    has_serde: false,
+                });
             }
-            syn::Item::Type(item_type) => {
-                if is_pub(&item_type.vis) && item_type.generics.params.is_empty() {
-                    // Type alias: pub type Foo = Bar;
-                    // Extract as a TypeDef with the aliased type
-                    let name = item_type.ident.to_string();
-                    let _ty = type_resolver::resolve_type(&item_type.ty);
-                    let rust_path = build_rust_path(crate_name, module_path, &name);
-                    let doc = extract_doc_comments(&item_type.attrs);
-                    surface.types.push(TypeDef {
-                        name,
-                        rust_path,
-                        fields: vec![],
-                        methods: vec![],
-                        is_opaque: true, // type aliases are opaque (no fields)
-                        is_clone: false,
-                        is_trait: false,
-                        has_default: false,
-                        has_stripped_cfg_fields: false,
-                        is_return_type: false,
-                        doc,
-                        cfg: None,
-                        serde_rename_all: None,
-                        has_serde: false,
-                    });
-                }
-            }
-            syn::Item::Trait(item_trait) => {
-                if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() {
-                    let name = item_trait.ident.to_string();
-                    let rust_path = build_rust_path(crate_name, module_path, &name);
-                    let doc = extract_doc_comments(&item_trait.attrs);
+            syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
+                let name = item_trait.ident.to_string();
+                let rust_path = build_rust_path(crate_name, module_path, &name);
+                let doc = extract_doc_comments(&item_trait.attrs);
 
-                    // Extract trait methods
-                    let methods: Vec<MethodDef> = item_trait
-                        .items
-                        .iter()
-                        .filter_map(|item| {
-                            if let syn::TraitItem::Fn(method) = item {
-                                let method_name = method.sig.ident.to_string();
-                                let method_doc = extract_doc_comments(&method.attrs);
-                                let mut is_async = method.sig.asyncness.is_some();
-                                let (mut return_type, error_type, returns_ref) =
-                                    resolve_return_type(&method.sig.output);
+                // Extract trait methods
+                let methods: Vec<MethodDef> = item_trait
+                    .items
+                    .iter()
+                    .filter_map(|item| {
+                        if let syn::TraitItem::Fn(method) = item {
+                            let method_name = method.sig.ident.to_string();
+                            let method_doc = extract_doc_comments(&method.attrs);
+                            let mut is_async = method.sig.asyncness.is_some();
+                            let (mut return_type, error_type, returns_ref) = resolve_return_type(&method.sig.output);
 
-                                // Check for BoxFuture async pattern
-                                if !is_async {
-                                    if let Some(inner) = functions::unwrap_future_return(&method.sig.output) {
-                                        is_async = true;
-                                        return_type = inner;
-                                    }
+                            // Check for BoxFuture async pattern
+                            if !is_async {
+                                if let Some(inner) = functions::unwrap_future_return(&method.sig.output) {
+                                    is_async = true;
+                                    return_type = inner;
                                 }
-
-                                // Skip generic methods
-                                if !method.sig.generics.params.is_empty() {
-                                    return None;
-                                }
-
-                                let (receiver, is_static) = detect_receiver(&method.sig.inputs);
-                                let params = extract_params(&method.sig.inputs);
-
-                                Some(MethodDef {
-                                    name: method_name,
-                                    params,
-                                    return_type,
-                                    is_async,
-                                    is_static,
-                                    error_type,
-                                    doc: method_doc,
-                                    receiver,
-                                    sanitized: false,
-                                    trait_source: None,
-                                    returns_ref,
-                                    returns_cow: false,
-                                    return_newtype_wrapper: None,
-                                })
-                            } else {
-                                None
                             }
-                        })
-                        .collect();
 
-                    surface.types.push(TypeDef {
-                        name,
-                        rust_path,
-                        fields: vec![],
-                        methods,
-                        is_opaque: true,
-                        is_clone: false,
-                        is_trait: true,
-                        has_default: false,
-                        has_stripped_cfg_fields: false,
-                        is_return_type: false,
-                        doc,
-                        cfg: None,
-                        serde_rename_all: None,
-                        has_serde: false,
-                    });
-                }
+                            // Skip generic methods
+                            if !method.sig.generics.params.is_empty() {
+                                return None;
+                            }
+
+                            let (receiver, is_static) = detect_receiver(&method.sig.inputs);
+                            let params = extract_params(&method.sig.inputs);
+
+                            Some(MethodDef {
+                                name: method_name,
+                                params,
+                                return_type,
+                                is_async,
+                                is_static,
+                                error_type,
+                                doc: method_doc,
+                                receiver,
+                                sanitized: false,
+                                trait_source: None,
+                                returns_ref,
+                                returns_cow: false,
+                                return_newtype_wrapper: None,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                surface.types.push(TypeDef {
+                    name,
+                    rust_path,
+                    fields: vec![],
+                    methods,
+                    is_opaque: true,
+                    is_clone: false,
+                    is_trait: true,
+                    has_default: false,
+                    has_stripped_cfg_fields: false,
+                    is_return_type: false,
+                    doc,
+                    cfg: None,
+                    serde_rename_all: None,
+                    has_serde: false,
+                });
             }
             syn::Item::Mod(item_mod) => {
                 // Follow pub modules unconditionally.

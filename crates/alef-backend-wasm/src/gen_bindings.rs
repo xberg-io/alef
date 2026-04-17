@@ -1149,6 +1149,7 @@ fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: 
 }
 
 /// WASM-specific return wrapping for opaque methods (adds prefix for opaque Named returns).
+#[allow(clippy::too_many_arguments)]
 fn wasm_wrap_return(
     expr: &str,
     return_type: &TypeRef,

@@ -827,13 +827,12 @@ fn gen_function(
         }
     };
 
-    // Use let-binding pattern for non-opaque Named params
-    let use_let_bindings = generators::has_named_params(&func.params, opaque_types);
+    // Use let-binding pattern for non-opaque Named params, or for Vec<f32> params that need conversion
+    let use_let_bindings = generators::has_named_params(&func.params, opaque_types)
+        || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty));
     let call_args = if use_let_bindings {
-        napi_apply_primitive_casts_to_call_args(
-            &generators::gen_call_args_with_let_bindings(&func.params, opaque_types),
-            &func.params,
-        )
+        let base_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
+        napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
     } else {
         napi_gen_call_args(&func.params, opaque_types)
     };
@@ -874,11 +873,13 @@ fn gen_function(
         }
     } else if func.is_async {
         // For async delegatable functions, generate let bindings if needed before the async call
-        let let_bindings = if use_let_bindings {
+        let mut let_bindings = if use_let_bindings {
             generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };
+        // Add Vec<f32> conversion bindings for parameters not already handled
+        let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
         let return_type = mapper.map_type(&func.return_type);
@@ -895,11 +896,13 @@ fn gen_function(
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
         // Generate let bindings for Named params if needed
-        let let_bindings = if use_let_bindings {
+        let mut let_bindings = if use_let_bindings {
             generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };
+        // Add Vec<f32> conversion bindings for parameters not already handled
+        let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
 
         if func.error_type.is_some() {
             let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
@@ -941,6 +944,10 @@ fn napi_apply_primitive_casts_to_call_args(generic_args: &str, params: &[ParamDe
         .iter()
         .zip(params.iter())
         .map(|(arg, p)| {
+            // Special case: Vec<f32> param with is_ref uses the converted variable
+            if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+                return format!("&{}_f32", p.name);
+            }
             match &p.ty {
                 TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
                     let core_ty = core_prim_str(prim);
@@ -964,111 +971,133 @@ fn napi_apply_primitive_casts_to_call_args(generic_args: &str, params: &[ParamDe
         .join(", ")
 }
 
+/// Generate let bindings for Vec<f32> parameters that need f64→f32 conversion.
+/// This handles the case where NAPI maps f32→f64, but a function param is Vec<f32> taking a reference.
+fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
+    let mut bindings = String::new();
+    for p in params {
+        if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+            let conv_name = format!("{}_f32", p.name);
+            bindings.push_str(&format!(
+                "    let {conv_name}: Vec<f32> = {}.iter().map(|&x| x as f32).collect();\n",
+                p.name
+            ));
+        }
+    }
+    bindings
+}
+
 /// NAPI-specific call args that casts i64 params to u64/usize where the core expects it.
 /// Properly handles is_ref for reference parameters and complex type conversions.
 fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
-        .map(|p| match &p.ty {
-            TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
-                let core_ty = core_prim_str(prim);
-                if p.optional {
-                    format!("{}.map(|v| v as {})", p.name, core_ty)
-                } else {
-                    format!("{} as {}", p.name, core_ty)
-                }
+        .map(|p| {
+            // Special case: Vec<f32> param with is_ref uses the converted variable
+            if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+                return format!("&{}_f32", p.name);
             }
-            TypeRef::Duration => {
-                if p.optional {
-                    format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
-                } else {
-                    format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
-                }
-            }
-            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if p.optional {
-                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                } else {
-                    format!("&{}.inner", p.name)
-                }
-            }
-            TypeRef::Named(_) => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_ref()", p.name)
+            match &p.ty {
+                TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
+                    let core_ty = core_prim_str(prim);
+                    if p.optional {
+                        format!("{}.map(|v| v as {})", p.name, core_ty)
                     } else {
-                        format!("{}.map(Into::into)", p.name)
+                        format!("{} as {}", p.name, core_ty)
                     }
-                } else {
-                    format!("{}.into()", p.name)
                 }
-            }
-            TypeRef::String | TypeRef::Char => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                TypeRef::Duration => {
+                    if p.optional {
+                        format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
                     } else {
-                        p.name.clone()
+                        format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::Path => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else {
-                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                        format!("&{}.inner", p.name)
                     }
-                } else if p.is_ref {
-                    format!("std::path::Path::new(&{})", p.name)
-                } else {
-                    format!("std::path::PathBuf::from({})", p.name)
                 }
-            }
-            TypeRef::Bytes => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                TypeRef::Named(_) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_ref()", p.name)
+                        } else {
+                            format!("{}.map(Into::into)", p.name)
+                        }
+                    } else {
+                        format!("{}.into()", p.name)
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
                         p.name.clone()
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::Vec(_) => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                TypeRef::Path => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                        } else {
+                            format!("{}.map(std::path::PathBuf::from)", p.name)
+                        }
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{})", p.name)
+                    } else {
+                        format!("std::path::PathBuf::from({})", p.name)
+                    }
+                }
+                TypeRef::Bytes => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
                         p.name.clone()
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::Map(_, _) => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_ref()", p.name)
+                TypeRef::Vec(_) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
                         p.name.clone()
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
+                TypeRef::Map(_, _) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_ref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
             }
-            _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -1226,6 +1255,11 @@ fn napi_wrap_return_fn(
     }
 }
 
+/// Check if a type is Vec<f32> which needs element-wise conversion from f64 in NAPI.
+fn needs_vec_f32_conversion(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(alef_core::ir::PrimitiveType::F32)))
+}
+
 fn needs_napi_cast(p: &alef_core::ir::PrimitiveType) -> bool {
     matches!(
         p,
@@ -1315,7 +1349,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
     for f in &sorted_fns {
         all_decls.push((to_node_name(&f.name), Decl::Function(f)));
     }
-    all_decls.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    all_decls.sort_by_key(|a| a.0.to_lowercase());
 
     for (_, decl) in &all_decls {
         lines.push(String::new());

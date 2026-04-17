@@ -838,6 +838,7 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
 /// - `inner_clone_line`: optional statement emitted before the pattern-specific body,
 ///   e.g. `"let inner = self.inner.clone();\n        "` for opaque instance methods, or `""`.
 ///   Required when `core_call` references `inner` (Pyo3FutureIntoPy opaque case).
+#[allow(clippy::too_many_arguments)]
 pub fn gen_async_body(
     core_call: &str,
     cfg: &RustBindingConfig,
