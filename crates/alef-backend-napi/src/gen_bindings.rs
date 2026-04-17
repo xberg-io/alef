@@ -929,6 +929,7 @@ fn gen_function(
 }
 
 /// NAPI-specific call args that casts i64 params to u64/usize where the core expects it.
+/// Properly handles is_ref for reference parameters and complex type conversions.
 fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
@@ -957,14 +958,80 @@ fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> S
             }
             TypeRef::Named(_) => {
                 if p.optional {
-                    format!("{}.map(Into::into)", p.name)
+                    if p.is_ref {
+                        format!("{}.as_ref()", p.name)
+                    } else {
+                        format!("{}.map(Into::into)", p.name)
+                    }
                 } else {
                     format!("{}.into()", p.name)
                 }
             }
-            TypeRef::String | TypeRef::Char => format!("&{}", p.name),
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
-            TypeRef::Bytes => format!("&{}", p.name),
+            TypeRef::String | TypeRef::Char => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Path => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                    }
+                } else if p.is_ref {
+                    format!("{}.as_path()", p.name)
+                } else {
+                    format!("std::path::PathBuf::from({})", p.name)
+                }
+            }
+            TypeRef::Bytes => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Vec(_) => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_deref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::Map(_, _) => {
+                if p.optional {
+                    if p.is_ref {
+                        format!("{}.as_ref()", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                } else if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
