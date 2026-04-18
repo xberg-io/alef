@@ -259,6 +259,15 @@ pub fn gen_function(
                     TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
                         format!("{expr}.map(Into::into)")
                     }
+                    TypeRef::Vec(vi) => match vi.as_ref() {
+                        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                            format!("{expr}.map(|v| v.into_iter().map(|x| {name} {{ inner: Arc::new(x) }}).collect())")
+                        }
+                        TypeRef::Named(_) => {
+                            format!("{expr}.map(|v| v.into_iter().map(Into::into).collect())")
+                        }
+                        _ => expr.to_string(),
+                    },
                     _ => expr.to_string(),
                 },
                 // Vec<Named>: map each element through Into

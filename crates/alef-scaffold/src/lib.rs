@@ -908,7 +908,7 @@ fn scaffold_go(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gene
     let version = &api.version;
     let _ = version; // go.mod doesn't embed the package version
 
-    let content = format!("module {module}\n\ngo 1.21\n", module = go_module,);
+    let content = format!("module {module}\n\ngo 1.26\n", module = go_module,);
 
     Ok(vec![GeneratedFile {
         path: PathBuf::from("packages/go/go.mod"),
@@ -2113,7 +2113,7 @@ mod tests {
         let files = language_files(&all_files);
         assert_eq!(files.len(), 1);
         let content = &files[0].content;
-        assert!(content.contains("go 1.21"));
+        assert!(content.contains("go 1.26"));
         assert!(!content.contains("require ("));
     }
 

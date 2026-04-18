@@ -120,7 +120,7 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
     let mut out = String::new();
     let _ = writeln!(out, "module e2e_go");
     let _ = writeln!(out);
-    let _ = writeln!(out, "go 1.23");
+    let _ = writeln!(out, "go 1.26");
     let _ = writeln!(out);
     let _ = writeln!(out, "require {go_module_path} {version}");
 
