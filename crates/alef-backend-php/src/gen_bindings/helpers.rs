@@ -56,7 +56,7 @@ pub(crate) fn has_enum_named_field(typ: &alef_core::ir::TypeDef, enum_names: &AH
 pub(crate) fn gen_php_function_params(
     params: &[alef_core::ir::ParamDef],
     mapper: &PhpMapper,
-    opaque_types: &AHashSet<String>,
+    _opaque_types: &AHashSet<String>,
 ) -> String {
     params
         .iter()
@@ -79,7 +79,7 @@ pub(crate) fn gen_php_function_params(
                         format!("&{base_ty}")
                     }
                 }
-                TypeRef::Vec(inner) => {
+                TypeRef::Vec(_inner) => {
                     // ext-php-rs doesn't provide FromZvalMut for &Vec<T>, so all Vec params are owned.
                     // The core function may expect &[T] or Vec<T>, which is handled in gen_php_call_args
                     // via let bindings that convert the owned Vec to &[T] or &mut Vec<T> as needed.

@@ -276,8 +276,7 @@ fn render_test_case(
     let await_kw = if is_async { "await " } else { "" };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let (setup_lines, arg_parts) =
-        build_args_and_setup(&fixture.input, args, options_type, enum_fields, &fixture.id);
+    let (setup_lines, arg_parts) = build_args_and_setup(&fixture.input, args, options_type, enum_fields, &fixture.id);
     let args_str = arg_parts.join(", ");
 
     if expects_error {

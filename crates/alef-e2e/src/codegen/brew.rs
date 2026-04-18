@@ -49,14 +49,11 @@ impl E2eCodegen for BrewCodegen {
             .unwrap_or_else(|| call.function.clone());
 
         // Static CLI flags appended to every invocation.
-        let static_cli_args: Vec<String> = overrides
-            .map(|o| o.cli_args.clone())
-            .unwrap_or_default();
+        let static_cli_args: Vec<String> = overrides.map(|o| o.cli_args.clone()).unwrap_or_default();
 
         // Field-to-flag mapping (fixture input field → CLI flag name).
-        let cli_flags: std::collections::HashMap<String, String> = overrides
-            .map(|o| o.cli_flags.clone())
-            .unwrap_or_default();
+        let cli_flags: std::collections::HashMap<String, String> =
+            overrides.map(|o| o.cli_flags.clone()).unwrap_or_default();
 
         // Resolve binary name from the "brew" package entry, falling back to call.module.
         let binary_name = e2e_config
@@ -65,13 +62,7 @@ impl E2eCodegen for BrewCodegen {
             .get(lang)
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .or_else(|| {
-                e2e_config
-                    .packages
-                    .get(lang)
-                    .and_then(|p| p.name.as_ref())
-                    .cloned()
-            })
+            .or_else(|| e2e_config.packages.get(lang).and_then(|p| p.name.as_ref()).cloned())
             .unwrap_or_else(|| call.module.clone());
 
         // Filter active groups (non-skipped fixtures).
@@ -83,11 +74,7 @@ impl E2eCodegen for BrewCodegen {
                     .iter()
                     .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
                     .collect();
-                if active.is_empty() {
-                    None
-                } else {
-                    Some((group, active))
-                }
+                if active.is_empty() { None } else { Some((group, active)) }
             })
             .collect();
 
@@ -204,11 +191,11 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "assert_greater_than() {{");
     let _ = writeln!(out, "    local val=\"$1\" threshold=\"$2\" label=\"$3\"");
-    let _ = writeln!(out, "    if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then");
     let _ = writeln!(
         out,
-        "        echo \"FAIL [$label]: expected $val > $threshold\" >&2"
+        "    if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then"
     );
+    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $val > $threshold\" >&2");
     let _ = writeln!(out, "        return 1");
     let _ = writeln!(out, "    fi");
     let _ = writeln!(out, "}}");
@@ -313,23 +300,13 @@ fn render_test_function(
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
 
-    let expects_error = fixture
-        .assertions
-        .iter()
-        .any(|a| a.assertion_type == "error");
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let _ = writeln!(out, "test_{fn_name}() {{");
     let _ = writeln!(out, "    # {description}");
 
     // Build the CLI command.
-    let cmd_parts = build_cli_command(
-        fixture,
-        binary_name,
-        subcommand,
-        static_cli_args,
-        cli_flags,
-        args,
-    );
+    let cmd_parts = build_cli_command(fixture, binary_name, subcommand, static_cli_args, cli_flags, args);
 
     if expects_error {
         let cmd = cmd_parts.join(" ");
@@ -376,10 +353,7 @@ fn build_cli_command(
         match arg.arg_type.as_str() {
             "mock_url" => {
                 // Positional URL argument.
-                parts.push(format!(
-                    "\"${{MOCK_SERVER_URL}}/fixtures/{}\"",
-                    fixture.id
-                ));
+                parts.push(format!("\"${{MOCK_SERVER_URL}}/fixtures/{}\"", fixture.id));
             }
             "handle" => {
                 // CLI manages its own engine; skip handle args.
@@ -434,10 +408,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
     // Skip assertions on fields not available on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(
-                out,
-                "    # skipped: field '{f}' not available on result type"
-            );
+            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
             return;
         }
     }
@@ -451,10 +422,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
                     let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(
-                        out,
-                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
-                    );
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
                         "    assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'"
@@ -470,10 +438,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                     let expected_str = json_value_to_shell_string(expected);
                     let safe_field = sanitize_ident(field);
                     let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(
-                        out,
-                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
-                    );
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
                         "    assert_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
@@ -487,14 +452,8 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
                 let _ = writeln!(out, "    local val_{safe_field}");
-                let _ = writeln!(
-                    out,
-                    "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
-                );
-                let _ = writeln!(
-                    out,
-                    "    assert_not_empty \"$val_{safe_field}\" '{field}'"
-                );
+                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "    assert_not_empty \"$val_{safe_field}\" '{field}'");
             }
         }
         "count_min" | "root_child_count_min" => {
@@ -509,10 +468,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                             out,
                             "    count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
                         );
-                        let _ = writeln!(
-                            out,
-                            "    assert_count_min \"$count_{safe_field}\" {min} '{field}'"
-                        );
+                        let _ = writeln!(out, "    assert_count_min \"$count_{safe_field}\" {min} '{field}'");
                     }
                 }
             }
@@ -525,10 +481,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                     let threshold = json_value_to_shell_string(val);
                     let safe_field = sanitize_ident(field);
                     let _ = writeln!(out, "    local val_{safe_field}");
-                    let _ = writeln!(
-                        out,
-                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
-                    );
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                     let _ = writeln!(
                         out,
                         "    assert_greater_than \"$val_{safe_field}\" '{threshold}' '{field}'"

@@ -20,7 +20,7 @@ use helpers::{
     gen_enum_tainted_from_binding_to_core, gen_serde_bridge_from, gen_tokio_runtime, has_enum_named_field,
     references_named_type,
 };
-use types::{gen_enum_constants, gen_opaque_struct_methods, gen_php_struct, gen_struct_methods};
+use types::{gen_enum_constants, gen_opaque_struct_methods, gen_php_struct};
 
 pub struct PhpBackend;
 
@@ -154,7 +154,11 @@ impl Backend for PhpBackend {
             extension_name.to_pascal_case()
         };
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+        {
             if typ.is_opaque {
                 // Generate the opaque struct with separate #[php_class] and
                 // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
@@ -172,7 +176,7 @@ impl Backend for PhpBackend {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
-                builder.add_item(&gen_struct_methods(
+                builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,
                     has_serde,
@@ -180,6 +184,7 @@ impl Backend for PhpBackend {
                     &opaque_types,
                     &enum_names,
                     &api.enums,
+                    &exclude_functions,
                 ));
             }
         }
@@ -192,7 +197,9 @@ impl Backend for PhpBackend {
         // `#[php_function]` items. Standalone functions rely on the `inventory` crate for
         // auto-registration, which does not work in cdylib builds on macOS. Classes registered
         // via `.class::<T>()` in the module builder DO work on all platforms.
-        let included_functions: Vec<_> = api.functions.iter()
+        let included_functions: Vec<_> = api
+            .functions
+            .iter()
             .filter(|f| !exclude_functions.contains(&f.name))
             .collect();
         if !included_functions.is_empty() {

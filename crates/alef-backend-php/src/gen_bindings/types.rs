@@ -163,6 +163,7 @@ pub(crate) fn type_ref_has_named(ty: &alef_core::ir::TypeRef) -> bool {
 }
 
 /// Generate ext-php-rs methods for a struct.
+#[allow(dead_code)]
 pub(crate) fn gen_struct_methods(
     typ: &TypeDef,
     mapper: &PhpMapper,
@@ -171,6 +172,52 @@ pub(crate) fn gen_struct_methods(
     opaque_types: &AHashSet<String>,
     enum_names: &AHashSet<String>,
     enums: &[EnumDef],
+) -> String {
+    gen_struct_methods_impl(
+        typ,
+        mapper,
+        has_serde,
+        core_import,
+        opaque_types,
+        enum_names,
+        enums,
+        &[], // exclude_functions: empty by default
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn gen_struct_methods_with_exclude(
+    typ: &TypeDef,
+    mapper: &PhpMapper,
+    has_serde: bool,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+    enums: &[EnumDef],
+    exclude_functions: &[String],
+) -> String {
+    gen_struct_methods_impl(
+        typ,
+        mapper,
+        has_serde,
+        core_import,
+        opaque_types,
+        enum_names,
+        enums,
+        exclude_functions,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_struct_methods_impl(
+    typ: &TypeDef,
+    mapper: &PhpMapper,
+    has_serde: bool,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+    enums: &[EnumDef],
+    exclude_functions: &[String],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -263,6 +310,10 @@ pub(crate) fn gen_struct_methods(
         }
     }
     for method in &statics {
+        // Skip methods that are in the exclusion list
+        if exclude_functions.contains(&method.name) {
+            continue;
+        }
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
