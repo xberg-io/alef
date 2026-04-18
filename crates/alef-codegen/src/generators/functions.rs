@@ -157,6 +157,18 @@ pub fn gen_function(
                     format!("{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){serde_err_conv}")
                 }
             }
+        } else if func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+            // Async function that can't be auto-delegated — wrap unimplemented body in future_into_py
+            let suppress = if func.params.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<&str> = func.params.iter().map(|p| p.name.as_str()).collect();
+                format!("let _ = ({});\n        ", names.join(", "))
+            };
+            format!(
+                "{suppress}pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
+                 Ok(py.None())\n        }})"
+            )
         } else {
             // Function can't be auto-delegated — return a default/error based on return type
             gen_unimplemented_body(
