@@ -347,7 +347,11 @@ impl Backend for PhpBackend {
         // PHP module entry point — explicit class registration required because
         // `inventory` crate auto-registration doesn't work in cdylib on macOS.
         let mut class_registrations = String::new();
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+        {
             class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
         }
         // Register the facade class that wraps free functions as static methods.
@@ -555,7 +559,11 @@ impl Backend for PhpBackend {
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let prop_type = if field.optional {
                     let inner = php_type(&field.ty);
-                    if inner.starts_with('?') { inner } else { format!("?{inner}") }
+                    if inner.starts_with('?') {
+                        inner
+                    } else {
+                        format!("?{inner}")
+                    }
                 } else {
                     php_type(&field.ty)
                 };
@@ -595,7 +603,11 @@ impl Backend for PhpBackend {
                 .iter()
                 .map(|f| {
                     let ptype = php_type(&f.ty);
-                    let nullable = if f.optional && !ptype.starts_with('?') { format!("?{ptype}") } else { ptype };
+                    let nullable = if f.optional && !ptype.starts_with('?') {
+                        format!("?{ptype}")
+                    } else {
+                        ptype
+                    };
                     let default = if f.optional { " = null" } else { "" };
                     format!("        {} ${}{}", nullable, f.name, default)
                 })
@@ -609,7 +621,11 @@ impl Backend for PhpBackend {
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let return_type = if field.optional {
                     let inner = php_type(&field.ty);
-                    if inner.starts_with('?') { inner } else { format!("?{inner}") }
+                    if inner.starts_with('?') {
+                        inner
+                    } else {
+                        format!("?{inner}")
+                    }
                 } else {
                     php_type(&field.ty)
                 };

@@ -188,8 +188,18 @@ impl Backend for NapiBackend {
             let is_tagged_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
-                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import, &prefix, &struct_names));
-                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import, &prefix, &struct_names));
+                builder.add_item(&gen_tagged_enum_binding_to_core(
+                    e,
+                    &core_import,
+                    &prefix,
+                    &struct_names,
+                ));
+                builder.add_item(&gen_tagged_enum_core_to_binding(
+                    e,
+                    &core_import,
+                    &prefix,
+                    &struct_names,
+                ));
             } else {
                 if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
@@ -1485,7 +1495,12 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str
 }
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str, struct_names: &ahash::AHashSet<String>) -> String {
+fn gen_tagged_enum_binding_to_core(
+    enum_def: &EnumDef,
+    core_import: &str,
+    prefix: &str,
+    struct_names: &ahash::AHashSet<String>,
+) -> String {
     use alef_core::ir::TypeRef;
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
@@ -1623,7 +1638,12 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
 }
 
 /// Generate `From<core::TaggedEnum> for JsTaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix: &str, struct_names: &ahash::AHashSet<String>) -> String {
+fn gen_tagged_enum_core_to_binding(
+    enum_def: &EnumDef,
+    core_import: &str,
+    prefix: &str,
+    struct_names: &ahash::AHashSet<String>,
+) -> String {
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
@@ -1708,11 +1728,14 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                                 TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
-                                    let target = match p {
-                                        alef_core::ir::PrimitiveType::F32 => "f64",
-                                        _ => "i64",
-                                    };
-                                    format!("{f}: Some({f} as {target})")
+                                    match p {
+                                        alef_core::ir::PrimitiveType::F32 => format!("{f}: Some({f} as f64)"),
+                                        alef_core::ir::PrimitiveType::U64
+                                        | alef_core::ir::PrimitiveType::Usize
+                                        | alef_core::ir::PrimitiveType::Isize => format!("{f}: Some({f} as i64)"),
+                                        // U32 stays as-is in NAPI
+                                        _ => format!("{f}: Some({f})"),
+                                    }
                                 }
                                 _ => format!("{f}: Some({f})"),
                             }
@@ -1748,4 +1771,41 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out
+}
+
+/// Determine which Named fields in a tagged enum use binding structs (Into conversion)
+/// vs serde JSON String flattening. A field uses a binding struct only if:
+/// 1. The field name maps to a single Named type across all variants
+/// 2. That Named type has a binding struct (in struct_names)
+/// 3. The field is not sanitized
+fn tagged_enum_binding_struct_fields<'a>(
+    enum_def: &'a EnumDef,
+    struct_names: &ahash::AHashSet<String>,
+) -> ahash::AHashSet<&'a str> {
+    use alef_core::ir::TypeRef;
+    let mut field_types: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    let mut sanitized_fields: ahash::AHashSet<&str> = ahash::AHashSet::new();
+
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if field.sanitized {
+                sanitized_fields.insert(&field.name);
+            }
+            if let TypeRef::Named(n) = &field.ty {
+                field_types.entry(&field.name).or_default().push(n);
+            }
+        }
+    }
+
+    let mut result = ahash::AHashSet::new();
+    for (field_name, types) in &field_types {
+        if sanitized_fields.contains(field_name) {
+            continue;
+        }
+        // All variants sharing this field name must have the same Named type
+        if types.iter().all(|t| *t == types[0]) && struct_names.contains(types[0]) {
+            result.insert(*field_name);
+        }
+    }
+    result
 }

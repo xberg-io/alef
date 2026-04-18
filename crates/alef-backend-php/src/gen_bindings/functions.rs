@@ -334,8 +334,7 @@ fn gen_function_body(
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let is_enum_return =
-            matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        let is_enum_return = matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if func.error_type.is_some() {
             if is_enum_return {
                 format!(
@@ -426,8 +425,7 @@ fn gen_async_function_body(
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let is_enum_return =
-            matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        let is_enum_return = matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         let result_wrap = if is_enum_return {
             "format!(\"{:?}\", result)".to_string()
         } else {

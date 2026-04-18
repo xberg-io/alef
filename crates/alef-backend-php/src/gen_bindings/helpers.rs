@@ -119,87 +119,101 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                 };
             }
             match &p.ty {
-            TypeRef::Primitive(prim) if needs_i64_cast(prim) => {
-                let core_ty = core_prim_str(prim);
-                if p.optional {
-                    format!("{}.map(|v| v as {})", p.name, core_ty)
-                } else {
-                    format!("{} as {}", p.name, core_ty)
-                }
-            }
-            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if p.optional {
-                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                } else {
-                    format!("&{}.inner", p.name)
-                }
-            }
-            TypeRef::Named(_) => {
-                // Non-opaque: param is &T, clone then convert
-                if p.optional {
-                    format!("{}.map(|v| v.clone().into())", p.name)
-                } else {
-                    format!("{}.clone().into()", p.name)
-                }
-            }
-            TypeRef::String | TypeRef::Char => {
-                // For optional params, only use as_deref() when core expects &str (is_ref=true).
-                // When is_ref=false, core takes Option<String> — pass owned.
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                TypeRef::Primitive(prim) if needs_i64_cast(prim) => {
+                    let core_ty = core_prim_str(prim);
+                    if p.optional {
+                        format!("{}.map(|v| v as {})", p.name, core_ty)
                     } else {
-                        p.name.clone()
+                        format!("{} as {}", p.name, core_ty)
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::Path => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else {
-                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                        format!("&{}.inner", p.name)
                     }
-                } else if p.is_ref {
-                    format!("std::path::Path::new(&{})", p.name)
-                } else {
-                    format!("std::path::PathBuf::from({})", p.name)
                 }
-            }
-            TypeRef::Bytes => {
-                if p.optional {
-                    if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                TypeRef::Named(_) => {
+                    // Non-opaque: param is &T, clone then convert
+                    if p.optional {
+                        format!("{}.map(|v| v.clone().into())", p.name)
                     } else {
-                        p.name.clone()
+                        format!("{}.clone().into()", p.name)
                     }
-                } else if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::Vec(inner) => {
-                // Vec<NonOpaqueCustomType> is passed as &Vec when inner is non-opaque Named.
-                // Use let bindings for conversion (handled in gen_php_named_let_bindings).
-                if let TypeRef::Named(name) = inner.as_ref() {
-                    if !opaque_types.contains(name.as_str()) {
-                        // Non-opaque named type inside Vec: use the _core binding
+                TypeRef::String | TypeRef::Char => {
+                    // For optional params, only use as_deref() when core expects &str (is_ref=true).
+                    // When is_ref=false, core takes Option<String> — pass owned.
+                    if p.optional {
                         if p.is_ref {
-                            if p.optional {
-                                format!("{}_core.as_ref().map(|v| &v[..])", p.name)
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::Path => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                        } else {
+                            format!("{}.map(std::path::PathBuf::from)", p.name)
+                        }
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{})", p.name)
+                    } else {
+                        format!("std::path::PathBuf::from({})", p.name)
+                    }
+                }
+                TypeRef::Bytes => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::Vec(inner) => {
+                    // Vec<NonOpaqueCustomType> is passed as &Vec when inner is non-opaque Named.
+                    // Use let bindings for conversion (handled in gen_php_named_let_bindings).
+                    if let TypeRef::Named(name) = inner.as_ref() {
+                        if !opaque_types.contains(name.as_str()) {
+                            // Non-opaque named type inside Vec: use the _core binding
+                            if p.is_ref {
+                                if p.optional {
+                                    format!("{}_core.as_ref().map(|v| &v[..])", p.name)
+                                } else {
+                                    format!("&{}_core[..]", p.name)
+                                }
                             } else {
-                                format!("&{}_core[..]", p.name)
+                                format!("{}_core", p.name)
                             }
                         } else {
-                            format!("{}_core", p.name)
+                            // Opaque or enum named type inside Vec
+                            if p.optional {
+                                if p.is_ref {
+                                    format!("{}.as_deref()", p.name)
+                                } else {
+                                    p.name.clone()
+                                }
+                            } else if p.is_ref {
+                                format!("&{}[..]", p.name)
+                            } else {
+                                p.name.clone()
+                            }
                         }
                     } else {
-                        // Opaque or enum named type inside Vec
+                        // Primitive types inside Vec
                         if p.optional {
                             if p.is_ref {
                                 format!("{}.as_deref()", p.name)
@@ -212,30 +226,16 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                             p.name.clone()
                         }
                     }
-                } else {
-                    // Primitive types inside Vec
+                }
+                TypeRef::Duration => {
                     if p.optional {
-                        if p.is_ref {
-                            format!("{}.as_deref()", p.name)
-                        } else {
-                            p.name.clone()
-                        }
-                    } else if p.is_ref {
-                        format!("&{}[..]", p.name)
+                        format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
                     } else {
-                        p.name.clone()
+                        format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
                     }
                 }
+                _ => p.name.clone(),
             }
-            TypeRef::Duration => {
-                if p.optional {
-                    format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
-                } else {
-                    format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
-                }
-            }
-            _ => p.name.clone(),
-        }
         })
         .collect::<Vec<_>>()
         .join(", ")
