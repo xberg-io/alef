@@ -284,6 +284,12 @@ impl Backend for WasmBackend {
             lines.push("} from './wasm';".to_string());
         }
 
+        // Append re-exports for custom modules (from [custom_modules] wasm = [...])
+        let custom_mods = config.custom_modules.for_language(Language::Wasm);
+        for module_name in custom_mods {
+            lines.push(format!("export * from './{module_name}';"));
+        }
+
         let content = lines.join("\n");
 
         // Output path: packages/wasm/src/index.ts
