@@ -233,6 +233,7 @@ impl Backend for WasmBackend {
         let wasm_config = config.wasm.as_ref();
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+        let exclude_reexports = wasm_config.map(|c| c.exclude_reexports.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
 
         // Collect all exported names from the API
@@ -265,6 +266,9 @@ impl Backend for WasmBackend {
         for error in &api.errors {
             exports.push(error.name.clone());
         }
+
+        // Remove any exports that should be provided by custom modules instead
+        exports.retain(|name| !exclude_reexports.contains(name));
 
         // Sort for consistent output
         exports.sort();

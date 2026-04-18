@@ -873,7 +873,7 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
     [
       licenses: ["{license}"],
       links: %{{"GitHub" => "{repository}"}},
-      files: ~w(lib native .formatter.exs mix.exs README*)
+      files: ~w(lib native .formatter.exs mix.exs README* checksum-*.exs)
     ]
   end
 
