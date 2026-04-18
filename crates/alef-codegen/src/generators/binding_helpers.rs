@@ -747,6 +747,9 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                 TypeRef::Duration => {
                     if field.optional {
                         format!("self.{name}.map(std::time::Duration::from_millis)")
+                    } else if typ.has_default {
+                        // option_duration_on_defaults: Duration stored as Option<u64> in binding
+                        format!("self.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
                     } else {
                         format!("std::time::Duration::from_millis(self.{name})")
                     }

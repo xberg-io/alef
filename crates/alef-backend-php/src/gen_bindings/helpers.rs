@@ -601,6 +601,11 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                     TypeRef::Duration => {
                         if field.optional {
                             format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+                        } else if typ.has_default {
+                            // option_duration_on_defaults: Duration stored as Option<i64>
+                            format!(
+                                "self.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_default()"
+                            )
                         } else {
                             format!("std::time::Duration::from_millis(self.{name} as u64)")
                         }
