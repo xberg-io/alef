@@ -323,6 +323,21 @@ fn render_test_method(
         return;
     }
 
+    // If no assertion will actually produce a PHPUnit assert call, mark the test
+    // as intentionally assertion-free so PHPUnit does not flag it as risky.
+    let has_usable = fixture.assertions.iter().any(|a| {
+        if a.assertion_type == "error" || a.assertion_type == "not_error" {
+            return false;
+        }
+        match &a.field {
+            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            _ => true,
+        }
+    });
+    if !has_usable {
+        let _ = writeln!(out, "        $this->expectNotToPerformAssertions();");
+    }
+
     let _ = writeln!(out, "        ${result_var} = {call_expr};");
 
     for assertion in &fixture.assertions {
