@@ -14,6 +14,12 @@ pub fn c_param_type(ty: &TypeRef, core_import: &str) -> Cow<'static, str> {
             match inner.as_ref() {
                 TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"), // -1 = None, 0 = false, 1 = true
                 TypeRef::Primitive(_) => c_param_type(inner, core_import),       // caller uses sentinel
+                // Option<Option<Primitive>> — same sentinel approach as Option<Primitive>.
+                TypeRef::Optional(inner2) => match inner2.as_ref() {
+                    TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"),
+                    TypeRef::Primitive(_) => c_param_type(inner2, core_import),
+                    _ => Cow::Borrowed("*const std::ffi::c_char"),
+                },
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
                     Cow::Borrowed("*const std::ffi::c_char") // null = None
                 }
@@ -42,6 +48,13 @@ pub fn c_return_type(ty: &TypeRef, core_import: &str) -> Cow<'static, str> {
             match inner.as_ref() {
                 TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"), // -1 = None
                 TypeRef::Primitive(_) => c_return_type(inner, core_import),
+                // Option<Option<Primitive>> — outer=field.optional, inner=field.ty=Optional(Prim).
+                // Both None cases collapse to 0/false; return the inner primitive type.
+                TypeRef::Optional(inner2) => match inner2.as_ref() {
+                    TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"),
+                    TypeRef::Primitive(_) => c_return_type(inner2, core_import),
+                    _ => Cow::Borrowed("*mut std::ffi::c_char"),
+                },
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
                     Cow::Borrowed("*mut std::ffi::c_char")
                 }

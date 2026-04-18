@@ -824,4 +824,78 @@ mod tests {
         // VisitorCallbacks should be Send (safe to share across thread boundaries)
         assert!(lib.content.contains("unsafe impl Send for HtmVisitorCallbacks"));
     }
+
+    /// Regression test: Option<Option<Primitive>> (update-struct pattern) must generate
+    /// a getter that returns the primitive type — not *mut c_char — and collapses both
+    /// None cases to the primitive's zero sentinel.
+    #[test]
+    fn test_option_option_primitive_getter_returns_primitive_type() {
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "ConfigUpdate".to_string(),
+                rust_path: "my_lib::ConfigUpdate".to_string(),
+                fields: vec![FieldDef {
+                    name: "max_depth".to_string(),
+                    // field.ty = Optional(Primitive(Usize)), field.optional = true
+                    // represents Rust type Option<Option<usize>>
+                    ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                doc: String::new(),
+                cfg: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Return type must be `usize`, not `*mut std::ffi::c_char`
+        assert!(
+            lib.content.contains("-> usize"),
+            "expected `-> usize` in getter but got:\n{}",
+            lib.content
+        );
+        assert!(
+            !lib.content.contains("-> *mut std::ffi::c_char"),
+            "getter must not return *mut c_char for Option<Option<usize>>"
+        );
+
+        // Both None arms must return 0, not a pointer
+        assert!(
+            lib.content.contains("None => 0"),
+            "expected `None => 0` sentinel in generated getter"
+        );
+
+        // The inner Some(inner_val) branch must dereference the usize
+        assert!(
+            lib.content.contains("*inner_val"),
+            "expected `*inner_val` deref for inner primitive in generated getter"
+        );
+    }
 }

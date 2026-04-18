@@ -234,26 +234,53 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         // When is_boxed: val is &Box<T>, so deref twice (**val) to get &T
         // When newtype_wrapper: the core field is Option<NewtypeT> but IR ty is Primitive;
         //   val is &NewtypeT so we must access val.0 to get the inner primitive.
-        let val_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
-            "val.0" // unwrap newtype inner value
-        } else if matches!(field.ty, TypeRef::Primitive(_)) {
-            "*val" // dereference for Copy types
-        } else if field.is_boxed {
-            "(**val)" // deref &Box<T> -> &T
+        //
+        // Special case: field.ty = Optional(Primitive) means the Rust field is
+        // Option<Option<Primitive>> (outer=field.optional, inner=field.ty). Both the
+        // outer None and the inner None collapse to the primitive's zero/false sentinel.
+        if let TypeRef::Optional(inner) = &field.ty {
+            // Option<Option<T>>: outer Some gives val: &Option<inner>, inner Some gives the value.
+            let inner_null = null_return_value(&TypeRef::Optional(Box::new(*inner.clone())));
+            let inner_val_expr = match inner.as_ref() {
+                TypeRef::Primitive(_) => "*inner_val",
+                _ => "inner_val",
+            };
+            writeln!(out, "    match &obj.{field_name} {{").ok();
+            writeln!(out, "        Some(val) => match val {{").ok();
+            writeln!(out, "            Some(inner_val) => {{").ok();
+            write!(out, "{}", gen_value_to_c(inner_val_expr, inner, "                ")).ok();
+            writeln!(out, "            }}").ok();
+            writeln!(out, "            None => {inner_null},").ok();
+            writeln!(out, "        }}").ok();
+            writeln!(
+                out,
+                "        None => {},",
+                null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
+            )
+            .ok();
+            writeln!(out, "    }}").ok();
         } else {
-            "val"
-        };
-        writeln!(out, "    match &obj.{field_name} {{").ok();
-        writeln!(out, "        Some(val) => {{").ok();
-        write!(out, "{}", gen_value_to_c(val_expr, &field.ty, "            ")).ok();
-        writeln!(out, "        }}").ok();
-        writeln!(
-            out,
-            "        None => {},",
-            null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
+            let val_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
+                "val.0" // unwrap newtype inner value
+            } else if matches!(field.ty, TypeRef::Primitive(_)) {
+                "*val" // dereference for Copy types
+            } else if field.is_boxed {
+                "(**val)" // deref &Box<T> -> &T
+            } else {
+                "val"
+            };
+            writeln!(out, "    match &obj.{field_name} {{").ok();
+            writeln!(out, "        Some(val) => {{").ok();
+            write!(out, "{}", gen_value_to_c(val_expr, &field.ty, "            ")).ok();
+            writeln!(out, "        }}").ok();
+            writeln!(
+                out,
+                "        None => {},",
+                null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
+            )
+            .ok();
+            writeln!(out, "    }}").ok();
+        }
     } else if needs_len_out {
         // Bytes with length out-param
         writeln!(out, "    let data = &obj.{field_name};").ok();

@@ -115,6 +115,14 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
                 PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
                 _ => "0",
             },
+            // Option<Option<Primitive>> — both None cases collapse to 0/false.
+            TypeRef::Optional(inner2) => match inner2.as_ref() {
+                TypeRef::Primitive(p) => match p {
+                    PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
+                    _ => "0",
+                },
+                _ => "std::ptr::null_mut()",
+            },
             TypeRef::Duration => "0",
             _ => "std::ptr::null_mut()",
         },

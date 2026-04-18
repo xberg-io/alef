@@ -1210,6 +1210,16 @@ fn napi_wrap_return_fn(
                     format!("{expr}.map(Into::into)")
                 }
             }
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(_) => {
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| x.clone().into()).collect())")
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(Into::into).collect())")
+                    }
+                }
+                _ => expr.to_string(),
+            },
             TypeRef::Path => {
                 format!("{expr}.map(Into::into)")
             }
@@ -1501,12 +1511,8 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from)", f.name)
                             }
-                            // All Named fields in tagged enums use serde JSON round-trip
                             TypeRef::Named(_) => {
-                                format!(
-                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
-                                    f.name
-                                )
+                                format!("val.{}.map(|v| v.into())", f.name)
                             }
                             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                 let core_ty = core_prim_str(p);
@@ -1520,12 +1526,8 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                         "Default::default()".to_string()
                     } else {
                         match &f.ty {
-                            // All Named fields in tagged enums use serde JSON round-trip
                             TypeRef::Named(_) => {
-                                format!(
-                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
-                                    f.name
-                                )
+                                format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
                             }
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
@@ -1668,9 +1670,7 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
                                 TypeRef::Named(_) => {
-                                    // All Named fields in tagged enums use serde JSON round-trip
-                                    // because the binding struct flattens them to Option<String>
-                                    format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
+                                    format!("{f}: {f}.map(|v| v.into())")
                                 }
                                 _ => format!("{f}: {f}"),
                             }
@@ -1678,10 +1678,15 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                             format!("{f}: None")
                         } else {
                             match &field.ty {
-                                // All Named fields in tagged enums use serde JSON
-                                TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
+                                TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
-                                // Tagged enum struct fields keep original types, no NAPI cast needed
+                                TypeRef::Primitive(p) if needs_napi_cast(p) => {
+                                    let target = match p {
+                                        alef_core::ir::PrimitiveType::F32 => "f64",
+                                        _ => "i64",
+                                    };
+                                    format!("{f}: Some({f} as {target})")
+                                }
                                 _ => format!("{f}: Some({f})"),
                             }
                         }
