@@ -1501,8 +1501,12 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from)", f.name)
                             }
+                            // All Named fields in tagged enums use serde JSON round-trip
                             TypeRef::Named(_) => {
-                                format!("val.{}.map(Into::into)", f.name)
+                                format!(
+                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
+                                    f.name
+                                )
                             }
                             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                 let core_ty = core_prim_str(p);
@@ -1513,20 +1517,15 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             }
                         }
                     } else if f.sanitized {
+                        "Default::default()".to_string()
+                    } else {
                         match &f.ty {
+                            // All Named fields in tagged enums use serde JSON round-trip
                             TypeRef::Named(_) => {
-                                // Sanitized Named fields are stored as String, use serde_json for conversion
                                 format!(
                                     "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
                                     f.name
                                 )
-                            }
-                            _ => "Default::default()".to_string(),
-                        }
-                    } else {
-                        match &f.ty {
-                            TypeRef::Named(_) => {
-                                format!("val.{}.unwrap_or_default().into()", f.name)
                             }
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
@@ -1668,24 +1667,19 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                         if field.optional {
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
-                                TypeRef::Named(_) if field.sanitized => {
-                                    // Sanitized Named fields convert to JSON string via serde
+                                TypeRef::Named(_) => {
+                                    // All Named fields in tagged enums use serde JSON round-trip
+                                    // because the binding struct flattens them to Option<String>
                                     format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
                                 }
-                                TypeRef::Named(_) => format!("{f}: {f}.map(Into::into)"),
                                 _ => format!("{f}: {f}"),
                             }
                         } else if field.sanitized {
-                            match &field.ty {
-                                TypeRef::Named(_) => {
-                                    // Sanitized Named fields convert to JSON string via serde
-                                    format!("{f}: serde_json::to_string(&{f}).ok()")
-                                }
-                                _ => format!("{f}: None"),
-                            }
+                            format!("{f}: None")
                         } else {
                             match &field.ty {
-                                TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
+                                // All Named fields in tagged enums use serde JSON
+                                TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                 // Tagged enum struct fields keep original types, no NAPI cast needed
                                 _ => format!("{f}: Some({f})"),
