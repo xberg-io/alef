@@ -862,7 +862,12 @@ fn gen_nif_async_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
-            format!("{}: {}", p.name, mapper.map_type(&p.ty))
+            let mapped = mapper.map_type(&p.ty);
+            if p.optional {
+                format!("{}: Option<{mapped}>", p.name)
+            } else {
+                format!("{}: {mapped}", p.name)
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
