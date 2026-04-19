@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-19
+
+### Added
+
+- E2E: `MockResponse` struct on `Fixture` for mock HTTP server support
+- E2E: Rust mock server codegen — generates Axum-based mock servers from fixture `MockResponse` data
+- E2E: always add `[workspace]` to generated Cargo.toml (prevents workspace inheritance issues)
+
+### Fixed
+
+- Codegen: upstream codegen fixes for liter-llm migration (multiple backends)
+- Codegen: additional prek compliance fixes across all backends
+- Codegen: add `clippy::allow` attrs to PyO3 and FFI backend generated code
+- Codegen: Rustler NIF parameter type conversions and param handling refinement
+- Codegen: NAPI — wrap boxed enum variant fields with `Box::new` in binding-to-core conversion
+- Codegen: Python `options.py`/`api.py` docstrings on all public classes (D101)
+- Codegen: Python D101 docstrings, mypy `dict` type args, exception docstrings
+- Codegen: Java tagged union newtype variants use `@JsonUnwrapped`
+- Codegen: PHP facade void return
+- Codegen: WASM — prefix unused parameters with `_` in unimplemented stubs
+- Codegen: handle `Vec<Optional<Json>>` field conversion (`Value` → `String`)
+- Codegen: async unimplemented returns `PyNotImplementedError`
+- E2E: add `cargo-machete` ignore for `serde_json` in Rust e2e Cargo.toml
+- Scaffold: phpstan.neon generation for PHP
+- Scaffold: safe `Cargo.toml` handling in `extra_paths` (prevents dep version corruption)
+- Scaffold: WASM `package.json` + `tsconfig`, Duration lossy conversion fix
+- Scaffold: remove `wasm-pack` `.gitignore` from `pkg/` after build
+- Scaffold: don't gitignore `pkg/` — npm needs it for WASM publish
+- Version sync: scan workspace excludes correctly
+- Overwrite READMEs, e2e, and docs when `--clean` or standalone commands
+
 ## [0.4.0] - 2026-04-19
 
 ### Added
