@@ -395,6 +395,13 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
                                                 updated.push(path.to_string_lossy().to_string());
                                             }
                                         }
+                                    } else if path.file_name().is_some_and(|f| f == "Cargo.toml") {
+                                        // Cargo.toml: only update [package] version (line-anchored).
+                                        // Never use replace_all — it corrupts dependency version specs.
+                                        let path_str = path.to_string_lossy().to_string();
+                                        if write_version_to_cargo_toml(&path_str, &version).is_ok() {
+                                            updated.push(path_str);
+                                        }
                                     } else if let Some(ref re) = version_re {
                                         let new_content = re.replace_all(&content, version.as_str()).to_string();
                                         if new_content != content {
