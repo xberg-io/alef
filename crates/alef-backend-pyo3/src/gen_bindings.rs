@@ -94,9 +94,9 @@ impl Backend for Pyo3Backend {
         // by Python stubs (.pyi), and the numeric casts are intentional FFI conversions.
         builder.add_inner_attribute("allow(missing_docs)");
         // PyO3 0.22+ deprecates auto-derived FromPyObject; silence until upstream stabilises.
-        builder.add_inner_attribute("allow(deprecated, dead_code)");
+        builder.add_inner_attribute("allow(deprecated, dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute(
-            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits)",
+            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::let_unit_value, clippy::needless_borrow, clippy::too_many_arguments)",
         );
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths
@@ -500,12 +500,12 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
             continue;
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
-        if !enum_def.doc.is_empty() {
-            out.push_str(&format!(
-                "    \"\"\"{}\"\"\"\n\n",
-                enum_def.doc.lines().next().unwrap_or("")
-            ));
-        }
+        let enum_doc = if !enum_def.doc.is_empty() {
+            enum_def.doc.lines().next().unwrap_or("").to_string()
+        } else {
+            class_name_to_docstring(&enum_def.name)
+        };
+        out.push_str(&format!("    \"\"\"{enum_doc}\"\"\"\n\n"));
         for variant in &enum_def.variants {
             let value = variant.name.to_snake_case();
             out.push_str(&format!(
@@ -544,9 +544,12 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
         } else {
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
-            if !typ.doc.is_empty() {
-                out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
-            }
+            let class_doc = if !typ.doc.is_empty() {
+                typ.doc.lines().next().unwrap_or("").to_string()
+            } else {
+                class_name_to_docstring(&typ.name)
+            };
+            out.push_str(&format!("    \"\"\"{class_doc}\"\"\"\n\n"));
 
             for field in &typ.fields {
                 // Determine Python type hint
@@ -627,9 +630,12 @@ fn gen_typeddict(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
-    if !typ.doc.is_empty() {
-        out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
-    }
+    let typeddict_doc = if !typ.doc.is_empty() {
+        typ.doc.lines().next().unwrap_or("").to_string()
+    } else {
+        class_name_to_docstring(&typ.name)
+    };
+    out.push_str(&format!("    \"\"\"{typeddict_doc}\"\"\"\n\n"));
     for field in &typ.fields {
         let type_hint = python_field_type(&field.ty, field.optional, enum_names, data_enum_names);
         // Ensure Optional-like fields always include `| None`
@@ -1169,22 +1175,34 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
             sig_parts.join(", "),
             return_type_str
         ));
-        if !func.doc.is_empty() {
-            let doc_first_line = func.doc.lines().next().unwrap_or("");
-            let doc_trimmed = doc_first_line.trim();
-            // `    """..."""` is 10 chars of overhead; period may add 1 more char.
-            // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
-            let doc_content = if doc_trimmed.len() > 89 {
-                &doc_trimmed[..89]
+        {
+            let doc_with_period = if !func.doc.is_empty() {
+                let doc_first_line = func.doc.lines().next().unwrap_or("");
+                let doc_trimmed = doc_first_line.trim();
+                // `    """..."""` is 10 chars of overhead; period may add 1 more char.
+                // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
+                let doc_content = if doc_trimmed.len() > 89 {
+                    &doc_trimmed[..89]
+                } else {
+                    doc_trimmed
+                };
+                if doc_content.ends_with('.') {
+                    doc_content.to_string()
+                } else {
+                    format!("{}.", doc_content)
+                }
             } else {
-                doc_trimmed
+                use heck::ToSnakeCase;
+                let snake = func.name.to_snake_case();
+                let sentence = snake.replace('_', " ");
+                let mut chars = sentence.chars();
+                let capitalized = match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                };
+                format!("{}.", capitalized)
             };
-            let doc_with_period = if doc_content.ends_with('.') {
-                doc_content.to_string()
-            } else {
-                format!("{}.", doc_content)
-            };
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc_with_period));
+            out.push_str(&format!("    \"\"\"{doc_with_period}\"\"\"\n"));
         }
 
         // For each param that has a converter, emit a local conversion variable

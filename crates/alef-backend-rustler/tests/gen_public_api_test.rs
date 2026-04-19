@@ -31,6 +31,8 @@ fn make_config(app_name: &str) -> AlefConfig {
             app_name: Some(app_name.to_string()),
             features: None,
             serde_rename_all: None,
+            exclude_functions: vec![],
+            exclude_types: vec![],
         }),
         wasm: None,
         ffi: None,

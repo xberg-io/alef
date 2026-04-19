@@ -86,7 +86,11 @@ impl Backend for RustlerBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
             } else {
@@ -114,7 +118,11 @@ impl Backend for RustlerBackend {
             .map(|t| t.name.clone())
             .collect();
 
-        for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
+        for func in api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        {
             if func.is_async {
                 builder.add_item(&gen_nif_async_function(
                     func,
@@ -134,8 +142,16 @@ impl Backend for RustlerBackend {
             }
         }
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
-            for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        {
+            for method in typ
+                .methods
+                .iter()
+                .filter(|m| !exclude_functions.contains(m.name.as_str()))
+            {
                 if method.is_async {
                     builder.add_item(&gen_nif_async_method(
                         &typ.name,
@@ -162,7 +178,11 @@ impl Backend for RustlerBackend {
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -280,7 +300,15 @@ impl Backend for RustlerBackend {
         };
 
         // ── 1. native.ex – NIF stub module ───────────────────────────────────
-        let native_content = gen_native_ex(api, &app_name, &app_module, &crate_name, config, &exclude_functions, &exclude_types);
+        let native_content = gen_native_ex(
+            api,
+            &app_name,
+            &app_module,
+            &crate_name,
+            config,
+            &exclude_functions,
+            &exclude_types,
+        );
         files.push(GeneratedFile {
             path: PathBuf::from(&output_dir)
                 .join(app_name.to_snake_case())
@@ -290,7 +318,11 @@ impl Backend for RustlerBackend {
         });
 
         // ── 2. Struct modules for non-opaque types with fields ────────────────
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        {
             if typ.is_opaque || typ.fields.is_empty() {
                 continue;
             }
@@ -381,7 +413,11 @@ impl Backend for RustlerBackend {
         }
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        {
             for method in &typ.methods {
                 let nif_fn_name = if method.is_async {
                     format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -638,9 +674,7 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
             TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
                 format!("{}.as_deref()", p.name)
             }
-            TypeRef::String | TypeRef::Char if p.optional => {
-                p.name.to_string()
-            }
+            TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
             TypeRef::String | TypeRef::Char => p.name.clone(),
             TypeRef::Path => {
@@ -1228,7 +1262,11 @@ fn gen_nif_init(
         }
     }
 
-    for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
+    for func in api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+    {
         let func_name = if func.is_async {
             format!("{}_async", func.name)
         } else {
@@ -1237,8 +1275,16 @@ fn gen_nif_init(
         exports.push(func_name);
     }
 
-    for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
-        for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+    {
+        for method in typ
+            .methods
+            .iter()
+            .filter(|m| !exclude_functions.contains(m.name.as_str()))
+        {
             let method_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
             } else {
@@ -1328,7 +1374,11 @@ fn gen_native_ex(
 
     // Stubs for top-level API functions
     let mut last_was_multiline = false;
-    for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
+    for func in api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+    {
         let fn_name = if func.is_async {
             format!("{}_async", func.name)
         } else {
@@ -1343,8 +1393,16 @@ fn gen_native_ex(
     }
 
     // Stubs for type methods
-    for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
-        for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+    {
+        for method in typ
+            .methods
+            .iter()
+            .filter(|m| !exclude_functions.contains(m.name.as_str()))
+        {
             let nif_fn_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
             } else {
