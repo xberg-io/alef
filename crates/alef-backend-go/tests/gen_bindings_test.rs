@@ -743,3 +743,74 @@ fn test_default_config() {
         "NewConfig should initialize Retries field with default"
     );
 }
+
+#[test]
+fn test_optional_primitive_uses_cgo_types() {
+    // Regression test: optional primitive params must be declared using CGo types
+    // (C.uint64_t, C.uint32_t, etc.) rather than Go native types, because CGo
+    // does not implicitly convert between Go numeric types and C typedef types
+    // when calling C functions.
+    let backend = GoBackend;
+
+    let make_param = |name: &str, prim: PrimitiveType| ParamDef {
+        name: name.to_string(),
+        ty: TypeRef::Primitive(prim),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "create_thing".to_string(),
+            rust_path: "test_lib::create_thing".to_string(),
+            params: vec![
+                make_param("timeout_secs", PrimitiveType::U64),
+                make_param("max_retries", PrimitiveType::U32),
+            ],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config).unwrap();
+    let content = &result[0].content;
+
+    // The temporary variables must be declared as CGo types, not Go native types.
+    // Wrong (old): var cTimeoutSecs uint64 = ^uint64(0)
+    // Right (new): var cTimeoutSecs C.uint64_t = C.uint64_t(^uint64(0))
+    assert!(
+        content.contains("C.uint64_t(^uint64(0))"),
+        "U64 optional sentinel should be cast to C.uint64_t, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("C.uint32_t(^uint32(0))"),
+        "U32 optional sentinel should be cast to C.uint32_t"
+    );
+    assert!(
+        !content.contains("var cTimeoutSecs uint64"),
+        "Should not declare cTimeoutSecs as Go uint64 — must use C.uint64_t"
+    );
+    assert!(
+        !content.contains("var cMaxRetries uint32"),
+        "Should not declare cMaxRetries as Go uint32 — must use C.uint32_t"
+    );
+}

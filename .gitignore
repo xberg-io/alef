@@ -12,3 +12,6 @@ target/
 # AI Rules generated files
 .claude/
 CLAUDE.md
+
+# AI Rules generated files
+.mcp.json

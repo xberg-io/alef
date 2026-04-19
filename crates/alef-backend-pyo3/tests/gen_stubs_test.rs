@@ -991,10 +991,7 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         content.contains("# noqa: A002"),
         "Builtin-shadowing params must have `# noqa: A002` comment"
     );
-    assert!(
-        content.contains("id: int"),
-        "id field should be present with int type"
-    );
+    assert!(content.contains("id: int"), "id field should be present with int type");
     assert!(
         content.contains("format: str"),
         "format field should be present with str type"

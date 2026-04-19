@@ -806,55 +806,7 @@ fn gen_method_wrapper(
         writeln!(out, ") {} {{", return_type).ok();
     }
 
-    if method.is_async {
-        // Generate async version with channels
-        let result_type = if matches!(method.return_type, TypeRef::Unit) {
-            "error".to_string()
-        } else {
-            format!("*{}", go_type(&method.return_type))
-        };
-
-        writeln!(out, "    resultCh := make(chan {}, 1)", result_type).ok();
-        writeln!(out, "    errCh := make(chan error, 1)").ok();
-        writeln!(out, "    go func() {{").ok();
-
-        // Call sync version
-        let call_args = method
-            .params
-            .iter()
-            .map(|p| p.name.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        if return_type.is_empty() {
-            writeln!(
-                out,
-                "        err := {}.{}Sync({})",
-                receiver_name, method.name, call_args
-            )
-            .ok();
-            writeln!(out, "        if err != nil {{").ok();
-            writeln!(out, "            errCh <- err").ok();
-            writeln!(out, "        }} else {{").ok();
-            writeln!(out, "            errCh <- nil").ok();
-            writeln!(out, "        }}").ok();
-        } else {
-            writeln!(
-                out,
-                "        result, err := {}.{}Sync({})",
-                receiver_name, method.name, call_args
-            )
-            .ok();
-            writeln!(out, "        if err != nil {{").ok();
-            writeln!(out, "            errCh <- err").ok();
-            writeln!(out, "        }} else {{").ok();
-            writeln!(out, "            resultCh <- result").ok();
-            writeln!(out, "        }}").ok();
-        }
-
-        writeln!(out, "    }}()").ok();
-        writeln!(out, "    return resultCh, errCh").ok();
-    } else {
+    {
         // Synchronous method - just convert params and call FFI
         let can_return_error = method.error_type.is_some();
         let returns_value_and_error = can_return_error && !matches!(method.return_type, TypeRef::Unit);
@@ -896,7 +848,7 @@ fn gen_method_wrapper(
             }
         } else if c_params.is_empty() {
             let c_receiver = format!(
-                "(*C.{}{})(unsafe.Pointer({}))",
+                "(*C.{}{})(unsafe.Pointer({}.ptr))",
                 ffi_prefix.to_uppercase(),
                 typ.name.to_pascal_case(),
                 receiver_name
@@ -904,7 +856,7 @@ fn gen_method_wrapper(
             format!("C.{}_{}_{} ({})", ffi_prefix, type_snake, method_snake, c_receiver)
         } else {
             let c_receiver = format!(
-                "(*C.{}{})(unsafe.Pointer({}))",
+                "(*C.{}{})(unsafe.Pointer({}.ptr))",
                 ffi_prefix.to_uppercase(),
                 typ.name.to_pascal_case(),
                 receiver_name
@@ -944,10 +896,18 @@ fn gen_method_wrapper(
                 ) {
                     writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
+                // For non-opaque Named return types, free the handle after JSON extraction.
+                // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
+                if let TypeRef::Named(name) = &method.return_type {
+                    if !opaque_names.contains(name.as_str()) {
+                        let type_snake = name.to_snake_case();
+                        writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    }
+                }
                 writeln!(
                     out,
                     "    return {}, nil",
-                    go_return_expr_builder(&method.return_type, "ptr", ffi_prefix, opaque_names)
+                    go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
                 )
                 .ok();
             }
@@ -962,10 +922,18 @@ fn gen_method_wrapper(
             ) {
                 writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
+            // For non-opaque Named return types, free the handle after JSON extraction.
+            // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
+            if let TypeRef::Named(name) = &method.return_type {
+                if !opaque_names.contains(name.as_str()) {
+                    let type_snake = name.to_snake_case();
+                    writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                }
+            }
             writeln!(
                 out,
                 "    return {}",
-                go_return_expr_builder(&method.return_type, "ptr", ffi_prefix, opaque_names)
+                go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
             )
             .ok();
         }
@@ -1143,16 +1111,22 @@ fn gen_param_to_c(
             // Optional primitive: the Go param is a pointer (*T). Dereference it if non-nil,
             // otherwise pass the max-value sentinel (e.g. u64::MAX) so the FFI layer knows
             // the parameter was omitted.
+            //
+            // Declare the variable using the CGo type (e.g. C.uint64_t) so that CGo does
+            // not reject the value when it is passed directly to the C function. Go's native
+            // numeric types (uint64, uint32, …) are distinct from CGo types and cannot be
+            // passed without an explicit cast — using the CGo type at declaration avoids a
+            // second cast at every call-site.
+            let cgo_ty = cgo_type_for_primitive(prim);
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
-            let c_go_ty = go_type(&TypeRef::Primitive(prim.clone()));
             let sentinel = primitive_max_sentinel(prim);
             writeln!(
                 out,
-                "    var {c_name} {go_ty} = {sentinel}\n    if {param} != nil {{\n        \
-                 {c_name} = {c_go_ty}(*{param})\n    }}",
+                "    var {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n    if {param} != nil {{\n        \
+                 {c_name} = {cgo_ty}({go_ty}(*{param}))\n    }}",
                 c_name = c_name,
+                cgo_ty = cgo_ty,
                 go_ty = go_ty,
-                c_go_ty = c_go_ty,
                 sentinel = sentinel,
                 param = param.name,
             )
@@ -1167,6 +1141,31 @@ fn gen_param_to_c(
         writeln!(out).ok();
     }
     out
+}
+
+/// Return the CGo type name for a primitive type (e.g. `PrimitiveType::U64` → `"C.uint64_t"`).
+///
+/// CGo treats Go native types (`uint64`, `uint32`, …) and the corresponding C typedefs
+/// (`C.uint64_t`, `C.uint32_t`, …) as distinct and will not implicitly convert between them
+/// when passing values to C functions. Declaring optional-primitive temporaries with the CGo
+/// type avoids an explicit cast at every call-site.
+fn cgo_type_for_primitive(prim: &alef_core::ir::PrimitiveType) -> &'static str {
+    use alef_core::ir::PrimitiveType;
+    match prim {
+        PrimitiveType::U8 => "C.uint8_t",
+        PrimitiveType::U16 => "C.uint16_t",
+        PrimitiveType::U32 => "C.uint32_t",
+        PrimitiveType::U64 => "C.uint64_t",
+        PrimitiveType::Usize => "C.size_t",
+        PrimitiveType::I8 => "C.int8_t",
+        PrimitiveType::I16 => "C.int16_t",
+        PrimitiveType::I32 => "C.int32_t",
+        PrimitiveType::I64 => "C.int64_t",
+        PrimitiveType::Isize => "C.ptrdiff_t",
+        PrimitiveType::F32 => "C.float",
+        PrimitiveType::F64 => "C.double",
+        PrimitiveType::Bool => "C.uchar",
+    }
 }
 
 /// Return the Go expression for the maximum value of a primitive type, used as a sentinel
@@ -1227,34 +1226,19 @@ fn type_name(ty: &TypeRef) -> String {
 /// For Named types (opaque handles), this uses `_to_json` to serialize then `json.Unmarshal` in Go.
 /// For strings, this calls `C.GoString`.
 /// The `ffi_prefix` is used to construct C type names for Named types.
-///
-/// When `is_builder_return` is true (method returns its own type for chaining),
-/// a simple unsafe pointer cast is used instead of JSON round-trip.
 fn go_return_expr(
     ty: &TypeRef,
     var_name: &str,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
 ) -> String {
-    go_return_expr_inner(ty, var_name, ffi_prefix, false, opaque_names)
-}
-
-/// Builder-pattern variant: for methods that return the same opaque handle type (e.g., builder
-/// setters), use a simple unsafe pointer cast instead of JSON serialization.
-fn go_return_expr_builder(
-    ty: &TypeRef,
-    var_name: &str,
-    ffi_prefix: &str,
-    opaque_names: &std::collections::HashSet<&str>,
-) -> String {
-    go_return_expr_inner(ty, var_name, ffi_prefix, true, opaque_names)
+    go_return_expr_inner(ty, var_name, ffi_prefix, opaque_names)
 }
 
 fn go_return_expr_inner(
     ty: &TypeRef,
     var_name: &str,
     ffi_prefix: &str,
-    is_builder: bool,
     opaque_names: &std::collections::HashSet<&str>,
 ) -> String {
     match ty {
@@ -1276,9 +1260,6 @@ fn go_return_expr_inner(
                     go_type = name.to_pascal_case(),
                     var_name = var_name,
                 )
-            } else if is_builder {
-                // Builder pattern: same opaque handle, just cast the pointer
-                format!("(*{})(unsafe.Pointer({}))", name.to_pascal_case(), var_name)
             } else {
                 // Full conversion: serialize C handle to JSON, then unmarshal into Go struct
                 let type_snake = name.to_snake_case();
@@ -1307,7 +1288,7 @@ fn go_return_expr_inner(
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
         }
-        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, is_builder, opaque_names),
+        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names),
         TypeRef::Vec(inner) => {
             // Vec types are returned as JSON strings from FFI. Deserialize inline.
             let go_elem = go_type(inner);

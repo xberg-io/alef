@@ -1113,10 +1113,10 @@ fn test_static_method() {
 }
 
 #[test]
-fn test_exceptions_py_empty_class_bodies_have_pass() {
+fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
     let backend = Pyo3Backend;
 
-    // Errors with no docstrings — exception classes would have empty bodies without the fix.
+    // Errors with no docstrings — exception classes must have generated docstrings (D101).
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1163,10 +1163,26 @@ fn test_exceptions_py_empty_class_bodies_have_pass() {
 
     let content = &exceptions_file.content;
 
-    // Every exception class without a docstring must have `pass` to keep Python syntax valid.
+    // No class should use `pass` — all must have docstrings (ruff D101).
     assert!(
-        content.contains("    pass"),
-        "Exception classes without docstrings must have `pass` body"
+        !content.contains("    pass"),
+        "Exception classes must use docstrings, not `pass`"
+    );
+
+    // The base error class should have a generated docstring from its name.
+    assert!(
+        content.contains("\"\"\"Liter llm error.\"\"\""),
+        "LiterLlmError should have generated docstring"
+    );
+
+    // Variant classes should also have generated docstrings.
+    assert!(
+        content.contains("\"\"\"Authentication error.\"\"\""),
+        "AuthenticationError should have generated docstring"
+    );
+    assert!(
+        content.contains("\"\"\"Rate limited error.\"\"\""),
+        "RateLimitedError should have generated docstring"
     );
 
     // Verify no empty class body (class header immediately followed by blank line).
@@ -1174,7 +1190,7 @@ fn test_exceptions_py_empty_class_bodies_have_pass() {
         if line.starts_with("class ") {
             let next_non_empty = content.lines().skip(i + 1).find(|l| !l.trim().is_empty());
             assert!(
-                next_non_empty.map_or(true, |l| l.trim() != ""),
+                next_non_empty.is_none_or(|l| l.trim() != ""),
                 "Class at line {} has empty body",
                 i + 1
             );

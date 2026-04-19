@@ -793,19 +793,31 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         // Must not exist as a bare (un-commented) line
         for line in content.lines() {
             let trimmed = line.trim();
-            assert!(
-                !(trimmed == fragment),
-                "Bare prose leaked into RBS output: {line:?}"
-            );
+            assert!(!(trimmed == fragment), "Bare prose leaked into RBS output: {line:?}");
         }
     }
 
     // Positive: all doc lines should appear as `# ...`
-    assert!(content.contains("    # First line of the doc."), "First doc line should be prefixed");
-    assert!(content.contains("    # Second paragraph here."), "Second doc line should be prefixed");
-    assert!(content.contains("    # Third line."), "Third doc line should be prefixed");
-    assert!(content.contains("    # Multi-line enum doc."), "Enum first doc line should be prefixed");
-    assert!(content.contains("    # Second line."), "Enum second doc line should be prefixed");
+    assert!(
+        content.contains("    # First line of the doc."),
+        "First doc line should be prefixed"
+    );
+    assert!(
+        content.contains("    # Second paragraph here."),
+        "Second doc line should be prefixed"
+    );
+    assert!(
+        content.contains("    # Third line."),
+        "Third doc line should be prefixed"
+    );
+    assert!(
+        content.contains("    # Multi-line enum doc."),
+        "Enum first doc line should be prefixed"
+    );
+    assert!(
+        content.contains("    # Second line."),
+        "Enum second doc line should be prefixed"
+    );
 }
 
 #[test]

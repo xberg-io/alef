@@ -5,12 +5,14 @@ name: Alef
 
 builtins:
   - rust
+  - security
+  - git-workflow
   - code-quality
   - testing
   - token-efficiency
+  - default-commands
 
 presets:
   - claude
-compression:
-  level: moderate
+
 version: "3.0"

@@ -36,6 +36,14 @@ impl Backend for RustlerBackend {
         let mapper = RustlerMapper;
         let core_import = config.core_import();
 
+        let elixir_config = config.elixir.as_ref();
+        let exclude_functions: AHashSet<&str> = elixir_config
+            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let exclude_types: AHashSet<&str> = elixir_config
+            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
@@ -78,7 +86,7 @@ impl Backend for RustlerBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
             } else {
@@ -106,7 +114,7 @@ impl Backend for RustlerBackend {
             .map(|t| t.name.clone())
             .collect();
 
-        for func in &api.functions {
+        for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
             if func.is_async {
                 builder.add_item(&gen_nif_async_function(
                     func,
@@ -126,8 +134,8 @@ impl Backend for RustlerBackend {
             }
         }
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            for method in &typ.methods {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+            for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
                 if method.is_async {
                     builder.add_item(&gen_nif_async_method(
                         &typ.name,
@@ -154,7 +162,7 @@ impl Backend for RustlerBackend {
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -194,7 +202,7 @@ impl Backend for RustlerBackend {
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Elixir)?;
 
-        builder.add_item(&gen_nif_init(api, config));
+        builder.add_item(&gen_nif_init(api, config, &exclude_functions, &exclude_types));
 
         let content = builder.build();
 
@@ -216,6 +224,14 @@ impl Backend for RustlerBackend {
         let app_module = app_name.to_pascal_case();
         let native_mod = format!("{app_module}.Native");
         let crate_name = config.crate_config.name.replace('-', "_");
+
+        let elixir_config = config.elixir.as_ref();
+        let exclude_functions: AHashSet<&str> = elixir_config
+            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let exclude_types: AHashSet<&str> = elixir_config
+            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
 
         let opaque_types: AHashSet<String> = api
             .types
@@ -264,7 +280,7 @@ impl Backend for RustlerBackend {
         };
 
         // ── 1. native.ex – NIF stub module ───────────────────────────────────
-        let native_content = gen_native_ex(api, &app_name, &app_module, &crate_name, config);
+        let native_content = gen_native_ex(api, &app_name, &app_module, &crate_name, config, &exclude_functions, &exclude_types);
         files.push(GeneratedFile {
             path: PathBuf::from(&output_dir)
                 .join(app_name.to_snake_case())
@@ -274,7 +290,7 @@ impl Backend for RustlerBackend {
         });
 
         // ── 2. Struct modules for non-opaque types with fields ────────────────
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
             if typ.is_opaque || typ.fields.is_empty() {
                 continue;
             }
@@ -365,7 +381,7 @@ impl Backend for RustlerBackend {
         }
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
             for method in &typ.methods {
                 let nif_fn_name = if method.is_async {
                     format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -623,7 +639,7 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
                 format!("{}.as_deref()", p.name)
             }
             TypeRef::String | TypeRef::Char if p.optional => {
-                format!("{}", p.name)
+                p.name.to_string()
             }
             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
             TypeRef::String | TypeRef::Char => p.name.clone(),
@@ -640,7 +656,7 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
                 if p.is_ref {
                     format!("&{}", p.name)
                 } else {
-                    format!("{}", p.name)
+                    p.name.to_string()
                 }
             }
             _ => p.name.clone(),
@@ -754,7 +770,7 @@ fn gen_nif_function(
                     }
                     TypeRef::String | TypeRef::Char if p.optional => {
                         // Option<String> where core expects Option<String>
-                        format!("{}", p.name)
+                        p.name.to_string()
                     }
                     TypeRef::String | TypeRef::Char if p.is_ref => {
                         // String where core expects &str
@@ -780,7 +796,7 @@ fn gen_nif_function(
                             // Vec<T> where core expects &[T] → pass as slice
                             format!("&{}", p.name)
                         } else {
-                            format!("{}", p.name)
+                            p.name.to_string()
                         }
                     }
                     _ => p.name.clone(),
@@ -913,7 +929,7 @@ fn gen_nif_async_function(
                         format!("{}.as_deref()", p.name)
                     }
                     TypeRef::String | TypeRef::Char if p.optional => {
-                        format!("{}", p.name)
+                        p.name.to_string()
                     }
                     TypeRef::String | TypeRef::Char if p.is_ref => {
                         format!("&{}", p.name)
@@ -934,7 +950,7 @@ fn gen_nif_async_function(
                         if p.is_ref {
                             format!("&{}", p.name)
                         } else {
-                            format!("{}", p.name)
+                            p.name.to_string()
                         }
                     }
                     _ => p.name.clone(),
@@ -1192,7 +1208,12 @@ fn map_return_type(ty: &alef_core::ir::TypeRef, mapper: &RustlerMapper, opaque_t
 }
 
 /// Generate the rustler::init! macro invocation.
-fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
+fn gen_nif_init(
+    api: &ApiSurface,
+    config: &AlefConfig,
+    exclude_functions: &AHashSet<&str>,
+    exclude_types: &AHashSet<&str>,
+) -> String {
     let mut exports = vec![];
 
     // Custom NIF function registrations (before generated ones)
@@ -1202,7 +1223,7 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
         }
     }
 
-    for func in &api.functions {
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
         let func_name = if func.is_async {
             format!("{}_async", func.name)
         } else {
@@ -1211,8 +1232,8 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
         exports.push(func_name);
     }
 
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        for method in &typ.methods {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
             let method_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
             } else {
@@ -1261,7 +1282,15 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
 }
 
 /// Generate the `{AppModule}.Native` Elixir module with NIF stubs for all functions and methods.
-fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name: &str, config: &AlefConfig) -> String {
+fn gen_native_ex(
+    api: &ApiSurface,
+    app_name: &str,
+    app_module: &str,
+    _crate_name: &str,
+    config: &AlefConfig,
+    exclude_functions: &AHashSet<&str>,
+    exclude_types: &AHashSet<&str>,
+) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(1024);
 
@@ -1294,7 +1323,7 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name
 
     // Stubs for top-level API functions
     let mut last_was_multiline = false;
-    for func in &api.functions {
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
         let fn_name = if func.is_async {
             format!("{}_async", func.name)
         } else {
@@ -1309,8 +1338,8 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name
     }
 
     // Stubs for type methods
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        for method in &typ.methods {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str())) {
+        for method in typ.methods.iter().filter(|m| !exclude_functions.contains(m.name.as_str())) {
             let nif_fn_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
             } else {

@@ -364,7 +364,7 @@ impl Backend for Pyo3Backend {
         });
 
         // 2. Generate api.py (wrapper functions)
-        let api_content = gen_api_py(api, &module_name);
+        let api_content = gen_api_py(api, &module_name, &package_name);
         files.push(GeneratedFile {
             path: output_base.join("api.py"),
             content: api_content,
@@ -579,10 +579,15 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
                     };
                     (final_hint, "None".to_string())
                 } else {
-                    (
-                        type_hint.clone(),
-                        python_zero_value(&field.ty, &enum_names, &data_enum_names),
-                    )
+                    let default = python_zero_value(&field.ty, &enum_names, &data_enum_names);
+                    // When the zero value is None (e.g. data enum fields), add | None so the
+                    // annotation matches — `dict[str, Any] = None` is a mypy type error.
+                    let hint = if default == "None" && !type_hint.contains('|') {
+                        format!("{} | None", type_hint)
+                    } else {
+                        type_hint.clone()
+                    };
+                    (hint, default)
                 };
 
                 if !field.doc.is_empty() {
@@ -814,11 +819,9 @@ fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::
 /// For each function parameter whose type is a `has_default` struct (e.g. `ConversionOptions`),
 /// we generate a `_to_rust_{snake_name}` converter that maps the Python `@dataclass` instance
 /// to the Rust binding's pyclass by passing every field as a keyword argument.
-fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
+fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String {
     use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
-
-    let package_name = module_name.trim_start_matches('_');
 
     // Build lookup: type_name → TypeDef for has_default types
     let default_types: std::collections::HashMap<String, &alef_core::ir::TypeDef> = api
@@ -925,7 +928,8 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
     out.push_str("from typing import TYPE_CHECKING\n\n");
     out.push_str(&format!("import {package_name}.{module_name} as _rust\n"));
 
-    // Split type imports: opaque/error types come from the native module, others from .options
+    // Split type imports: opaque/error types and non-options types come from the native module,
+    // has_default dataclass types come from .options.
     let opaque_names: std::collections::BTreeSet<String> = api
         .types
         .iter()
@@ -933,11 +937,25 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         .map(|t| t.name.clone())
         .collect();
     let error_names: std::collections::BTreeSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+    // Types that exist in options.py: has_default structs (excluding Update types).
+    let options_type_names: std::collections::BTreeSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.has_default && !t.name.ends_with("Update"))
+        .map(|t| t.name.clone())
+        .collect();
+    // All non-enum IR type names (used to distinguish structs from enums in classification).
+    let all_ir_type_names: std::collections::BTreeSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
+    let enum_type_names: std::collections::BTreeSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
     let mut options_imports: Vec<&str> = Vec::new();
     let mut native_imports: Vec<&str> = Vec::new();
     for name in &all_type_imports {
-        if opaque_names.contains(name) || error_names.contains(name) {
+        let is_options = options_type_names.contains(name) || enum_type_names.contains(name);
+        let is_native = opaque_names.contains(name)
+            || error_names.contains(name)
+            || (all_ir_type_names.contains(name) && !is_options);
+        if is_native {
             native_imports.push(name.as_str());
         } else {
             options_imports.push(name.as_str());
@@ -1206,6 +1224,22 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
     out
 }
 
+/// Convert a CamelCase class name to a human-readable docstring sentence.
+///
+/// Examples: `AuthenticationError` → `"Authentication error."`,
+/// `LiterLlmError` → `"Liter llm error."`
+fn class_name_to_docstring(name: &str) -> String {
+    use heck::ToSnakeCase;
+    let snake = name.to_snake_case();
+    let sentence = snake.replace('_', " ");
+    let mut chars = sentence.chars();
+    let capitalized = match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    };
+    format!("{}.", capitalized)
+}
+
 /// Generate exceptions.py — exception hierarchy from IR error definitions.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
@@ -1218,34 +1252,34 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
     for error in &api.errors {
         // Base exception class
         out.push_str(&format!("class {}(Exception):\n", error.name));
-        if !error.doc.is_empty() {
-            let doc = error.doc.lines().next().unwrap_or("").trim();
-            let doc = if doc.ends_with('.') {
-                doc.to_string()
+        let doc = if !error.doc.is_empty() {
+            let first_line = error.doc.lines().next().unwrap_or("").trim();
+            if first_line.ends_with('.') {
+                first_line.to_string()
             } else {
-                format!("{}.", doc)
-            };
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
+                format!("{}.", first_line)
+            }
         } else {
-            out.push_str("    pass\n");
-        }
+            class_name_to_docstring(&error.name)
+        };
+        out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
         out.push_str("\n\n");
 
         // Per-variant exception subclasses
         for variant in &error.variants {
             let variant_name = alef_codegen::error_gen::python_exception_name(&variant.name, &error.name);
             out.push_str(&format!("class {}({}):\n", variant_name, error.name));
-            if !variant.doc.is_empty() {
-                let doc = variant.doc.lines().next().unwrap_or("").trim();
-                let doc = if doc.ends_with('.') {
-                    doc.to_string()
+            let doc = if !variant.doc.is_empty() {
+                let first_line = variant.doc.lines().next().unwrap_or("").trim();
+                if first_line.ends_with('.') {
+                    first_line.to_string()
                 } else {
-                    format!("{}.", doc)
-                };
-                out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
+                    format!("{}.", first_line)
+                }
             } else {
-                out.push_str("    pass\n");
-            }
+                class_name_to_docstring(&variant_name)
+            };
+            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
             out.push_str("\n\n");
         }
     }
