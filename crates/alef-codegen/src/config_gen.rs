@@ -767,10 +767,22 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
             )
             .ok();
         } else {
-            // For Named types, use unwrap_or_default() since the binding type may differ
-            // from the core type (e.g., excluded enums become String). For primitives and
-            // other types, use explicit defaults.
-            if matches!(&field.ty, TypeRef::Named(_)) {
+            let default_str = default_value_for_field(field, "rust");
+            // Check if the default value looks like an enum variant (e.g., "OutputFormat::Plain")
+            // which wouldn't work for String types. If so, use unwrap_or_default() instead.
+            let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
+
+            if is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char) {
+                // Use default for String types with enum-like defaults
+                writeln!(
+                    out,
+                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                    field.name, field.name
+                )
+                .ok();
+            } else if matches!(&field.ty, TypeRef::Named(_)) {
+                // For other Named types, use unwrap_or_default() since the binding type may differ
+                // from the core type (e.g., excluded enums become String).
                 writeln!(
                     out,
                     "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
@@ -778,7 +790,6 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
                 )
                 .ok();
             } else {
-                let default_str = default_value_for_field(field, "rust");
                 writeln!(
                     out,
                     "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",

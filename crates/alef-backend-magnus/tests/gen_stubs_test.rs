@@ -233,7 +233,7 @@ fn test_basic_rbs_stubs() {
 
     // Check for function stub
     assert!(
-        content.contains("def self.process(input: String, ?config: Config) -> String"),
+        content.contains("def self.process: (String input, ?Config config) -> String"),
         "Should have process function stub with correct signature"
     );
 
@@ -527,13 +527,13 @@ fn test_opaque_type_stubs() {
 
     // Check for instance method stub
     assert!(
-        content.contains("def process(input: String) -> String"),
+        content.contains("def process: (String input) -> String"),
         "Should have instance method process"
     );
 
     // Check for static method stub
     assert!(
-        content.contains("def self.new(config: String) -> Processor"),
+        content.contains("def self.new: (String config) -> Processor"),
         "Should have static method new"
     );
 }
@@ -720,11 +720,11 @@ fn test_type_with_methods_and_fields() {
 
     // Check for instance methods
     assert!(
-        content.contains("def get_name() -> String"),
+        content.contains("def get_name: () -> String"),
         "Should have get_name instance method"
     );
     assert!(
-        content.contains("def increment(amount: Integer) -> Integer"),
+        content.contains("def increment: (Integer amount) -> Integer"),
         "Should have increment instance method"
     );
 }

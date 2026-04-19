@@ -199,7 +199,7 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
     lines.join("\n")
 }
 
-/// Generate a function stub (module method).
+/// Generate a function stub (module method) using RBS declaration syntax.
 fn gen_function_stub(func: &FunctionDef) -> String {
     let params: Vec<String> = func
         .params
@@ -207,18 +207,15 @@ fn gen_function_stub(func: &FunctionDef) -> String {
         .map(|p| {
             let param_type = rbs_type(&p.ty);
             if p.optional {
-                format!("?{}: {}", p.name, param_type)
+                format!("?{} {}", param_type, p.name)
             } else {
-                format!("{}: {}", p.name, param_type)
+                format!("{} {}", param_type, p.name)
             }
         })
         .collect();
 
     let return_type = rbs_type(&func.return_type);
+    let param_list = format!("({})", params.join(", "));
 
-    if params.is_empty() {
-        format!("  def self.{}() -> {}", func.name, return_type)
-    } else {
-        format!("  def self.{}({}) -> {}", func.name, params.join(", "), return_type)
-    }
+    format!("  def self.{}: {} -> {}", func.name, param_list, return_type)
 }
