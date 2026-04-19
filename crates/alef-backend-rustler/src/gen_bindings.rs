@@ -37,7 +37,8 @@ impl Backend for RustlerBackend {
         let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
+        builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
         builder.add_import("rustler::ResourceArc");
 
         // Import traits needed for trait method dispatch
@@ -605,16 +606,43 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
             }
             TypeRef::Named(_) => {
                 if p.optional {
-                    format!("{}.map(Into::into)", p.name)
+                    if p.is_ref {
+                        format!("{}.as_ref().map(Into::into)", p.name)
+                    } else {
+                        format!("{}.map(Into::into)", p.name)
+                    }
                 } else {
-                    format!("{}.into()", p.name)
+                    if p.is_ref {
+                        format!("&{}.clone().into()", p.name)
+                    } else {
+                        format!("{}.into()", p.name)
+                    }
                 }
+            }
+            TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
+                format!("{}.as_deref()", p.name)
+            }
+            TypeRef::String | TypeRef::Char if p.optional => {
+                format!("{}", p.name)
             }
             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
             TypeRef::String | TypeRef::Char => p.name.clone(),
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+            TypeRef::Path => {
+                if p.is_ref {
+                    format!("&std::path::PathBuf::from({})", p.name)
+                } else {
+                    format!("std::path::PathBuf::from({})", p.name)
+                }
+            }
             TypeRef::Bytes => format!("&{}", p.name),
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+            TypeRef::Vec(_) => {
+                if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    format!("{}", p.name)
+                }
+            }
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -684,8 +712,17 @@ fn gen_nif_function(
                             "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
                             p.name, core_ty
                         ));
-                        // Wrap in Some() since the core function takes Option<T>
-                        return format!("Some({}_core.unwrap_or_default())", p.name);
+                        // Handle based on whether core function expects reference or option
+                        if p.optional {
+                            // Core expects Option<T> → pass as-is
+                            return format!("{}_core", p.name);
+                        } else if p.is_ref {
+                            // Core expects &T → use as_ref() to get Option<&T>, then unwrap
+                            return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
+                        } else {
+                            // Core expects T → unwrap or use default
+                            return format!("{}_core.unwrap_or_default()", p.name);
+                        }
                     }
                 }
                 // Fall back to the standard call-arg logic for all other types.
@@ -695,17 +732,57 @@ fn gen_nif_function(
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
-                            format!("{}.map(Into::into)", p.name)
+                            if p.is_ref {
+                                // Option<T> where core expects &T → use .as_ref()
+                                format!("{}.as_ref().map(Into::into)", p.name)
+                            } else {
+                                format!("{}.map(Into::into)", p.name)
+                            }
                         } else {
-                            format!("{}.into()", p.name)
+                            if p.is_ref {
+                                // T where core expects &T → take reference of converted value
+                                format!("&{}.clone().into()", p.name)
+                            } else {
+                                format!("{}.into()", p.name)
+                            }
                         }
                     }
-                    // String params: pass by ref if is_ref, owned otherwise.
-                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
-                    TypeRef::String | TypeRef::Char => p.name.clone(),
-                    TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+                    // String params: handle optional and reference cases.
+                    TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
+                        // Option<String> where core expects Option<&str>
+                        format!("{}.as_deref()", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.optional => {
+                        // Option<String> where core expects Option<String>
+                        format!("{}", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.is_ref => {
+                        // String where core expects &str
+                        format!("&{}", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char => {
+                        // String where core expects String
+                        p.name.clone()
+                    }
+                    TypeRef::Path => {
+                        if p.is_ref {
+                            // &Path expected → pass reference to PathBuf
+                            format!("&std::path::PathBuf::from({})", p.name)
+                        } else {
+                            // PathBuf expected
+                            format!("std::path::PathBuf::from({})", p.name)
+                        }
+                    }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(_) => {
+                        if p.is_ref {
+                            // Vec<T> where core expects &[T] → pass as slice
+                            format!("&{}", p.name)
+                        } else {
+                            format!("{}", p.name)
+                        }
+                    }
                     _ => p.name.clone(),
                 }
             })
@@ -799,7 +876,17 @@ fn gen_nif_async_function(
                             "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
                             p.name, core_ty
                         ));
-                        return format!("Some({}_core.unwrap_or_default())", p.name);
+                        // Handle based on whether core function expects reference or option
+                        if p.optional {
+                            // Core expects Option<T> → pass as-is
+                            return format!("{}_core", p.name);
+                        } else if p.is_ref {
+                            // Core expects &T → use as_ref() to get Option<&T>, then unwrap
+                            return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
+                        } else {
+                            // Core expects T → unwrap or use default
+                            return format!("{}_core.unwrap_or_default()", p.name);
+                        }
                     }
                 }
                 match &p.ty {
@@ -808,16 +895,48 @@ fn gen_nif_async_function(
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
-                            format!("{}.map(Into::into)", p.name)
+                            if p.is_ref {
+                                format!("{}.as_ref().map(Into::into)", p.name)
+                            } else {
+                                format!("{}.map(Into::into)", p.name)
+                            }
                         } else {
-                            format!("{}.into()", p.name)
+                            if p.is_ref {
+                                format!("&{}.clone().into()", p.name)
+                            } else {
+                                format!("{}.into()", p.name)
+                            }
                         }
                     }
-                    // Free functions take owned String — pass the variable directly.
-                    TypeRef::String | TypeRef::Char => p.name.clone(),
-                    TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+                    // String params: handle optional and reference cases.
+                    TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
+                        format!("{}.as_deref()", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.optional => {
+                        format!("{}", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.is_ref => {
+                        format!("&{}", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char => {
+                        p.name.clone()
+                    }
+                    TypeRef::Path => {
+                        if p.is_ref {
+                            format!("&std::path::PathBuf::from({})", p.name)
+                        } else {
+                            format!("std::path::PathBuf::from({})", p.name)
+                        }
+                    }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(_) => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            format!("{}", p.name)
+                        }
+                    }
                     _ => p.name.clone(),
                 }
             })
