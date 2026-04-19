@@ -5,6 +5,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Mock HTTP response for testing HTTP clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockResponse {
+    /// HTTP status code.
+    pub status: u16,
+    /// JSON response body (for non-streaming responses).
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// SSE stream chunks (for streaming responses).
+    /// Each chunk is a JSON object sent as `data: <chunk>\n\n`.
+    #[serde(default)]
+    pub stream_chunks: Option<Vec<serde_json::Value>>,
+}
+
 /// A single e2e test fixture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
@@ -28,6 +42,9 @@ pub struct Fixture {
     /// Input data passed to the function under test.
     #[serde(default)]
     pub input: serde_json::Value,
+    /// Optional mock HTTP response for testing HTTP clients.
+    #[serde(default)]
+    pub mock_response: Option<MockResponse>,
     /// List of assertions to check.
     #[serde(default)]
     pub assertions: Vec<Assertion>,
@@ -37,6 +54,20 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    /// Returns true if this fixture requires a mock HTTP server.
+    pub fn needs_mock_server(&self) -> bool {
+        self.mock_response.is_some()
+    }
+
+    /// Returns true if the mock response uses streaming (SSE).
+    pub fn is_streaming_mock(&self) -> bool {
+        self.mock_response
+            .as_ref()
+            .and_then(|m| m.stream_chunks.as_ref())
+            .map(|c| !c.is_empty())
+            .unwrap_or(false)
+    }
+
     /// Get the resolved category (explicit or from source directory).
     pub fn resolved_category(&self) -> String {
         self.category.clone().unwrap_or_else(|| {
@@ -171,4 +202,58 @@ pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
         .collect();
     result.sort_by(|a, b| a.category.cmp(&b.category));
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fixture_with_mock_response() {
+        let json = r#"{
+            "id": "test_chat",
+            "description": "Test chat",
+            "call": "chat",
+            "input": {"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+            "mock_response": {
+                "status": 200,
+                "body": {"choices": [{"message": {"content": "hello"}}]}
+            },
+            "assertions": [{"type": "not_error"}]
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.needs_mock_server());
+        assert!(!fixture.is_streaming_mock());
+        assert_eq!(fixture.mock_response.unwrap().status, 200);
+    }
+
+    #[test]
+    fn test_fixture_with_streaming_mock_response() {
+        let json = r#"{
+            "id": "test_stream",
+            "description": "Test streaming",
+            "input": {},
+            "mock_response": {
+                "status": 200,
+                "stream_chunks": [{"delta": "hello"}, {"delta": " world"}]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.needs_mock_server());
+        assert!(fixture.is_streaming_mock());
+    }
+
+    #[test]
+    fn test_fixture_without_mock_response() {
+        let json = r#"{
+            "id": "test_no_mock",
+            "description": "No mock",
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.needs_mock_server());
+        assert!(!fixture.is_streaming_mock());
+    }
 }

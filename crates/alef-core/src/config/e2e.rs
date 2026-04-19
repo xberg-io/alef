@@ -215,6 +215,17 @@ pub struct CallConfig {
     /// Whether the function is async.
     #[serde(default)]
     pub r#async: bool,
+    /// HTTP endpoint path for mock server routing (e.g., `"/v1/chat/completions"`).
+    ///
+    /// Required when fixtures use `mock_response`. The Rust e2e generator uses
+    /// this to build the `MockRoute` that the mock server matches against.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// HTTP method for mock server routing (default: `"POST"`).
+    ///
+    /// Used together with `path` when building `MockRoute` entries.
+    #[serde(default)]
+    pub method: Option<String>,
     /// How fixture `input` fields map to function arguments.
     #[serde(default)]
     pub args: Vec<ArgMapping>,
