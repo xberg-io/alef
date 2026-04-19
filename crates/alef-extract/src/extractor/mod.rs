@@ -530,6 +530,7 @@ fn resolve_trait_sources(surface: &mut ApiSurface) {
 }
 
 /// Extract items from a parsed syn file or module.
+#[allow(clippy::too_many_arguments)]
 fn extract_items(
     items: &[syn::Item],
     source_path: &Path,
