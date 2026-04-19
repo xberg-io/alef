@@ -950,3 +950,107 @@ fn test_map_types() {
     // Verify struct contains map field
     assert!(content.contains("settings"), "Should contain settings field for map");
 }
+
+/// Regression test: tagged enum where each variant holds a different Named struct type
+/// (all in the same positional field `_0`) must generate `.into()` conversions, not
+/// `serde_json::from_str`. The binding struct stores `Option<JsXxx>`, not `Option<String>`.
+#[test]
+fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json() {
+    let backend = NapiBackend;
+
+    // Simulate the liter-llm `Message` enum pattern:
+    // #[serde(tag = "role")]
+    // enum Message {
+    //     #[serde(rename = "system")]  System(SystemMessage),
+    //     #[serde(rename = "user")]    User(UserMessage),
+    // }
+    // where SystemMessage and UserMessage are distinct structs, both exposed as types.
+    let make_variant = |name: &str, rename: &str, struct_name: &str| EnumVariant {
+        name: name.to_string(),
+        fields: vec![FieldDef {
+            name: "_0".to_string(),
+            ty: TypeRef::Named(struct_name.to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        doc: String::new(),
+        is_default: false,
+        serde_rename: Some(rename.to_string()),
+    };
+
+    let make_type = |name: &str| TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        fields: vec![make_field("content", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_type("SystemMessage"), make_type("UserMessage")],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            serde_tag: Some("role".to_string()),
+            serde_rename_all: None,
+            doc: String::new(),
+            cfg: None,
+            variants: vec![
+                make_variant("System", "system", "SystemMessage"),
+                make_variant("User", "user", "UserMessage"),
+            ],
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config();
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generate_bindings should succeed");
+
+    let files = result.unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // When variants share the same positional field name (_0) with DIFFERENT Named types
+    // (SystemMessage vs UserMessage), the field cannot be a single concrete JsXxx type.
+    // It must be stored as String (JSON) and converted via serde_json per variant.
+    assert!(
+        content.contains("serde_json::from_str"),
+        "binding→core conversion must use serde_json::from_str for mixed-type Named fields"
+    );
+    assert!(
+        content.contains("serde_json::to_string"),
+        "core→binding conversion must use serde_json::to_string for mixed-type Named fields"
+    );
+    // The flattened struct field for mixed Named types must be Option<String>, not Option<JsXxx>
+    assert!(
+        content.contains("_0: Option<String>"),
+        "_0 field with mixed Named types must be typed as Option<String> in the flattened struct"
+    );
+}

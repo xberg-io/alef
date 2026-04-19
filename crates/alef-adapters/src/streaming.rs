@@ -77,20 +77,23 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
                      let mut stream = inner.lock().await;\n            \
                      match futures::StreamExt::next(&mut *stream).await {{\n                \
                          Some(Ok(chunk)) => Ok(Some({item_type}::from(chunk))),\n                \
-                         Some(Err(e)) => Err(PyErr::new::<PyRuntimeError, _>(e.to_string())),\n                \
+                         Some(Err(e)) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string())),\n                \
                          None => Ok(None),  // StopAsyncIteration\n            \
                      }}\n        \
-                 }})\n    \
+                 }}).map(Some)\n    \
              }}\n\
          }}"
     );
 
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
-         let stream = inner.{core_path}({call_str});\n    \
-         Ok({iter_name} {{\n        \
+         let stream = pyo3_async_runtimes::tokio::get_runtime()\n        \
+             .block_on(inner.{core_path}({call_str}))\n        \
+             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;\n    \
+         let iter = {iter_name} {{\n        \
              inner: Arc::new(tokio::sync::Mutex::new(stream)),\n    \
-         }})"
+         }};\n    \
+         Ok(Bound::new(py, iter)?.into_any())"
     );
 
     (method_body, Some(struct_def))

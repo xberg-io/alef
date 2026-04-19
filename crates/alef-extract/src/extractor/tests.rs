@@ -14,6 +14,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
         errors: vec![],
     };
     let mut visited = Vec::new();
+    let mut rwa = ahash::AHashSet::new();
     extract_items(
         &file.items,
         Path::new("test.rs"),
@@ -22,6 +23,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
         &mut surface,
         None,
         &mut visited,
+        &mut rwa,
     )
     .unwrap();
     resolve_newtypes(&mut surface);
@@ -1751,5 +1753,136 @@ fn test_complex_expression_defaults_to_empty() {
         result_field.typed_default,
         Some(alef_core::ir::DefaultValue::Empty),
         "Complex expressions like function calls should default to Empty"
+    );
+}
+
+#[test]
+fn test_boxfuture_wrapping_result_is_async_with_error_type() {
+    // When a method returns BoxFuture<'_, Result<T, E>>, the extractor should:
+    // 1. Mark it as async
+    // 2. Set the return type to T (not Result<T, E>)
+    // 3. Set error_type to the error string
+    let source = r#"
+        use std::future::Future;
+        use std::pin::Pin;
+
+        pub struct ChatResponse {
+            pub content: String,
+        }
+
+        pub struct LlmClient;
+
+        impl LlmClient {
+            pub fn complete(&self, prompt: String) -> Pin<Box<dyn Future<Output = Result<ChatResponse, anyhow::Error>> + Send + '_>> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let client = surface
+        .types
+        .iter()
+        .find(|t| t.name == "LlmClient")
+        .expect("LlmClient not found");
+    let method = client
+        .methods
+        .iter()
+        .find(|m| m.name == "complete")
+        .expect("complete method not found");
+
+    assert!(method.is_async, "BoxFuture-returning method should be marked async");
+    assert_eq!(
+        method.return_type,
+        TypeRef::Named("ChatResponse".into()),
+        "return_type should be the inner T, not Result<T, E>"
+    );
+    assert!(
+        method.error_type.is_some(),
+        "error_type should be Some when BoxFuture wraps Result"
+    );
+}
+
+#[test]
+fn test_boxfuture_alias_wrapping_result_is_async_with_error_type() {
+    // BoxFuture<'_, Result<T, E>> via the futures crate alias pattern
+    let source = r#"
+        pub struct ChatResponse {
+            pub content: String,
+        }
+
+        pub struct DefaultClient;
+
+        // Simulate a BoxFuture<'_, Result<ChatResponse, MyError>> return
+        impl DefaultClient {
+            pub fn chat(&self, prompt: String) -> futures::future::BoxFuture<'_, Result<ChatResponse, MyError>> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let client = surface
+        .types
+        .iter()
+        .find(|t| t.name == "DefaultClient")
+        .expect("DefaultClient not found");
+    let method = client
+        .methods
+        .iter()
+        .find(|m| m.name == "chat")
+        .expect("chat method not found");
+
+    assert!(method.is_async, "BoxFuture-returning method should be marked async");
+    assert_eq!(
+        method.return_type,
+        TypeRef::Named("ChatResponse".into()),
+        "return_type should be the inner T, not Result<T, E>"
+    );
+    assert_eq!(
+        method.error_type.as_deref(),
+        Some("MyError"),
+        "error_type should be the error string from Result<T, E>"
+    );
+}
+
+#[test]
+fn test_boxfuture_non_result_has_no_error_type() {
+    // BoxFuture<'_, T> where T is not a Result should have no error_type
+    let source = r#"
+        pub struct Payload {
+            pub data: String,
+        }
+
+        pub struct StreamClient;
+
+        impl StreamClient {
+            pub fn fetch(&self) -> futures::future::BoxFuture<'_, Payload> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let client = surface
+        .types
+        .iter()
+        .find(|t| t.name == "StreamClient")
+        .expect("StreamClient not found");
+    let method = client
+        .methods
+        .iter()
+        .find(|m| m.name == "fetch")
+        .expect("fetch method not found");
+
+    assert!(method.is_async, "BoxFuture-returning method should be marked async");
+    assert_eq!(
+        method.return_type,
+        TypeRef::Named("Payload".into()),
+        "return_type should be T directly"
+    );
+    assert!(
+        method.error_type.is_none(),
+        "error_type should be None when BoxFuture does not wrap Result"
     );
 }

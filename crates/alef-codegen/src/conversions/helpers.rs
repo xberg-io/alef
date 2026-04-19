@@ -58,6 +58,18 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
 
+    // Collect Named types from enum variant fields — enum variants that are
+    // used as input types need From impls for their nested Named fields too.
+    for e in &surface.enums {
+        if names.contains(&e.name) {
+            for variant in &e.variants {
+                for field in &variant.fields {
+                    collect_named_types(&field.ty, &mut names);
+                }
+            }
+        }
+    }
+
     // Transitive closure: if type A is an input and has field of type B, B is also an input
     let mut changed = true;
     while changed {
@@ -71,6 +83,20 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
                     for n in field_names {
                         if names.insert(n) {
                             changed = true;
+                        }
+                    }
+                }
+            }
+            // Also walk enum variant fields in the transitive closure
+            if let Some(e) = surface.enums.iter().find(|e| e.name == *name) {
+                for variant in &e.variants {
+                    for field in &variant.fields {
+                        let mut field_names = AHashSet::new();
+                        collect_named_types(&field.ty, &mut field_names);
+                        for n in field_names {
+                            if names.insert(n) {
+                                changed = true;
+                            }
                         }
                     }
                 }

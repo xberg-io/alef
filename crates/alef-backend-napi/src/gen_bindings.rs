@@ -784,14 +784,21 @@ fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_serde: bool) 
         format!("    pub {tag_field}_tag: String,"),
     ];
 
+    // Fields that appear in multiple variants with different Named types cannot be represented
+    // as a single concrete JsXxx type. Store them as String (JSON) instead, and convert
+    // per-variant via serde_json in the From impls.
+    let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
+
     // Collect all unique fields across all variants (all made optional)
     let mut seen_fields: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
         for field in &variant.fields {
             if seen_fields.insert(field.name.clone()) {
-                // Sanitized fields (especially Named types) are represented as String
+                // Sanitized fields and mixed-type Named fields are represented as String
                 // and converted via serde_json in From/Into impls
-                let field_type = if field.sanitized && matches!(&field.ty, TypeRef::Named(_)) {
+                let field_type = if (field.sanitized || mixed_named_fields.contains(&field.name))
+                    && matches!(&field.ty, TypeRef::Named(_))
+                {
                     "String".to_string()
                 } else {
                     mapper.map_type(&field.ty).to_string()
@@ -1528,6 +1535,9 @@ fn gen_tagged_enum_binding_to_core(
     // (2) it's not sanitized, and (3) the field name maps to a single Named type across
     // all variants (not shared with different types).
     let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
+    // Fields with different Named types across variants are stored as String (JSON) in the
+    // binding struct and must be deserialized per-variant via serde_json.
+    let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
 
     let mut out = String::with_capacity(512);
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
@@ -1546,19 +1556,27 @@ fn gen_tagged_enum_binding_to_core(
                 .iter()
                 .map(|f| {
                     let has_binding = fields_with_binding_struct.contains(f.name.as_str());
+                    let is_mixed = mixed_named_fields.contains(&f.name);
                     if f.optional {
                         match &f.ty {
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from)", f.name)
                             }
+                            TypeRef::Named(n) if is_mixed => {
+                                // Mixed-type field: stored as String (JSON), deserialize per variant
+                                let core_type = format!("{core_import}::{n}");
+                                format!(
+                                    "val.{}.and_then(|s| serde_json::from_str::<{core_type}>(&s).ok())",
+                                    f.name
+                                )
+                            }
                             TypeRef::Named(_) if has_binding => {
                                 format!("val.{}.map(|v| v.into())", f.name)
                             }
+                            // Non-sanitized Named fields with a single consistent type are stored
+                            // as Option<JsXxx> in the binding struct, so use .into() conversion.
                             TypeRef::Named(_) => {
-                                format!(
-                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
-                                    f.name
-                                )
+                                format!("val.{}.map(|v| v.into())", f.name)
                             }
                             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                 let core_ty = core_prim_str(p);
@@ -1569,17 +1587,25 @@ fn gen_tagged_enum_binding_to_core(
                             }
                         }
                     } else if f.sanitized {
-                        "Default::default()".to_string()
+                        let expr = "Default::default()".to_string();
+                        if f.is_boxed { format!("Box::new({expr})") } else { expr }
                     } else {
-                        match &f.ty {
+                        let expr = match &f.ty {
+                            TypeRef::Named(n) if is_mixed => {
+                                // Mixed-type field: stored as String (JSON), deserialize per variant
+                                let core_type = format!("{core_import}::{n}");
+                                format!(
+                                    "val.{}.and_then(|s| serde_json::from_str::<{core_type}>(&s).ok()).unwrap_or_default()",
+                                    f.name
+                                )
+                            }
                             TypeRef::Named(_) if has_binding => {
                                 format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
                             }
+                            // Non-sanitized Named fields with a single consistent type are stored
+                            // as Option<JsXxx> in the binding struct, so use .into() conversion.
                             TypeRef::Named(_) => {
-                                format!(
-                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
-                                    f.name
-                                )
+                                format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
                             }
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
@@ -1591,7 +1617,8 @@ fn gen_tagged_enum_binding_to_core(
                             _ => {
                                 format!("val.{}.unwrap_or_default()", f.name)
                             }
-                        }
+                        };
+                        if f.is_boxed { format!("Box::new({expr})") } else { expr }
                     }
                 })
                 .collect();
@@ -1665,6 +1692,9 @@ fn gen_tagged_enum_core_to_binding(
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
+    // Fields with different Named types across variants are stored as String (JSON) in the
+    // binding struct and must be serialized per-variant via serde_json.
+    let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
 
     // Collect all field names across all variants
     let all_fields: Vec<String> = {
@@ -1725,14 +1755,21 @@ fn gen_tagged_enum_core_to_binding(
                 .map(|f| {
                     if let Some(field) = variant_field_map.get(f.as_str()) {
                         let has_binding = fields_with_binding_struct.contains(f.as_str());
+                        let is_mixed = mixed_named_fields.contains(f.as_str());
                         if field.optional {
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
+                                TypeRef::Named(_) if is_mixed => {
+                                    // Mixed-type field: serialize to JSON String for the binding struct
+                                    format!("{f}: {f}.and_then(|v| serde_json::to_string(&v).ok())")
+                                }
                                 TypeRef::Named(_) if has_binding => {
                                     format!("{f}: {f}.map(|v| v.into())")
                                 }
+                                // Non-sanitized Named fields with a single consistent type are stored
+                                // as Option<JsXxx> in the binding struct, so use .into() conversion.
                                 TypeRef::Named(_) => {
-                                    format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
+                                    format!("{f}: {f}.map(|v| v.into())")
                                 }
                                 _ => format!("{f}: {f}"),
                             }
@@ -1740,8 +1777,14 @@ fn gen_tagged_enum_core_to_binding(
                             format!("{f}: None")
                         } else {
                             match &field.ty {
+                                TypeRef::Named(_) if is_mixed => {
+                                    // Mixed-type field: serialize to JSON String for the binding struct
+                                    format!("{f}: serde_json::to_string(&{f}).ok()")
+                                }
                                 TypeRef::Named(_) if has_binding => format!("{f}: Some({f}.into())"),
-                                TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
+                                // Non-sanitized Named fields with a single consistent type are stored
+                                // as Option<JsXxx> in the binding struct, so use .into() conversion.
+                                TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                     match p {
@@ -1787,6 +1830,31 @@ fn gen_tagged_enum_core_to_binding(
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out
+}
+
+/// Determine which Named fields in a tagged enum have **different** Named types across variants.
+/// These fields cannot use a single `JsXxx` binding type, so they are stored as `String` (JSON)
+/// and converted via `serde_json` per variant in the From impls.
+fn tagged_enum_mixed_named_fields(enum_def: &EnumDef) -> ahash::AHashSet<String> {
+    use alef_core::ir::TypeRef;
+    let mut field_types: std::collections::HashMap<&str, ahash::AHashSet<&str>> = std::collections::HashMap::new();
+
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if field.sanitized {
+                continue;
+            }
+            if let TypeRef::Named(n) = &field.ty {
+                field_types.entry(&field.name).or_default().insert(n.as_str());
+            }
+        }
+    }
+
+    field_types
+        .into_iter()
+        .filter(|(_, types)| types.len() > 1)
+        .map(|(name, _)| name.to_string())
+        .collect()
 }
 
 /// Determine which Named fields in a tagged enum use binding structs (Into conversion)

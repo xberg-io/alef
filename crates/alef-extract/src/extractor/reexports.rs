@@ -83,6 +83,7 @@ fn resolve_external_use(
         enums: vec![],
         errors: vec![],
     };
+    let mut rwa = ahash::AHashSet::new();
     super::extract_items(
         &file.items,
         &canonical,
@@ -91,6 +92,7 @@ fn resolve_external_use(
         &mut ext_surface,
         workspace_root,
         visited,
+        &mut rwa,
     )?;
 
     // Collect the names we want to import
@@ -271,6 +273,7 @@ pub(crate) fn extract_module(
     };
 
     // Inline module: `pub mod foo { ... }`
+    let mut rwa = ahash::AHashSet::new();
     if let Some((_, items)) = &item_mod.content {
         super::extract_items(
             items,
@@ -280,6 +283,7 @@ pub(crate) fn extract_module(
             surface,
             workspace_root,
             visited,
+            &mut rwa,
         )?;
     } else {
         // External module: `pub mod foo;` — resolve to file
@@ -308,6 +312,7 @@ pub(crate) fn extract_module(
                     .with_context(|| format!("Failed to read module file: {}", candidate.display()))?;
                 let file = syn::parse_file(&content)
                     .with_context(|| format!("Failed to parse module file: {}", candidate.display()))?;
+                let mut rwa2 = ahash::AHashSet::new();
                 super::extract_items(
                     &file.items,
                     candidate,
@@ -316,6 +321,7 @@ pub(crate) fn extract_module(
                     surface,
                     workspace_root,
                     visited,
+                    &mut rwa2,
                 )?;
                 found = true;
                 break;

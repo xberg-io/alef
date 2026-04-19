@@ -610,7 +610,8 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
                     format!("{}.into()", p.name)
                 }
             }
-            TypeRef::String | TypeRef::Char => format!("&{}", p.name),
+            TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+            TypeRef::String | TypeRef::Char => p.name.clone(),
             TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
             TypeRef::Bytes => format!("&{}", p.name),
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
@@ -645,7 +646,12 @@ fn gen_nif_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
-            format!("{}: {}", p.name, mapper.map_type(&p.ty))
+            let mapped = mapper.map_type(&p.ty);
+            if p.optional {
+                format!("{}: Option<{}>", p.name, mapped)
+            } else {
+                format!("{}: {}", p.name, mapped)
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -694,7 +700,9 @@ fn gen_nif_function(
                             format!("{}.into()", p.name)
                         }
                     }
-                    TypeRef::String | TypeRef::Char => format!("&{}", p.name),
+                    // String params: pass by ref if is_ref, owned otherwise.
+                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                    TypeRef::String | TypeRef::Char => p.name.clone(),
                     TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
@@ -805,7 +813,8 @@ fn gen_nif_async_function(
                             format!("{}.into()", p.name)
                         }
                     }
-                    TypeRef::String | TypeRef::Char => format!("&{}", p.name),
+                    // Free functions take owned String — pass the variable directly.
+                    TypeRef::String | TypeRef::Char => p.name.clone(),
                     TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),

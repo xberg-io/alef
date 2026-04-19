@@ -197,7 +197,15 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        // Collect error type names — these are handled by create_exception! below and must not
+        // also be generated as #[pyclass] structs (doing both causes E0428/E0119/E0592).
+        let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+            // Error types are emitted as pyo3::create_exception! macros, not as pyclass structs.
+            if error_type_names.contains(typ.name.as_str()) {
+                continue;
+            }
             if typ.is_opaque {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
                 let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
@@ -1438,9 +1446,16 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
         }
     }
 
+    // Error types are registered via m.add(...) with the exception types, not m.add_class.
+    let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
+
     // Deduplicate registered types and enums
     let mut registered: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        // Error types are handled by gen_pyo3_error_registration below.
+        if error_type_names.contains(typ.name.as_str()) {
+            continue;
+        }
         if registered.insert(typ.name.clone()) {
             lines.push(format!("    m.add_class::<{}>()?;", typ.name));
         }

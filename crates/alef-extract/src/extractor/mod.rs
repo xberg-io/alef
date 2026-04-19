@@ -70,6 +70,7 @@ pub fn extract(
         let enums_before = surface.enums.len();
         let fns_before = surface.functions.len();
 
+        let mut result_wrapping_aliases = ahash::AHashSet::new();
         extract_items(
             &file.items,
             source,
@@ -78,6 +79,7 @@ pub fn extract(
             &mut surface,
             workspace_root,
             &mut visited,
+            &mut result_wrapping_aliases,
         )?;
 
         // For non-root source files, apply re-export shortening from the parent module.
@@ -536,11 +538,30 @@ fn extract_items(
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
     visited: &mut Vec<PathBuf>,
+    result_wrapping_aliases: &mut ahash::AHashSet<String>,
 ) -> Result<()> {
     // Collect pub use re-exports at this level (for path flattening).
     // When a `pub use submod::*` or `pub use submod::TypeName` is found,
     // items defined in that submodule should get a shorter path (this level's path).
     let reexport_map = collect_reexport_map(items);
+
+    // Pre-scan: detect generic type aliases whose definition wraps Result<T>.
+    // e.g. `pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;`
+    // When such an alias is used as `BoxFuture<'_, SomeType>`, the extractor should
+    // mark the return as is_result=true even though `SomeType` isn't `Result<...>`.
+    for item in items {
+        if let syn::Item::Type(item_type) = item {
+            if is_pub(&item_type.vis) && !item_type.generics.params.is_empty() {
+                let name = item_type.ident.to_string();
+                // Check if the RHS contains `Result<` — a heuristic that works for
+                // `Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>` patterns.
+                let rhs = quote::quote!(#item_type).to_string();
+                if rhs.contains("Result <") || rhs.contains("Result<") {
+                    result_wrapping_aliases.insert(name);
+                }
+            }
+        }
+    }
 
     // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {
@@ -602,13 +623,20 @@ fn extract_items(
                             let method_name = method.sig.ident.to_string();
                             let method_doc = extract_doc_comments(&method.attrs);
                             let mut is_async = method.sig.asyncness.is_some();
-                            let (mut return_type, error_type, returns_ref) = resolve_return_type(&method.sig.output);
+                            let (mut return_type, mut error_type, returns_ref) =
+                                resolve_return_type(&method.sig.output);
 
                             // Check for BoxFuture async pattern
                             if !is_async {
-                                if let Some(inner) = functions::unwrap_future_return(&method.sig.output) {
+                                if let Some((inner, future_error_type)) =
+                                    functions::unwrap_future_return(&method.sig.output, result_wrapping_aliases)
+                                {
                                     is_async = true;
                                     return_type = inner;
+                                    // If the future's output is Result<T, E>, propagate the error type.
+                                    if future_error_type.is_some() {
+                                        error_type = future_error_type;
+                                    }
                                 }
                             }
 
@@ -697,7 +725,14 @@ fn extract_items(
     // Second pass: process impl blocks using the index
     for item in items {
         if let syn::Item::Impl(item_impl) = item {
-            extract_impl_block(item_impl, crate_name, module_path, surface, &type_index);
+            extract_impl_block(
+                item_impl,
+                crate_name,
+                module_path,
+                surface,
+                &type_index,
+                result_wrapping_aliases,
+            );
         }
     }
     Ok(())

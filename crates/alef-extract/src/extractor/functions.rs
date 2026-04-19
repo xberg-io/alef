@@ -24,14 +24,19 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
     let doc = extract_doc_comments(&item.attrs);
     let mut is_async = item.sig.asyncness.is_some();
 
-    let (mut return_type, error_type, returns_ref) = resolve_return_type(&item.sig.output);
+    let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&item.sig.output);
     let returns_cow = detect_cow_return(&item.sig.output);
 
     // Detect future-returning functions as async
     if !is_async {
-        if let Some(inner) = unwrap_future_return(&item.sig.output) {
+        let empty = ahash::AHashSet::new();
+        if let Some((inner, future_error_type)) = unwrap_future_return(&item.sig.output, &empty) {
             is_async = true;
             return_type = inner;
+            // If the future's output is Result<T, E>, propagate the error type.
+            if future_error_type.is_some() {
+                error_type = future_error_type;
+            }
         }
     }
 
@@ -61,10 +66,11 @@ pub(crate) fn extract_impl_block(
     module_path: &str,
     surface: &mut ApiSurface,
     type_index: &AHashMap<String, usize>,
+    result_wrapping_aliases: &ahash::AHashSet<String>,
 ) {
     if item.trait_.is_some() {
         // Extract trait impl methods and attach to the type if it's in our surface
-        extract_trait_impl_methods(item, crate_name, surface, type_index);
+        extract_trait_impl_methods(item, crate_name, surface, type_index, result_wrapping_aliases);
         return;
     }
 
@@ -96,7 +102,13 @@ pub(crate) fn extract_impl_block(
                             }
                         }
                     }
-                    return Some(extract_method(method, crate_name, &type_name, None));
+                    return Some(extract_method(
+                        method,
+                        crate_name,
+                        &type_name,
+                        None,
+                        result_wrapping_aliases,
+                    ));
                 }
             }
             None
@@ -143,6 +155,7 @@ pub(crate) fn extract_trait_impl_methods(
     crate_name: &str,
     surface: &mut ApiSurface,
     type_index: &AHashMap<String, usize>,
+    result_wrapping_aliases: &ahash::AHashSet<String>,
 ) {
     let type_name = match &*item.self_ty {
         syn::Type::Path(p) => p.path.segments.last().map(|s| s.ident.to_string()),
@@ -224,7 +237,13 @@ pub(crate) fn extract_trait_impl_methods(
             if has_cfg_attribute(&method.attrs) {
                 continue;
             }
-            let method_def = extract_method(method, crate_name, &type_name, trait_source.clone());
+            let method_def = extract_method(
+                method,
+                crate_name,
+                &type_name,
+                trait_source.clone(),
+                result_wrapping_aliases,
+            );
             // Don't add duplicates
             if !type_def.methods.iter().any(|m| m.name == method_def.name) {
                 type_def.methods.push(method_def);
@@ -241,12 +260,13 @@ pub(crate) fn extract_method(
     _crate_name: &str,
     parent_type_name: &str,
     trait_source: Option<String>,
+    result_wrapping_aliases: &ahash::AHashSet<String>,
 ) -> MethodDef {
     let name = method.sig.ident.to_string();
     let doc = extract_doc_comments(&method.attrs);
     let mut is_async = method.sig.asyncness.is_some();
 
-    let (mut return_type, error_type, returns_ref) = resolve_return_type(&method.sig.output);
+    let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&method.sig.output);
 
     // Detect if the method returns Cow<'_, T> where T is a named type (not str/bytes).
     // This is used by codegen to emit `.into_owned()` before type conversion.
@@ -255,9 +275,13 @@ pub(crate) fn extract_method(
     // Detect future-returning functions as async:
     // BoxFuture<'_, T>, Pin<Box<dyn Future<Output = T>>>, etc.
     if !is_async {
-        if let Some(inner) = unwrap_future_return(&method.sig.output) {
+        if let Some((inner, future_error_type)) = unwrap_future_return(&method.sig.output, result_wrapping_aliases) {
             is_async = true;
             return_type = inner;
+            // If the future's output is Result<T, E>, propagate the error type.
+            if future_error_type.is_some() {
+                error_type = future_error_type;
+            }
         }
     }
 
@@ -301,8 +325,19 @@ fn resolve_self_refs(ty: &mut TypeRef, parent_type_name: &str) {
 }
 
 /// Check if a return type is a future type (BoxFuture, Pin<Box<dyn Future>>, etc.)
-/// and extract the inner output type.
-pub(crate) fn unwrap_future_return(output: &syn::ReturnType) -> Option<TypeRef> {
+/// and extract the inner output type plus optional error type.
+///
+/// Returns `Some((inner_type, error_type))` where `error_type` is `Some` when the
+/// future's output is `Result<T, E>` (i.e. the future wraps a Result).
+///
+/// `result_wrapping_aliases` contains names of type aliases (e.g. `"BoxFuture"`) whose
+/// definition wraps the inner type in `Result<T>`. When the alias is used as
+/// `BoxFuture<'_, T>` (T is NOT `Result`), we still mark `is_result=true` because the
+/// typedef internally wraps `Result<T>`.
+pub(crate) fn unwrap_future_return(
+    output: &syn::ReturnType,
+    result_wrapping_aliases: &ahash::AHashSet<String>,
+) -> Option<(TypeRef, Option<String>)> {
     let ty = match output {
         syn::ReturnType::Type(_, ty) => ty,
         syn::ReturnType::Default => return None,
@@ -315,7 +350,13 @@ pub(crate) fn unwrap_future_return(output: &syn::ReturnType) -> Option<TypeRef> 
             match ident.as_str() {
                 // BoxFuture<'_, T> or BoxStream<'_, T> → async returning T
                 "BoxFuture" | "BoxStream" => {
-                    return extract_future_inner_type(seg);
+                    let result = extract_future_inner_type(seg)?;
+                    // If the alias wraps Result<T> internally and T isn't already Result,
+                    // mark as is_result with a generic error type.
+                    if result.1.is_none() && result_wrapping_aliases.contains(&ident) {
+                        return Some((result.0, Some("Error".to_string())));
+                    }
+                    return Some(result);
                 }
                 // Pin<Box<dyn Future<Output = T>>> → async returning T
                 "Pin" => {
@@ -328,22 +369,39 @@ pub(crate) fn unwrap_future_return(output: &syn::ReturnType) -> Option<TypeRef> 
     None
 }
 
-/// Extract inner type from BoxFuture<'_, T> or BoxFuture<'_, Result<T, E>>
-fn extract_future_inner_type(segment: &syn::PathSegment) -> Option<TypeRef> {
+/// Resolve a syn type that may be `Result<T, E>`, returning `(inner_type, error_type)`.
+///
+/// If `ty` is `Result<T, E>`, returns `(resolved(T), Some(error_string))`.
+/// Otherwise returns `(resolved(ty), None)`.
+fn resolve_possibly_result_type(ty: &syn::Type) -> (TypeRef, Option<String>) {
+    let error_type = type_resolver::extract_result_error_type(ty);
+    let inner = if let Some(unwrapped) = type_resolver::unwrap_result_type(ty) {
+        unwrapped
+    } else {
+        ty
+    };
+    (type_resolver::resolve_type(inner), error_type)
+}
+
+/// Extract inner type from BoxFuture<'_, T> or BoxFuture<'_, Result<T, E>>.
+///
+/// Returns `(inner_type, error_type)` — `error_type` is `Some` when `T` is `Result<T, E>`.
+fn extract_future_inner_type(segment: &syn::PathSegment) -> Option<(TypeRef, Option<String>)> {
     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-        // BoxFuture has lifetime + type args. Find the type arg.
+        // BoxFuture has lifetime + type args. Find the type arg (skipping lifetimes).
         for arg in &args.args {
             if let syn::GenericArgument::Type(ty) = arg {
-                let resolved = type_resolver::resolve_type(ty);
-                return Some(resolved);
+                return Some(resolve_possibly_result_type(ty));
             }
         }
     }
     None
 }
 
-/// Extract inner type from Pin<Box<dyn Future<Output = T>>>
-fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<TypeRef> {
+/// Extract inner type from Pin<Box<dyn Future<Output = T>>>.
+///
+/// Returns `(inner_type, error_type)` — `error_type` is `Some` when `Output = Result<T, E>`.
+fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<(TypeRef, Option<String>)> {
     // Pin<Box<dyn Future<Output = T>>>
     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
         for arg in &args.args {
@@ -366,8 +424,10 @@ fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<TypeRef> {
     None
 }
 
-/// Extract Output type from `dyn Future<Output = T>`
-fn extract_future_output_from_trait_obj(trait_obj: &syn::TypeTraitObject) -> Option<TypeRef> {
+/// Extract Output type from `dyn Future<Output = T>`.
+///
+/// Returns `(inner_type, error_type)` — `error_type` is `Some` when `Output = Result<T, E>`.
+fn extract_future_output_from_trait_obj(trait_obj: &syn::TypeTraitObject) -> Option<(TypeRef, Option<String>)> {
     for bound in &trait_obj.bounds {
         if let syn::TypeParamBound::Trait(trait_bound) = bound {
             if let Some(seg) = trait_bound.path.segments.last() {
@@ -377,7 +437,7 @@ fn extract_future_output_from_trait_obj(trait_obj: &syn::TypeTraitObject) -> Opt
                         for arg in &args.args {
                             if let syn::GenericArgument::AssocType(assoc) = arg {
                                 if assoc.ident == "Output" {
-                                    return Some(type_resolver::resolve_type(&assoc.ty));
+                                    return Some(resolve_possibly_result_type(&assoc.ty));
                                 }
                             }
                         }
