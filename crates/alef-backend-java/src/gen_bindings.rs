@@ -22,6 +22,14 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
     "finalize",
 ];
 
+/// Returns true if `name` is a tuple/unnamed field index such as `"0"`, `"1"`, `"_0"`, `"_1"`.
+/// Serde represents tuple and newtype variant fields with these numeric names. They are not
+/// real JSON keys and must not be used as Java identifiers.
+fn is_tuple_field_name(name: &str) -> bool {
+    let stripped = name.trim_start_matches('_');
+    !stripped.is_empty() && stripped.chars().all(|c| c.is_ascii_digit())
+}
+
 /// Sanitise a field/parameter name that would conflict with `java.lang.Object`
 /// methods.  Conflicting names get a `_` suffix (e.g. `wait` -> `wait_`), which
 /// is then converted to camelCase by `to_java_name`.
@@ -1733,6 +1741,11 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
             .any(|v| v.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))));
     let needs_optional =
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
+    // Newtype/tuple variants (field name is a numeric index like "0") are flattened
+    // into the parent JSON object using @JsonUnwrapped.
+    let needs_unwrapped = enum_def.variants.iter().any(|v| {
+        v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name)
+    });
     if needs_list {
         writeln!(out, "import java.util.List;").ok();
     }
@@ -1741,6 +1754,9 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
     }
     if needs_optional {
         writeln!(out, "import java.util.Optional;").ok();
+    }
+    if needs_unwrapped {
+        writeln!(out, "import com.fasterxml.jackson.annotation.JsonUnwrapped;").ok();
     }
     writeln!(out).ok();
 
@@ -1780,7 +1796,6 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
                 .fields
                 .iter()
                 .map(|f| {
-                    let json_name = f.name.trim_start_matches('_');
                     let ftype = if f.optional {
                         let inner = java_boxed_type(&f.ty);
                         let inner_str = inner.as_ref();
@@ -1804,8 +1819,16 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
                             t_str.to_string()
                         }
                     };
-                    let jname = safe_java_field_name(json_name);
-                    format!("@JsonProperty(\"{json_name}\") {ftype} {jname}")
+                    // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
+                    // These are not real JSON keys — serde flattens the inner type's fields
+                    // alongside the tag. Use @JsonUnwrapped so Jackson does the same.
+                    if is_tuple_field_name(&f.name) {
+                        format!("@JsonUnwrapped {ftype} value")
+                    } else {
+                        let json_name = f.name.trim_start_matches('_');
+                        let jname = safe_java_field_name(json_name);
+                        format!("@JsonProperty(\"{json_name}\") {ftype} {jname}")
+                    }
                 })
                 .collect();
 

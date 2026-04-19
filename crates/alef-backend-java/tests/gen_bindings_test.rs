@@ -2,8 +2,83 @@ use alef_backend_java::JavaBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, JavaConfig};
 use alef_core::ir::{
-    ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
 };
+
+fn make_test_config(package: &str) -> AlefConfig {
+    AlefConfig {
+        crate_config: CrateConfig {
+            name: "test_lib".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            features: vec![],
+            path_mappings: std::collections::HashMap::new(),
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: Some(FfiConfig {
+            prefix: Some("test".to_string()),
+            error_style: "last_error".to_string(),
+            header_name: None,
+            lib_name: None,
+            visitor_callbacks: false,
+            features: None,
+            serde_rename_all: None,
+        }),
+        go: None,
+        java: Some(JavaConfig {
+            package: Some(package.to_string()),
+            ffi_style: "panama".to_string(),
+            features: None,
+            serde_rename_all: None,
+        }),
+        csharp: None,
+        r: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        test: None,
+        e2e: None,
+    }
+}
+
+fn make_newtype_field(ty: TypeRef) -> FieldDef {
+    FieldDef {
+        name: "0".to_string(),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+    }
+}
 
 #[test]
 fn test_basic_generation() {
@@ -491,5 +566,99 @@ fn test_optional_field_defaults_in_builder() {
     assert!(
         !builder_content.contains("Optional<Boolean> escapeAsterisks = false;"),
         "Should not have raw value in Optional field"
+    );
+}
+
+#[test]
+fn test_tagged_union_newtype_variants_produce_valid_java() {
+    // Regression test: internally tagged enums whose variants are newtypes (single unnamed
+    // field, IR name "0") must not emit the numeric index as a Java field name — "0" is not
+    // a valid Java identifier.  The codegen must instead emit `@JsonUnwrapped <Type> value`.
+    let backend = JavaBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "test_lib::Message".to_string(),
+            serde_tag: Some("role".to_string()),
+            serde_rename_all: Some("snake_case".to_string()),
+            doc: String::new(),
+            cfg: None,
+            variants: vec![
+                EnumVariant {
+                    name: "System".to_string(),
+                    fields: vec![make_newtype_field(TypeRef::Named("SystemMessage".to_string()))],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "User".to_string(),
+                    fields: vec![make_newtype_field(TypeRef::Named("UserMessage".to_string()))],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Assistant".to_string(),
+                    fields: vec![make_newtype_field(TypeRef::Named("AssistantMessage".to_string()))],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+        }],
+        errors: vec![ErrorDef {
+            name: "Error".to_string(),
+            rust_path: "test_lib::Error".to_string(),
+            variants: vec![],
+            doc: String::new(),
+        }],
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_test_config("dev.example"))
+        .expect("generation should succeed");
+
+    let message_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Message.java"))
+        .expect("Message.java should be generated");
+
+    let content = &message_file.content;
+
+    // Must be a sealed interface (internally tagged)
+    assert!(content.contains("public sealed interface Message"), "should be sealed interface:\n{content}");
+
+    // @JsonUnwrapped must appear for each newtype variant; numeric "0" must not be used as a field name
+    assert!(content.contains("@JsonUnwrapped"), "should use @JsonUnwrapped for newtype fields:\n{content}");
+    assert!(
+        !content.contains("\"0\""),
+        "numeric tuple index must not appear as a Java field name or @JsonProperty value:\n{content}"
+    );
+    assert!(
+        !content.contains(" 0)"),
+        "numeric field name \"0\" must not appear as Java identifier:\n{content}"
+    );
+
+    // Each variant record should declare a `value` field
+    assert!(content.contains("SystemMessage value"), "System variant should have `value` field:\n{content}");
+    assert!(content.contains("UserMessage value"), "User variant should have `value` field:\n{content}");
+    assert!(content.contains("AssistantMessage value"), "Assistant variant should have `value` field:\n{content}");
+
+    // Jackson annotations for the discriminator must be present
+    assert!(
+        content.contains("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"role\""),
+        "should emit @JsonTypeInfo with role tag:\n{content}"
+    );
+
+    // @JsonUnwrapped import must be present
+    assert!(
+        content.contains("import com.fasterxml.jackson.annotation.JsonUnwrapped;"),
+        "should import JsonUnwrapped:\n{content}"
     );
 }
