@@ -800,11 +800,42 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         keywords = keywords_json,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/php/composer.json"),
-        content,
-        generated_header: false,
-    }])
+    let stubs_file = format!("stubs/{ext_name}_extension.php");
+
+    let phpstan_content = format!(
+        "includes:\n\
+         \x20   - phpstan-baseline.neon\n\
+         \n\
+         parameters:\n\
+         \x20   level: max\n\
+         \x20   paths:\n\
+         \x20       - src\n\
+         \x20   scanFiles:\n\
+         \x20       - {stubs_file}\n\
+         \x20   treatPhpDocTypesAsCertain: false\n\
+         \x20   reportUnmatchedIgnoredErrors: false\n\
+         \x20   tmpDir: var/cache/phpstan\n"
+    );
+
+    let phpstan_baseline_content = "parameters:\n\tignoreErrors: []\n".to_string();
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/php/composer.json"),
+            content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/php/phpstan.neon"),
+            content: phpstan_content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/php/phpstan-baseline.neon"),
+            content: phpstan_baseline_content,
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {

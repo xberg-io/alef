@@ -454,8 +454,9 @@ impl Backend for PhpBackend {
             } else {
                 func.name.to_lower_camel_case()
             };
-            content.push_str(&format!(
-                "        return \\{}\\{}Api::{}({}); // delegate to native extension class\n",
+            let is_void = matches!(&func.return_type, TypeRef::Unit);
+            let call_expr = format!(
+                "\\{}\\{}Api::{}({})",
                 namespace,
                 class_name,
                 ext_method_name,
@@ -464,7 +465,18 @@ impl Backend for PhpBackend {
                     .map(|p| format!("${}", p.name))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ));
+            );
+            if is_void {
+                content.push_str(&format!(
+                    "        {}; // delegate to native extension class\n",
+                    call_expr
+                ));
+            } else {
+                content.push_str(&format!(
+                    "        return {}; // delegate to native extension class\n",
+                    call_expr
+                ));
+            }
             content.push_str("    }\n\n");
         }
 

@@ -936,3 +936,142 @@ fn test_multiple_types_with_shared_error() {
         "Should reference shared error or contain both methods"
     );
 }
+
+#[test]
+fn test_generate_type_stubs_contains_exception_and_api_class() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "create_thing".to_string(),
+            rust_path: "test_lib::create_thing".to_string(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            }],
+            return_type: TypeRef::Named("Config".to_string()),
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+
+    assert!(!files.is_empty(), "Should generate stubs file");
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Exception class must extend \RuntimeException to satisfy PHPStan as Throwable
+    assert!(
+        content.contains("class TestLibException extends \\RuntimeException"),
+        "Exception should extend \\RuntimeException; content:\n{content}"
+    );
+
+    // Api class must exist as a static method holder for free functions
+    assert!(
+        content.contains("class TestLibApi"),
+        "Should generate TestLibApi class; content:\n{content}"
+    );
+
+    // Api class methods must have fully-qualified return types
+    assert!(
+        content.contains("createThing") || content.contains("create_thing"),
+        "Should have createThing method in TestLibApi; content:\n{content}"
+    );
+
+    // Stubs should be namespaced correctly
+    assert!(
+        content.contains("namespace Test\\Lib"),
+        "Should use Test\\Lib namespace; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_generate_public_api_delegates_to_api_class() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "do_work".to_string(),
+            rust_path: "test_lib::do_work".to_string(),
+            params: vec![ParamDef {
+                name: "input".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: "Do some work".to_string(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    assert!(!files.is_empty(), "Should generate public API file");
+    let facade = files.first().unwrap();
+    let content = &facade.content;
+
+    // The facade class must delegate to TestLibApi (not TestLib directly)
+    assert!(
+        content.contains("TestLibApi::doWork") || content.contains("TestLibApi::do_work"),
+        "Facade should delegate to TestLibApi; content:\n{content}"
+    );
+
+    // @throws annotation must reference the exception class
+    assert!(
+        content.contains("@throws") && content.contains("TestLibException"),
+        "Should have @throws annotation for TestLibException; content:\n{content}"
+    );
+}
