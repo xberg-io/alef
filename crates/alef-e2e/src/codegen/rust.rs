@@ -178,10 +178,9 @@ fn render_cargo_toml(
     // that may be auto-discovered as part of a parent Cargo workspace.  Adding an
     // empty [workspace] table tells Cargo that this crate is its own standalone
     // workspace and opts out of any parent workspace discovery.
-    let workspace_section = match dep_mode {
-        crate::config::DependencyMode::Registry => "\n[workspace]\n",
-        crate::config::DependencyMode::Local => "",
-    };
+    // Always add [workspace] — even in local mode the e2e crate lives outside
+    // the parent workspace members list and needs its own workspace declaration.
+    let workspace_section = "\n[workspace]\n";
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     let mock_lines = if needs_mock_server {
         "\naxum = \"0.8\"\ntokio-stream = \"0.1\""
