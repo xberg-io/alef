@@ -4,7 +4,7 @@
 //! to Python objects via PyO3.
 
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
 /// Generate all trait bridge code for a given trait type and bridge config.
@@ -12,10 +12,19 @@ pub fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
+    api: &ApiSurface,
 ) -> String {
     let mut out = String::with_capacity(8192);
     let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
     let trait_path = trait_type.rust_path.replace('-', "_");
+
+    // Build type name → rust_path lookup for qualifying Named types in signatures
+    let type_paths: std::collections::HashMap<&str, &str> = api
+        .types
+        .iter()
+        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
+        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .collect();
 
     // Wrapper struct with cached fields
     writeln!(out, "pub struct {struct_name} {{").unwrap();
@@ -37,7 +46,7 @@ pub fn gen_trait_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_method(&mut out, method, core_import);
+        gen_method(&mut out, method, core_import, &type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -90,10 +99,10 @@ fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
     writeln!(out).unwrap();
 }
 
-fn gen_method(out: &mut String, method: &MethodDef, ci: &str) {
+fn gen_method(out: &mut String, method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) {
     let name = &method.name;
-    let sig = build_signature(method, ci);
-    let ret = build_return(method, ci);
+    let sig = build_signature(method, ci, tp);
+    let ret = build_return(method, ci, tp);
 
     if method.is_async {
         writeln!(out, "    async fn {name}({sig}) -> {ret} {{").unwrap();
@@ -107,19 +116,19 @@ fn gen_method(out: &mut String, method: &MethodDef, ci: &str) {
 }
 
 /// Build correct trait method signature with proper reference types.
-fn build_signature(method: &MethodDef, ci: &str) -> String {
+fn build_signature(method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) -> String {
     let mut parts = Vec::new();
     if method.receiver.is_some() {
         parts.push("&self".to_string());
     }
     for p in &method.params {
-        parts.push(format!("{}: {}", p.name, param_type(&p.ty, ci, p.is_ref)));
+        parts.push(format!("{}: {}", p.name, param_type(&p.ty, ci, p.is_ref, tp)));
     }
     parts.join(", ")
 }
 
 /// Map TypeRef to correct Rust type for trait signatures.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool) -> String {
+fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
     match ty {
         TypeRef::Bytes if is_ref => "&[u8]".into(),
         TypeRef::Bytes => "Vec<u8>".into(),
@@ -127,17 +136,21 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool) -> String {
         TypeRef::String => "String".into(),
         TypeRef::Path if is_ref => "&std::path::Path".into(),
         TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) if is_ref => format!("&{ci}::{n}"),
-        TypeRef::Named(n) => format!("{ci}::{n}"),
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false)),
+        TypeRef::Named(n) => {
+            let qualified = tp.get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| format!("{ci}::{n}"));
+            if is_ref { format!("&{qualified}") } else { qualified }
+        }
+        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
+        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
         TypeRef::Primitive(p) => prim(p).into(),
         TypeRef::Unit => "()".into(),
         TypeRef::Char => "char".into(),
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false),
-            param_type(v, ci, false)
+            param_type(k, ci, false, tp),
+            param_type(v, ci, false, tp)
         ),
         TypeRef::Json => "serde_json::Value".into(),
         TypeRef::Duration => "std::time::Duration".into(),
@@ -163,8 +176,8 @@ fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
     }
 }
 
-fn build_return(method: &MethodDef, ci: &str) -> String {
-    let inner = param_type(&method.return_type, ci, false);
+fn build_return(method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) -> String {
+    let inner = param_type(&method.return_type, ci, false, tp);
     if method.error_type.is_some() {
         format!("{ci}::Result<{inner}>")
     } else {
@@ -191,7 +204,12 @@ fn gen_sync_body(out: &mut String, method: &MethodDef, ci: &str) {
         return;
     }
     if name == "backend_type" {
-        writeln!(out, "        {ci}::plugins::OcrBackendType::Custom").unwrap();
+        // Use the fully-qualified core enum path
+        if let TypeRef::Named(n) = &method.return_type {
+            writeln!(out, "        {ci}::plugins::{n}::Custom").unwrap();
+        } else {
+            writeln!(out, "        Default::default()").unwrap();
+        }
         return;
     }
 
@@ -417,6 +435,15 @@ fn is_named(ty: &TypeRef) -> bool {
     matches!(ty, TypeRef::Named(_))
 }
 
+fn collect_named_types(ty: &TypeRef, out: &mut std::collections::HashSet<String>) {
+    match ty {
+        TypeRef::Named(n) => { out.insert(n.clone()); }
+        TypeRef::Vec(inner) | TypeRef::Optional(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => { collect_named_types(k, out); collect_named_types(v, out); }
+        _ => {}
+    }
+}
+
 fn gen_registration_fn(
     out: &mut String,
     cfg: &TraitBridgeConfig,
@@ -472,7 +499,7 @@ fn gen_registration_fn(
     )
     .unwrap();
     writeln!(out).unwrap();
-    writeln!(out, "    py.allow_threads(|| {{").unwrap();
+    writeln!(out, "    py.detach(|| {{").unwrap();
     writeln!(out, "        let registry = {registry_getter}();").unwrap();
     writeln!(out, "        let mut registry = registry.write();").unwrap();
     writeln!(
