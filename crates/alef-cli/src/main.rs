@@ -392,24 +392,17 @@ fn main() -> Result<()> {
                 eprintln!("  (with lint check)");
             }
 
-            let api = pipeline::extract(&config, config_path, false)?;
-            let ir_json = serde_json::to_string(&api)?;
-            let config_toml = toml::to_string(&config).unwrap_or_default();
-
             let mut all_stale: Vec<String> = Vec::new();
 
-            // Check each language: input hash first, then output content hashes.
+            // Verify each language's output files via blake3 content hashing.
+            // We compare current on-disk content against hashes stored after the
+            // last `alef generate` / `alef all` (post-prek).
             for lang in &languages {
                 let lang_str = lang.to_string();
-                let lang_hash = cache::compute_lang_hash(&ir_json, &lang_str, &config_toml);
-
-                if !cache::is_lang_cached(&lang_str, &lang_hash) {
-                    all_stale.push(format!("[{lang_str}] inputs changed — run `alef generate`"));
-                    continue;
-                }
 
                 if !cache::has_output_hashes(&lang_str) {
-                    // No output hashes yet (first run after upgrade) — fall back to diff.
+                    // No output hashes yet — fall back to regenerate-and-diff.
+                    let api = pipeline::extract(&config, config_path, false)?;
                     let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
                     let base_dir = std::env::current_dir()?;
                     all_stale.extend(pipeline::diff_files(&bindings, &base_dir)?);
@@ -429,11 +422,7 @@ fn main() -> Result<()> {
             }
 
             // Verify stubs
-            let stubs_config = std::fs::read_to_string(config_path).unwrap_or_default();
-            let stubs_hash = cache::compute_stage_hash(&ir_json, "stubs", &stubs_config, &[]);
-            if !cache::is_stage_cached("stubs", &stubs_hash) {
-                all_stale.push("[stubs] inputs changed — run `alef stubs`".to_string());
-            } else if cache::has_output_hashes("stubs") {
+            if cache::has_output_hashes("stubs") {
                 match cache::verify_output_hashes("stubs") {
                     Ok(stale_files) => {
                         for f in stale_files {
@@ -446,6 +435,7 @@ fn main() -> Result<()> {
                 }
             } else {
                 // Fallback: regenerate stubs and diff
+                let api = pipeline::extract(&config, config_path, false)?;
                 let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
                 let base_dir = std::env::current_dir()?;
                 all_stale.extend(pipeline::diff_files(&stubs, &base_dir)?);
