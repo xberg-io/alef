@@ -90,6 +90,11 @@ pub fn generate_public_api(
 }
 
 /// Write generated files to disk.
+///
+/// Rust files are formatted with `rustfmt` before writing so the on-disk
+/// content matches what [`diff_files`] produces during `alef verify`.
+/// This also means `cargo fmt` (run by prek) becomes a no-op for generated
+/// files, making `alef all` idempotent.
 pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<usize> {
     let mut count = 0;
     for (_lang, lang_files) in files {
@@ -99,7 +104,12 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("failed to create directory {}", parent.display()))?;
             }
-            std::fs::write(&full_path, &file.content)
+            let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
+                format_rust_content(&file.content)
+            } else {
+                normalize_whitespace(&file.content)
+            };
+            std::fs::write(&full_path, &content)
                 .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
             count += 1;
             debug!("  wrote: {}", full_path.display());
@@ -110,26 +120,60 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
 
 /// Diff generated files against what's on disk.
 ///
-/// For Rust files, the generated content is formatted with rustfmt before
-/// comparison so that diffs reflect semantic changes rather than formatting
-/// discrepancies introduced by the code generator.
+/// For Rust files, both sides are formatted with rustfmt before comparison.
+/// For all files, whitespace is normalized (trailing whitespace stripped,
+/// trailing newline ensured) so that formatter-only diffs are ignored.
 pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<Vec<String>> {
     let mut diffs = vec![];
     for (lang, lang_files) in files {
         for file in lang_files {
             let full_path = base_dir.join(&file.path);
             let existing = std::fs::read_to_string(&full_path).unwrap_or_default();
-            let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
+            let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
+            let generated = if is_rust {
                 format_rust_content(&file.content)
             } else {
                 file.content.clone()
             };
-            if existing != content {
+            let on_disk = if is_rust {
+                format_rust_content(&existing)
+            } else {
+                existing
+            };
+            if normalize_whitespace(&on_disk) != normalize_whitespace(&generated) {
                 diffs.push(format!("[{lang}] {}", file.path.display()));
             }
         }
     }
     Ok(diffs)
+}
+
+/// Normalize whitespace for comparison: strip trailing whitespace per line,
+/// collapse runs of 3+ blank lines to 2, and ensure a single trailing newline.
+fn normalize_whitespace(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut blank_count = 0;
+    for line in content.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
+            blank_count += 1;
+            if blank_count <= 2 {
+                result.push('\n');
+            }
+        } else {
+            blank_count = 0;
+            result.push_str(trimmed);
+            result.push('\n');
+        }
+    }
+    // Ensure exactly one trailing newline
+    while result.ends_with("\n\n") {
+        result.pop();
+    }
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 /// Generate scaffold files for given languages.
@@ -176,44 +220,47 @@ pub fn write_scaffold_files_with_overwrite(
     Ok(count)
 }
 
-/// Format a Rust source string using `rustfmt` via stdin/stdout.
+/// Format a Rust source string using `rustfmt` via a temporary file.
+///
+/// Uses a temp file in the current directory so that `rustfmt` discovers the
+/// project's `rustfmt.toml` (e.g. `max_width = 120`).  This produces output
+/// identical to `cargo fmt` / `prek`, ensuring `alef verify` matches.
 ///
 /// Returns the formatted content on success, or the original content if
 /// rustfmt is unavailable or fails (best-effort).
 pub fn format_rust_content(content: &str) -> String {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
-    let child = Command::new("rustfmt")
-        .arg("--edition")
-        .arg("2024")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    // Write to a temp file in cwd so rustfmt picks up rustfmt.toml.
+    let tmp_name = format!(".alef_fmt_{}.rs", std::process::id());
+    let tmp_path = std::env::current_dir().unwrap_or_default().join(&tmp_name);
 
-    let Ok(mut child) = child else {
-        debug!("rustfmt not available for in-memory formatting");
+    if std::fs::write(&tmp_path, content).is_err() {
         return content.to_string();
-    };
-
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(content.as_bytes());
     }
 
-    match child.wait_with_output() {
+    let result = Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2024")
+        .arg(&tmp_path)
+        .output();
+
+    let formatted = match result {
         Ok(output) if output.status.success() => {
-            String::from_utf8(output.stdout).unwrap_or_else(|_| content.to_string())
+            std::fs::read_to_string(&tmp_path).unwrap_or_else(|_| content.to_string())
         }
         Ok(output) => {
-            debug!("rustfmt failed on stdin: {}", String::from_utf8_lossy(&output.stderr));
+            debug!("rustfmt failed: {}", String::from_utf8_lossy(&output.stderr));
             content.to_string()
         }
         Err(e) => {
             debug!("rustfmt process error: {e}");
             content.to_string()
         }
-    }
+    };
+
+    let _ = std::fs::remove_file(&tmp_path);
+    formatted
 }
 
 /// Auto-format generated Rust files using `rustfmt` (best-effort, doesn't fail on error).

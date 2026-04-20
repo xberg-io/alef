@@ -228,6 +228,20 @@ fn main() -> Result<()> {
             // Format and lint all generated files via prek (best-effort)
             pipeline::run_prek();
 
+            // Recompute input + output hashes AFTER prek (prek may modify config).
+            let post_config_struct = load_config(config_path)?;
+            let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
+            let post_ir = serde_json::to_string(&post_api)?;
+            let post_config = toml::to_string(&post_config_struct).unwrap_or_default();
+            for lang in &languages {
+                let lang_str = lang.to_string();
+                let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
+                if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
+                    let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
+                    let _ = cache::write_output_hashes(&lang_str, &paths);
+                }
+            }
+
             println!("Generated {count} files");
             Ok(())
         }
@@ -251,6 +265,7 @@ fn main() -> Result<()> {
                 .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
                 .collect();
             cache::write_stage_hash("stubs", &stage_hash, &output_paths)?;
+            let _ = cache::write_output_hashes("stubs", &output_paths);
             println!("Generated {count} stub files");
             Ok(())
         }
@@ -378,12 +393,63 @@ fn main() -> Result<()> {
             }
 
             let api = pipeline::extract(&config, config_path, false)?;
-            let bindings = pipeline::generate(&api, &config, &languages, true)?;
-            let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
+            let ir_json = serde_json::to_string(&api)?;
+            let config_toml = toml::to_string(&config).unwrap_or_default();
 
-            let base_dir = std::env::current_dir()?;
-            let mut all_diffs = pipeline::diff_files(&bindings, &base_dir)?;
-            all_diffs.extend(pipeline::diff_files(&stubs, &base_dir)?);
+            let mut all_stale: Vec<String> = Vec::new();
+
+            // Check each language: input hash first, then output content hashes.
+            for lang in &languages {
+                let lang_str = lang.to_string();
+                let lang_hash = cache::compute_lang_hash(&ir_json, &lang_str, &config_toml);
+
+                if !cache::is_lang_cached(&lang_str, &lang_hash) {
+                    all_stale.push(format!("[{lang_str}] inputs changed — run `alef generate`"));
+                    continue;
+                }
+
+                if !cache::has_output_hashes(&lang_str) {
+                    // No output hashes yet (first run after upgrade) — fall back to diff.
+                    let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
+                    let base_dir = std::env::current_dir()?;
+                    all_stale.extend(pipeline::diff_files(&bindings, &base_dir)?);
+                    continue;
+                }
+
+                match cache::verify_output_hashes(&lang_str) {
+                    Ok(stale_files) => {
+                        for f in stale_files {
+                            all_stale.push(format!("[{lang_str}] {f}"));
+                        }
+                    }
+                    Err(e) => {
+                        all_stale.push(format!("[{lang_str}] failed to verify: {e}"));
+                    }
+                }
+            }
+
+            // Verify stubs
+            let stubs_config = std::fs::read_to_string(config_path).unwrap_or_default();
+            let stubs_hash = cache::compute_stage_hash(&ir_json, "stubs", &stubs_config, &[]);
+            if !cache::is_stage_cached("stubs", &stubs_hash) {
+                all_stale.push("[stubs] inputs changed — run `alef stubs`".to_string());
+            } else if cache::has_output_hashes("stubs") {
+                match cache::verify_output_hashes("stubs") {
+                    Ok(stale_files) => {
+                        for f in stale_files {
+                            all_stale.push(format!("[stubs] {f}"));
+                        }
+                    }
+                    Err(e) => {
+                        all_stale.push(format!("[stubs] failed to verify: {e}"));
+                    }
+                }
+            } else {
+                // Fallback: regenerate stubs and diff
+                let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
+                let base_dir = std::env::current_dir()?;
+                all_stale.extend(pipeline::diff_files(&stubs, &base_dir)?);
+            }
 
             // Also verify version consistency across all package manifests
             let version_mismatches = pipeline::verify_versions(&config)?;
@@ -395,16 +461,16 @@ fn main() -> Result<()> {
                 }
             }
 
-            if all_diffs.is_empty() && !has_version_issues {
+            if all_stale.is_empty() && !has_version_issues {
                 println!("All bindings and versions are up to date.");
             } else {
-                if !all_diffs.is_empty() {
+                if !all_stale.is_empty() {
                     println!("Stale bindings detected:");
-                    for diff in &all_diffs {
-                        println!("  {diff}");
+                    for s in &all_stale {
+                        println!("  {s}");
                     }
                 }
-                if exit_code && (!all_diffs.is_empty() || has_version_issues) {
+                if exit_code && (!all_stale.is_empty() || has_version_issues) {
                     process::exit(1);
                 }
             }
@@ -495,6 +561,31 @@ fn main() -> Result<()> {
             // Format and lint all generated files via prek (best-effort)
             eprintln!("Running formatters and linters...");
             pipeline::run_prek();
+
+            // Recompute input + output hashes AFTER prek.  Prek may have
+            // modified the config file (e.g. alef-sync-versions updates
+            // alef.toml) so the input hash recorded during generation is stale.
+            // Re-load config from disk and re-hash so `alef verify` sees
+            // consistent values.
+            eprintln!("Computing output hashes...");
+            let post_config_struct = load_config(config_path)?;
+            let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
+            let post_ir = serde_json::to_string(&post_api)?;
+            let post_config = toml::to_string(&post_config_struct).unwrap_or_default();
+            for lang in &languages {
+                let lang_str = lang.to_string();
+                let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
+                if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
+                    let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
+                    let _ = cache::write_output_hashes(&lang_str, &paths);
+                }
+            }
+            // Stubs
+            let stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
+            if let Ok(paths) = cache::read_manifest_paths("stubs") {
+                let _ = cache::write_stage_hash("stubs", &stubs_hash, &paths);
+                let _ = cache::write_output_hashes("stubs", &paths);
+            }
 
             println!(
                 "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files, {e2e_count} e2e files, {doc_count} doc files"

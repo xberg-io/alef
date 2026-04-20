@@ -207,6 +207,75 @@ pub fn write_ir_cache_as(api: &alef_core::ir::ApiSurface, source_hash: &str, nam
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Output content hashing — used by `alef verify` for idempotent staleness
+// checking.  After generation + prek, we blake3-hash every generated file's
+// final on-disk content and store the hashes in `.alef/hashes/<name>.output_hashes`.
+// During verify we re-hash the files and compare.
+// ---------------------------------------------------------------------------
+
+/// Compute blake3 content hash of a single file on disk.
+pub fn hash_file_content(path: &Path) -> anyhow::Result<String> {
+    let content = fs::read(path)?;
+    Ok(blake3::hash(&content).to_hex().to_string())
+}
+
+/// Hash all output files and write `path\thash` lines to `.output_hashes`.
+/// Call this AFTER prek has run so hashes reflect the final on-disk state.
+pub fn write_output_hashes(name: &str, output_paths: &[PathBuf]) -> anyhow::Result<()> {
+    let hashes_dir = Path::new(CACHE_DIR).join("hashes");
+    fs::create_dir_all(&hashes_dir)?;
+    let mut lines = Vec::with_capacity(output_paths.len());
+    for path in output_paths {
+        if path.exists() {
+            let hash = hash_file_content(path)?;
+            lines.push(format!("{}\t{hash}", path.display()));
+        }
+    }
+    fs::write(hashes_dir.join(format!("{name}.output_hashes")), lines.join("\n"))?;
+    Ok(())
+}
+
+/// Verify on-disk files match their stored content hashes.
+/// Returns a list of paths that differ or are missing (empty = all match).
+pub fn verify_output_hashes(name: &str) -> anyhow::Result<Vec<String>> {
+    let hash_file = Path::new(CACHE_DIR)
+        .join("hashes")
+        .join(format!("{name}.output_hashes"));
+    let content = fs::read_to_string(&hash_file)?;
+    let mut stale = Vec::new();
+    for line in content.lines().filter(|l| !l.is_empty()) {
+        let Some((path_str, expected_hash)) = line.split_once('\t') else {
+            continue;
+        };
+        let path = Path::new(path_str);
+        if !path.exists() {
+            stale.push(path_str.to_string());
+            continue;
+        }
+        let actual_hash = hash_file_content(path)?;
+        if actual_hash != expected_hash {
+            stale.push(path_str.to_string());
+        }
+    }
+    Ok(stale)
+}
+
+/// Check whether output hashes have been stored for a given name.
+pub fn has_output_hashes(name: &str) -> bool {
+    Path::new(CACHE_DIR)
+        .join("hashes")
+        .join(format!("{name}.output_hashes"))
+        .exists()
+}
+
+/// Read the manifest for a given name and return the list of file paths.
+pub fn read_manifest_paths(name: &str) -> anyhow::Result<Vec<PathBuf>> {
+    let manifest_path = Path::new(CACHE_DIR).join("hashes").join(format!("{name}.manifest"));
+    let content = fs::read_to_string(&manifest_path)?;
+    Ok(content.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect())
+}
+
 /// Clear cache.
 pub fn clear_cache() -> anyhow::Result<()> {
     let cache_dir = Path::new(CACHE_DIR);

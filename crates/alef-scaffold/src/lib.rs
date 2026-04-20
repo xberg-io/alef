@@ -485,7 +485,7 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
+{crate_name} = {{ path = "../../../../../crates/{core_crate_dir}"{features} }}
 magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
