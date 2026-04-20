@@ -77,6 +77,11 @@ pub struct TypeDef {
     /// without serde derives cannot be (de)serialized.
     #[serde(default)]
     pub has_serde: bool,
+    /// Super-traits of this trait (e.g., `["Plugin"]` for `OcrBackend: Plugin`).
+    /// Only populated when `is_trait` is true. Used by trait bridge codegen
+    /// to determine which super-trait impls to generate.
+    #[serde(default)]
+    pub super_traits: Vec<String>,
 }
 
 /// A field on a public struct.
@@ -152,6 +157,11 @@ pub struct MethodDef {
     /// When set, codegen must unwrap the returned newtype value (e.g. `result.0`) before returning.
     #[serde(default)]
     pub return_newtype_wrapper: Option<String>,
+    /// True if this method has a default implementation in the trait definition.
+    /// Methods with defaults can be optionally implemented by the foreign object
+    /// in trait bridge codegen.
+    #[serde(default)]
+    pub has_default_impl: bool,
 }
 
 /// How `self` is received.

@@ -7,6 +7,7 @@ pub mod e2e;
 pub mod extras;
 pub mod languages;
 pub mod output;
+pub mod trait_bridge;
 
 // Re-exports for backward compatibility — all types were previously flat in config.rs.
 pub use dto::{
@@ -23,6 +24,7 @@ pub use output::{
     ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig, ScaffoldConfig, SyncConfig, TestConfig,
     TextReplacement,
 };
+pub use trait_bridge::TraitBridgeConfig;
 
 /// Root configuration from alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +95,10 @@ pub struct AlefConfig {
     /// E2E test generation configuration.
     #[serde(default)]
     pub e2e: Option<E2eConfig>,
+    /// Trait bridge configurations — generate FFI bridge code that allows
+    /// foreign language objects to implement Rust traits.
+    #[serde(default)]
+    pub trait_bridges: Vec<TraitBridgeConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

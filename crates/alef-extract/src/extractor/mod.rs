@@ -608,6 +608,7 @@ fn extract_items(
                     cfg: None,
                     serde_rename_all: None,
                     has_serde: false,
+                    super_traits: vec![],
                 });
             }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
@@ -663,7 +664,28 @@ fn extract_items(
                                 returns_ref,
                                 returns_cow: false,
                                 return_newtype_wrapper: None,
+                                has_default_impl: method.default.is_some(),
                             })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Extract super-traits (e.g., Plugin from `trait OcrBackend: Plugin`)
+                let super_traits: Vec<String> = item_trait
+                    .supertraits
+                    .iter()
+                    .filter_map(|bound| {
+                        if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                            let path = &trait_bound.path;
+                            let name = path.segments.last()?.ident.to_string();
+                            // Skip marker traits
+                            if name == "Send" || name == "Sync" || name == "Sized" {
+                                None
+                            } else {
+                                Some(name)
+                            }
                         } else {
                             None
                         }
@@ -685,6 +707,7 @@ fn extract_items(
                     cfg: None,
                     serde_rename_all: None,
                     has_serde: false,
+                    super_traits,
                 });
             }
             syn::Item::Mod(item_mod) => {

@@ -16,5 +16,7 @@ presets:
   - claude
   - codex
   - copilot
+  - cursor
+  - antigravity
 
 version: "3.0"

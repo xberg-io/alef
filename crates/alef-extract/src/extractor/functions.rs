@@ -145,6 +145,7 @@ pub(crate) fn extract_impl_block(
             cfg: None,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
         });
     }
 }
@@ -308,6 +309,7 @@ pub(crate) fn extract_method(
         returns_ref,
         returns_cow,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     }
 }
 

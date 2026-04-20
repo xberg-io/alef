@@ -116,6 +116,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         cfg,
         serde_rename_all,
         has_serde,
+        super_traits: vec![],
     })
 }
 
