@@ -359,10 +359,21 @@ fn render_test_function(
         return;
     }
 
-    // Capture output.
+    // Check if any assertion will actually emit code (not be skipped).
+    let has_active_assertions = fixture.assertions.iter().any(|a| {
+        a.field
+            .as_ref()
+            .map_or(true, |f| f.is_empty() || field_resolver.is_valid_for_result(f))
+    });
+
+    // Capture output (only if there are active assertions that reference it).
     let cmd = cmd_parts.join(" ");
-    let _ = writeln!(out, "    local output");
-    let _ = writeln!(out, "    output=$({cmd})");
+    if has_active_assertions {
+        let _ = writeln!(out, "    local output");
+        let _ = writeln!(out, "    output=$({cmd})");
+    } else {
+        let _ = writeln!(out, "    {cmd} >/dev/null");
+    }
     let _ = writeln!(out);
 
     // Emit assertions.

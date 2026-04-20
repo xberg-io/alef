@@ -1350,18 +1350,21 @@ fn gen_native_ex(
     let _ = writeln!(out, "  use RustlerPrecompiled,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
     let _ = writeln!(out, "    crate: \"{app_name}_rustler\",");
+    let _ = writeln!(out, "    base_url:");
     let _ = writeln!(
         out,
-        "    base_url: \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
+        "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
+    let _ = writeln!(out, "    force_build:");
     let _ = writeln!(
         out,
-        "    force_build: System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
+        "      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
     );
+    let _ = writeln!(out, "    targets:");
     let _ = writeln!(
         out,
-        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
+        "      ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
     );
     let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"]");
     let _ = writeln!(out);

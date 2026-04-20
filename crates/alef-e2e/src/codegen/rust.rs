@@ -174,13 +174,15 @@ fn render_cargo_toml(
         }
     };
     let serde_line = if needs_serde_json { "\nserde_json = \"1\"" } else { "" };
-    // When using registry mode the generated Cargo.toml lives inside a directory
-    // that may be auto-discovered as part of a parent Cargo workspace.  Adding an
-    // empty [workspace] table tells Cargo that this crate is its own standalone
-    // workspace and opts out of any parent workspace discovery.
-    // Always add [workspace] — even in local mode the e2e crate lives outside
-    // the parent workspace members list and needs its own workspace declaration.
-    let workspace_section = "\n[workspace]\n";
+    // In registry mode the generated Cargo.toml is a standalone project, so add
+    // an empty [workspace] table to opt out of parent workspace discovery.
+    // In local mode the e2e crate is typically listed as a workspace member of
+    // the parent project, so adding [workspace] would create a conflicting
+    // second workspace root — omit it.
+    let workspace_section = match dep_mode {
+        crate::config::DependencyMode::Registry => "\n[workspace]\n",
+        crate::config::DependencyMode::Local => "",
+    };
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     let mock_lines = if needs_mock_server {
         "\naxum = \"0.8\"\ntokio-stream = \"0.1\""

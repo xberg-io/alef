@@ -132,13 +132,6 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
-    // D101: every public class needs a docstring.
-    let doc = if typ.doc.is_empty() {
-        format!("Wrapper for {}.", typ.name)
-    } else {
-        typ.doc.lines().next().unwrap_or("").to_string()
-    };
-    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     // Instance methods
     for method in &typ.methods {
@@ -167,13 +160,6 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
-    // D101: every public class needs a docstring.
-    let doc = if typ.doc.is_empty() {
-        format!("Wrapper for {}.", typ.name)
-    } else {
-        typ.doc.lines().next().unwrap_or("").to_string()
-    };
-    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     // Add field type annotations
     for field in &typ.fields {
@@ -357,13 +343,6 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", enum_def.name));
-    // D101: every public class needs a docstring.
-    let doc = if enum_def.doc.is_empty() {
-        format!("Wrapper for {}.", enum_def.name)
-    } else {
-        enum_def.doc.lines().next().unwrap_or("").to_string()
-    };
-    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     if enum_has_data_variants(enum_def) {
         // Data enums are frozen structs accepting a dict.

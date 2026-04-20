@@ -544,7 +544,21 @@ fn json_to_js(value: &serde_json::Value) -> String {
             format!("[{}]", items.join(", "))
         }
         serde_json::Value::Object(map) => {
-            let entries: Vec<String> = map.iter().map(|(k, v)| format!("{}: {}", k, json_to_js(v))).collect();
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    let key = if k
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                        && !k.starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        k.clone()
+                    } else {
+                        format!("\"{}\"", escape_js(k))
+                    };
+                    format!("{key}: {}", json_to_js(v))
+                })
+                .collect();
             format!("{{ {} }}", entries.join(", "))
         }
     }
