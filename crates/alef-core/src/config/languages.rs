@@ -22,6 +22,15 @@ pub struct PythonConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Map of type name -> PyCapsule name for raw pointer wrapping.
+    /// When a function returns one of these types, alef generates PyCapsule_New instead of Arc wrapping.
+    // TODO: Wire into gen_bindings.rs to emit PyCapsule_New / PyCapsule_GetPointer at call sites.
+    #[serde(default)]
+    pub capsule_types: HashMap<String, String>,
+    /// When true, wrap blocking function bodies in py.allow_threads() to release the GIL.
+    // TODO: Wire into gen_bindings.rs to emit py.allow_threads(|| { ... }) for non-async functions.
+    #[serde(default)]
+    pub release_gil: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +132,9 @@ pub struct WasmConfig {
     /// generating the Rust binding. Use this when a custom module provides a wrapper.
     #[serde(default)]
     pub exclude_reexports: Vec<String>,
+    /// Wide-character C functions to shim for WASM external scanner interop.
+    #[serde(default)]
+    pub env_shims: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

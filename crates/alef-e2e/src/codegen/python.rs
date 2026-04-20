@@ -568,14 +568,8 @@ fn render_test_function(
                 } else {
                     // Split into multi-line for readability and E501 compliance.
                     let mut lines = format!("    {var_name}_config = {config_class}(\n");
-                    for (i, kw) in kwargs.iter().enumerate() {
-                        lines.push_str(&format!("        {kw}"));
-                        if i < kwargs.len() - 1 {
-                            lines.push(',');
-                        } else {
-                            lines.push(',');
-                        }
-                        lines.push('\n');
+                    for kw in &kwargs {
+                        lines.push_str(&format!("        {kw},\n"));
                     }
                     lines.push_str("    )");
                     arg_bindings.push(lines);

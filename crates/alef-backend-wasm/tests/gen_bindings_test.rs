@@ -51,6 +51,7 @@ fn make_config() -> AlefConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
             exclude_reexports: vec![],
+            env_shims: vec![],
             type_overrides: std::collections::HashMap::new(),
             features: None,
             serde_rename_all: None,
@@ -75,7 +76,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     }
 }
 

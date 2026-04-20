@@ -615,18 +615,12 @@ fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.Equal({n}, {field_expr}.Count);"
-                    );
+                    let _ = writeln!(out, "        Assert.Equal({n}, {field_expr}.Count);");
                 }
             }
         }
         "is_true" => {
-            let _ = writeln!(
-                out,
-                "        Assert.True({field_expr});"
-            );
+            let _ = writeln!(out, "        Assert.True({field_expr});");
         }
         "not_error" => {
             // Already handled by the call succeeding without exception.

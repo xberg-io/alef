@@ -250,8 +250,7 @@ impl Backend for Pyo3Backend {
             }
             for bridge_cfg in &config.trait_bridges {
                 if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                    let bridge_code =
-                        crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                    let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
                     builder.add_item(&bridge_code);
                 }
             }
@@ -746,7 +745,11 @@ fn typed_default_to_python(
         DefaultValue::BoolLiteral(true) => "True".to_string(),
         DefaultValue::BoolLiteral(false) => "False".to_string(),
         DefaultValue::StringLiteral(s) => {
-            let escaped = s.replace('\\', "\\\\").replace('\"', "\\\"").replace('\n', "\\n").replace('\r', "\\r");
+            let escaped = s
+                .replace('\\', "\\\\")
+                .replace('\"', "\\\"")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r");
             format!("\"{}\"", escaped)
         }
         DefaultValue::IntLiteral(i) => i.to_string(),
@@ -1563,9 +1566,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
     // Register trait bridge registration functions
     for register_fn in crate::trait_bridge::collect_bridge_register_fns(&config.trait_bridges) {
-        lines.push(format!(
-            "    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"
-        ));
+        lines.push(format!("    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"));
     }
 
     // Register error exception types

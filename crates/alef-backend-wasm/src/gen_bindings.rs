@@ -66,6 +66,7 @@ impl Backend for WasmBackend {
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
+        let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
 
         let mapper = WasmMapper::new(type_overrides, prefix.clone());
@@ -87,6 +88,12 @@ impl Backend for WasmBackend {
         // The WasmMapper always converts Map types to JsValue (wasm-bindgen cannot
         // pass HashMap<K, V> across the JS boundary), so HashMap is never referenced
         // in the generated WASM binding code.
+
+        // Emit environment shims for C external scanner interop (e.g. iswspace, iswalnum).
+        // Only shims whose names appear in env_shims are emitted.
+        if !env_shims.is_empty() {
+            builder.add_item(&gen_env_shims(&env_shims));
+        }
 
         // Note: custom_modules for WASM are TypeScript-only re-exports
         // (used in generate_public_api), not Rust module declarations.
@@ -1158,6 +1165,51 @@ fn gen_function(
             return_annotation
         )
     }
+}
+
+/// Generate WASM environment shims for wide-character C functions used by external scanners.
+///
+/// Some tree-sitter external scanners call C wide-character functions (`iswspace`, `iswalnum`,
+/// etc.) that are not available in the WASM runtime. This emits `#[unsafe(no_mangle)] extern "C"`
+/// shims that satisfy those link-time references using Rust's Unicode-aware char APIs.
+///
+/// Only shims whose names appear in `shim_names` are emitted.
+fn gen_env_shims(shim_names: &[String]) -> String {
+    let mut out = String::from("// WASM environment shims for C scanner interop\n");
+
+    for name in shim_names {
+        let shim = match name.as_str() {
+            "iswspace" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswspace(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_whitespace() as i32)\n",
+                "}\n",
+            ),
+            "iswalnum" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswalnum(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_alphanumeric() as i32)\n",
+                "}\n",
+            ),
+            "towupper" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn towupper(c: u32) -> u32 {\n",
+                "    char::from_u32(c).map_or(c, |ch| ch.to_uppercase().next().unwrap_or(ch) as u32)\n",
+                "}\n",
+            ),
+            "iswalpha" => concat!(
+                "#[unsafe(no_mangle)]\n",
+                "pub extern \"C\" fn iswalpha(c: u32) -> i32 {\n",
+                "    char::from_u32(c).map_or(0, |ch| ch.is_alphabetic() as i32)\n",
+                "}\n",
+            ),
+            _ => continue,
+        };
+        out.push_str(shim);
+    }
+
+    // Trim trailing newline so the builder adds consistent spacing
+    out.trim_end_matches('\n').to_string()
 }
 
 /// Generate a type-appropriate unimplemented body for WASM (no todo!()).

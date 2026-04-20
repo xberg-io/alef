@@ -70,7 +70,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     }
 }
 

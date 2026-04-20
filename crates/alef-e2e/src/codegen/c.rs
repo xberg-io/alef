@@ -925,10 +925,7 @@ fn render_assertion(
                         "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
                     );
                     let _ = writeln!(out, "        int elem_count = htm_json_array_count({field_expr});");
-                    let _ = writeln!(
-                        out,
-                        "        assert(elem_count == {n} && \"expected {n} elements\");"
-                    );
+                    let _ = writeln!(out, "        assert(elem_count == {n} && \"expected {n} elements\");");
                     let _ = writeln!(out, "    }}");
                 }
             }

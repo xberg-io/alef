@@ -175,7 +175,7 @@ fn test_generated_code_example() {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

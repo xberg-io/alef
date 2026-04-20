@@ -114,6 +114,15 @@ pub struct Assertion {
     /// Expected values (for contains_all, contains_any).
     #[serde(default)]
     pub values: Option<Vec<serde_json::Value>>,
+    /// Method name to call on the result (for method_result assertions).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Assertion check type for the method result (equals, is_true, is_false, greater_than_or_equal, count_min).
+    #[serde(default)]
+    pub check: Option<String>,
+    /// Arguments to pass to the method call (for method_result assertions).
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
 }
 
 /// A group of fixtures sharing the same category.

@@ -1331,6 +1331,84 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "    assert!({field_access}, \"expected true\");");
         }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                // Build the method call expression, passing args when present.
+                let call_expr = if let Some(args) = &assertion.args {
+                    let arg_lit = json_to_rust_literal(args, "");
+                    format!("{field_access}.{method_name}({arg_lit})")
+                } else {
+                    format!("{field_access}.{method_name}()")
+                };
+
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            if val.is_boolean() {
+                                if val.as_bool() == Some(true) {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert!({call_expr}, \"method_result equals assertion failed\");"
+                                    );
+                                } else {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert!(!{call_expr}, \"method_result equals assertion failed\");"
+                                    );
+                                }
+                            } else {
+                                let expected = value_to_rust_string(val);
+                                let _ = writeln!(
+                                    out,
+                                    "    assert_eq!({call_expr}, {expected}, \"method_result equals assertion failed\");"
+                                );
+                            }
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({call_expr}, \"method_result is_true assertion failed\");"
+                        );
+                    }
+                    "is_false" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!(!{call_expr}, \"method_result is_false assertion failed\");"
+                        );
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            if val.as_u64() == Some(1) {
+                                let _ = writeln!(out, "    assert!(!{call_expr}.is_empty(), \"expected >= 1\");");
+                            } else {
+                                let _ = writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
+                            }
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            if n <= 1 {
+                                let _ = writeln!(out, "    assert!(!{call_expr}.is_empty(), \"expected >= {n}\");");
+                            } else {
+                                let _ = writeln!(
+                                    out,
+                                    "    assert!({call_expr}.len() >= {n}, \"expected at least {n} elements, got {{}}\", {call_expr}.len());"
+                                );
+                            }
+                        }
+                    }
+                    other_check => {
+                        let _ = writeln!(out, "    // TODO: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                let _ = writeln!(out, "    // TODO: method_result assertion missing 'method' field");
+            }
+        }
         other => {
             let _ = writeln!(out, "    // TODO: unsupported assertion type: {other}");
         }

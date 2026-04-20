@@ -37,12 +37,15 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["not_error", "error", "equals", "not_equals", "contains", "contains_all", "contains_any", "not_contains", "not_empty", "is_empty", "starts_with", "ends_with", "min_length", "max_length", "count_min", "count_equals", "matches_regex", "is_true", "is_false", "greater_than", "less_than", "greater_than_or_equal", "less_than_or_equal"],
+          "enum": ["not_error", "error", "equals", "not_equals", "contains", "contains_all", "contains_any", "not_contains", "not_empty", "is_empty", "starts_with", "ends_with", "min_length", "max_length", "count_min", "count_equals", "matches_regex", "is_true", "is_false", "greater_than", "less_than", "greater_than_or_equal", "less_than_or_equal", "method_result"],
           "description": "Assertion type"
         },
         "field": { "type": "string", "description": "Dot-separated field path on the result object" },
         "value": { "description": "Expected value (type depends on assertion type)" },
-        "values": { "type": "array", "description": "Expected values (for contains_all, contains_any, not_contains)" }
+        "values": { "type": "array", "description": "Expected values (for contains_all, contains_any, not_contains)" },
+        "method": { "type": "string", "description": "Method name to call on the result" },
+        "check": { "type": "string", "description": "Assertion check type for the method result (equals, is_true, is_false, greater_than_or_equal, count_min)" },
+        "args": { "type": "object", "description": "Arguments to pass to the method call" }
       }
     }
   }

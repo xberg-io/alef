@@ -141,6 +141,32 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
     out
 }
 
+pub(super) fn gen_type_new(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
+    let type_snake = typ.name.to_snake_case();
+    let type_name = &typ.name;
+    let qualified = core_type_path(typ, core_import);
+    let mut out = String::with_capacity(512);
+
+    writeln!(out, "/// Create a new `{type_name}` with default values.").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(
+        out,
+        "/// Returned handle must be freed with `{prefix}_{type_snake}_free`."
+    )
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {prefix}_{type_snake}_new() -> *mut {qualified} {{"
+    )
+    .ok();
+    writeln!(out, "    clear_last_error();").ok();
+    writeln!(out, "    Box::into_raw(Box::new({qualified}::default()))").ok();
+    write!(out, "}}").ok();
+
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Field accessors
 // ---------------------------------------------------------------------------

@@ -2742,7 +2742,7 @@ mod tests {
             dto: Default::default(),
             sync: None,
             e2e: None,
-        trait_bridges: vec![],
+            trait_bridges: vec![],
         };
 
         let files = generate_docs(&api, &config, &[Language::Python], "docs").unwrap();

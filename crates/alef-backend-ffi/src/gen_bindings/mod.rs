@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use functions::{gen_free_function, gen_method_wrapper};
 use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
 use types::{
-    gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
+    gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_new,
+    gen_type_to_json,
 };
 
 pub struct FfiBackend;
@@ -177,6 +178,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             }
         }
         builder.add_item(&gen_type_free(typ, prefix, &core_import));
+        // Generate default constructor only for opaque types without an existing new() method
+        let has_new_method = typ.methods.iter().any(|m| m.name == "new");
+        if typ.is_opaque && !has_new_method {
+            builder.add_item(&gen_type_new(typ, prefix, &core_import));
+        }
 
         // Field accessors — skip sanitized fields (binding type differs from core)
         for field in &typ.fields {

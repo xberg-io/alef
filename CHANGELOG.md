@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-20
+
+### Added
+
+- Codegen: trait bridge code generation — auto-generate FFI bridges for Rust traits (PyO3 backend)
+- Codegen: shared `TraitBridgeGenerator` trait and `TraitBridgeSpec` for cross-backend bridge generation
+- Config: `[[trait_bridges]]` table for configuring trait bridge generation per trait
+- IR: `super_traits` field on `TypeDef` for trait inheritance tracking
+- IR: `has_default_impl` field on `MethodDef` for default method detection
+- IR: `CoreWrapper::ArcMutex` variant for `Arc<Mutex<T>>` wrapping
+- E2E: standalone mock server binary generation for cross-language e2e tests
+- E2E: WASM e2e spawns standalone mock server via `globalSetup`
+- E2E: `client_factory` override for WASM instance-method calls
+- E2E: `count_equals` and `is_true` assertion types across all language targets
+- Verify: blake3 output content hashing for idempotent verify
+
+### Fixed
+
+- PyO3: resolve `Named` types via `rust_path` lookup instead of constructing paths
+- PyO3: use `py.detach()` instead of removed `allow_threads` (PyO3 0.28 compat)
+- PyO3: fix 5 public API codegen bugs (python_safe_name, string escaping, param ordering, import filtering)
+- PyO3: re-export return types from native module, not `options.py`
+- NAPI: export enums as types for `verbatimModuleSyntax` compatibility
+- C#: rename `record` param to `Value` when it clashes with variant or type name
+- C#: add `using System` to `NativeMethods.cs` for `IntPtr`
+- Go: marshal non-opaque receivers to JSON instead of using `r.ptr`
+- Ruby: normalize dashes to underscores in ext dir paths, add extra `../` for native nesting
+- Rustler: use `_rustler` suffix instead of `_nif` for crate name and path
+- Codegen: don't apply Vec conversion on non-Vec enum variant fields
+- E2E: WASM `globalSetup` paths, `BigInt()` wrapping for u64/i64, `new` constructor usage
+- E2E: PHP async function naming, phpunit bump, namespace fixes
+- E2E: resolve `input` field correctly for `options_type` import detection
+- Scaffold: remove readme from scaffold output
+- Sync: version regex matches pre-release suffix to prevent double-append
+- Verify: write stubs manifest so output hashes cover stubs
+
 ## [0.4.1] - 2026-04-19
 
 ### Added

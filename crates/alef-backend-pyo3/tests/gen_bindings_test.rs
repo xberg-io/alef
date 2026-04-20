@@ -44,6 +44,8 @@ fn make_config() -> AlefConfig {
             stubs: None,
             features: None,
             serde_rename_all: None,
+            capsule_types: Default::default(),
+            release_gil: false,
         }),
         node: None,
         ruby: None,
@@ -69,7 +71,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     }
 }
 
@@ -1306,6 +1308,8 @@ fn test_return_type_exported_from_native_module_not_options() {
         }),
         features: None,
         serde_rename_all: None,
+        capsule_types: Default::default(),
+        release_gil: false,
     });
 
     let files = backend

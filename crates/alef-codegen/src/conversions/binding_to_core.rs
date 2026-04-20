@@ -479,9 +479,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::Named(_)) {
                 if optional {
-                    return format!(
-                        "{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"
-                    );
+                    return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
                 }
                 return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
             }
@@ -498,7 +496,11 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
     }
-    if !config.cast_large_ints_to_i64 && !config.cast_f32_to_f64 && !config.json_to_string && !config.vec_named_to_string {
+    if !config.cast_large_ints_to_i64
+        && !config.cast_f32_to_f64
+        && !config.json_to_string
+        && !config.vec_named_to_string
+    {
         return field_conversion_to_core(name, ty, optional);
     }
     // Cast mode: handle primitives and Duration differently
@@ -660,6 +662,20 @@ fn apply_core_wrapper_to_core(
                     conversion.to_string()
                 } else {
                     format!("{name}: ({expr}).into()")
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::ArcMutex => {
+            // ArcMutex: binding T → core Arc<Mutex<T>> via Arc::new(Mutex::new())
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(|v| std::sync::Arc::new(std::sync::Mutex::new(v.into())))")
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: std::sync::Arc::new(std::sync::Mutex::new(val.{name}.into()))")
+                } else {
+                    format!("{name}: std::sync::Arc::new(std::sync::Mutex::new(({expr}).into()))")
                 }
             } else {
                 conversion.to_string()

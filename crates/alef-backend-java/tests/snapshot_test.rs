@@ -301,7 +301,7 @@ fn print_generated_java_code() {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();

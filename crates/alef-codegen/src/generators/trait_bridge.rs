@@ -40,20 +40,12 @@ impl<'a> TraitBridgeSpec<'a> {
 
     /// Methods that are required (no default impl) — must be provided by the foreign object.
     pub fn required_methods(&self) -> Vec<&'a MethodDef> {
-        self.trait_def
-            .methods
-            .iter()
-            .filter(|m| !m.has_default_impl)
-            .collect()
+        self.trait_def.methods.iter().filter(|m| !m.has_default_impl).collect()
     }
 
     /// Methods that have a default impl — optional on the foreign object.
     pub fn optional_methods(&self) -> Vec<&'a MethodDef> {
-        self.trait_def
-            .methods
-            .iter()
-            .filter(|m| m.has_default_impl)
-            .collect()
+        self.trait_def.methods.iter().filter(|m| m.has_default_impl).collect()
     }
 }
 
@@ -114,10 +106,13 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     let foreign_type = generator.foreign_object_type();
     let mut out = String::with_capacity(512);
 
-    writeln!(out, "/// Wrapper that bridges a foreign {prefix} object to the `{trait_name}` trait.",
+    writeln!(
+        out,
+        "/// Wrapper that bridges a foreign {prefix} object to the `{trait_name}` trait.",
         prefix = spec.wrapper_prefix,
         trait_name = spec.trait_def.name,
-    ).ok();
+    )
+    .ok();
     writeln!(out, "pub struct {wrapper} {{").ok();
     writeln!(out, "    inner: {foreign_type},").ok();
     writeln!(out, "    cached_name: String,").ok();
@@ -176,7 +171,11 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out).ok();
 
     // initialize() -> Result<()> — delegate to foreign object
-    writeln!(out, "    fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{").ok();
+    writeln!(
+        out,
+        "    fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
+    )
+    .ok();
     let init_method = MethodDef {
         name: "initialize".to_string(),
         params: vec![],
@@ -201,7 +200,11 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out).ok();
 
     // shutdown() -> Result<()> — delegate to foreign object
-    writeln!(out, "    fn shutdown(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{").ok();
+    writeln!(
+        out,
+        "    fn shutdown(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
+    )
+    .ok();
     let shutdown_method = MethodDef {
         name: "shutdown".to_string(),
         params: vec![],
@@ -374,7 +377,11 @@ fn format_type_ref(ty: &alef_core::ir::TypeRef) -> String {
         TypeRef::Bytes => "Vec<u8>".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", format_type_ref(inner)),
         TypeRef::Vec(inner) => format!("Vec<{}>", format_type_ref(inner)),
-        TypeRef::Map(k, v) => format!("std::collections::HashMap<{}, {}>", format_type_ref(k), format_type_ref(v)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            format_type_ref(k),
+            format_type_ref(v)
+        ),
         TypeRef::Named(name) => name.clone(),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Unit => "()".to_string(),

@@ -12,6 +12,8 @@ pub enum CoreWrapper {
     Arc,
     /// `bytes::Bytes` — binding uses `Vec<u8>`, core needs `Bytes::from()`
     Bytes,
+    /// `Arc<Mutex<T>>` — binding wraps with `Arc::new(Mutex::new())`, methods call `.lock()`
+    ArcMutex,
 }
 
 /// Typed default value for a field, enabling backends to emit language-native defaults.

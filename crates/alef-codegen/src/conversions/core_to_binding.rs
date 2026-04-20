@@ -377,9 +377,7 @@ pub fn field_conversion_from_core_cfg(
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::Named(_)) {
                 if optional {
-                    return format!(
-                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())"
-                    );
+                    return format!("{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())");
                 }
                 return format!("{name}: serde_json::to_string(&val.{name}).unwrap_or_default()");
             }
@@ -691,6 +689,20 @@ fn apply_core_wrapper_from_core(
                     format!("{name}: {expr}.map(|v| v.to_vec())")
                 } else if expr == format!("val.{name}") {
                     format!("{name}: val.{name}.to_vec()")
+                } else {
+                    conversion.to_string()
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::ArcMutex => {
+            // Arc<Mutex<T>> → T: lock and clone
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(|v| v.lock().unwrap().clone().into())")
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: val.{name}.lock().unwrap().clone().into()")
                 } else {
                     conversion.to_string()
                 }

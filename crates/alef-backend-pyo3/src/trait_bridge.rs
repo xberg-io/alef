@@ -74,8 +74,16 @@ fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
     writeln!(out, "        Python::attach(|py| {{").unwrap();
     writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
     writeln!(out, "            if obj.hasattr(\"initialize\").unwrap_or(false) {{").unwrap();
-    writeln!(out, "                obj.call_method0(\"initialize\").map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-    writeln!(out, "                    message: format!(\"Plugin '{{}}' initialize failed: {{}}\", self.name, e),").unwrap();
+    writeln!(
+        out,
+        "                obj.call_method0(\"initialize\").map_err(|e| {ci}::KreuzbergError::Plugin {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                    message: format!(\"Plugin '{{}}' initialize failed: {{}}\", self.name, e),"
+    )
+    .unwrap();
     writeln!(out, "                    plugin_name: self.name.clone(),").unwrap();
     writeln!(out, "                }})?;").unwrap();
     writeln!(out, "            }}").unwrap();
@@ -87,8 +95,16 @@ fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
     writeln!(out, "        Python::attach(|py| {{").unwrap();
     writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
     writeln!(out, "            if obj.hasattr(\"shutdown\").unwrap_or(false) {{").unwrap();
-    writeln!(out, "                obj.call_method0(\"shutdown\").map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-    writeln!(out, "                    message: format!(\"Plugin '{{}}' shutdown failed: {{}}\", self.name, e),").unwrap();
+    writeln!(
+        out,
+        "                obj.call_method0(\"shutdown\").map_err(|e| {ci}::KreuzbergError::Plugin {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                    message: format!(\"Plugin '{{}}' shutdown failed: {{}}\", self.name, e),"
+    )
+    .unwrap();
     writeln!(out, "                    plugin_name: self.name.clone(),").unwrap();
     writeln!(out, "                }})?;").unwrap();
     writeln!(out, "            }}").unwrap();
@@ -137,7 +153,8 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashM
         TypeRef::Path if is_ref => "&std::path::Path".into(),
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
-            let qualified = tp.get(n.as_str())
+            let qualified = tp
+                .get(n.as_str())
                 .map(|p| p.replace('-', "_"))
                 .unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
@@ -261,12 +278,7 @@ fn gen_async_body(out: &mut String, method: &MethodDef, ci: &str) {
                 writeln!(out, "        let {0} = {0}.to_vec();", p.name).unwrap();
             }
             (TypeRef::Path, true) => {
-                writeln!(
-                    out,
-                    "        let {0}_str = {0}.to_string_lossy().to_string();",
-                    p.name
-                )
-                .unwrap();
+                writeln!(out, "        let {0}_str = {0}.to_string_lossy().to_string();", p.name).unwrap();
             }
             (TypeRef::Named(n), true) if n == "OcrConfig" => {
                 writeln!(out, "        let language = {}.language.clone();", p.name).unwrap();
@@ -304,19 +316,35 @@ fn gen_async_body(out: &mut String, method: &MethodDef, ci: &str) {
         // Complex return: Python returns dict, convert via serde JSON
         writeln!(out, "                let py_result = {call}").unwrap();
         writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-        writeln!(out, "                        message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").unwrap();
+        writeln!(
+            out,
+            "                        message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+        )
+        .unwrap();
         writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
         writeln!(out, "                    }})?;").unwrap();
         writeln!(out, "                let json_val: String = py").unwrap();
         writeln!(out, "                    .import(\"json\")").unwrap();
-        writeln!(out, "                    .and_then(|m| m.call_method1(\"dumps\", (py_result,)))").unwrap();
+        writeln!(
+            out,
+            "                    .and_then(|m| m.call_method1(\"dumps\", (py_result,)))"
+        )
+        .unwrap();
         writeln!(out, "                    .and_then(|v| v.extract())").unwrap();
         writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
         writeln!(out, "                        message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),").unwrap();
         writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
         writeln!(out, "                    }})?;").unwrap();
-        writeln!(out, "                serde_json::from_str(&json_val).map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-        writeln!(out, "                    message: format!(\"Plugin '{{}}': deserialization failed: {{}}\", cached_name, e),").unwrap();
+        writeln!(
+            out,
+            "                serde_json::from_str(&json_val).map_err(|e| {ci}::KreuzbergError::Plugin {{"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "                    message: format!(\"Plugin '{{}}': deserialization failed: {{}}\", cached_name, e),"
+        )
+        .unwrap();
         writeln!(out, "                    plugin_name: cached_name.clone(),").unwrap();
         writeln!(out, "                }})").unwrap();
     } else {
@@ -342,31 +370,19 @@ fn gen_async_body(out: &mut String, method: &MethodDef, ci: &str) {
     writeln!(out, "        }})").unwrap();
     writeln!(out, "        .await").unwrap();
     writeln!(out, "        .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-    writeln!(
-        out,
-        "            message: format!(\"spawn_blocking failed: {{}}\", e),"
-    )
-    .unwrap();
+    writeln!(out, "            message: format!(\"spawn_blocking failed: {{}}\", e),").unwrap();
     writeln!(out, "            plugin_name: self.name.clone(),").unwrap();
     writeln!(out, "        }})?").unwrap();
 }
 
 fn write_error_map(out: &mut String, method_name: &str, ci: &str, name_expr: &str) {
-    writeln!(
-        out,
-        "                .map_err(|e| {ci}::KreuzbergError::Plugin {{"
-    )
-    .unwrap();
+    writeln!(out, "                .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
     writeln!(
         out,
         "                    message: format!(\"Plugin '{{}}' method '{method_name}' failed: {{}}\", {name_expr}, e),"
     )
     .unwrap();
-    writeln!(
-        out,
-        "                    plugin_name: {name_expr}.clone(),"
-    )
-    .unwrap();
+    writeln!(out, "                    plugin_name: {name_expr}.clone(),").unwrap();
     writeln!(out, "                }})").unwrap();
 }
 
@@ -421,11 +437,7 @@ fn extract_ty(ty: &TypeRef) -> String {
         TypeRef::Optional(inner) => format!("Option<{}>", extract_ty(inner)),
         TypeRef::Named(name) => name.clone(),
         TypeRef::Unit => "()".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            extract_ty(k),
-            extract_ty(v)
-        ),
+        TypeRef::Map(k, v) => format!("std::collections::HashMap<{}, {}>", extract_ty(k), extract_ty(v)),
         TypeRef::Json => "String".into(),
         TypeRef::Duration => "u64".into(),
     }
@@ -435,21 +447,7 @@ fn is_named(ty: &TypeRef) -> bool {
     matches!(ty, TypeRef::Named(_))
 }
 
-fn collect_named_types(ty: &TypeRef, out: &mut std::collections::HashSet<String>) {
-    match ty {
-        TypeRef::Named(n) => { out.insert(n.clone()); }
-        TypeRef::Vec(inner) | TypeRef::Optional(inner) => collect_named_types(inner, out),
-        TypeRef::Map(k, v) => { collect_named_types(k, out); collect_named_types(v, out); }
-        _ => {}
-    }
-}
-
-fn gen_registration_fn(
-    out: &mut String,
-    cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    trait_path: &str,
-) {
+fn gen_registration_fn(out: &mut String, cfg: &TraitBridgeConfig, struct_name: &str, trait_path: &str) {
     let register_fn = &cfg.register_fn;
     let registry_getter = &cfg.registry_getter;
     let trait_name = &cfg.trait_name;
@@ -481,23 +479,19 @@ fn gen_registration_fn(
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
+    writeln!(out, "    let name: String = obj.call_method0(\"name\")?.extract()?;").unwrap();
     writeln!(
         out,
-        "    let name: String = obj.call_method0(\"name\")?.extract()?;"
+        "    let supported_languages: Vec<String> = obj.call_method0(\"supported_languages\")?.extract()?;"
     )
     .unwrap();
-    writeln!(out, "    let supported_languages: Vec<String> = obj.call_method0(\"supported_languages\")?.extract()?;").unwrap();
     writeln!(out).unwrap();
     writeln!(
         out,
         "    let wrapper = {struct_name} {{ python_obj: backend, name, supported_languages }};"
     )
     .unwrap();
-    writeln!(
-        out,
-        "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);"
-    )
-    .unwrap();
+    writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "    py.detach(|| {{").unwrap();
     writeln!(out, "        let registry = {registry_getter}();").unwrap();
@@ -507,11 +501,7 @@ fn gen_registration_fn(
         "        registry.register(arc).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
     )
     .unwrap();
-    writeln!(
-        out,
-        "            format!(\"Failed to register {trait_name}: {{}}\", e)"
-    )
-    .unwrap();
+    writeln!(out, "            format!(\"Failed to register {trait_name}: {{}}\", e)").unwrap();
     writeln!(out, "        ))").unwrap();
     writeln!(out, "    }})?;").unwrap();
     writeln!(out, "    Ok(())").unwrap();

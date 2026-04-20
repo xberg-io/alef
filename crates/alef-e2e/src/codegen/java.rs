@@ -729,10 +729,7 @@ fn render_assertion(
             }
         }
         "is_true" => {
-            let _ = writeln!(
-                out,
-                "        assertTrue({field_expr}, \"expected true\");"
-            );
+            let _ = writeln!(out, "        assertTrue({field_expr}, \"expected true\");");
         }
         "not_error" => {
             // Already handled by the call succeeding without exception.

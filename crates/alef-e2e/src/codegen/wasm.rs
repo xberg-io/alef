@@ -276,7 +276,11 @@ fn render_test_file(
                 if arg.arg_type != "json_object" {
                     return false;
                 }
-                let val = if arg.field == "input" { Some(&f.input) } else { f.input.get(&arg.field) };
+                let val = if arg.field == "input" {
+                    Some(&f.input)
+                } else {
+                    f.input.get(&arg.field)
+                };
                 val.is_some_and(|v| !v.is_null())
             })
         });
@@ -287,7 +291,11 @@ fn render_test_file(
         for fixture in fixtures {
             for arg in args {
                 if arg.arg_type == "json_object" {
-                    let val = if arg.field == "input" { Some(&fixture.input) } else { fixture.input.get(&arg.field) };
+                    let val = if arg.field == "input" {
+                        Some(&fixture.input)
+                    } else {
+                        fixture.input.get(&arg.field)
+                    };
                     if let Some(val) = val {
                         if let Some(obj) = val.as_object() {
                             for k in obj.keys() {
@@ -383,8 +391,15 @@ fn render_test_case(
     let await_kw = if is_async { "await " } else { "" };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let (setup_lines, arg_parts) =
-        build_args_and_setup(&fixture.input, args, options_type, enum_fields, &fixture.id, handle_config_type, bigint_fields);
+    let (setup_lines, arg_parts) = build_args_and_setup(
+        &fixture.input,
+        args,
+        options_type,
+        enum_fields,
+        &fixture.id,
+        handle_config_type,
+        bigint_fields,
+    );
     let args_str = arg_parts.join(", ");
 
     // Build the call expression — either `client.method(args)` or `method(args)`
@@ -527,9 +542,7 @@ fn build_args_and_setup(
                                     } else {
                                         json_to_js(field_val)
                                     }
-                                } else if bigint_fields.iter().any(|f| f == &camel_key)
-                                    && field_val.is_number()
-                                {
+                                } else if bigint_fields.iter().any(|f| f == &camel_key) && field_val.is_number() {
                                     format!("BigInt({})", json_to_js(field_val))
                                 } else {
                                     json_to_js(field_val)

@@ -1761,14 +1761,12 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         // Also treat single named-field variants whose parameter was renamed to "Value" (clash with
         // the variant name or the field's own type name) the same way.
         let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
-        let is_named_clash_newtype = variant.fields.len() == 1
-            && !is_tuple_field(&variant.fields[0])
-            && {
-                let f = &variant.fields[0];
-                let cs_type = csharp_type(&f.ty);
-                let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
-                cs_name == pascal || cs_name == cs_type
-            };
+        let is_named_clash_newtype = variant.fields.len() == 1 && !is_tuple_field(&variant.fields[0]) && {
+            let f = &variant.fields[0];
+            let cs_type = csharp_type(&f.ty);
+            let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
+            cs_name == pascal || cs_name == cs_type
+        };
         let is_newtype = is_tuple_newtype || is_named_clash_newtype;
         if is_newtype {
             let inner_cs_type = csharp_type(&variant.fields[0].ty);
@@ -1818,14 +1816,12 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         // Also applies to single named-field variants whose parameter was renamed to "Value" due
         // to a clash with the variant name or the field's own type name.
         let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
-        let is_named_clash_newtype = variant.fields.len() == 1
-            && !is_tuple_field(&variant.fields[0])
-            && {
-                let f = &variant.fields[0];
-                let cs_type = csharp_type(&f.ty);
-                let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
-                cs_name == pascal || cs_name == cs_type
-            };
+        let is_named_clash_newtype = variant.fields.len() == 1 && !is_tuple_field(&variant.fields[0]) && {
+            let f = &variant.fields[0];
+            let cs_type = csharp_type(&f.ty);
+            let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
+            cs_name == pascal || cs_name == cs_type
+        };
         let is_newtype = is_tuple_newtype || is_named_clash_newtype;
         out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
         out.push_str("            {\n");

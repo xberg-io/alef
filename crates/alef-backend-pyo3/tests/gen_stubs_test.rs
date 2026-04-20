@@ -47,6 +47,8 @@ fn make_config_with_stubs() -> AlefConfig {
             }),
             features: None,
             serde_rename_all: None,
+            capsule_types: Default::default(),
+            release_gil: false,
         }),
         node: None,
         ruby: None,
@@ -72,7 +74,7 @@ fn make_config_with_stubs() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
-    trait_bridges: vec![],
+        trait_bridges: vec![],
     }
 }
 

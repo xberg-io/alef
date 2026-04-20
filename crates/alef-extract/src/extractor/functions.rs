@@ -6,17 +6,12 @@ use syn;
 use crate::type_resolver;
 
 use super::defaults::extract_default_values;
-use super::helpers::{
-    build_rust_path, extract_cfg_condition, extract_doc_comments, has_cfg_attribute, unwrap_optional,
-};
+use super::helpers::{build_rust_path, extract_cfg_condition, extract_doc_comments, unwrap_optional};
 
 /// Extract a public free function into a `FunctionDef`.
 /// Returns `None` for generic functions — they can't be directly exposed to FFI.
 pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path: &str) -> Option<FunctionDef> {
     if !item.sig.generics.params.is_empty() {
-        return None;
-    }
-    if has_cfg_attribute(&item.attrs) {
         return None;
     }
     let cfg = extract_cfg_condition(&item.attrs);
@@ -87,10 +82,6 @@ pub(crate) fn extract_impl_block(
                 if super::helpers::is_pub(&method.vis) {
                     // Skip generic methods — they can't be directly exposed to FFI
                     if !method.sig.generics.params.is_empty() {
-                        return None;
-                    }
-                    // Skip feature-gated methods — they may not be available in binding crates
-                    if has_cfg_attribute(&method.attrs) {
                         return None;
                     }
                     // Skip methods named "new" that return Self — constructor already generated from fields
@@ -232,10 +223,6 @@ pub(crate) fn extract_trait_impl_methods(
         if let syn::ImplItem::Fn(method) = impl_item {
             // Skip generic methods — they can't be directly exposed to FFI
             if !method.sig.generics.params.is_empty() {
-                continue;
-            }
-            // Skip feature-gated methods
-            if has_cfg_attribute(&method.attrs) {
                 continue;
             }
             let method_def = extract_method(
