@@ -240,13 +240,29 @@ impl Backend for Pyo3Backend {
             }
         }
         for f in &api.functions {
-            builder.add_item(&generators::gen_function(
-                f,
-                &mapper,
-                &cfg,
-                &adapter_bodies,
-                &opaque_types,
-            ));
+            // Check whether any parameter's type matches a trait bridge type_alias.
+            // When it does, generate a bridge-aware function instead of the generic one.
+            let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
+            if let Some((param_idx, bridge_cfg)) = bridge_param {
+                builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                    f,
+                    param_idx,
+                    bridge_cfg,
+                    &mapper,
+                    &cfg,
+                    &adapter_bodies,
+                    &opaque_types,
+                    &core_import,
+                ));
+            } else {
+                builder.add_item(&generators::gen_function(
+                    f,
+                    &mapper,
+                    &cfg,
+                    &adapter_bodies,
+                    &opaque_types,
+                ));
+            }
         }
 
         // Trait bridge wrappers — generate PyO3 bridge structs that delegate to Python objects

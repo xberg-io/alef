@@ -124,18 +124,25 @@ fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
 }
 
 fn resolve_function_name(e2e_config: &E2eConfig) -> String {
-    e2e_config
-        .call
+    resolve_function_name_for_call(&e2e_config.call)
+}
+
+fn resolve_function_name_for_call(call_config: &crate::config::CallConfig) -> String {
+    call_config
         .overrides
         .get("rust")
         .and_then(|o| o.function.clone())
-        .unwrap_or_else(|| e2e_config.call.function.clone())
+        .unwrap_or_else(|| call_config.function.clone())
 }
 
 fn resolve_module(e2e_config: &E2eConfig, dep_name: &str) -> String {
+    resolve_module_for_call(&e2e_config.call, dep_name)
+}
+
+fn resolve_module_for_call(call_config: &crate::config::CallConfig, dep_name: &str) -> String {
     // For Rust, the module name is the crate identifier (underscores).
     // Priority: override.crate_name > override.module > dep_name
-    let overrides = e2e_config.call.overrides.get("rust");
+    let overrides = call_config.overrides.get("rust");
     overrides
         .and_then(|o| o.crate_name.clone())
         .or_else(|| overrides.and_then(|o| o.module.clone()))

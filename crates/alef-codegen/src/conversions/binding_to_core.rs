@@ -474,15 +474,15 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
     }
 
-    // Vec<Named>→String binding→core: binding holds JSON string, core expects Vec<T>
+    // Vec<T>→String binding→core: binding holds JSON string, core expects Vec<T>.
+    // field_type_for_serde collapses any Vec<T> not explicitly handled (including Vec<String>,
+    // Vec<Named>, etc.) to String. Apply serde round-trip for all Vec types.
     if config.vec_named_to_string {
-        if let TypeRef::Vec(inner) = ty {
-            if matches!(inner.as_ref(), TypeRef::Named(_)) {
-                if optional {
-                    return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
-                }
-                return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
+        if let TypeRef::Vec(_) = ty {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
             }
+            return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
         }
     }
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)

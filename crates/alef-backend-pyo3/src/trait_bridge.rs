@@ -26,6 +26,111 @@ pub fn gen_trait_bridge(
         .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
         .collect();
 
+    // Determine bridge pattern: visitor-style (all methods have defaults, no registry) vs
+    // plugin-style (cached fields, registry, super-trait).
+    let is_visitor_bridge = bridge_cfg.type_alias.is_some()
+        && bridge_cfg.register_fn.is_none()
+        && bridge_cfg.super_trait.is_none()
+        && trait_type.methods.iter().all(|m| m.has_default_impl);
+
+    if is_visitor_bridge {
+        gen_visitor_bridge(&mut out, trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+    } else {
+        gen_plugin_bridge(
+            &mut out,
+            trait_type,
+            bridge_cfg,
+            &struct_name,
+            &trait_path,
+            core_import,
+            &type_paths,
+        );
+    }
+
+    out
+}
+
+/// Generate a visitor-style bridge: thin wrapper over `Py<PyAny>` where every trait method
+/// tries to call the corresponding Python method, falling back to the default if absent.
+///
+/// This pattern is used for traits where:
+/// - All methods have default implementations (e.g., `HtmlVisitor`)
+/// - No registration function is needed (per-call construction via `type_alias`)
+/// - No super-trait forwarding
+fn gen_visitor_bridge(
+    out: &mut String,
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    struct_name: &str,
+    trait_path: &str,
+    type_paths: &std::collections::HashMap<&str, &str>,
+) {
+    let core_crate = trait_path
+        .split("::")
+        .next()
+        .unwrap_or("html_to_markdown_rs")
+        .to_string();
+
+    // Emit a helper function for converting NodeContext to a Python dict.
+    // This is emitted once per visitor bridge (always alongside it).
+    writeln!(out, "fn nodecontext_to_py_dict<'py>(").unwrap();
+    writeln!(out, "    py: Python<'py>,").unwrap();
+    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
+    writeln!(out, ") -> pyo3::Bound<'py, pyo3::types::PyDict> {{").unwrap();
+    writeln!(out, "    let d = pyo3::types::PyDict::new(py);").unwrap();
+    writeln!(out, "    d.set_item(\"node_type\", format!(\"{{:?}}\", ctx.node_type)).unwrap_or(());").unwrap();
+    writeln!(out, "    d.set_item(\"tag_name\", &ctx.tag_name).unwrap_or(());").unwrap();
+    writeln!(out, "    d.set_item(\"depth\", ctx.depth).unwrap_or(());").unwrap();
+    writeln!(out, "    d.set_item(\"index_in_parent\", ctx.index_in_parent).unwrap_or(());").unwrap();
+    writeln!(out, "    d.set_item(\"is_inline\", ctx.is_inline).unwrap_or(());").unwrap();
+    writeln!(out, "    d.set_item(\"parent_tag\", ctx.parent_tag.as_deref()).unwrap_or(());").unwrap();
+    writeln!(out, "    let attrs = pyo3::types::PyDict::new(py);").unwrap();
+    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
+    writeln!(out, "        attrs.set_item(k, v).unwrap_or(());").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    d.set_item(\"attributes\", attrs).unwrap_or(());").unwrap();
+    writeln!(out, "    d").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // Struct with only the Python object — no cached fields needed
+    writeln!(out, "#[derive(Debug)]").unwrap();
+    writeln!(out, "pub struct {struct_name} {{").unwrap();
+    writeln!(out, "    python_obj: Py<PyAny>,").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // Constructor
+    writeln!(out, "impl {struct_name} {{").unwrap();
+    writeln!(out, "    pub fn new(python_obj: Py<PyAny>) -> Self {{").unwrap();
+    writeln!(out, "        Self {{ python_obj }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // Trait impl — all methods try Python dispatch, fall back to Continue
+    let _ = &bridge_cfg.trait_name;
+    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
+    for method in &trait_type.methods {
+        if method.trait_source.is_some() {
+            continue;
+        }
+        gen_visitor_method(out, method, trait_path, type_paths);
+    }
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+}
+
+/// Generate a plugin-style bridge: cached fields, optional super-trait, optional registration fn.
+fn gen_plugin_bridge(
+    out: &mut String,
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    struct_name: &str,
+    trait_path: &str,
+    core_import: &str,
+    type_paths: &std::collections::HashMap<&str, &str>,
+) {
     // Wrapper struct with cached fields
     writeln!(out, "pub struct {struct_name} {{").unwrap();
     writeln!(out, "    python_obj: Py<PyAny>,").unwrap();
@@ -36,7 +141,7 @@ pub fn gen_trait_bridge(
 
     // Plugin super-trait impl
     if bridge_cfg.super_trait.is_some() {
-        gen_plugin_impl(&mut out, &struct_name, core_import);
+        gen_plugin_impl(out, struct_name, core_import);
     }
 
     // Main trait impl
@@ -46,17 +151,15 @@ pub fn gen_trait_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_method(&mut out, method, core_import, &type_paths);
+        gen_method(out, method, core_import, type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
     // Registration function — only generated when register_fn is configured
     if bridge_cfg.register_fn.is_some() {
-        gen_registration_fn(&mut out, bridge_cfg, &struct_name, &trait_path);
+        gen_registration_fn(out, bridge_cfg, struct_name, trait_path);
     }
-
-    out
 }
 
 fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
@@ -115,6 +218,155 @@ fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+}
+
+/// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
+///
+/// For each method the generated code:
+/// 1. Checks if the Python object has an attribute with this method's name.
+/// 2. If yes, calls the method with converted arguments and converts the Python return value
+///    to the appropriate Rust return type.
+/// 3. If no (attribute absent), returns the trait default (typically `VisitResult::Continue`).
+fn gen_visitor_method(
+    out: &mut String,
+    method: &MethodDef,
+    _trait_path: &str,
+    type_paths: &std::collections::HashMap<&str, &str>,
+) {
+    use alef_core::ir::TypeRef;
+
+    let name = &method.name;
+
+    // Build the &mut self signature using the same helper used for plugin methods
+    let mut sig_parts = vec!["&mut self".to_string()];
+    for p in &method.params {
+        sig_parts.push(format!("{}: {}", p.name, param_type(&p.ty, "", p.is_ref, type_paths)));
+    }
+    let sig = sig_parts.join(", ");
+
+    // Determine the return type for this visitor method.
+    // All HtmlVisitor methods return VisitResult (a Named type from the core crate).
+    // Use the fully-qualified path from type_paths when available.
+    let ret_ty = match &method.return_type {
+        TypeRef::Named(n) => type_paths
+            .get(n.as_str())
+            .map(|p| p.replace('-', "_"))
+            .unwrap_or_else(|| n.clone()),
+        other => param_type(other, "", false, type_paths),
+    };
+
+    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
+    writeln!(out, "        Python::attach(|py| {{").unwrap();
+    writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
+    writeln!(out, "            if !obj.hasattr(\"{name}\").unwrap_or(false) {{").unwrap();
+    writeln!(out, "                return {ret_ty}::Continue;").unwrap();
+    writeln!(out, "            }}").unwrap();
+
+    // Build argument expressions for the Python call
+    let py_args = build_visitor_py_args(method);
+
+    let call = if py_args.is_empty() {
+        format!("obj.call_method0(\"{name}\")")
+    } else {
+        format!("obj.call_method1(\"{name}\", ({py_args}))")
+    };
+
+    // Call the Python method and convert the result
+    writeln!(out, "            match {call} {{").unwrap();
+    writeln!(out, "                Err(_) => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "                Ok(result) => {{").unwrap();
+    // Try to extract as string first
+    writeln!(out, "                    if let Ok(s) = result.extract::<String>() {{").unwrap();
+    writeln!(out, "                        match s.to_lowercase().as_str() {{").unwrap();
+    writeln!(out, "                            \"continue\" => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "                            \"skip\" => {ret_ty}::Skip,").unwrap();
+    writeln!(
+        out,
+        "                            \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
+    )
+    .unwrap();
+    writeln!(out, "                            other => {ret_ty}::Custom(other.to_string()),").unwrap();
+    writeln!(out, "                        }}").unwrap();
+    writeln!(out, "                    }} else if result.is_none() {{").unwrap();
+    writeln!(out, "                        {ret_ty}::Continue").unwrap();
+    writeln!(out, "                    }} else {{").unwrap();
+    // Try dict protocol: {"custom": "..."} or {"error": "..."}
+    writeln!(out, "                        let py_dict = result.downcast::<pyo3::types::PyDict>();").unwrap();
+    writeln!(out, "                        if let Ok(d) = py_dict {{").unwrap();
+    writeln!(
+        out,
+        "                            if let Some(v) = d.get_item(\"custom\").ok().flatten() {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                                {ret_ty}::Custom(v.extract::<String>().unwrap_or_default())"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                            }} else if let Some(v) = d.get_item(\"error\").ok().flatten() {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                                {ret_ty}::Error(v.extract::<String>().unwrap_or_default())"
+    )
+    .unwrap();
+    writeln!(out, "                            }} else {{").unwrap();
+    writeln!(out, "                                {ret_ty}::Continue").unwrap();
+    writeln!(out, "                            }}").unwrap();
+    writeln!(out, "                        }} else {{").unwrap();
+    writeln!(out, "                            {ret_ty}::Continue").unwrap();
+    writeln!(out, "                        }}").unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(out, "                }}").unwrap();
+    writeln!(out, "            }}").unwrap();
+    writeln!(out, "        }})").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out).unwrap();
+}
+
+/// Build Python call argument expressions for a visitor method.
+///
+/// - `NodeContext` params: converted to a Python dict via `nodecontext_to_py_dict`
+/// - `&str` params: passed directly (PyO3 handles `&str` → Python str coercion)
+/// - `Option<&str>` params: passed as `Option<&str>` (PyO3 maps `None` → Python `None`)
+/// - `bool` and integer params: passed directly
+/// - `&[String]` / `Vec<String>` params: passed as Python lists
+fn build_visitor_py_args(method: &MethodDef) -> String {
+    use alef_core::ir::TypeRef;
+    let args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| match (&p.ty, p.is_ref) {
+            // NodeContext: convert to Python dict
+            (TypeRef::Named(n), true) if n == "NodeContext" => {
+                format!("nodecontext_to_py_dict(py, {})", p.name)
+            }
+            (TypeRef::Named(n), false) if n == "NodeContext" => {
+                format!("nodecontext_to_py_dict(py, &{})", p.name)
+            }
+            // Vec<String> (cells in table row): pass as list
+            (TypeRef::Vec(inner), _) if matches!(inner.as_ref(), TypeRef::String) => {
+                format!("{}.to_vec()", p.name)
+            }
+            // Option<&str>: pass directly
+            (TypeRef::Optional(inner), _) if matches!(inner.as_ref(), TypeRef::String) => {
+                p.name.clone()
+            }
+            // &str: pass directly
+            (TypeRef::String, true) => p.name.clone(),
+            (TypeRef::String, false) => format!("{}.as_str()", p.name),
+            // Primitives (bool, usize, u32, etc.): pass directly
+            _ => p.name.clone(),
+        })
+        .collect();
+    if args.len() == 1 {
+        format!("{},", args[0])
+    } else {
+        args.join(", ")
+    }
 }
 
 fn gen_method(out: &mut String, method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) {
@@ -533,4 +785,292 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
         "use pyo3::prelude::*;",
         "use std::sync::Arc;",
     ]
+}
+
+/// Find the first parameter index and bridge config where the parameter's named type
+/// matches a trait bridge's `type_alias`.
+///
+/// Returns `None` when no bridge applies.
+pub fn find_bridge_param<'a>(
+    func: &alef_core::ir::FunctionDef,
+    bridges: &'a [TraitBridgeConfig],
+) -> Option<(usize, &'a TraitBridgeConfig)> {
+    for (idx, param) in func.params.iter().enumerate() {
+        let named = match &param.ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    Some(n.as_str())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(name) = named {
+            for bridge in bridges {
+                if bridge.type_alias.as_deref() == Some(name) {
+                    return Some((idx, bridge));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Generate a PyO3 free function that has one parameter replaced by `Py<PyAny>` (a trait bridge).
+///
+/// The bridge param becomes `Option<Py<PyAny>>` (or `Py<PyAny>` if not optional).
+/// Before calling the core function the bridge is constructed:
+/// ```rust
+/// let visitor = visitor.map(|v| {
+///     let bridge = PyHtmlVisitorBridge::new(v);
+///     std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
+/// });
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_function(
+    func: &alef_core::ir::FunctionDef,
+    bridge_param_idx: usize,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    cfg: &alef_codegen::generators::RustBindingConfig<'_>,
+    adapter_bodies: &alef_codegen::generators::AdapterBodies,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use alef_codegen::generators::AsyncPattern;
+    use alef_core::ir::TypeRef;
+
+    let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+
+    // Determine the VisitorHandle type alias path in the core crate.
+    // Convention: the visitor module is always `{core_import}::visitor::VisitorHandle`.
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+
+    // Build the param name for the bridge param
+    let param_name = &func.params[bridge_param_idx].name;
+    let is_optional = matches!(
+        &func.params[bridge_param_idx].ty,
+        TypeRef::Optional(_)
+    );
+
+    // Use gen_function to produce the "base" function, then intercept:
+    // We generate a modified version manually because we need to replace the
+    // signature type and inject pre-call wrapping code.
+
+    // Build parameter list for the generated signature, replacing the bridge param
+    let mut sig_parts = Vec::new();
+    // For async Pyo3, first param is `py: Python<'py>`
+    let func_needs_py =
+        func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    if func_needs_py {
+        sig_parts.push("py: Python<'py>".to_string());
+    }
+
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == bridge_param_idx {
+            // Replace with Py<PyAny>
+            if is_optional {
+                sig_parts.push(format!("{}: Option<Py<PyAny>>", p.name));
+            } else {
+                sig_parts.push(format!("{}: Py<PyAny>", p.name));
+            }
+        } else {
+            // Use the standard type mapping with optional promotion
+            let promoted = idx > bridge_param_idx
+                || func.params[..idx].iter().any(|pp| pp.optional);
+            let ty = if p.optional || promoted {
+                format!("Option<{}>", mapper.map_type(&p.ty))
+            } else {
+                mapper.map_type(&p.ty)
+            };
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+    }
+
+    let params_str = sig_parts.join(", ");
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let ret = if func_needs_py {
+        "PyResult<Bound<'py, PyAny>>".to_string()
+    } else {
+        ret
+    };
+    let lifetime = if func_needs_py { "<'py>" } else { "" };
+
+    // Build the call args for the core function call
+    // Reuse gen_function's body but via adapter injection: construct the adapter body manually.
+    // The bridge wrapping code goes before the regular body.
+
+    // Build the pre-call wrapping let-binding
+    let bridge_wrap = if is_optional {
+        format!(
+            "let {param_name} = {param_name}.map(|v| {{\n        \
+             let bridge = {struct_name}::new(v);\n        \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             }});"
+        )
+    } else {
+        format!(
+            "let {param_name} = {{\n        \
+             let bridge = {struct_name}::new({param_name});\n        \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             }};"
+        )
+    };
+
+    // Temporarily inject an adapter body that starts with the bridge wrap,
+    // then delegates normally. We compose the full body here.
+
+    // For the regular call args (non-bridge params), reuse the standard logic.
+    // We need to also handle the serde-based options conversion.
+    // The simplest correct approach: inject the bridge wrap as a preamble, then
+    // call gen_function with an adapter body that includes this preamble plus
+    // the standard serde-based conversion code.
+
+    // Build standard call args the same way gen_function does via serde path
+    // (since ConversionOptions has serde, and has_named_params will be true)
+    let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
+
+    // Generate serde let-bindings for non-bridge Named params
+    let serde_bindings: String = func.params.iter().enumerate().filter(|(idx, p)| {
+        // Skip the bridge param — it's handled separately
+        if *idx == bridge_param_idx {
+            return false;
+        }
+        // Only process Named or Optional<Named> types that are not opaque
+        let named = match &p.ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+            }
+            _ => None,
+        };
+        named.is_some_and(|n| !opaque_types.contains(n))
+    }).map(|(_, p)| {
+        let name = &p.name;
+        let core_path = format!("{core_import}::{}", match &p.ty {
+            TypeRef::Named(n) => n.clone(),
+            TypeRef::Optional(inner) => if let TypeRef::Named(n) = inner.as_ref() { n.clone() } else { String::new() },
+            _ => String::new(),
+        });
+        if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+            format!(
+                "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
+                 let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
+                 serde_json::from_str(&json){serde_err_conv}\n    \
+                 }}).transpose()?;\n    "
+            )
+        } else {
+            format!(
+                "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?;\n    \
+                 let {name}_core: {core_path} = serde_json::from_str(&{name}_json){serde_err_conv}?;\n    "
+            )
+        }
+    }).collect();
+
+    // Build the core function call args
+    let call_args: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
+        if idx == bridge_param_idx {
+            return p.name.clone();
+        }
+        match &p.ty {
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                if p.optional {
+                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                } else {
+                    format!("&{}.inner", p.name)
+                }
+            }
+            // Non-opaque Named or Optional<Named>: use the _core let-binding
+            TypeRef::Named(_) => format!("{}_core", p.name),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    if opaque_types.contains(n.as_str()) {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("{}_core", p.name)
+                    }
+                } else {
+                    p.name.clone()
+                }
+            }
+            TypeRef::String | TypeRef::Char => {
+                if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            _ => p.name.clone(),
+        }
+    }).collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    // Build the return expression
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{serde_err_conv}")
+        } else {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){serde_err_conv}")
+        }
+    } else {
+        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
+    };
+
+    // Build signature with pyo3 attributes
+    let attr_inner = cfg
+        .function_attr
+        .trim_start_matches('#')
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+
+    let mut out = String::with_capacity(1024);
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[{attr_inner}]").ok();
+    if cfg.needs_signature {
+        // Build signature with the bridge param showing as optional py object
+        let sig_defaults: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
+            if idx == bridge_param_idx {
+                if is_optional { format!("{}=None", p.name) } else { String::new() }
+            } else if p.optional {
+                format!("{}=None", p.name)
+            } else {
+                String::new()
+            }
+        }).filter(|s| !s.is_empty()).collect();
+        let sig_str = sig_defaults.join(", ");
+        writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
+    }
+    let func_name = &func.name;
+    writeln!(out, "pub fn {func_name}{lifetime}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    // Suppress unused adapter_bodies warning
+    let _ = adapter_bodies;
+
+    out
 }

@@ -21,4 +21,11 @@ pub struct TraitBridgeConfig {
     /// When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).
     #[serde(default)]
     pub register_fn: Option<String>,
+    /// Named type alias in the IR that maps to this bridge (e.g., `"VisitorHandle"`).
+    ///
+    /// When a function parameter has a `TypeRef::Named` matching this alias, code
+    /// generators replace the parameter type with the language-native callback object
+    /// (e.g., `Py<PyAny>` for Python) and emit wrapping code to construct the bridge.
+    #[serde(default)]
+    pub type_alias: Option<String>,
 }
