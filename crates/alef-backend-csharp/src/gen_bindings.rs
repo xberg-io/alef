@@ -1688,12 +1688,14 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             // Unit variant → sealed record with no fields
             out.push_str(&format!("    public sealed record {pascal}() : {enum_pascal};\n\n"));
         } else {
-            // CS8910: when a newtype tuple variant wraps a type with the same name as the variant
+            // CS8910: when a single-field variant has a parameter whose TYPE equals the record name
             // (e.g., record ImageUrl(ImageUrl Value)), the primary constructor conflicts with the
             // synthesized copy constructor. Use a property-based record body instead.
-            let is_copy_ctor_clash = variant.fields.len() == 1
-                && is_tuple_field(&variant.fields[0])
-                && csharp_type(&variant.fields[0].ty) == pascal;
+            // This applies to both tuple fields and named fields that get renamed to "Value".
+            let is_copy_ctor_clash = variant.fields.len() == 1 && {
+                let field_cs_type = csharp_type(&variant.fields[0].ty);
+                field_cs_type.as_ref() == pascal
+            };
 
             if is_copy_ctor_clash {
                 let cs_type = csharp_type(&variant.fields[0].ty);

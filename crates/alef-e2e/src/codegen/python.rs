@@ -371,7 +371,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
                     if let Some(obj) = config_value.as_object() {
                         for key in obj.keys() {
                             if let Some(type_name) = handle_nested_types.get(key) {
-                                if obj[key].is_object() && !obj[key].as_object().unwrap().is_empty() {
+                                if obj[key].is_object() {
                                     used_nested_types.insert(type_name.clone());
                                 }
                             }
@@ -932,13 +932,13 @@ fn render_assertion(
                 let _ = writeln!(out, "    assert {field_access} < {expected}  # noqa: S101");
             }
         }
-        "greater_than_or_equal" => {
+        "greater_than_or_equal" | "min" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
                 let _ = writeln!(out, "    assert {field_access} >= {expected}  # noqa: S101");
             }
         }
-        "less_than_or_equal" => {
+        "less_than_or_equal" | "max" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
                 let _ = writeln!(out, "    assert {field_access} <= {expected}  # noqa: S101");

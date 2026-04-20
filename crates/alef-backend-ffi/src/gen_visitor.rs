@@ -736,7 +736,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
     }} else {{
         // SAFETY: visitor is a valid pointer for the duration of this call.
         let ffi_visitor = unsafe {{ &mut *visitor }};
-        // Wrap in Rc<RefCell<dyn HtmlVisitor>> as required by convert_with_visitor.
+        // Wrap in Rc<RefCell<dyn HtmlVisitor>> as required by convert.
         // We use a raw-pointer wrapper to avoid cloning — the {pascal_prefix}Visitor is
         // pinned in place by the caller-owned Box.
         struct VisitorRef(*mut {pascal_prefix}Visitor);
@@ -751,12 +751,15 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))))
     }};
 
-    match {core_import}::convert_with_visitor(&html_str, options_rs, visitor_handle) {{
-        Ok(markdown) => match std::ffi::CString::new(markdown) {{
-            Ok(s) => s.into_raw(),
-            Err(_) => {{
-                set_last_error(3, "Conversion output contained null bytes");
-                std::ptr::null_mut()
+    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{
+        Ok(result) => {{
+            let markdown = result.content.unwrap_or_default();
+            match std::ffi::CString::new(markdown) {{
+                Ok(s) => s.into_raw(),
+                Err(_) => {{
+                    set_last_error(3, "Conversion output contained null bytes");
+                    std::ptr::null_mut()
+                }}
             }}
         }},
         Err(e) => {{

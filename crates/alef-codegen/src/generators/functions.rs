@@ -330,9 +330,26 @@ pub fn gen_function(
         }
     };
 
-    // Prepend let bindings for non-opaque Named params (sync non-adapter case)
-    let body = if !let_bindings.is_empty() && can_delegate && !func.is_async {
-        format!("{let_bindings}{body}")
+    // Prepend let bindings for non-opaque Named params (sync delegate case).
+    // Only prepend when can_delegate is true — the !can_delegate serde path does its own bindings.
+    // However, always prepend Vec<String> ref bindings (names_refs) since serde path doesn't handle them.
+    let body = if !let_bindings.is_empty() && !func.is_async {
+        if can_delegate {
+            format!("{let_bindings}{body}")
+        } else {
+            // For the !can_delegate path, only prepend Vec<String>+is_ref bindings (names_refs)
+            // since serde bindings handle Named type conversions.
+            let vec_str_bindings: String = func.params.iter().filter(|p| {
+                p.is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
+            }).map(|p| {
+                format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
+            }).collect();
+            if !vec_str_bindings.is_empty() {
+                format!("{vec_str_bindings}{body}")
+            } else {
+                body
+            }
+        }
     } else {
         body
     };
