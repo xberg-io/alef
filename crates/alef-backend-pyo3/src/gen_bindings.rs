@@ -380,7 +380,7 @@ impl Backend for Pyo3Backend {
         });
 
         // 4. Generate __init__.py (re-exports)
-        let init_content = gen_init_py(api, &module_name, &api.version);
+        let init_content = gen_init_py(api, &module_name, &api.version, &config.dto);
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),
             content: init_content,
@@ -538,6 +538,15 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 
         // Use TypedDict for return types when the output style is configured as TypedDict.
         let use_typeddict = output_style == PythonDtoStyle::TypedDict && typ.is_return_type;
+
+        // Return types are defined authoritatively by the Rust native module as #[pyclass]
+        // structs. Emitting a @dataclass with the same name creates a shadow class that breaks
+        // static analysis — Pylance reports a type mismatch because the @dataclass and the
+        // native PyO3 class are unrelated types even though they share a name.
+        // Only emit a TypedDict when explicitly configured; otherwise skip entirely.
+        if typ.is_return_type && !use_typeddict {
+            continue;
+        }
 
         if use_typeddict {
             out.push_str(&gen_typeddict(typ, &enum_names, &data_enum_names));
@@ -1307,7 +1316,7 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
 
 /// Generate __init__.py — re-exports and version.
 /// Only exports user-facing types (not internal Update types or all enums).
-fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
+fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConfig) -> String {
     use alef_core::ir::TypeRef;
 
     let mut out = String::with_capacity(1024);
@@ -1324,12 +1333,25 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
         .filter(|e| generators::enum_has_data_variants(e))
         .map(|e| e.name.clone())
         .collect();
+    let output_style = dto.python_output_style();
     let mut needed_enums: Vec<String> = Vec::new();
     let mut needed_data_enums: Vec<String> = Vec::new();
     let mut config_types: Vec<String> = Vec::new();
+    // Return types with is_return_type=true are defined authoritatively in the native Rust
+    // module. When not using TypedDict style (which emits a structural type in options.py),
+    // they must be re-exported from the native module — not from .options — so that the
+    // type seen by static analysis tools matches the actual runtime object returned by functions.
+    let mut native_return_types: Vec<String> = Vec::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default && !typ.name.ends_with("Update") {
-            config_types.push(typ.name.clone());
+            let is_native_return = typ.is_return_type && output_style != PythonDtoStyle::TypedDict;
+            if is_native_return {
+                native_return_types.push(typ.name.clone());
+            } else {
+                config_types.push(typ.name.clone());
+            }
+            // Collect enum references regardless of whether the type is a return type or config
+            // type — some enums are shared across both categories.
             for field in &typ.fields {
                 let inner_name = match &field.ty {
                     TypeRef::Named(n) => Some(n.as_str()),
@@ -1368,9 +1390,12 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
         imports_from_api.extend(names);
     }
 
-    // Data enums are backed by native Rust structs — import from the native module.
+    // Data enums and return types are backed by native Rust structs — import from the native module.
     needed_data_enums.sort();
     imports_from_native.extend(needed_data_enums.iter().cloned());
+    native_return_types.sort();
+    imports_from_native.extend(native_return_types.iter().cloned());
+    imports_from_native.sort();
 
     // Import plain enums and config types from options
     let mut opt_imports = needed_enums.clone();
@@ -1450,6 +1475,7 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
     }
     all_items.extend(needed_enums);
     all_items.extend(needed_data_enums);
+    all_items.extend(native_return_types);
     all_items.extend(config_types);
     all_items.extend(exc_names);
     all_items.sort();

@@ -327,28 +327,26 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 wrapped
             }
         }
+    } else if params.is_empty() {
+        format!("{}def {}(self) -> {}: ...", indent, safe_name, return_type)
     } else {
-        if params.is_empty() {
-            format!("{}def {}(self) -> {}: ...", indent, safe_name, return_type)
+        let single_line = format!(
+            "{}def {}(self, {}) -> {}: ...",
+            indent,
+            safe_name,
+            params.join(", "),
+            return_type
+        );
+        if single_line.len() <= 100 {
+            single_line
         } else {
-            let single_line = format!(
-                "{}def {}(self, {}) -> {}: ...",
-                indent,
-                safe_name,
-                params.join(", "),
-                return_type
-            );
-            if single_line.len() <= 100 {
-                single_line
-            } else {
-                let mut wrapped = format!("{}def {}(\n", indent, safe_name);
-                wrapped.push_str(&format!("{}    self,\n", indent));
-                for param in &params {
-                    wrapped.push_str(&format!("{}    {},\n", indent, param));
-                }
-                wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
-                wrapped
+            let mut wrapped = format!("{}def {}(\n", indent, safe_name);
+            wrapped.push_str(&format!("{}    self,\n", indent));
+            for param in &params {
+                wrapped.push_str(&format!("{}    {},\n", indent, param));
             }
+            wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
+            wrapped
         }
     }
 }

@@ -1,6 +1,6 @@
 use alef_backend_pyo3::Pyo3Backend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, PythonConfig};
+use alef_core::config::{AlefConfig, CrateConfig, PythonConfig, StubsConfig};
 use alef_core::ir::*;
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -1196,4 +1196,170 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
             );
         }
     }
+}
+
+/// Regression test for kreuzberg-dev/alef#1 / kreuzberg-dev/html-to-markdown#310.
+///
+/// A type with both `has_default = true` AND `is_return_type = true` (e.g. `ConversionResult`)
+/// must be re-exported in `__init__.py` from the native Rust module, NOT from `options.py`.
+/// `options.py` must NOT emit a `@dataclass` shadow class for such types; the authoritative
+/// definition lives in the native module as a `#[pyclass]` struct. The shadow class caused
+/// static analysis tools (Pylance) to report a type mismatch because the two classes are
+/// unrelated even though they share a name.
+#[test]
+fn test_return_type_exported_from_native_module_not_options() {
+    let backend = Pyo3Backend;
+
+    // ConversionResult: has_default=true (implements Default), is_return_type=true (returned by convert())
+    // ConversionOptions: has_default=true, is_return_type=false (input/config type)
+    let conversion_result = TypeDef {
+        name: "ConversionResult".to_string(),
+        rust_path: "my_lib::ConversionResult".to_string(),
+        fields: vec![
+            make_field("content", TypeRef::String, false),
+            make_field("title", TypeRef::Optional(Box::new(TypeRef::String)), true),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: false,
+        doc: "Result of a conversion operation.".to_string(),
+        cfg: None,
+    };
+
+    let conversion_options = TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        fields: vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        doc: "Options for conversion.".to_string(),
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "my_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![conversion_result, conversion_options],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "my_lib::convert".to_string(),
+            params: vec![ParamDef {
+                name: "input".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            }],
+            return_type: TypeRef::Named("ConversionResult".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Convert input to markdown.".to_string(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let mut config = make_config();
+    config.python = Some(PythonConfig {
+        module_name: Some("_my_lib".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/my_lib"),
+        }),
+        features: None,
+        serde_rename_all: None,
+    });
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+
+    let init_py = files
+        .iter()
+        .find(|f| f.path.ends_with("__init__.py"))
+        .expect("__init__.py not generated");
+    let options_py = files
+        .iter()
+        .find(|f| f.path.ends_with("options.py"))
+        .expect("options.py not generated");
+
+    // ConversionResult (return type) must be imported from the native module.
+    let native_import_line = init_py
+        .content
+        .lines()
+        .find(|l| l.contains("from ._my_lib import"))
+        .unwrap_or("");
+    assert!(
+        native_import_line.contains("ConversionResult"),
+        "__init__.py must import ConversionResult from the native module, got:\n{}",
+        init_py.content
+    );
+
+    // ConversionResult must NOT appear in the .options import.
+    let options_import_line = init_py
+        .content
+        .lines()
+        .find(|l| l.contains("from .options import"))
+        .unwrap_or("");
+    assert!(
+        !options_import_line.contains("ConversionResult"),
+        "__init__.py must not import ConversionResult from .options, got:\n{}",
+        init_py.content
+    );
+
+    // ConversionOptions (config/input type) must still be imported from .options.
+    assert!(
+        options_import_line.contains("ConversionOptions"),
+        "__init__.py must import ConversionOptions from .options, got:\n{}",
+        init_py.content
+    );
+
+    // Both names must appear in __all__.
+    assert!(
+        init_py.content.contains("\"ConversionResult\""),
+        "__init__.py __all__ must include ConversionResult, got:\n{}",
+        init_py.content
+    );
+    assert!(
+        init_py.content.contains("\"ConversionOptions\""),
+        "__init__.py __all__ must include ConversionOptions, got:\n{}",
+        init_py.content
+    );
+
+    // options.py must NOT define a @dataclass shadow for ConversionResult.
+    assert!(
+        !options_py.content.contains("class ConversionResult"),
+        "options.py must not define a ConversionResult shadow class, got:\n{}",
+        options_py.content
+    );
+
+    // options.py MUST still define ConversionOptions (the input/config type).
+    assert!(
+        options_py.content.contains("class ConversionOptions"),
+        "options.py must still define ConversionOptions dataclass, got:\n{}",
+        options_py.content
+    );
 }

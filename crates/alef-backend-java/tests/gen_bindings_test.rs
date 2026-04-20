@@ -632,10 +632,16 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
     let content = &message_file.content;
 
     // Must be a sealed interface (internally tagged)
-    assert!(content.contains("public sealed interface Message"), "should be sealed interface:\n{content}");
+    assert!(
+        content.contains("public sealed interface Message"),
+        "should be sealed interface:\n{content}"
+    );
 
     // @JsonUnwrapped must appear for each newtype variant; numeric "0" must not be used as a field name
-    assert!(content.contains("@JsonUnwrapped"), "should use @JsonUnwrapped for newtype fields:\n{content}");
+    assert!(
+        content.contains("@JsonUnwrapped"),
+        "should use @JsonUnwrapped for newtype fields:\n{content}"
+    );
     assert!(
         !content.contains("\"0\""),
         "numeric tuple index must not appear as a Java field name or @JsonProperty value:\n{content}"
@@ -646,9 +652,18 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
     );
 
     // Each variant record should declare a `value` field
-    assert!(content.contains("SystemMessage value"), "System variant should have `value` field:\n{content}");
-    assert!(content.contains("UserMessage value"), "User variant should have `value` field:\n{content}");
-    assert!(content.contains("AssistantMessage value"), "Assistant variant should have `value` field:\n{content}");
+    assert!(
+        content.contains("SystemMessage value"),
+        "System variant should have `value` field:\n{content}"
+    );
+    assert!(
+        content.contains("UserMessage value"),
+        "User variant should have `value` field:\n{content}"
+    );
+    assert!(
+        content.contains("AssistantMessage value"),
+        "Assistant variant should have `value` field:\n{content}"
+    );
 
     // Jackson annotations for the discriminator must be present
     assert!(

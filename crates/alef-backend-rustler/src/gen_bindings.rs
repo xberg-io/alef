@@ -663,12 +663,10 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
                     } else {
                         format!("{}.map(Into::into)", p.name)
                     }
+                } else if p.is_ref {
+                    format!("&{}.clone().into()", p.name)
                 } else {
-                    if p.is_ref {
-                        format!("&{}.clone().into()", p.name)
-                    } else {
-                        format!("{}.into()", p.name)
-                    }
+                    format!("{}.into()", p.name)
                 }
             }
             TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
@@ -788,13 +786,11 @@ fn gen_nif_function(
                             } else {
                                 format!("{}.map(Into::into)", p.name)
                             }
+                        } else if p.is_ref {
+                            // T where core expects &T → take reference of converted value
+                            format!("&{}.clone().into()", p.name)
                         } else {
-                            if p.is_ref {
-                                // T where core expects &T → take reference of converted value
-                                format!("&{}.clone().into()", p.name)
-                            } else {
-                                format!("{}.into()", p.name)
-                            }
+                            format!("{}.into()", p.name)
                         }
                     }
                     // String params: handle optional and reference cases.
@@ -955,12 +951,10 @@ fn gen_nif_async_function(
                             } else {
                                 format!("{}.map(Into::into)", p.name)
                             }
+                        } else if p.is_ref {
+                            format!("&{}.clone().into()", p.name)
                         } else {
-                            if p.is_ref {
-                                format!("&{}.clone().into()", p.name)
-                            } else {
-                                format!("{}.into()", p.name)
-                            }
+                            format!("{}.into()", p.name)
                         }
                     }
                     // String params: handle optional and reference cases.

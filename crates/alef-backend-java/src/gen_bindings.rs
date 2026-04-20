@@ -1743,9 +1743,10 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
     // Newtype/tuple variants (field name is a numeric index like "0") are flattened
     // into the parent JSON object using @JsonUnwrapped.
-    let needs_unwrapped = enum_def.variants.iter().any(|v| {
-        v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name)
-    });
+    let needs_unwrapped = enum_def
+        .variants
+        .iter()
+        .any(|v| v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name));
     if needs_list {
         writeln!(out, "import java.util.List;").ok();
     }

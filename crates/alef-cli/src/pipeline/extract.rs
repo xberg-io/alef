@@ -34,7 +34,7 @@ pub fn ensure_gitignore(base_dir: &Path, config: &AlefConfig) {
             Language::Java => entries.extend_from_slice(&["target/", "*.class"]),
             Language::Csharp => entries.extend_from_slice(&["bin/", "obj/", "*.nupkg"]),
             // pkg/ intentionally NOT gitignored — npm publish needs it for WASM artifacts
-            Language::Wasm => {},
+            Language::Wasm => {}
             _ => {}
         }
     }

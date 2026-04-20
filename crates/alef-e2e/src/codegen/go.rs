@@ -586,12 +586,10 @@ fn render_assertion(
                     } else {
                         let _ = writeln!(out_ref, "\tif {trimmed_field} != {go_val} {{");
                     }
+                } else if is_optional && !field_expr.starts_with("len(") {
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil && {deref_field_expr} != {go_val} {{");
                 } else {
-                    if is_optional && !field_expr.starts_with("len(") {
-                        let _ = writeln!(out_ref, "\tif {field_expr} != nil && {deref_field_expr} != {go_val} {{");
-                    } else {
-                        let _ = writeln!(out_ref, "\tif {field_expr} != {go_val} {{");
-                    }
+                    let _ = writeln!(out_ref, "\tif {field_expr} != {go_val} {{");
                 }
                 let _ = writeln!(out_ref, "\t\tt.Errorf(\"equals mismatch: got %v\", {field_expr})");
                 let _ = writeln!(out_ref, "\t}}");

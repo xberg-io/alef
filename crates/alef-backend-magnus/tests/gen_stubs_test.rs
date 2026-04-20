@@ -793,7 +793,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         // Must not exist as a bare (un-commented) line
         for line in content.lines() {
             let trimmed = line.trim();
-            assert!(!(trimmed == fragment), "Bare prose leaked into RBS output: {line:?}");
+            assert!(trimmed != fragment, "Bare prose leaked into RBS output: {line:?}");
         }
     }
 

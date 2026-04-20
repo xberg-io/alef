@@ -322,7 +322,11 @@ fn render_test_function(
             arg.optional,
             &module,
             &fixture.id,
-            if has_mock { Some("mock_server.url.as_str()") } else { None },
+            if has_mock {
+                Some("mock_server.url.as_str()")
+            } else {
+                None
+            },
         );
         for binding in &bindings {
             let _ = writeln!(out, "    {binding}");
@@ -619,14 +623,8 @@ fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2
 
     // Resolve the HTTP path and method from the call config.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let path = call_config
-        .path
-        .as_deref()
-        .unwrap_or("/");
-    let method = call_config
-        .method
-        .as_deref()
-        .unwrap_or("POST");
+    let path = call_config.path.as_deref().unwrap_or("/");
+    let method = call_config.method.as_deref().unwrap_or("POST");
 
     let status = mock.status;
 

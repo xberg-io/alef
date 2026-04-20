@@ -325,20 +325,18 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         } else {
                             p.name.clone()
                         }
+                    } else if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_mut && p.optional {
+                        format!("{}.as_deref_mut()", p.name)
+                    } else if p.is_mut {
+                        format!("&mut {}", p.name)
+                    } else if p.is_ref && p.optional {
+                        format!("{}.as_deref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
-                        if promoted {
-                            format!("{}{}", p.name, unwrap_suffix)
-                        } else if p.is_mut && p.optional {
-                            format!("{}.as_deref_mut()", p.name)
-                        } else if p.is_mut {
-                            format!("&mut {}", p.name)
-                        } else if p.is_ref && p.optional {
-                            format!("{}.as_deref()", p.name)
-                        } else if p.is_ref {
-                            format!("&{}", p.name)
-                        } else {
-                            p.name.clone()
-                        }
+                        p.name.clone()
                     }
                 }
                 _ => {
@@ -488,16 +486,14 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         } else {
                             format!("{}_core", p.name)
                         }
+                    } else if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_ref && p.optional {
+                        format!("{}.as_deref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
-                        if promoted {
-                            format!("{}{}", p.name, unwrap_suffix)
-                        } else if p.is_ref && p.optional {
-                            format!("{}.as_deref()", p.name)
-                        } else if p.is_ref {
-                            format!("&{}", p.name)
-                        } else {
-                            p.name.clone()
-                        }
+                        p.name.clone()
                     }
                 }
                 _ => {
