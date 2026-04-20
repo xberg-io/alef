@@ -239,6 +239,24 @@ impl Backend for Pyo3Backend {
             ));
         }
 
+        // Trait bridge wrappers — generate PyO3 bridge structs that delegate to Python objects
+        if !config.trait_bridges.is_empty() {
+            // Add imports needed by trait bridge generated code
+            builder.add_import("async_trait::async_trait");
+            // std::sync::Arc is already conditionally imported above for opaque types;
+            // ensure it's present for trait bridges too.
+            if opaque_types.is_empty() {
+                builder.add_import("std::sync::Arc");
+            }
+            for bridge_cfg in &config.trait_bridges {
+                if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                    let bridge_code =
+                        crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import);
+                    builder.add_item(&bridge_code);
+                }
+            }
+        }
+
         // Error types (create_exception! macros + converter functions)
         let module_name = config.python_module_name();
         for error in &api.errors {
@@ -1549,6 +1567,13 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
     for func in &api.functions {
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));
+    }
+
+    // Register trait bridge registration functions
+    for register_fn in crate::trait_bridge::collect_bridge_register_fns(&config.trait_bridges) {
+        lines.push(format!(
+            "    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"
+        ));
     }
 
     // Register error exception types
