@@ -220,6 +220,30 @@ fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
     writeln!(out).unwrap();
 }
 
+/// Map a visitor method parameter type to the correct Rust type string, handling IR quirks:
+/// - `ty=String, optional=true, is_ref=true` → `Option<&str>` (the IR collapses `Option<&str>`)
+/// - `ty=Vec<T>, is_ref=true` → `&[T]` (the IR collapses `&[T]`)
+/// - Everything else uses the standard `param_type` helper.
+fn visitor_param_type(
+    ty: &TypeRef,
+    is_ref: bool,
+    optional: bool,
+    tp: &std::collections::HashMap<&str, &str>,
+) -> String {
+    // `Option<&str>` case: IR collapses it to String + optional + is_ref
+    if optional && matches!(ty, TypeRef::String) && is_ref {
+        return "Option<&str>".to_string();
+    }
+    // `&[String]` case: IR collapses it to Vec<String> + is_ref
+    if is_ref {
+        if let TypeRef::Vec(inner) = ty {
+            let inner_str = param_type(inner, "", false, tp);
+            return format!("&[{inner_str}]");
+        }
+    }
+    param_type(ty, "", is_ref, tp)
+}
+
 /// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
 ///
 /// For each method the generated code:
@@ -237,10 +261,13 @@ fn gen_visitor_method(
 
     let name = &method.name;
 
-    // Build the &mut self signature using the same helper used for plugin methods
+    // Build the &mut self signature using the same helper used for plugin methods.
+    // For visitor methods the IR may encode `Option<&str>` as `ty=String, optional=true, is_ref=true`
+    // and `&[String]` as `ty=Vec<String>, is_ref=true`.
     let mut sig_parts = vec!["&mut self".to_string()];
     for p in &method.params {
-        sig_parts.push(format!("{}: {}", p.name, param_type(&p.ty, "", p.is_ref, type_paths)));
+        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
+        sig_parts.push(format!("{}: {}", p.name, ty_str));
     }
     let sig = sig_parts.join(", ");
 
@@ -339,27 +366,50 @@ fn build_visitor_py_args(method: &MethodDef) -> String {
     let args: Vec<String> = method
         .params
         .iter()
-        .map(|p| match (&p.ty, p.is_ref) {
+        .map(|p| {
             // NodeContext: convert to Python dict
-            (TypeRef::Named(n), true) if n == "NodeContext" => {
-                format!("nodecontext_to_py_dict(py, {})", p.name)
+            if let TypeRef::Named(n) = &p.ty {
+                if n == "NodeContext" {
+                    return if p.is_ref {
+                        format!("nodecontext_to_py_dict(py, {})", p.name)
+                    } else {
+                        format!("nodecontext_to_py_dict(py, &{})", p.name)
+                    };
+                }
             }
-            (TypeRef::Named(n), false) if n == "NodeContext" => {
-                format!("nodecontext_to_py_dict(py, &{})", p.name)
+            // `Option<&str>`: IR collapses to String + optional + is_ref — pass directly
+            if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+                return p.name.clone();
             }
-            // Vec<String> (cells in table row): pass as list
-            (TypeRef::Vec(inner), _) if matches!(inner.as_ref(), TypeRef::String) => {
-                format!("{}.to_vec()", p.name)
+            // `&[String]`: IR collapses to Vec<String> + is_ref — pass directly (slice → PyList)
+            if p.is_ref {
+                if let TypeRef::Vec(inner) = &p.ty {
+                    if matches!(inner.as_ref(), TypeRef::String) {
+                        return p.name.clone();
+                    }
+                }
             }
-            // Option<&str>: pass directly
-            (TypeRef::Optional(inner), _) if matches!(inner.as_ref(), TypeRef::String) => {
-                p.name.clone()
+            // Owned Vec<String>: convert to list
+            if let TypeRef::Vec(inner) = &p.ty {
+                if matches!(inner.as_ref(), TypeRef::String) {
+                    return format!("{}.to_vec()", p.name);
+                }
+            }
+            // Option<&str> encoded as Optional<String>
+            if let TypeRef::Optional(inner) = &p.ty {
+                if matches!(inner.as_ref(), TypeRef::String) {
+                    return p.name.clone();
+                }
             }
             // &str: pass directly
-            (TypeRef::String, true) => p.name.clone(),
-            (TypeRef::String, false) => format!("{}.as_str()", p.name),
-            // Primitives (bool, usize, u32, etc.): pass directly
-            _ => p.name.clone(),
+            if matches!(&p.ty, TypeRef::String) && p.is_ref {
+                return p.name.clone();
+            }
+            if matches!(&p.ty, TypeRef::String) {
+                return format!("{}.as_str()", p.name);
+            }
+            // Primitives and everything else: pass directly
+            p.name.clone()
         })
         .collect();
     if args.len() == 1 {
@@ -857,10 +907,12 @@ pub fn gen_bridge_function(
 
     // Build the param name for the bridge param
     let param_name = &func.params[bridge_param_idx].name;
-    let is_optional = matches!(
-        &func.params[bridge_param_idx].ty,
-        TypeRef::Optional(_)
-    );
+    let bridge_param = &func.params[bridge_param_idx];
+    // A param is optional either when its IR type is wrapped in Optional, OR when the
+    // param's `optional` field is set (e.g. sanitized params where the extractor collapsed
+    // `Rc<RefCell<dyn Trait>>` to `String` but preserved the optional metadata).
+    let is_optional = bridge_param.optional
+        || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
     // Use gen_function to produce the "base" function, then intercept:
     // We generate a modified version manually because we need to replace the
@@ -1058,17 +1110,26 @@ pub fn gen_bridge_function(
     }
     writeln!(out, "#[{attr_inner}]").ok();
     if cfg.needs_signature {
-        // Build signature with the bridge param showing as optional py object
-        let sig_defaults: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
-            if idx == bridge_param_idx {
-                if is_optional { format!("{}=None", p.name) } else { String::new() }
-            } else if p.optional {
+        // Build PyO3 signature listing ALL params in order.
+        // Required params appear by name, optional params appear with =None.
+        // Once any param is optional, all subsequent params must also use =None.
+        let mut seen_optional = false;
+        let sig_parts: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
+            let this_optional = if idx == bridge_param_idx {
+                is_optional
+            } else {
+                p.optional
+            };
+            if this_optional {
+                seen_optional = true;
+            }
+            if this_optional || seen_optional {
                 format!("{}=None", p.name)
             } else {
-                String::new()
+                p.name.clone()
             }
-        }).filter(|s| !s.is_empty()).collect();
-        let sig_str = sig_defaults.join(", ");
+        }).collect();
+        let sig_str = sig_parts.join(", ");
         writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
     }
     let func_name = &func.name;

@@ -186,56 +186,57 @@ pub fn field_conversion_from_core(
     opaque_types: &AHashSet<String>,
 ) -> String {
     // Sanitized fields: the binding type differs from core (e.g. Box<str>→String, Cow<str>→String).
-    // Use .to_string() for String targets, proper iteration for Vec/Map, format!("{:?}") as last resort.
+    // Box<str>, Cow<str>, and Arc<str> all implement Display, so use .to_string() not {:?}.
+    // {:?} on string-like types produces debug-escaped output with surrounding quotes.
     if sanitized {
         // Map(String, String): sanitized from Map(Box<str>, Box<str>) etc.
         if let TypeRef::Map(k, v) = ty {
             if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) {
                 if optional {
                     return format!(
-                        "{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (format!(\"{{:?}}\", k), format!(\"{{:?}}\", v))).collect())"
+                        "{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())"
                     );
                 }
                 return format!(
-                    "{name}: val.{name}.into_iter().map(|(k, v)| (format!(\"{{:?}}\", k), format!(\"{{:?}}\", v))).collect()"
+                    "{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()"
                 );
             }
         }
-        // Vec<String>: sanitized from Vec<Box<str>>, Vec<(T, U)>, etc.
+        // Vec<String>: sanitized from Vec<Box<str>>, Vec<Cow<str>>, etc.
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::String) {
                 if optional {
                     return format!(
-                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())"
                     );
                 }
-                return format!("{name}: val.{name}.iter().map(|i| format!(\"{{:?}}\", i)).collect()");
+                return format!("{name}: val.{name}.iter().map(|i| i.to_string()).collect()");
             }
         }
-        // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>>, Optional<Vec<(T, U)>>, etc.
-        // Use format!("{:?}", i) because source elements may not impl Display (e.g. tuples).
+        // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>>, Optional<Vec<Cow<str>>>, etc.
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::String) {
                     return format!(
-                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())"
                     );
                 }
             }
         }
-        // String: sanitized from Box<str>, Cow<str>, tuple, etc.
-        // Use format!("{:?}") since the source type may not impl Display (e.g., tuples).
+        // String: sanitized from Box<str>, Cow<str>, etc.
+        // Box<str> and Cow<str> both implement Display, so use {} not {:?}.
+        // {:?} on those types produces debug-escaped strings with surrounding quotes.
         if matches!(ty, TypeRef::String) {
             if optional {
-                return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
+                return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
             }
-            return format!("{name}: format!(\"{{:?}}\", val.{name})");
+            return format!("{name}: val.{name}.to_string()");
         }
         // Fallback for truly unknown sanitized types
         if optional {
-            return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
+            return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
         }
-        return format!("{name}: format!(\"{{:?}}\", val.{name})");
+        return format!("{name}: val.{name}.to_string()");
     }
     match ty {
         // Duration: core uses std::time::Duration, binding uses u64 (millis)

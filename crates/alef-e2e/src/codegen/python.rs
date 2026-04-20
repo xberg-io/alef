@@ -151,12 +151,15 @@ timeout = 300
 // ---------------------------------------------------------------------------
 
 fn resolve_function_name(e2e_config: &E2eConfig) -> String {
-    e2e_config
-        .call
+    resolve_function_name_for_call(&e2e_config.call)
+}
+
+fn resolve_function_name_for_call(call_config: &crate::config::CallConfig) -> String {
+    call_config
         .overrides
         .get("python")
         .and_then(|o| o.function.clone())
-        .unwrap_or_else(|| e2e_config.call.function.clone())
+        .unwrap_or_else(|| call_config.function.clone())
 }
 
 fn resolve_module(e2e_config: &E2eConfig) -> String {
@@ -265,7 +268,11 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         .any(|f| f.assertions.iter().any(|a| a.assertion_type == "error"));
     let has_skipped = fixtures.iter().any(|f| is_skipped(f, "python"));
 
-    let is_async = e2e_config.call.r#async;
+    // Check if any fixture in this file uses an async call.
+    let is_async = fixtures.iter().any(|f| {
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        cc.r#async
+    }) || e2e_config.call.r#async;
     let needs_pytest = has_error_test || has_skipped || is_async;
 
     // "json" mode needs `import json`.
@@ -339,7 +346,15 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         .map(|arg| format!("create_{}", arg.name.to_snake_case()))
         .collect();
 
+    // Collect all unique function names needed across all fixtures in this file.
     let mut import_names: Vec<String> = vec![function_name.clone()];
+    for fixture in fixtures.iter() {
+        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        let fn_name = resolve_function_name_for_call(cc);
+        if !import_names.contains(&fn_name) {
+            import_names.push(fn_name);
+        }
+    }
     for ctor in &handle_constructors {
         if !import_names.contains(ctor) {
             import_names.push(ctor.clone());
@@ -462,8 +477,9 @@ fn render_test_function(
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let function_name = resolve_function_name(e2e_config);
-    let result_var = &e2e_config.call.result_var;
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let function_name = resolve_function_name_for_call(call_config);
+    let result_var = &call_config.result_var;
 
     let desc_with_period = if description.ends_with('.') {
         description.to_string()
@@ -481,7 +497,7 @@ fn render_test_function(
         let _ = writeln!(out, "@pytest.mark.skip(reason=\"{reason}\")");
     }
 
-    let is_async = e2e_config.call.r#async;
+    let is_async = call_config.r#async;
     if is_async {
         let _ = writeln!(out, "@pytest.mark.asyncio");
         let _ = writeln!(out, "async def test_{fn_name}() -> None:");
@@ -496,7 +512,7 @@ fn render_test_function(
     // Build argument expressions from config.
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
-    for arg in &e2e_config.call.args {
+    for arg in &call_config.args {
         let var_name = &arg.name;
 
         if arg.arg_type == "handle" {

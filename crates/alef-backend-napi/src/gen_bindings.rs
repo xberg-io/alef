@@ -1458,8 +1458,13 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
             Decl::Enum(e) => {
                 lines.push(format!("export declare enum {prefix}{} {{", e.name));
                 for variant in &e.variants {
-                    // NAPI string_enum: variant values are the variant name as a string literal.
-                    let value = variant.serde_rename.as_deref().unwrap_or(variant.name.as_str());
+                    // NAPI string_enum: variant values follow serde_rename_all casing.
+                    // Prefer explicit serde_rename, then apply rename_all, then fall back to variant name.
+                    let value = variant
+                        .serde_rename
+                        .as_deref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
                     lines.push(format!("  {} = '{}',", variant.name, value));
                 }
                 lines.push("}".to_string());
@@ -1535,6 +1540,58 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str
         other => dts_type(other, prefix),
     };
     if is_async { format!("Promise<{base}>") } else { base }
+}
+
+/// Apply a serde `rename_all` rule to a PascalCase variant name, returning the serialized string.
+///
+/// NAPI `string_enum` serializes variant names using the same rule as serde's `rename_all`.
+/// When a variant has no explicit `serde_rename`, the enum-level `rename_all` applies.
+fn apply_rename_all(variant_name: &str, rename_all: Option<&str>) -> String {
+    match rename_all {
+        Some("snake_case") => {
+            // PascalCase → snake_case: insert underscore before each uppercase letter (after the first)
+            let mut out = String::with_capacity(variant_name.len() + 4);
+            for (i, c) in variant_name.chars().enumerate() {
+                if c.is_uppercase() && i > 0 {
+                    out.push('_');
+                }
+                out.extend(c.to_lowercase());
+            }
+            out
+        }
+        Some("camelCase") => {
+            // PascalCase → camelCase: lowercase the first character only
+            let mut chars = variant_name.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+            }
+        }
+        Some("kebab-case") => {
+            let mut out = String::with_capacity(variant_name.len() + 4);
+            for (i, c) in variant_name.chars().enumerate() {
+                if c.is_uppercase() && i > 0 {
+                    out.push('-');
+                }
+                out.extend(c.to_lowercase());
+            }
+            out
+        }
+        Some("SCREAMING_SNAKE_CASE") => {
+            let mut out = String::with_capacity(variant_name.len() + 4);
+            for (i, c) in variant_name.chars().enumerate() {
+                if c.is_uppercase() && i > 0 {
+                    out.push('_');
+                }
+                out.extend(c.to_uppercase());
+            }
+            out
+        }
+        Some("lowercase") => variant_name.to_lowercase(),
+        Some("UPPERCASE") => variant_name.to_uppercase(),
+        // PascalCase and unknown rules: use the variant name as-is
+        _ => variant_name.to_string(),
+    }
 }
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.

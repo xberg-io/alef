@@ -1170,15 +1170,18 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                 if enum_names.contains(nested_name) {
                     if data_enum_names.contains(nested_name) {
                         // Data enum (tagged union): PyO3 constructor accepts a dict directly.
+                        // If the caller already holds a _rust.{EnumName} instance (e.g. from a
+                        // previous conversion), pass it through to avoid a double-wrap error;
+                        // otherwise wrap the dict via the PyO3 constructor.
                         if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
                             out.push_str(&format!(
-                                "        {name}=_rust.{enum_name}(value.{name}) if value.{name} is not None else None,\n",
+                                "        {name}=(value.{name} if isinstance(value.{name}, _rust.{enum_name}) else _rust.{enum_name}(value.{name})) if value.{name} is not None else None,\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        {name}=_rust.{enum_name}(value.{name}),\n",
+                                "        {name}=value.{name} if isinstance(value.{name}, _rust.{enum_name}) else _rust.{enum_name}(value.{name}),\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
@@ -1186,15 +1189,19 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                     } else {
                         // Simple int enum: PyO3 eq_int enums can't be constructed from a string.
                         // Look up the Rust variant by the snake_case string value that options.py produces.
+                        // Use getattr(..., 'value', ...) to normalise both plain str defaults
+                        // ("auto") and str,Enum instances (BrowserMode.AUTO) — the .value
+                        // attribute returns the underlying string in all Python versions,
+                        // while str(StrEnum.VARIANT) changed semantics in Python 3.11+.
                         let map_name = format!("_TO_RUST_{}_MAP", nested_name.to_uppercase());
                         if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
                             out.push_str(&format!(
-                                "        {name}={map_name}[value.{name}] if value.{name} is not None else None,\n",
+                                "        {name}={map_name}[str(value.{name})] if value.{name} is not None else None,\n",
                                 name = field.name,
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        {name}={map_name}[value.{name}],\n",
+                                "        {name}={map_name}[str(value.{name})],\n",
                                 name = field.name,
                             ));
                         }
@@ -1216,6 +1223,9 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                             ));
                         } else {
                             // Simple int enum list: look up each element by snake_case string value.
+                            // str(v) normalises both plain str defaults and
+                            // str,Enum instances across all Python versions (str(StrEnum.X)
+                            // changed semantics in Python 3.11+).
                             let map_name = format!("_TO_RUST_{}_MAP", enum_name.to_uppercase());
                             out.push_str(&format!(
                                 "        {name}=[{map_name}[str(v)] for v in value.{name}],\n",

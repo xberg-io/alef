@@ -344,6 +344,19 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
     }
 }
 
+/// Compute the wire value for a unit enum variant.
+///
+/// Priority order:
+/// 1. Explicit `#[serde(rename = "...")]` on the variant (`serde_rename`).
+/// 2. Enum-level `#[serde(rename_all = "...")]` applied to the variant name.
+/// 3. Default: snake_case of the variant name.
+fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &EnumDef) -> String {
+    if let Some(rename) = &variant.serde_rename {
+        return rename.clone();
+    }
+    apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref())
+}
+
 /// Generate a Go unit enum as `type X string` with const block.
 fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
@@ -361,13 +374,13 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
 
     for variant in &enum_def.variants {
         let const_name = format!("{}{}", enum_def.name, variant.name.to_pascal_case());
-        let variant_snake = variant.name.to_snake_case();
+        let wire_value = enum_variant_wire_value(variant, enum_def);
         if !variant.doc.is_empty() {
             for line in variant.doc.lines() {
                 writeln!(out, "    // {}", line.trim()).ok();
             }
         }
-        writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, variant_snake).ok();
+        writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, wire_value).ok();
     }
 
     writeln!(out, ")").ok();
@@ -572,6 +585,19 @@ fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) 
     out
 }
 
+/// Returns true if any parameter in the list requires JSON marshaling (non-opaque Named, Vec, or Map).
+///
+/// Such parameters use `json.Marshal` internally, which is fallible. When the surrounding
+/// function has no declared `error_type`, we must still propagate the marshal error rather
+/// than panicking — so we synthesize an error return in the generated signature.
+fn params_require_marshal(params: &[alef_core::ir::ParamDef], opaque_names: &std::collections::HashSet<&str>) -> bool {
+    params.iter().any(|p| match &p.ty {
+        TypeRef::Named(name) => !opaque_names.contains(name.as_str()),
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
+        _ => false,
+    })
+}
+
 /// Generate a wrapper function for a free function.
 fn gen_function_wrapper(
     func: &FunctionDef,
@@ -590,7 +616,12 @@ fn gen_function_wrapper(
         writeln!(out, "// {} calls the FFI function.", func_go_name).ok();
     }
 
-    let return_type = if func.error_type.is_some() {
+    // A function that marshals parameters to JSON can fail even without a declared error_type.
+    // Synthesize an error return in those cases so we never panic on marshal failure.
+    let marshals_params = params_require_marshal(&func.params, opaque_names);
+    let can_return_error = func.error_type.is_some() || marshals_params;
+
+    let return_type = if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
@@ -635,7 +666,7 @@ fn gen_function_wrapper(
     }
 
     // Convert parameters
-    let can_return_error = func.error_type.is_some();
+    // Note: can_return_error is set above (includes synthesized error for marshal-requiring params).
     let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
     for param in func.params.iter() {
         write!(
@@ -661,31 +692,41 @@ fn gen_function_wrapper(
 
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
 
-    // Handle result and error
-    if func.error_type.is_some() {
+    // Handle result and error.
+    // When can_return_error is true (either from declared error_type or synthesized for
+    // marshal-requiring params), emit lastError() checks. For synthesized-error functions
+    // that have no declared error_type, the FFI call itself never sets a last error, so
+    // lastError() will return nil and the return value flows through normally.
+    if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             writeln!(out, "    {}", c_call).ok();
-            writeln!(out, "    return lastError()").ok();
+            if func.error_type.is_some() {
+                writeln!(out, "    return lastError()").ok();
+            } else {
+                writeln!(out, "    return nil").ok();
+            }
         } else {
             writeln!(out, "    ptr := {}", c_call).ok();
-            writeln!(out, "    if err := lastError(); err != nil {{").ok();
-            // Free the pointer if non-nil even on error, to avoid leaks
-            if matches!(
-                func.return_type,
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
-            ) {
-                writeln!(out, "        if ptr != nil {{").ok();
-                writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
-                writeln!(out, "        }}").ok();
+            if func.error_type.is_some() {
+                writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                // Free the pointer if non-nil even on error, to avoid leaks
+                if matches!(
+                    func.return_type,
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                ) {
+                    writeln!(out, "        if ptr != nil {{").ok();
+                    writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
+                    writeln!(out, "        }}").ok();
+                }
+                if let TypeRef::Named(name) = &func.return_type {
+                    let type_snake = name.to_snake_case();
+                    writeln!(out, "        if ptr != nil {{").ok();
+                    writeln!(out, "            C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    writeln!(out, "        }}").ok();
+                }
+                writeln!(out, "        return nil, err").ok();
+                writeln!(out, "    }}").ok();
             }
-            if let TypeRef::Named(name) = &func.return_type {
-                let type_snake = name.to_snake_case();
-                writeln!(out, "        if ptr != nil {{").ok();
-                writeln!(out, "            C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
-                writeln!(out, "        }}").ok();
-            }
-            writeln!(out, "        return nil, err").ok();
-            writeln!(out, "    }}").ok();
             // Free the FFI-allocated string after unmarshaling
             if matches!(
                 func.return_type,
@@ -758,7 +799,13 @@ fn gen_method_wrapper(
         writeln!(out, "// {} is a method.", method_go_name).ok();
     }
 
-    let return_type = if method.error_type.is_some() {
+    // A non-opaque, non-static method marshals its receiver to JSON — that is fallible.
+    // Also include params that require marshaling.
+    let receiver_requires_marshal = !method.is_static && !typ.is_opaque;
+    let method_marshals = receiver_requires_marshal || params_require_marshal(&method.params, opaque_names);
+    let method_can_return_error = method.error_type.is_some() || method_marshals;
+
+    let return_type = if method_can_return_error {
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
@@ -808,8 +855,8 @@ fn gen_method_wrapper(
 
     {
         // Synchronous method - just convert params and call FFI
-        let can_return_error = method.error_type.is_some();
-        let returns_value_and_error = can_return_error && !matches!(method.return_type, TypeRef::Unit);
+        // Note: method_can_return_error is set above (includes synthesized error for marshal-requiring methods).
+        let returns_value_and_error = method_can_return_error && !matches!(method.return_type, TypeRef::Unit);
         for param in &method.params {
             write!(
                 out,
@@ -817,7 +864,7 @@ fn gen_method_wrapper(
                 gen_param_to_c(
                     param,
                     returns_value_and_error,
-                    can_return_error,
+                    method_can_return_error,
                     ffi_prefix,
                     opaque_names
                 )
@@ -869,11 +916,10 @@ fn gen_method_wrapper(
         } else {
             // Non-opaque structs: marshal to JSON, create a temporary handle, use it, and free it.
             let err_prefix = if returns_value_and_error { "nil, " } else { "" };
-            let err_action = if can_return_error {
-                format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)")
-            } else {
-                "panic(fmt.Sprintf(\"failed to marshal receiver: %v\", err))".to_string()
-            };
+            // method_can_return_error is always true here (receiver_requires_marshal is true for
+            // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
+            let err_action =
+                format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
             writeln!(
                 out,
                 "    jsonBytesRecv, err := json.Marshal({recv})\n    \
@@ -903,24 +949,30 @@ fn gen_method_wrapper(
             }
         };
 
-        if method.error_type.is_some() {
+        if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {
                 writeln!(out, "    {}", c_call).ok();
-                writeln!(out, "    return lastError()").ok();
+                if method.error_type.is_some() {
+                    writeln!(out, "    return lastError()").ok();
+                } else {
+                    writeln!(out, "    return nil").ok();
+                }
             } else {
                 writeln!(out, "    ptr := {}", c_call).ok();
-                writeln!(out, "    if err := lastError(); err != nil {{").ok();
-                // Free the pointer if non-nil even on error, to avoid leaks
-                if matches!(
-                    method.return_type,
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
-                ) {
-                    writeln!(out, "        if ptr != nil {{").ok();
-                    writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
-                    writeln!(out, "        }}").ok();
+                if method.error_type.is_some() {
+                    writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                    // Free the pointer if non-nil even on error, to avoid leaks
+                    if matches!(
+                        method.return_type,
+                        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                    ) {
+                        writeln!(out, "        if ptr != nil {{").ok();
+                        writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
+                        writeln!(out, "        }}").ok();
+                    }
+                    writeln!(out, "        return nil, err").ok();
+                    writeln!(out, "    }}").ok();
                 }
-                writeln!(out, "        return nil, err").ok();
-                writeln!(out, "    }}").ok();
                 // Free the FFI-allocated string after unmarshaling
                 if matches!(
                     method.return_type,

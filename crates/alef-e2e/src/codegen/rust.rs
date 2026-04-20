@@ -377,11 +377,13 @@ fn render_test_function(
 
     let await_suffix = if is_async { ".await" } else { "" };
 
+    let result_is_tree = call_config.result_var == "tree";
+
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
         // Render error assertions.
         for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, dep_name, true, &[], field_resolver);
+            render_assertion(out, assertion, result_var, &module, dep_name, true, &[], field_resolver, result_is_tree);
         }
         let _ = writeln!(out, "}}");
         return;
@@ -466,10 +468,12 @@ fn render_test_function(
             out,
             assertion,
             result_var,
+            &module,
             dep_name,
             false,
             &unwrapped_fields,
             field_resolver,
+            result_is_tree,
         );
     }
 
@@ -559,8 +563,17 @@ fn render_rust_arg(
     }
     let literal = json_to_rust_literal(value, arg_type);
     // String args are passed by reference in Rust.
-    let pass_by_ref = arg_type == "string";
-    let expr = |n: &str| if pass_by_ref { format!("&{n}") } else { n.to_string() };
+    // Bytes args are strings passed as .as_bytes().
+    let pass_by_ref = arg_type == "string" || arg_type == "bytes";
+    let expr = |n: &str| {
+        if arg_type == "bytes" {
+            format!("{n}.as_bytes()")
+        } else if pass_by_ref {
+            format!("&{n}")
+        } else {
+            n.to_string()
+        }
+    };
     if optional && value.is_null() {
         (vec![format!("let {name} = None;")], expr(name))
     } else if optional {
@@ -1090,10 +1103,12 @@ fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
     result_var: &str,
+    module: &str,
     _dep_name: &str,
     is_error_context: bool,
     unwrapped_fields: &[(String, String)], // (fixture_field, local_var)
     field_resolver: &FieldResolver,
+    result_is_tree: bool,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
@@ -1105,11 +1120,16 @@ fn render_assertion(
 
     // Determine field access expression:
     // 1. If the field was unwrapped to a local var, use that local var name.
-    // 2. Otherwise, use the field resolver to generate the accessor.
+    // 2. When the result is a Tree, map pseudo-field names to correct Rust expressions.
+    // 3. Otherwise, use the field resolver to generate the accessor.
     let field_access = match &assertion.field {
         Some(f) if !f.is_empty() => {
             if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
                 local_var.clone()
+            } else if result_is_tree {
+                // Tree is an opaque type — its "fields" are accessed via root_node() or
+                // free functions. Map known pseudo-field names to correct Rust expressions.
+                tree_field_access_expr(f, result_var, module)
             } else {
                 field_resolver.accessor(f, "rust", result_var)
             }
@@ -1288,12 +1308,14 @@ fn render_assertion(
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
-                if val.as_u64() == Some(1) {
-                    // Clippy prefers !is_empty() over len() >= 1
+                let lit = numeric_literal(val);
+                if val.as_u64() == Some(1) && field_access.ends_with(".len()") {
+                    // Clippy prefers !is_empty() over len() >= 1 for collections.
+                    // Only apply when the expression is already a `.len()` call so we
+                    // don't mistakenly call `.is_empty()` on numeric (usize) fields.
                     let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
                     let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= 1\");");
                 } else {
-                    let lit = numeric_literal(val);
                     let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
                 }
             }
@@ -1373,13 +1395,21 @@ fn render_assertion(
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
-                // Build the method call expression, passing args when present.
-                let call_expr = if let Some(args) = &assertion.args {
+                // Build the call expression. When the result is a tree-sitter Tree (an opaque
+                // type), methods like `root_child_count` do not exist on `Tree` directly —
+                // they are free functions in the crate or are accessed via `root_node()`.
+                let call_expr = if result_is_tree {
+                    build_tree_call_expr(field_access.as_str(), method_name, assertion.args.as_ref(), module)
+                } else if let Some(args) = &assertion.args {
                     let arg_lit = json_to_rust_literal(args, "");
                     format!("{field_access}.{method_name}({arg_lit})")
                 } else {
                     format!("{field_access}.{method_name}()")
                 };
+
+                // Determine whether the call expression returns a numeric type so we can
+                // choose the right comparison strategy for `greater_than_or_equal`.
+                let returns_numeric = result_is_tree && is_tree_numeric_method(method_name);
 
                 let check = assertion.check.as_deref().unwrap_or("is_true");
                 match check {
@@ -1421,7 +1451,11 @@ fn render_assertion(
                     "greater_than_or_equal" => {
                         if let Some(val) = &assertion.value {
                             let lit = numeric_literal(val);
-                            if val.as_u64() == Some(1) {
+                            if returns_numeric {
+                                // Numeric return (e.g., child_count()) — always use >= comparison.
+                                let _ = writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
+                            } else if val.as_u64() == Some(1) {
+                                // Clippy prefers !is_empty() over len() >= 1 for collections.
                                 let _ = writeln!(out, "    assert!(!{call_expr}.is_empty(), \"expected >= 1\");");
                             } else {
                                 let _ = writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
@@ -1454,6 +1488,97 @@ fn render_assertion(
         }
     }
 }
+
+/// Translate a fixture pseudo-field name on a `tree_sitter::Tree` into the
+/// correct Rust accessor expression.
+///
+/// When an assertion uses `field: "root_child_count"` on a tree result, the
+/// field resolver would naively emit `tree.root_child_count` — which is invalid
+/// because `Tree` is an opaque type with no such field.  This function maps the
+/// pseudo-field to the correct Rust expression instead.
+fn tree_field_access_expr(field: &str, result_var: &str, module: &str) -> String {
+    match field {
+        "root_child_count" => format!("{result_var}.root_node().child_count()"),
+        "root_node_type" => format!("{result_var}.root_node().kind()"),
+        "named_children_count" => format!("{result_var}.root_node().named_child_count()"),
+        "has_error_nodes" => format!("{module}::tree_has_error_nodes(&{result_var})"),
+        "error_count" => format!("{module}::tree_error_count(&{result_var})"),
+        "tree_to_sexp" => format!("{module}::tree_to_sexp(&{result_var})"),
+        // Unknown pseudo-field: fall back to direct field access (will likely fail to compile,
+        // but gives the developer a useful error pointing to the fixture).
+        other => format!("{result_var}.{other}"),
+    }
+}
+
+/// Build a Rust call expression for a logical "method" on a `tree_sitter::Tree`.
+///
+/// `Tree` is an opaque type — it does not expose methods like `root_child_count`.
+/// Instead, these are either free functions in the crate or are accessed via
+/// `tree.root_node().<method>()`. This function translates the fixture-level
+/// method name into the correct Rust expression.
+fn build_tree_call_expr(
+    field_access: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+    module: &str,
+) -> String {
+    match method_name {
+        "root_child_count" => format!("{field_access}.root_node().child_count()"),
+        "root_node_type" => format!("{field_access}.root_node().kind()"),
+        "named_children_count" => format!("{field_access}.root_node().named_child_count()"),
+        "has_error_nodes" => format!("{module}::tree_has_error_nodes(&{field_access})"),
+        "error_count" => format!("{module}::tree_error_count(&{field_access})"),
+        "tree_to_sexp" => format!("{module}::tree_to_sexp(&{field_access})"),
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{module}::tree_contains_node_type(&{field_access}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{module}::find_nodes_by_type(&{field_access}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // Use a raw string for the query to avoid escaping issues.
+            format!(
+                "{module}::run_query(&{field_access}, \"{language}\", r#\"{query_source}\"#, source.as_bytes())"
+            )
+        }
+        // Fallback: try as a plain method call.
+        _ => {
+            if let Some(args) = args {
+                let arg_lit = json_to_rust_literal(args, "");
+                format!("{field_access}.{method_name}({arg_lit})")
+            } else {
+                format!("{field_access}.{method_name}()")
+            }
+        }
+    }
+}
+
+/// Returns `true` when the tree method name produces a numeric result (usize/u64),
+/// meaning `>= N` comparisons should use direct numeric comparison rather than
+/// `.is_empty()` (which only works for collections).
+fn is_tree_numeric_method(method_name: &str) -> bool {
+    matches!(
+        method_name,
+        "root_child_count" | "named_children_count" | "error_count"
+    )
+}
+
 
 /// Convert a JSON numeric value to a Rust literal suitable for comparisons.
 ///
