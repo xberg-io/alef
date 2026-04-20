@@ -474,6 +474,19 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
     }
 
+    // Vec<Named>→String binding→core: binding holds JSON string, core expects Vec<T>
+    if config.vec_named_to_string {
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                if optional {
+                    return format!(
+                        "{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"
+                    );
+                }
+                return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
+            }
+        }
+    }
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)
     if config.json_to_string && matches!(ty, TypeRef::Json) {
         return format!("{name}: Default::default()");
@@ -485,7 +498,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
     }
-    if !config.cast_large_ints_to_i64 && !config.cast_f32_to_f64 && !config.json_to_string {
+    if !config.cast_large_ints_to_i64 && !config.cast_f32_to_f64 && !config.json_to_string && !config.vec_named_to_string {
         return field_conversion_to_core(name, ty, optional);
     }
     // Cast mode: handle primitives and Duration differently

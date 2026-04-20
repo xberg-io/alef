@@ -46,6 +46,11 @@ pub struct ConversionConfig<'a> {
     /// are skipped in the binding struct and defaulted in From conversions.
     /// Used by WASM to handle types excluded due to native dependency requirements.
     pub exclude_types: &'a [String],
+    /// When true, Vec<Named> fields are stored as JSON strings in the binding layer.
+    /// Core→binding uses `serde_json::to_string`, binding→core uses `serde_json::from_str`.
+    /// Used by Magnus (Ruby) where Vec<Named> cannot cross the FFI boundary directly and
+    /// is collapsed to String by `field_type_for_serde`'s catch-all arm.
+    pub vec_named_to_string: bool,
 }
 
 // Re-export all public items so callers continue to use `conversions::foo`.

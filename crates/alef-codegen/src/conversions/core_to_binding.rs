@@ -372,6 +372,20 @@ pub fn field_conversion_from_core_cfg(
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }
 
+    // Vec<Named>→String core→binding: binding holds JSON string, core has Vec<T>
+    if config.vec_named_to_string {
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                if optional {
+                    return format!(
+                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())"
+                    );
+                }
+                return format!("{name}: serde_json::to_string(&val.{name}).unwrap_or_default()");
+            }
+        }
+    }
+
     // WASM JsValue: use serde_wasm_bindgen for Map and nested Vec types
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));

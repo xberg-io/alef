@@ -197,9 +197,12 @@ impl Backend for MagnusBackend {
                 ));
             }
         }
-        // Magnus generates data enums with fields, so enable binding_enums_have_data
+        // Magnus generates data enums with fields, so enable binding_enums_have_data.
+        // Vec<Named> fields are collapsed to String in Magnus data enum variants via
+        // field_type_for_serde's catch-all arm, so use serde_json for those conversions.
         let magnus_conv_config = alef_codegen::conversions::ConversionConfig {
             binding_enums_have_data: true,
+            vec_named_to_string: true,
             ..Default::default()
         };
         for e in &api.enums {
