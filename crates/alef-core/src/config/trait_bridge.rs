@@ -28,4 +28,12 @@ pub struct TraitBridgeConfig {
     /// (e.g., `Py<PyAny>` for Python) and emit wrapping code to construct the bridge.
     #[serde(default)]
     pub type_alias: Option<String>,
+    /// Parameter name override — when the extractor sanitizes the type (e.g., `VisitorHandle`
+    /// becomes `String` because it is a type alias over `Rc<RefCell<dyn Trait>>`), use the
+    /// parameter name instead of the IR type to detect which parameter to bridge.
+    ///
+    /// For example, `param_name = "visitor"` ensures that a sanitized `visitor: Option<String>`
+    /// parameter is still treated as a bridge param for this trait.
+    #[serde(default)]
+    pub param_name: Option<String>,
 }

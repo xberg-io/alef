@@ -796,6 +796,7 @@ pub fn find_bridge_param<'a>(
     bridges: &'a [TraitBridgeConfig],
 ) -> Option<(usize, &'a TraitBridgeConfig)> {
     for (idx, param) in func.params.iter().enumerate() {
+        // Try matching by the IR type name (for non-sanitized params).
         let named = match &param.ty {
             TypeRef::Named(n) => Some(n.as_str()),
             TypeRef::Optional(inner) => {
@@ -807,11 +808,17 @@ pub fn find_bridge_param<'a>(
             }
             _ => None,
         };
-        if let Some(name) = named {
-            for bridge in bridges {
-                if bridge.type_alias.as_deref() == Some(name) {
+        for bridge in bridges {
+            // Match by type alias (non-sanitized path).
+            if let Some(type_name) = named {
+                if bridge.type_alias.as_deref() == Some(type_name) {
                     return Some((idx, bridge));
                 }
+            }
+            // Match by param name (sanitized path: the extractor collapsed the type to String
+            // because it couldn't represent e.g. `Rc<RefCell<dyn Trait>>`).
+            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
+                return Some((idx, bridge));
             }
         }
     }

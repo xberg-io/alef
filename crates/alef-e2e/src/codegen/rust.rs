@@ -32,11 +32,10 @@ impl super::E2eCodegen for RustE2eCodegen {
         let dep_name = crate_name.replace('-', "_");
 
         // Cargo.toml
-        // Check if any fixture uses json_object args (needs serde_json dep).
-        let needs_serde_json = e2e_config
-            .call
-            .args
-            .iter()
+        // Check if any call config (default or named) uses json_object/handle args (needs serde_json dep).
+        let all_call_configs = std::iter::once(&e2e_config.call).chain(e2e_config.calls.values());
+        let needs_serde_json = all_call_configs
+            .flat_map(|c| c.args.iter())
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
 
         // Check if any fixture in any group requires a mock HTTP server.
@@ -121,10 +120,6 @@ fn resolve_crate_path(e2e_config: &E2eConfig, crate_name: &str) -> String {
 
 fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
     e2e_config.resolve_package("rust").and_then(|p| p.version.clone())
-}
-
-fn resolve_function_name(e2e_config: &E2eConfig) -> String {
-    resolve_function_name_for_call(&e2e_config.call)
 }
 
 fn resolve_function_name_for_call(call_config: &crate::config::CallConfig) -> String {
@@ -255,7 +250,6 @@ fn render_test_file(
     let _ = writeln!(out);
 
     let module = resolve_module(e2e_config, dep_name);
-    let function_name = resolve_function_name(e2e_config);
     let field_resolver = FieldResolver::new(
         &e2e_config.fields,
         &e2e_config.fields_optional,
@@ -263,7 +257,29 @@ fn render_test_file(
         &e2e_config.fields_array,
     );
 
-    let _ = writeln!(out, "use {module}::{function_name};");
+    // Collect all unique (module, function) pairs needed across all fixtures in this file.
+    // Fixtures that name a specific call may use a different function (and module) than
+    // the default [e2e.call] config.
+    let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+    for fixture in fixtures.iter() {
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let fn_name = resolve_function_name_for_call(call_config);
+        let mod_name = resolve_module_for_call(call_config, dep_name);
+        imported.insert((mod_name, fn_name));
+    }
+    // Emit use statements, grouping by module when possible.
+    let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for (mod_name, fn_name) in &imported {
+        by_module.entry(mod_name.clone()).or_default().push(fn_name.clone());
+    }
+    for (mod_name, fns) in &by_module {
+        if fns.len() == 1 {
+            let _ = writeln!(out, "use {mod_name}::{};", fns[0]);
+        } else {
+            let joined = fns.join(", ");
+            let _ = writeln!(out, "use {mod_name}::{{{joined}}};");
+        }
+    }
 
     // Import handle constructor functions and the config type they use.
     let has_handle_args = e2e_config.call.args.iter().any(|a| a.arg_type == "handle");
@@ -307,13 +323,14 @@ fn render_test_function(
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let function_name = resolve_function_name(e2e_config);
-    let module = resolve_module(e2e_config, dep_name);
-    let result_var = &e2e_config.call.result_var;
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let function_name = resolve_function_name_for_call(call_config);
+    let module = resolve_module_for_call(call_config, dep_name);
+    let result_var = &call_config.result_var;
     let has_mock = fixture.needs_mock_server();
 
     // Tests with a mock server are always async (Axum requires a Tokio runtime).
-    let is_async = e2e_config.call.r#async || has_mock;
+    let is_async = call_config.r#async || has_mock;
     if is_async {
         let _ = writeln!(out, "#[tokio::test]");
         let _ = writeln!(out, "async fn test_{fn_name}() {{");
@@ -334,7 +351,7 @@ fn render_test_function(
 
     // Emit input variable bindings from args config.
     let mut arg_exprs: Vec<String> = Vec::new();
-    for arg in &e2e_config.call.args {
+    for arg in &call_config.args {
         let value = resolve_field(&fixture.input, &arg.field);
         let var_name = &arg.name;
         let (bindings, expr) = render_rust_arg(
