@@ -379,6 +379,18 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub client_factory: Option<String>,
+    /// Fields on the options object that require `BigInt()` wrapping (WASM only).
+    ///
+    /// `wasm_bindgen` maps Rust `u64`/`i64` to JavaScript `BigInt`. Numeric
+    /// values assigned to these setters must be wrapped with `BigInt(n)`.
+    ///
+    /// List camelCase field names, e.g.:
+    /// ```toml
+    /// [e2e.call.overrides.wasm]
+    /// bigint_fields = ["maxTokens", "seed"]
+    /// ```
+    #[serde(default)]
+    pub bigint_fields: Vec<String>,
     /// Static CLI arguments appended to every invocation (brew/CLI generator only).
     ///
     /// E.g., `["--format", "json"]` appends `--format json` to every CLI call.
