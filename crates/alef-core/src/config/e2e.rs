@@ -353,6 +353,19 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub handle_config_type: Option<String>,
+    /// PHP client factory method name (PHP generator only).
+    ///
+    /// When set, the generated PHP test instantiates a client via
+    /// `ClassName::factory_method('test-key')` and calls methods on the instance
+    /// instead of using static facade calls.
+    ///
+    /// E.g., `"createClient"` generates:
+    /// ```php
+    /// $client = LiterLlm::createClient('test-key');
+    /// $result = $client->chat($request);
+    /// ```
+    #[serde(default)]
+    pub php_client_factory: Option<String>,
     /// Static CLI arguments appended to every invocation (brew/CLI generator only).
     ///
     /// E.g., `["--format", "json"]` appends `--format json` to every CLI call.

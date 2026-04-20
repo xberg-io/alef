@@ -59,6 +59,7 @@ impl E2eCodegen for PhpCodegen {
         let empty_enum_fields = HashMap::new();
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
         let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
+        let php_client_factory = overrides.and_then(|o| o.php_client_factory.as_deref());
         let result_var = &call.result_var;
 
         // Resolve package config.
@@ -134,6 +135,7 @@ impl E2eCodegen for PhpCodegen {
                 &field_resolver,
                 enum_fields,
                 result_is_simple,
+                php_client_factory,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -245,6 +247,7 @@ fn render_test_file(
     field_resolver: &FieldResolver,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
+    php_client_factory: Option<&str>,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "<?php");
@@ -276,6 +279,7 @@ fn render_test_file(
         render_test_method(
             &mut out,
             fixture,
+            namespace,
             class_name,
             function_name,
             result_var,
@@ -283,6 +287,7 @@ fn render_test_file(
             field_resolver,
             enum_fields,
             result_is_simple,
+            php_client_factory,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -297,6 +302,7 @@ fn render_test_file(
 fn render_test_method(
     out: &mut String,
     fixture: &Fixture,
+    namespace: &str,
     class_name: &str,
     function_name: &str,
     result_var: &str,
@@ -304,6 +310,7 @@ fn render_test_method(
     field_resolver: &FieldResolver,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
+    php_client_factory: Option<&str>,
 ) {
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
@@ -311,11 +318,22 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id);
 
-    let call_expr = format!("{class_name}::{function_name}({args_str})");
+    let call_expr = if php_client_factory.is_some() {
+        format!("$client->{function_name}({args_str})")
+    } else {
+        format!("{class_name}::{function_name}({args_str})")
+    };
 
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
     let _ = writeln!(out, "    {{");
+
+    if let Some(factory) = php_client_factory {
+        let _ = writeln!(
+            out,
+            "        $client = \\{namespace}\\{class_name}::{factory}('test-key');"
+        );
+    }
 
     for line in &setup_lines {
         let _ = writeln!(out, "        {line}");
