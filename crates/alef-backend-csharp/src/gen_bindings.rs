@@ -1703,9 +1703,17 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 } else {
                     let json_name = field.name.trim_start_matches('_');
                     let cs_name = to_csharp_name(json_name);
-                    out.push_str(&format!(
-                        "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
-                    ));
+                    // CS8866: a record parameter name must not equal the record type name or the
+                    // parameter's own type name.  When either clash is detected, fall back to
+                    // "Value" (no JsonPropertyName) so the converter handles the mapping.
+                    let clashes = cs_name == pascal || cs_name == cs_type;
+                    if clashes {
+                        out.push_str(&format!("        {cs_type} Value{comma}\n"));
+                    } else {
+                        out.push_str(&format!(
+                            "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
+                        ));
+                    }
                 }
             }
             out.push_str(&format!("    ) : {enum_pascal};\n\n"));
@@ -1749,7 +1757,18 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         let pascal = variant.name.to_pascal_case();
         // Newtype/tuple variants have their inner type's fields inlined alongside the tag in JSON.
         // Deserialize the inner type from the full JSON object and wrap it in the record constructor.
-        let is_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
+        // Also treat single named-field variants whose parameter was renamed to "Value" (clash with
+        // the variant name or the field's own type name) the same way.
+        let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
+        let is_named_clash_newtype = variant.fields.len() == 1
+            && !is_tuple_field(&variant.fields[0])
+            && {
+                let f = &variant.fields[0];
+                let cs_type = csharp_type(&f.ty);
+                let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
+                cs_name == pascal || cs_name == cs_type
+            };
+        let is_newtype = is_tuple_newtype || is_named_clash_newtype;
         if is_newtype {
             let inner_cs_type = csharp_type(&variant.fields[0].ty);
             out.push_str(&format!(
@@ -1795,7 +1814,18 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         let pascal = variant.name.to_pascal_case();
         // Newtype/tuple variants: serialize the inner Value's fields inline alongside the tag.
-        let is_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
+        // Also applies to single named-field variants whose parameter was renamed to "Value" due
+        // to a clash with the variant name or the field's own type name.
+        let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
+        let is_named_clash_newtype = variant.fields.len() == 1
+            && !is_tuple_field(&variant.fields[0])
+            && {
+                let f = &variant.fields[0];
+                let cs_type = csharp_type(&f.ty);
+                let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
+                cs_name == pascal || cs_name == cs_type
+            };
+        let is_newtype = is_tuple_newtype || is_named_clash_newtype;
         out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
         out.push_str("            {\n");
         if is_newtype {
