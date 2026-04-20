@@ -402,6 +402,13 @@ pub struct CallOverride {
     /// the fixture's `output_format` input field.
     #[serde(default)]
     pub cli_flags: HashMap<String, String>,
+    /// C FFI opaque result type name (C only).
+    ///
+    /// The PascalCase name of the result struct, without the prefix.
+    /// E.g., `"ChatCompletionResponse"` for `LiterllmChatCompletionResponse*`.
+    /// If not set, defaults to the function name in PascalCase.
+    #[serde(default)]
+    pub result_type: Option<String>,
 }
 
 /// Per-language package reference configuration.
