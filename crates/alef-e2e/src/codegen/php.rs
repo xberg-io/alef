@@ -173,12 +173,12 @@ fn render_composer_json(
     "{pkg_name}": "{pkg_version}"
   }},
   "require-dev": {{
-    "phpunit/phpunit": "^11.0"
+    "phpunit/phpunit": "^13.1"
   }},"#
             )
         }
         crate::config::DependencyMode::Local => r#"  "require-dev": {
-    "phpunit/phpunit": "^11.0"
+    "phpunit/phpunit": "^13.1"
   },"#
         .to_string(),
     };
@@ -202,7 +202,7 @@ fn render_composer_json(
 fn render_phpunit_xml() -> String {
     r#"<?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.0/phpunit.xsd"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/13.1/phpunit.xsd"
          bootstrap="bootstrap.php"
          colors="true"
          failOnRisky="true"
