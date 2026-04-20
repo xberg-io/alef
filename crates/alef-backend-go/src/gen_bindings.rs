@@ -1367,7 +1367,9 @@ fn go_return_expr_inner(
             format!("func() *string {{ v := C.GoString({}); return &v }}()", var_name)
         }
         TypeRef::Json => {
-            format!("unmarshalJSON({})", var_name)
+            format!(
+                "func() *json.RawMessage {{ v := json.RawMessage(C.GoString({var_name})); return &v }}()"
+            )
         }
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)

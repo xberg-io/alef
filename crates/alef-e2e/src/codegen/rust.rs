@@ -55,6 +55,7 @@ impl super::E2eCodegen for RustE2eCodegen {
                 needs_mock_server,
                 e2e_config.dep_mode,
                 crate_version.as_deref(),
+                &alef_config.crate_config.features,
             ),
             generated_header: true,
         });
@@ -160,24 +161,33 @@ fn render_cargo_toml(
     needs_mock_server: bool,
     dep_mode: crate::config::DependencyMode,
     version: Option<&str>,
+    features: &[String],
 ) -> String {
     let e2e_name = format!("{dep_name}-e2e-rust");
+    let features_str = if features.is_empty() {
+        String::new()
+    } else {
+        let feat_list: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
+        format!(", features = {:?}", feat_list)
+    };
     let dep_spec = match dep_mode {
         crate::config::DependencyMode::Registry => {
             let ver = version.unwrap_or("0.1.0");
             if crate_name != dep_name {
-                format!("{dep_name} = {{ package = \"{crate_name}\", version = \"{ver}\" }}")
-            } else {
+                format!("{dep_name} = {{ package = \"{crate_name}\", version = \"{ver}\"{features_str} }}")
+            } else if features.is_empty() {
                 format!("{dep_name} = \"{ver}\"")
+            } else {
+                format!("{dep_name} = {{ version = \"{ver}\"{features_str} }}")
             }
         }
         crate::config::DependencyMode::Local => {
-            // When the crate name has hyphens, Cargo needs `package = "name-with-hyphens"`
-            // because the dep key uses underscores (Rust identifier).
             if crate_name != dep_name {
-                format!("{dep_name} = {{ package = \"{crate_name}\", path = \"{crate_path}\" }}")
-            } else {
+                format!("{dep_name} = {{ package = \"{crate_name}\", path = \"{crate_path}\"{features_str} }}")
+            } else if features.is_empty() {
                 format!("{dep_name} = {{ path = \"{crate_path}\" }}")
+            } else {
+                format!("{dep_name} = {{ path = \"{crate_path}\"{features_str} }}")
             }
         }
     };
@@ -593,7 +603,12 @@ fn render_json_object_arg(
     _module: &str,
 ) -> (Vec<String>, String) {
     if value.is_null() && optional {
-        return (vec![format!("let {name} = None;")], name.to_string());
+        // Use Default::default() and pass by reference — Rust functions typically
+        // take &T not Option<T> for config params.
+        return (
+            vec![format!("let {name} = Default::default();")],
+            format!("&{name}"),
+        );
     }
 
     // Fixture keys are camelCase; the Rust ConversionOptions type uses snake_case serde.
@@ -607,10 +622,11 @@ fn render_json_object_arg(
     let deser_expr = format!("serde_json::from_value({name}_json).unwrap()");
     if optional {
         lines.push(format!("let {name} = Some({deser_expr});"));
+        (lines, format!("&{name}"))
     } else {
         lines.push(format!("let {name} = {deser_expr};"));
+        (lines, format!("&{name}"))
     }
-    (lines, name.to_string())
 }
 
 /// Convert a `serde_json::Value` into a string suitable for the `serde_json::json!()` macro.
@@ -1553,8 +1569,9 @@ fn build_tree_call_expr(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             // Use a raw string for the query to avoid escaping issues.
+            // run_query returns Result — unwrap it for assertion access.
             format!(
-                "{module}::run_query(&{field_access}, \"{language}\", r#\"{query_source}\"#, source.as_bytes())"
+                "{module}::run_query(&{field_access}, \"{language}\", r#\"{query_source}\"#, source.as_bytes()).unwrap()"
             )
         }
         // Fallback: try as a plain method call.

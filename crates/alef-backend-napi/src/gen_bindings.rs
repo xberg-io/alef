@@ -1427,6 +1427,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
         lines.push(String::new());
         match decl {
             Decl::Class(typ) => {
+                lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export declare class {prefix}{} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
@@ -1437,6 +1438,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                         method.is_async,
                         prefix,
                     );
+                    lines.extend(format_jsdoc(&method.doc, "  "));
                     if method.is_static {
                         lines.push(format!("  static {js_name}({params}): {ret}"));
                     } else {
@@ -1446,16 +1448,19 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                 lines.push("}".to_string());
             }
             Decl::Interface(typ) => {
+                lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {prefix}{} {{", typ.name));
                 for field in &typ.fields {
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, prefix);
+                    lines.extend(format_jsdoc(&field.doc, "  "));
                     // All fields on plain structs are optional (NAPI napi(object) makes them Option).
                     lines.push(format!("  {js_name}?: {ts_ty}"));
                 }
                 lines.push("}".to_string());
             }
             Decl::Enum(e) => {
+                lines.extend(format_jsdoc(&e.doc, ""));
                 lines.push(format!("export declare enum {prefix}{} {{", e.name));
                 for variant in &e.variants {
                     // NAPI string_enum: variant values follow serde_rename_all casing.
@@ -1465,6 +1470,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                         .as_deref()
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
+                    lines.extend(format_jsdoc(&variant.doc, "  "));
                     lines.push(format!("  {} = '{}',", variant.name, value));
                 }
                 lines.push("}".to_string());
@@ -1473,6 +1479,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                 let js_name = to_node_name(&func.name);
                 let params = dts_params(&func.params, prefix);
                 let ret = dts_return_type(&func.return_type, func.error_type.is_some(), func.is_async, prefix);
+                lines.extend(format_jsdoc(&func.doc, ""));
                 lines.push(format!("export declare function {js_name}({params}): {ret}"));
             }
         }
@@ -1480,6 +1487,35 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
 
     lines.push(String::new());
     lines.join("\n")
+}
+
+/// Format a rustdoc string as JSDoc comment lines with the given `indent` prefix.
+///
+/// Returns an empty `Vec` when `doc` is empty. For a single-line doc, emits
+/// `["/** Description */"]`. For multi-line docs, emits the block form:
+/// `["/**", " * line1", " * line2", " */"]`, each prefixed by `indent`.
+fn format_jsdoc(doc: &str, indent: &str) -> Vec<String> {
+    let doc = doc.trim();
+    if doc.is_empty() {
+        return vec![];
+    }
+    let lines: Vec<&str> = doc.lines().collect();
+    if lines.len() == 1 {
+        vec![format!("{indent}/** {} */", lines[0].trim())]
+    } else {
+        let mut out = Vec::with_capacity(lines.len() + 2);
+        out.push(format!("{indent}/**"));
+        for line in &lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                out.push(format!("{indent} *"));
+            } else {
+                out.push(format!("{indent} * {trimmed}"));
+            }
+        }
+        out.push(format!("{indent} */"));
+        out
+    }
 }
 
 /// Map an IR `TypeRef` to its TypeScript equivalent for `.d.ts` generation.
@@ -1503,7 +1539,7 @@ fn dts_type(ty: &TypeRef, prefix: &str) -> String {
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path => "string".to_string(),
         TypeRef::Bytes => "Uint8Array".to_string(),
-        TypeRef::Json => "string".to_string(),
+        TypeRef::Json => "unknown".to_string(),
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Optional(inner) => format!("{} | undefined | null", dts_type(inner, prefix)),

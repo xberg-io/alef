@@ -1542,6 +1542,26 @@ fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str) -> String
 // Record types (Java records)
 // ---------------------------------------------------------------------------
 
+/// Emit a Javadoc comment block into `out` at the given indentation level.
+///
+/// `indent` is the leading whitespace prepended to each line (e.g. `""` for
+/// top-level declarations, `"    "` for class members).  Does nothing when
+/// `doc` is empty.
+fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    writeln!(out, "{indent}/**").ok();
+    for line in doc.lines() {
+        if line.is_empty() {
+            writeln!(out, "{indent} *").ok();
+        } else {
+            writeln!(out, "{indent} * {line}").ok();
+        }
+    }
+    writeln!(out, "{indent} */").ok();
+}
+
 /// Maximum line length before splitting record fields across multiple lines.
 /// Checkstyle enforces 120 chars; we split at 100 to leave headroom for indentation.
 const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
@@ -1550,7 +1570,8 @@ fn gen_record_type(package: &str, typ: &TypeDef, complex_enums: &AHashSet<String
     // Generate the record body first, then scan for needed imports.
     // For each field, if the language uses camelCase but the JSON key is snake_case
     // (the Rust default), annotate with @JsonProperty so Jackson maps correctly.
-    let field_list: Vec<String> = typ
+    // Also collect per-field doc strings for Javadoc emission.
+    let (field_list, field_docs): (Vec<String>, Vec<String>) = typ
         .fields
         .iter()
         .map(|f| {
@@ -1568,23 +1589,32 @@ fn gen_record_type(package: &str, typ: &TypeDef, complex_enums: &AHashSet<String
             // When the language convention is camelCase but the JSON wire format uses
             // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
             // so Jackson serialises/deserialises using the correct snake_case key.
-            if lang_rename_all == "camelCase" && f.name.contains('_') {
+            let decl = if lang_rename_all == "camelCase" && f.name.contains('_') {
                 format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname)
             } else {
                 format!("{} {}", ftype, jname)
-            }
+            };
+            (decl, f.doc.clone())
         })
-        .collect();
+        .unzip();
 
     // Build the single-line form to check length and scan for imports.
+    // Doc strings are intentionally excluded from this check so the threshold
+    // stays stable regardless of documentation presence.
     let single_line = format!("public record {}({}) {{ }}", typ.name, field_list.join(", "));
 
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
+    emit_javadoc(&mut record_block, &typ.doc, "");
     if single_line.len() > RECORD_LINE_WRAP_THRESHOLD && field_list.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
-        for (i, field) in field_list.iter().enumerate() {
+        for (i, (field, doc)) in field_list.iter().zip(field_docs.iter()).enumerate() {
             let comma = if i < field_list.len() - 1 { "," } else { "" };
+            if !doc.is_empty() {
+                // Inline single-line doc for record components in multi-line form.
+                let doc_summary = doc.lines().next().unwrap_or("").trim();
+                writeln!(record_block, "    /** {doc_summary} */").ok();
+            }
             writeln!(record_block, "    {}{}", field, comma).ok();
         }
         writeln!(record_block, ") {{").ok();
@@ -1659,6 +1689,7 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     writeln!(out, "import com.fasterxml.jackson.annotation.JsonValue;").ok();
     writeln!(out).ok();
 
+    emit_javadoc(&mut out, &enum_def.doc, "");
     writeln!(out, "public enum {} {{", enum_def.name).ok();
 
     for (i, variant) in enum_def.variants.iter().enumerate() {
@@ -1668,6 +1699,10 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
             .serde_rename
             .clone()
             .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        if !variant.doc.is_empty() {
+            let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+            writeln!(out, "    /** {doc_summary} */").ok();
+        }
         writeln!(out, "    {}(\"{}\"){}", variant.name, json_name, comma).ok();
     }
 
@@ -1761,6 +1796,7 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
     }
     writeln!(out).ok();
 
+    emit_javadoc(&mut out, &enum_def.doc, "");
     // @JsonTypeInfo and @JsonSubTypes annotations
     writeln!(
         out,
@@ -1789,6 +1825,10 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
         writeln!(out).ok();
         if variant.fields.is_empty() {
             // Unit variant
+            if !variant.doc.is_empty() {
+                let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+                writeln!(out, "    /** {doc_summary} */").ok();
+            }
             writeln!(out, "    record {}() implements {} {{", variant.name, enum_def.name).ok();
             writeln!(out, "    }}").ok();
         } else {
@@ -1840,6 +1880,10 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
                 enum_def.name
             );
 
+            if !variant.doc.is_empty() {
+                let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+                writeln!(out, "    /** {doc_summary} */").ok();
+            }
             if single.len() > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
                 writeln!(out, "    record {}(", variant.name).ok();
                 for (i, fp) in field_parts.iter().enumerate() {
@@ -2217,6 +2261,7 @@ fn format_optional_value(ty: &TypeRef, default: &str) -> String {
 fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     let mut body = String::with_capacity(2048);
 
+    emit_javadoc(&mut body, &typ.doc, "");
     writeln!(body, "public class {}Builder {{", typ.name).ok();
     writeln!(body).ok();
 

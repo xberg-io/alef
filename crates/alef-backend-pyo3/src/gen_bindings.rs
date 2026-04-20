@@ -267,8 +267,17 @@ impl Backend for Pyo3Backend {
 
         // Trait bridge wrappers — generate PyO3 bridge structs that delegate to Python objects
         if !config.trait_bridges.is_empty() {
-            // Add imports needed by trait bridge generated code
-            builder.add_import("async_trait::async_trait");
+            // async_trait is only needed for plugin-style bridges (those with async methods).
+            // Visitor bridges are fully synchronous, so only add the import when needed.
+            let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
+                api.types
+                    .iter()
+                    .find(|t| t.is_trait && t.name == bridge_cfg.trait_name)
+                    .is_some_and(|trait_type| trait_type.methods.iter().any(|m| m.is_async))
+            });
+            if needs_async_trait {
+                builder.add_import("async_trait::async_trait");
+            }
             // std::sync::Arc is already conditionally imported above for opaque types;
             // ensure it's present for trait bridges too.
             if opaque_types.is_empty() {
@@ -1014,6 +1023,22 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         for ty in &api.types {
             for method in &ty.methods {
                 collect_named_types(&method.return_type, &mut names);
+            }
+        }
+        // Transitively include field types of native types (they arrive from the native module).
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for ty in &api.types {
+                if names.contains(&ty.name) || ty.is_opaque {
+                    for field in &ty.fields {
+                        let before = names.len();
+                        collect_named_types(&field.ty, &mut names);
+                        if names.len() > before {
+                            changed = true;
+                        }
+                    }
+                }
             }
         }
         names

@@ -14,7 +14,7 @@ pub fn go_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Map(k, v) => Cow::Owned(format!("map[{}]{}", go_type(k), go_type(v))),
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("string"),
-        TypeRef::Json => Cow::Borrowed("map[string]interface{}"),
+        TypeRef::Json => Cow::Borrowed("json.RawMessage"),
         TypeRef::Unit => Cow::Borrowed(""), // void
         TypeRef::Duration => Cow::Borrowed("uint64"),
     }

@@ -223,20 +223,21 @@ pub fn field_conversion_from_core(
                 }
             }
         }
-        // String: sanitized from Box<str>, Cow<str>, etc.
-        // Box<str> and Cow<str> both implement Display, so use {} not {:?}.
-        // {:?} on those types produces debug-escaped strings with surrounding quotes.
+        // String: sanitized from Box<str>, Cow<str>, (u32, u32), etc.
+        // Use Debug formatting — it works for all types (including tuples) and avoids Display
+        // trait bound failures when the original core type doesn't implement Display.
         if matches!(ty, TypeRef::String) {
             if optional {
-                return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
+                return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{v:?}}\"))");
             }
-            return format!("{name}: val.{name}.to_string()");
+            return format!("{name}: format!(\"{{:?}}\", val.{name})");
         }
-        // Fallback for truly unknown sanitized types
+        // Fallback for truly unknown sanitized types — the core type may not implement Display,
+        // so use Debug formatting which is always available (required by the sanitized field's derive).
         if optional {
-            return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
+            return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{v:?}}\"))");
         }
-        return format!("{name}: val.{name}.to_string()");
+        return format!("{name}: format!(\"{{:?}}\", val.{name})");
     }
     match ty {
         // Duration: core uses std::time::Duration, binding uses u64 (millis)
