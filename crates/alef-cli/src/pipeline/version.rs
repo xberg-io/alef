@@ -402,6 +402,22 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
                                         if write_version_to_cargo_toml(&path_str, &version).is_ok() {
                                             updated.push(path_str);
                                         }
+                                    } else if path.extension().is_some_and(|e| e == "toml")
+                                        && path.file_name().is_some_and(|f| f == "pyproject.toml")
+                                    {
+                                        // pyproject.toml: only update the `version = "..."` field.
+                                        // Never do blanket regex replace — it corrupts requires-python
+                                        // and dependency version specifiers.
+                                        let py_ver = to_pep440(&version);
+                                        if let Some(new_content) =
+                                            replace_version_pattern(&content, r#"version = "[^"]*""#, &py_ver)
+                                        {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
                                     } else if let Some(ref re) = version_re {
                                         let new_content = re.replace_all(&content, version.as_str()).to_string();
                                         if new_content != content {
