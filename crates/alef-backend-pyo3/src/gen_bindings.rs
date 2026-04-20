@@ -814,23 +814,6 @@ fn python_zero_value(
     }
 }
 
-/// Like `python_type` but prefixes Named types with `_rust.` for return type annotations.
-/// This ensures the generated api.py return types match the native module types.
-fn rust_prefixed_python_type(ty: &alef_core::ir::TypeRef) -> String {
-    use alef_core::ir::TypeRef;
-    match ty {
-        TypeRef::Named(name) => format!("_rust.{name}"),
-        TypeRef::Optional(inner) => format!("{} | None", rust_prefixed_python_type(inner)),
-        TypeRef::Vec(inner) => format!("list[{}]", rust_prefixed_python_type(inner)),
-        TypeRef::Map(k, v) => format!(
-            "dict[{}, {}]",
-            rust_prefixed_python_type(k),
-            rust_prefixed_python_type(v)
-        ),
-        _ => crate::type_map::python_type(ty),
-    }
-}
-
 /// Recursively collect all Named type references from a TypeRef.
 fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
     use alef_core::ir::TypeRef;
@@ -947,11 +930,13 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         all_type_imports.insert(type_name.clone());
     }
     for func in &api.functions {
-        // Collect param type references (non-converter types like opaque handles).
-        // Return types use `_rust.` prefix and don't need imports.
         for param in &func.params {
             collect_named_types(&param.ty, &mut all_type_imports);
         }
+        // Collect return type references so they are imported and can be used as bare
+        // names in annotations. This avoids `_rust.`-prefixed return types which cause
+        // type checkers to see a different type than the public re-export.
+        collect_named_types(&func.return_type, &mut all_type_imports);
     }
 
     let mut out = String::with_capacity(4096);
@@ -970,11 +955,12 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         .map(|t| t.name.clone())
         .collect();
     let error_names: std::collections::BTreeSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
-    // Types that exist in options.py: has_default structs (excluding Update types).
+    // Types that exist in options.py: has_default structs (excluding Update types and return
+    // types — return types are defined in the native module, not options.py).
     let options_type_names: std::collections::BTreeSet<String> = api
         .types
         .iter()
-        .filter(|t| t.has_default && !t.name.ends_with("Update"))
+        .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
         .map(|t| t.name.clone())
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
@@ -1195,7 +1181,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
             sig_parts.push(format!("{}: {}", param.name, py_type));
         }
 
-        let return_type_str = rust_prefixed_python_type(&func.return_type);
+        let return_type_str = crate::type_map::python_type(&func.return_type);
         out.push_str(&format!(
             "def {}({}) -> {}:\n",
             func.name,

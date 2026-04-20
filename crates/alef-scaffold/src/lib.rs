@@ -75,7 +75,7 @@ fn cargo_package_header(
     let readme_line = if ws.readme {
         "readme.workspace = true".to_string()
     } else {
-        "readme = \"README.md\"".to_string()
+        "readme = false".to_string()
     };
     let keywords_line = if ws.keywords {
         "keywords.workspace = true".to_string()
