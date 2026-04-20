@@ -918,8 +918,7 @@ fn gen_method_wrapper(
             let err_prefix = if returns_value_and_error { "nil, " } else { "" };
             // method_can_return_error is always true here (receiver_requires_marshal is true for
             // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
-            let err_action =
-                format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
+            let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
             writeln!(
                 out,
                 "    jsonBytesRecv, err := json.Marshal({recv})\n    \
@@ -1367,9 +1366,7 @@ fn go_return_expr_inner(
             format!("func() *string {{ v := C.GoString({}); return &v }}()", var_name)
         }
         TypeRef::Json => {
-            format!(
-                "func() *json.RawMessage {{ v := json.RawMessage(C.GoString({var_name})); return &v }}()"
-            )
+            format!("func() *json.RawMessage {{ v := json.RawMessage(C.GoString({var_name})); return &v }}()")
         }
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)

@@ -272,7 +272,12 @@ fn render_test_file(
         && fixtures.iter().any(|f| {
             args.iter().any(|arg| {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                arg.arg_type == "json_object" && f.input.get(field).is_some_and(|v| !v.is_null())
+                let val = if field == "input" {
+                    Some(&f.input)
+                } else {
+                    f.input.get(field)
+                };
+                arg.arg_type == "json_object" && val.is_some_and(|v| !v.is_null())
             })
         });
 
@@ -465,7 +470,12 @@ fn build_args_and_setup(
         }
 
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        // When field == "input", the entire input object IS the value (not a nested key)
+        let val = if field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: skip entirely.

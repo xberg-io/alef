@@ -78,12 +78,24 @@ fn gen_visitor_bridge(
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
     writeln!(out, ") -> pyo3::Bound<'py, pyo3::types::PyDict> {{").unwrap();
     writeln!(out, "    let d = pyo3::types::PyDict::new(py);").unwrap();
-    writeln!(out, "    d.set_item(\"node_type\", format!(\"{{:?}}\", ctx.node_type)).unwrap_or(());").unwrap();
+    writeln!(
+        out,
+        "    d.set_item(\"node_type\", format!(\"{{:?}}\", ctx.node_type)).unwrap_or(());"
+    )
+    .unwrap();
     writeln!(out, "    d.set_item(\"tag_name\", &ctx.tag_name).unwrap_or(());").unwrap();
     writeln!(out, "    d.set_item(\"depth\", ctx.depth).unwrap_or(());").unwrap();
-    writeln!(out, "    d.set_item(\"index_in_parent\", ctx.index_in_parent).unwrap_or(());").unwrap();
+    writeln!(
+        out,
+        "    d.set_item(\"index_in_parent\", ctx.index_in_parent).unwrap_or(());"
+    )
+    .unwrap();
     writeln!(out, "    d.set_item(\"is_inline\", ctx.is_inline).unwrap_or(());").unwrap();
-    writeln!(out, "    d.set_item(\"parent_tag\", ctx.parent_tag.as_deref()).unwrap_or(());").unwrap();
+    writeln!(
+        out,
+        "    d.set_item(\"parent_tag\", ctx.parent_tag.as_deref()).unwrap_or(());"
+    )
+    .unwrap();
     writeln!(out, "    let attrs = pyo3::types::PyDict::new(py);").unwrap();
     writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
     writeln!(out, "        attrs.set_item(k, v).unwrap_or(());").unwrap();
@@ -312,13 +324,21 @@ fn gen_visitor_method(
         "                            \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
     )
     .unwrap();
-    writeln!(out, "                            other => {ret_ty}::Custom(other.to_string()),").unwrap();
+    writeln!(
+        out,
+        "                            other => {ret_ty}::Custom(other.to_string()),"
+    )
+    .unwrap();
     writeln!(out, "                        }}").unwrap();
     writeln!(out, "                    }} else if result.is_none() {{").unwrap();
     writeln!(out, "                        {ret_ty}::Continue").unwrap();
     writeln!(out, "                    }} else {{").unwrap();
     // Try dict protocol: {"custom": "..."} or {"error": "..."}
-    writeln!(out, "                        let py_dict = result.downcast::<pyo3::types::PyDict>();").unwrap();
+    writeln!(
+        out,
+        "                        let py_dict = result.downcast::<pyo3::types::PyDict>();"
+    )
+    .unwrap();
     writeln!(out, "                        if let Ok(d) = py_dict {{").unwrap();
     writeln!(
         out,
@@ -911,8 +931,7 @@ pub fn gen_bridge_function(
     // A param is optional either when its IR type is wrapped in Optional, OR when the
     // param's `optional` field is set (e.g. sanitized params where the extractor collapsed
     // `Rc<RefCell<dyn Trait>>` to `String` but preserved the optional metadata).
-    let is_optional = bridge_param.optional
-        || matches!(&bridge_param.ty, TypeRef::Optional(_));
+    let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
     // Use gen_function to produce the "base" function, then intercept:
     // We generate a modified version manually because we need to replace the
@@ -921,8 +940,7 @@ pub fn gen_bridge_function(
     // Build parameter list for the generated signature, replacing the bridge param
     let mut sig_parts = Vec::new();
     // For async Pyo3, first param is `py: Python<'py>`
-    let func_needs_py =
-        func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     if func_needs_py {
         sig_parts.push("py: Python<'py>".to_string());
     }
@@ -937,8 +955,7 @@ pub fn gen_bridge_function(
             }
         } else {
             // Use the standard type mapping with optional promotion
-            let promoted = idx > bridge_param_idx
-                || func.params[..idx].iter().any(|pp| pp.optional);
+            let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
             let ty = if p.optional || promoted {
                 format!("Option<{}>", mapper.map_type(&p.ty))
             } else {
@@ -993,78 +1010,101 @@ pub fn gen_bridge_function(
     let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
 
     // Generate serde let-bindings for non-bridge Named params
-    let serde_bindings: String = func.params.iter().enumerate().filter(|(idx, p)| {
-        // Skip the bridge param — it's handled separately
-        if *idx == bridge_param_idx {
-            return false;
-        }
-        // Only process Named or Optional<Named> types that are not opaque
-        let named = match &p.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+    let serde_bindings: String = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(idx, p)| {
+            // Skip the bridge param — it's handled separately
+            if *idx == bridge_param_idx {
+                return false;
             }
-            _ => None,
-        };
-        named.is_some_and(|n| !opaque_types.contains(n))
-    }).map(|(_, p)| {
-        let name = &p.name;
-        let core_path = format!("{core_import}::{}", match &p.ty {
-            TypeRef::Named(n) => n.clone(),
-            TypeRef::Optional(inner) => if let TypeRef::Named(n) = inner.as_ref() { n.clone() } else { String::new() },
-            _ => String::new(),
-        });
-        if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-            format!(
-                "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
+            // Only process Named or Optional<Named> types that are not opaque
+            let named = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| !opaque_types.contains(n))
+        })
+        .map(|(_, p)| {
+            let name = &p.name;
+            let core_path = format!(
+                "{core_import}::{}",
+                match &p.ty {
+                    TypeRef::Named(n) => n.clone(),
+                    TypeRef::Optional(inner) =>
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            n.clone()
+                        } else {
+                            String::new()
+                        },
+                    _ => String::new(),
+                }
+            );
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                format!(
+                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
                  let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
                  serde_json::from_str(&json){serde_err_conv}\n    \
                  }}).transpose()?;\n    "
-            )
-        } else {
-            format!(
-                "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?;\n    \
+                )
+            } else {
+                format!(
+                    "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?;\n    \
                  let {name}_core: {core_path} = serde_json::from_str(&{name}_json){serde_err_conv}?;\n    "
-            )
-        }
-    }).collect();
+                )
+            }
+        })
+        .collect();
 
     // Build the core function call args
-    let call_args: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
-        if idx == bridge_param_idx {
-            return p.name.clone();
-        }
-        match &p.ty {
-            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                if p.optional {
-                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                } else {
-                    format!("&{}.inner", p.name)
-                }
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == bridge_param_idx {
+                return p.name.clone();
             }
-            // Non-opaque Named or Optional<Named>: use the _core let-binding
-            TypeRef::Named(_) => format!("{}_core", p.name),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    if opaque_types.contains(n.as_str()) {
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
                         format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else {
-                        format!("{}_core", p.name)
+                        format!("&{}.inner", p.name)
                     }
-                } else {
-                    p.name.clone()
                 }
-            }
-            TypeRef::String | TypeRef::Char => {
-                if p.is_ref {
-                    format!("&{}", p.name)
-                } else {
-                    p.name.clone()
+                // Non-opaque Named or Optional<Named>: use the _core let-binding
+                TypeRef::Named(_) => format!("{}_core", p.name),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if opaque_types.contains(n.as_str()) {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        p.name.clone()
+                    }
                 }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
             }
-            _ => p.name.clone(),
-        }
-    }).collect();
+        })
+        .collect();
     let call_args_str = call_args.join(", ");
 
     let core_fn_path = {
@@ -1114,21 +1154,26 @@ pub fn gen_bridge_function(
         // Required params appear by name, optional params appear with =None.
         // Once any param is optional, all subsequent params must also use =None.
         let mut seen_optional = false;
-        let sig_parts: Vec<String> = func.params.iter().enumerate().map(|(idx, p)| {
-            let this_optional = if idx == bridge_param_idx {
-                is_optional
-            } else {
-                p.optional
-            };
-            if this_optional {
-                seen_optional = true;
-            }
-            if this_optional || seen_optional {
-                format!("{}=None", p.name)
-            } else {
-                p.name.clone()
-            }
-        }).collect();
+        let sig_parts: Vec<String> = func
+            .params
+            .iter()
+            .enumerate()
+            .map(|(idx, p)| {
+                let this_optional = if idx == bridge_param_idx {
+                    is_optional
+                } else {
+                    p.optional
+                };
+                if this_optional {
+                    seen_optional = true;
+                }
+                if this_optional || seen_optional {
+                    format!("{}=None", p.name)
+                } else {
+                    p.name.clone()
+                }
+            })
+            .collect();
         let sig_str = sig_parts.join(", ");
         writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
     }

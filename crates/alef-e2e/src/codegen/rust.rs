@@ -393,7 +393,17 @@ fn render_test_function(
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
         // Render error assertions.
         for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, &module, dep_name, true, &[], field_resolver, result_is_tree);
+            render_assertion(
+                out,
+                assertion,
+                result_var,
+                &module,
+                dep_name,
+                true,
+                &[],
+                field_resolver,
+                result_is_tree,
+            );
         }
         let _ = writeln!(out, "}}");
         return;
@@ -605,10 +615,7 @@ fn render_json_object_arg(
     if value.is_null() && optional {
         // Use Default::default() and pass by reference — Rust functions typically
         // take &T not Option<T> for config params.
-        return (
-            vec![format!("let {name} = Default::default();")],
-            format!("&{name}"),
-        );
+        return (vec![format!("let {name} = Default::default();")], format!("&{name}"));
     }
 
     // Fixture keys are camelCase; the Rust ConversionOptions type uses snake_case serde.
@@ -1590,12 +1597,8 @@ fn build_tree_call_expr(
 /// meaning `>= N` comparisons should use direct numeric comparison rather than
 /// `.is_empty()` (which only works for collections).
 fn is_tree_numeric_method(method_name: &str) -> bool {
-    matches!(
-        method_name,
-        "root_child_count" | "named_children_count" | "error_count"
-    )
+    matches!(method_name, "root_child_count" | "named_children_count" | "error_count")
 }
-
 
 /// Convert a JSON numeric value to a Rust literal suitable for comparisons.
 ///

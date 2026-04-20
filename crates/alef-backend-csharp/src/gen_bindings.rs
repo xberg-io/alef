@@ -751,10 +751,7 @@ fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool, true_opaque_t
                 // operator does not coerce a nullable to non-nullable at the type level —
                 // only `.Value` does. String/Char/Path/Json are reference types so `!` is
                 // correct for those; all value-type primitives need `.Value`.
-                let needs_value_unwrap = matches!(
-                    ty,
-                    TypeRef::Primitive(_) | TypeRef::Duration
-                );
+                let needs_value_unwrap = matches!(ty, TypeRef::Primitive(_) | TypeRef::Duration);
                 if needs_value_unwrap {
                     format!("{param_name}.Value")
                 } else {

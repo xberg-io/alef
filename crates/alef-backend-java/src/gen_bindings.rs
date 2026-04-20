@@ -1612,7 +1612,7 @@ fn gen_record_type(package: &str, typ: &TypeDef, complex_enums: &AHashSet<String
             let comma = if i < field_list.len() - 1 { "," } else { "" };
             if !doc.is_empty() {
                 // Inline single-line doc for record components in multi-line form.
-                let doc_summary = doc.lines().next().unwrap_or("").trim();
+                let doc_summary = escape_javadoc_line(doc.lines().next().unwrap_or("").trim());
                 writeln!(record_block, "    /** {doc_summary} */").ok();
             }
             writeln!(record_block, "    {}{}", field, comma).ok();
@@ -1826,7 +1826,7 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
         if variant.fields.is_empty() {
             // Unit variant
             if !variant.doc.is_empty() {
-                let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
                 writeln!(out, "    /** {doc_summary} */").ok();
             }
             writeln!(out, "    record {}() implements {} {{", variant.name, enum_def.name).ok();
@@ -1881,7 +1881,7 @@ fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
             );
 
             if !variant.doc.is_empty() {
-                let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
                 writeln!(out, "    /** {doc_summary} */").ok();
             }
             if single.len() > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
