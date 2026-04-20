@@ -448,7 +448,20 @@ fn json_value_to_shell_arg(value: &serde_json::Value) -> String {
 ///
 /// A path like `metadata.title` becomes `.metadata.title`.
 /// An array field like `links` becomes `.links`.
+/// The pseudo-property `length` (also `count`, `size`) becomes `| length`
+/// because jq uses pipe syntax for the `length` builtin.
 fn field_to_jq_path(resolved: &str) -> String {
+    // Check if the path ends with a length/count/size pseudo-property.
+    // E.g., "pages.length" → ".pages | length"
+    if let Some((prefix, suffix)) = resolved.rsplit_once('.') {
+        if suffix == "length" || suffix == "count" || suffix == "size" {
+            return format!(".{prefix} | length");
+        }
+    }
+    // Handle bare "length" / "count" / "size" (top-level array).
+    if resolved == "length" || resolved == "count" || resolved == "size" {
+        return ". | length".to_string();
+    }
     format!(".{resolved}")
 }
 

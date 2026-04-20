@@ -45,6 +45,7 @@ fn make_config(app_name: &str) -> AlefConfig {
         lint: None,
         test: None,
         e2e: None,
+        trait_bridges: vec![],
         custom_files: None,
         adapters: vec![],
         custom_modules: alef_core::config::CustomModulesConfig::default(),
@@ -111,6 +112,7 @@ fn make_static_method(name: &str, return_type: TypeRef) -> MethodDef {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     }
 }
 
@@ -130,6 +132,7 @@ fn make_instance_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef)
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     }
 }
 
@@ -160,6 +163,7 @@ fn test_generate_public_api_creates_all_files() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Options for conversion".to_string(),
             cfg: None,
         }],
@@ -277,6 +281,7 @@ fn test_native_ex_has_all_nif_stubs() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -392,6 +397,7 @@ fn test_struct_module_has_defstruct() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Options for conversion".to_string(),
             cfg: None,
         }],
@@ -488,6 +494,7 @@ fn test_main_module_has_method_wrappers() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -551,6 +558,7 @@ fn test_opaque_types_not_get_struct_module() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],

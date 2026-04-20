@@ -59,6 +59,7 @@ fn make_test_config(package: &str) -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     }
 }
 
@@ -115,6 +116,7 @@ fn test_basic_generation() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Test config".to_string(),
             cfg: None,
         }],
@@ -223,6 +225,7 @@ fn test_basic_generation() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     // Generate bindings
@@ -355,6 +358,7 @@ fn test_package_default() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -452,6 +456,7 @@ fn test_optional_field_defaults_in_builder() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Config with defaults".to_string(),
             cfg: None,
         }],
@@ -514,6 +519,7 @@ fn test_optional_field_defaults_in_builder() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     // Generate bindings

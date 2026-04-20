@@ -57,6 +57,7 @@ fn test_basic_generation() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Extraction configuration".to_string(),
             cfg: None,
         }],
@@ -178,6 +179,7 @@ fn test_basic_generation() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     // Generate bindings
@@ -317,6 +319,7 @@ fn test_namespace_resolution() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -385,6 +388,7 @@ fn test_generated_header() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -486,6 +490,7 @@ fn test_type_mapping() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -534,6 +539,7 @@ fn test_type_mapping() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -610,6 +616,7 @@ fn test_tuple_struct_fields_skipped() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -658,6 +665,7 @@ fn test_tuple_struct_fields_skipped() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -727,6 +735,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -775,6 +784,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);

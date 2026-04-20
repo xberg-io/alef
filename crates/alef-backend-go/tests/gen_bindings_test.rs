@@ -77,6 +77,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     }
 }
 
@@ -104,6 +105,7 @@ fn test_basic_generation() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Configuration type".to_string(),
             cfg: None,
         }],
@@ -241,6 +243,7 @@ fn test_type_mapping() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -398,6 +401,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
                 // Static method that returns a primitive (not skipped)
@@ -414,6 +418,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
                 // Instance method with parameters and error
@@ -440,6 +445,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
             ],
@@ -451,6 +457,7 @@ fn test_methods_generation() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "A handler type".to_string(),
             cfg: None,
         }],
@@ -622,6 +629,7 @@ fn test_opaque_type() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "An opaque handle to Rust state".to_string(),
             cfg: None,
         }],
@@ -687,6 +695,7 @@ fn test_default_config() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Configuration with defaults".to_string(),
             cfg: None,
         }],

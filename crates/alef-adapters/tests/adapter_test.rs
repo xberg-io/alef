@@ -56,6 +56,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         generate_overrides: HashMap::new(),
         dto: Default::default(),
         e2e: None,
+        trait_bridges: vec![],
         adapters: vec![],
     }
 }

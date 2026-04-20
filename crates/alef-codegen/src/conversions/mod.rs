@@ -131,6 +131,7 @@ mod tests {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }

@@ -54,6 +54,7 @@ fn test_generated_code_example() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Configuration for text extraction".to_string(),
             cfg: None,
         }],
@@ -174,6 +175,7 @@ fn test_generated_code_example() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

@@ -90,6 +90,7 @@ fn simple_type_def() -> TypeDef {
         is_return_type: false,
         serde_rename_all: None,
         has_serde: false,
+        super_traits: vec![],
         doc: "A minimal config type.".to_string(),
         cfg: None,
     }
@@ -246,6 +247,7 @@ fn test_gen_struct_with_empty_fields() {
         is_return_type: false,
         serde_rename_all: None,
         has_serde: false,
+        super_traits: vec![],
         doc: String::new(),
         cfg: None,
     };
@@ -294,6 +296,7 @@ fn test_gen_instance_method_with_ref_receiver() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -334,6 +337,7 @@ fn test_gen_static_method_without_receiver() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -365,6 +369,7 @@ fn test_gen_async_method_generates_async_signature() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -436,6 +441,7 @@ fn test_gen_method_with_multiple_params() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -468,6 +474,7 @@ fn test_gen_method_with_error_type() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -505,6 +512,7 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            has_default_impl: false,
         },
         MethodDef {
             name: "create".to_string(),
@@ -520,6 +528,7 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            has_default_impl: false,
         },
     ];
 
@@ -565,6 +574,7 @@ fn test_gen_method_with_optional_param() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1394,6 +1404,7 @@ fn test_gen_method_builder_pattern_opaque() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1449,6 +1460,7 @@ fn test_gen_method_builder_pattern_non_opaque() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1500,6 +1512,7 @@ fn test_gen_method_functional_ref_mut_unit_return() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1557,6 +1570,7 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -1609,6 +1623,7 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        has_default_impl: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();

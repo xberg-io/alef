@@ -88,6 +88,7 @@ fn make_config_with_stubs() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     }
 }
 
@@ -115,6 +116,7 @@ fn test_basic_rbs_stubs() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Extraction configuration".to_string(),
             cfg: None,
         }],
@@ -275,6 +277,7 @@ fn test_type_mapping_in_stubs() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -460,6 +463,7 @@ fn test_opaque_type_stubs() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
                 MethodDef {
@@ -485,6 +489,7 @@ fn test_opaque_type_stubs() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
             ],
@@ -496,6 +501,7 @@ fn test_opaque_type_stubs() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Opaque processor type".to_string(),
             cfg: None,
         }],
@@ -598,6 +604,7 @@ fn test_rbs_stubs_without_config() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_type_stubs(&api, &config);
@@ -640,6 +647,7 @@ fn test_type_with_methods_and_fields() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
                 MethodDef {
@@ -665,6 +673,7 @@ fn test_type_with_methods_and_fields() {
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
+                    has_default_impl: false,
                     trait_source: None,
                 },
             ],
@@ -676,6 +685,7 @@ fn test_type_with_methods_and_fields() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "A data store".to_string(),
             cfg: None,
         }],
@@ -753,6 +763,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: multiline_doc,
             cfg: None,
         }],
@@ -881,6 +892,7 @@ fn test_module_naming_from_crate_name() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_type_stubs(&api, &config);

@@ -61,6 +61,7 @@ fn print_generated_java_code() {
                 is_return_type: false,
                 serde_rename_all: None,
                 has_serde: false,
+                super_traits: vec![],
                 doc: "Configuration for extraction".to_string(),
                 cfg: None,
             },
@@ -108,6 +109,7 @@ fn print_generated_java_code() {
                 is_return_type: false,
                 serde_rename_all: None,
                 has_serde: false,
+                super_traits: vec![],
                 doc: "Result of extraction".to_string(),
                 cfg: None,
             },
@@ -299,6 +301,7 @@ fn print_generated_java_code() {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();

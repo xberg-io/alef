@@ -66,6 +66,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         test: None,
         e2e: None,
+    trait_bridges: vec![],
     }
 }
 
@@ -93,6 +94,7 @@ fn test_basic_generation() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: "Test config".to_string(),
             cfg: None,
         }],
@@ -228,6 +230,7 @@ fn test_type_mapping() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],
@@ -340,6 +343,7 @@ fn test_generated_header() {
             is_return_type: false,
             serde_rename_all: None,
             has_serde: false,
+            super_traits: vec![],
             doc: String::new(),
             cfg: None,
         }],

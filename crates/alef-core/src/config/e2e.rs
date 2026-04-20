@@ -340,6 +340,19 @@ pub struct CallOverride {
     /// E.g., `["asset_types"]` generates `asset_types: [:image]` instead of `["image"]`.
     #[serde(default)]
     pub handle_atom_list_fields: HashSet<String>,
+    /// WASM config class name for handle args (WASM generator only).
+    ///
+    /// When set, handle args are constructed using `ConfigType.default()` + setters
+    /// instead of passing a plain JS object (which fails `_assertClass` validation).
+    ///
+    /// E.g., `"WasmCrawlConfig"` generates:
+    /// ```js
+    /// const engineConfig = WasmCrawlConfig.default();
+    /// engineConfig.maxDepth = 1;
+    /// const engine = createEngine(engineConfig);
+    /// ```
+    #[serde(default)]
+    pub handle_config_type: Option<String>,
     /// Static CLI arguments appended to every invocation (brew/CLI generator only).
     ///
     /// E.g., `["--format", "json"]` appends `--format json` to every CLI call.
