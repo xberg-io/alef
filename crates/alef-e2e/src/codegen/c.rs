@@ -312,7 +312,7 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
     let _ = writeln!(out, " */");
     let _ = writeln!(
         out,
-        "static inline char *htm_json_get_string(const char *json, const char *key) {{"
+        "static inline char *alef_json_get_string(const char *json, const char *key) {{"
     );
     let _ = writeln!(out, "    if (json == NULL || key == NULL) return NULL;");
     let _ = writeln!(out, "    /* Build search pattern: \"key\":  */");
@@ -348,7 +348,7 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
     let _ = writeln!(out, " * Count top-level elements in a JSON array string.");
     let _ = writeln!(out, " * Returns 0 for empty arrays (\"[]\") or NULL input.");
     let _ = writeln!(out, " */");
-    let _ = writeln!(out, "static inline int htm_json_array_count(const char *json) {{");
+    let _ = writeln!(out, "static inline int alef_json_array_count(const char *json) {{");
     let _ = writeln!(out, "    if (json == NULL) return 0;");
     let _ = writeln!(out, "    /* Skip leading whitespace */");
     let _ = writeln!(
@@ -550,7 +550,7 @@ fn render_test_function(
     // chain from `fields_c_types`.
     // Each entry: (fixture_field, local_var, from_json_extract).
     // `from_json_extract` is true when the variable was extracted from a JSON
-    // map via htm_json_get_string and needs free() instead of {prefix}_free_string().
+    // map via alef_json_get_string and needs free() instead of {prefix}_free_string().
     let mut accessed_fields: Vec<(String, String, bool)> = Vec::new();
     // Track intermediate handles emitted so we can free them and avoid duplicates.
     // Each entry: (handle_var_name, snake_type_name) — freed in reverse order.
@@ -572,9 +572,11 @@ fn render_test_function(
                         result_var,
                         fields_c_types,
                         &mut intermediate_handles,
+                        result_type_name,
                     );
                 } else {
-                    let accessor_fn = format!("{prefix}_conversion_result_{resolved}");
+                    let result_type_snake = result_type_name.to_snake_case();
+                    let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
                     let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                 }
                 accessed_fields.push((f.clone(), local_var.clone(), has_map_access));
@@ -606,7 +608,8 @@ fn render_test_function(
     if has_options_handle {
         let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
     }
-    let _ = writeln!(out, "    {prefix}_conversion_result_free({result_var});");
+    let result_type_snake = result_type_name.to_snake_case();
+    let _ = writeln!(out, "    {prefix}_{result_type_snake}_free({result_var});");
     let _ = writeln!(out, "}}");
 }
 
@@ -631,12 +634,13 @@ fn emit_nested_accessor(
     result_var: &str,
     fields_c_types: &HashMap<String, String>,
     intermediate_handles: &mut Vec<(String, String)>,
+    result_type_name: &str,
 ) {
     let segments: Vec<&str> = resolved.split('.').collect();
     let prefix_upper = prefix.to_uppercase();
 
-    // Walk the path, starting from the root type `conversion_result`.
-    let mut current_snake_type = "conversion_result".to_string();
+    // Walk the path, starting from the root result type.
+    let mut current_snake_type = result_type_name.to_snake_case();
     let mut current_handle = result_var.to_string();
 
     for (i, segment) in segments.iter().enumerate() {
@@ -650,7 +654,7 @@ fn emit_nested_accessor(
             let accessor_fn = format!("{prefix}_{current_snake_type}_{field_snake}");
 
             // The map accessor returns a char* (JSON object string).
-            // Use htm_json_get_string to extract the key value.
+            // Use alef_json_get_string to extract the key value.
             let json_var = format!("{field_snake}_json");
             if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
                 let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
@@ -661,7 +665,7 @@ fn emit_nested_accessor(
             // Extract the key from the JSON map.
             let _ = writeln!(
                 out,
-                "    char* {local_var} = htm_json_get_string({json_var}, \"{key}\");"
+                "    char* {local_var} = alef_json_get_string({json_var}, \"{key}\");"
             );
             return; // Map access is always the leaf.
         }
@@ -924,7 +928,7 @@ fn render_assertion(
                         out,
                         "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
                     );
-                    let _ = writeln!(out, "        int elem_count = htm_json_array_count({field_expr});");
+                    let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
                     let _ = writeln!(
                         out,
                         "        assert(elem_count >= {n} && \"expected at least {n} elements\");"
@@ -942,7 +946,7 @@ fn render_assertion(
                         out,
                         "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
                     );
-                    let _ = writeln!(out, "        int elem_count = htm_json_array_count({field_expr});");
+                    let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
                     let _ = writeln!(out, "        assert(elem_count == {n} && \"expected {n} elements\");");
                     let _ = writeln!(out, "    }}");
                 }
