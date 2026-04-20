@@ -143,7 +143,7 @@ impl E2eCodegen for TypeScriptCodegen {
 
 fn render_package_json(
     pkg_name: &str,
-    pkg_path: &str,
+    _pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {

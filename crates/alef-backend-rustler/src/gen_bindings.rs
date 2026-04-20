@@ -1349,7 +1349,7 @@ fn gen_native_ex(
     let _ = writeln!(out);
     let _ = writeln!(out, "  use RustlerPrecompiled,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
-    let _ = writeln!(out, "    crate: \"{app_name}_rustler\",");
+    let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
     let _ = writeln!(out, "    base_url:");
     let _ = writeln!(
         out,
