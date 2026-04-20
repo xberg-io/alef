@@ -25,7 +25,7 @@ impl E2eCodegen for WasmCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _alef_config: &AlefConfig,
+        alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -56,7 +56,7 @@ impl E2eCodegen for WasmCodegen {
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| "../../crates/html-to-markdown-wasm/pkg".to_string());
+            .unwrap_or_else(|| format!("../../crates/{}-wasm/pkg", alef_config.crate_config.name));
         let pkg_name = wasm_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
