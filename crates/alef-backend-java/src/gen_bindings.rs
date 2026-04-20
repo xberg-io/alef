@@ -28,7 +28,36 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
 /// Escape a string for use inside a Javadoc comment.
 /// Replaces `*/` (which would close the comment) and `@` (which starts a tag).
 fn escape_javadoc_line(s: &str) -> String {
-    s.replace("*/", "* /").replace('@', "{@literal @}")
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '`' {
+            let mut code = String::new();
+            for c in chars.by_ref() {
+                if c == '`' {
+                    break;
+                }
+                code.push(c);
+            }
+            result.push_str("{@code ");
+            result.push_str(&code);
+            result.push('}');
+        } else if ch == '<' {
+            result.push_str("&lt;");
+        } else if ch == '>' {
+            result.push_str("&gt;");
+        } else if ch == '&' {
+            result.push_str("&amp;");
+        } else if ch == '*' && chars.peek() == Some(&'/') {
+            chars.next();
+            result.push_str("* /");
+        } else if ch == '@' {
+            result.push_str("{@literal @}");
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 fn is_tuple_field_name(name: &str) -> bool {
@@ -1562,7 +1591,8 @@ fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
         if line.is_empty() {
             writeln!(out, "{indent} *").ok();
         } else {
-            writeln!(out, "{indent} * {line}").ok();
+            let escaped = escape_javadoc_line(line);
+            writeln!(out, "{indent} * {escaped}").ok();
         }
     }
     writeln!(out, "{indent} */").ok();
@@ -1706,7 +1736,7 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
             .clone()
             .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         if !variant.doc.is_empty() {
-            let doc_summary = variant.doc.lines().next().unwrap_or("").trim();
+            let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
             writeln!(out, "    /** {doc_summary} */").ok();
         }
         writeln!(out, "    {}(\"{}\"){}", variant.name, json_name, comma).ok();

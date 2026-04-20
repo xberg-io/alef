@@ -1454,26 +1454,59 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));
-                    // All fields on plain structs are optional (NAPI napi(object) makes them Option).
-                    lines.push(format!("  {js_name}?: {ts_ty}"));
+                    // Only mark a field optional when the underlying Rust type is Option<T>.
+                    // Required fields must not carry `?` — callers are expected to provide them.
+                    if matches!(field.ty, TypeRef::Optional(_)) {
+                        lines.push(format!("  {js_name}?: {ts_ty}"));
+                    } else {
+                        lines.push(format!("  {js_name}: {ts_ty}"));
+                    }
                 }
                 lines.push("}".to_string());
             }
             Decl::Enum(e) => {
+                let is_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
                 lines.extend(format_jsdoc(&e.doc, ""));
-                lines.push(format!("export declare enum {prefix}{} {{", e.name));
-                for variant in &e.variants {
-                    // NAPI string_enum: variant values follow serde_rename_all casing.
-                    // Prefer explicit serde_rename, then apply rename_all, then fall back to variant name.
-                    let value = variant
-                        .serde_rename
-                        .as_deref()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
-                    lines.extend(format_jsdoc(&variant.doc, "  "));
-                    lines.push(format!("  {} = '{}',", variant.name, value));
+                if is_data_enum {
+                    // Discriminated union: emit a type alias instead of an enum declaration.
+                    // Each variant becomes an object literal type with the tag field and its own fields.
+                    let tag_field = e.serde_tag.as_deref().unwrap_or("type");
+                    let mut member_lines: Vec<String> = Vec::new();
+                    for variant in &e.variants {
+                        let tag_value = variant
+                            .serde_rename
+                            .as_deref()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
+                        let mut obj_fields: Vec<String> = vec![format!("{tag_field}: '{tag_value}'")];
+                        for field in &variant.fields {
+                            let js_name = to_node_name(&field.name);
+                            let ts_ty = dts_type(&field.ty, prefix);
+                            if matches!(field.ty, TypeRef::Optional(_)) {
+                                obj_fields.push(format!("{js_name}?: {ts_ty}"));
+                            } else {
+                                obj_fields.push(format!("{js_name}: {ts_ty}"));
+                            }
+                        }
+                        member_lines.push(format!("  | {{ {} }}", obj_fields.join("; ")));
+                    }
+                    lines.push(format!("export type {prefix}{} =", e.name));
+                    lines.extend(member_lines);
+                } else {
+                    lines.push(format!("export declare enum {prefix}{} {{", e.name));
+                    for variant in &e.variants {
+                        // NAPI string_enum: variant values follow serde_rename_all casing.
+                        // Prefer explicit serde_rename, then apply rename_all, then fall back to variant name.
+                        let value = variant
+                            .serde_rename
+                            .as_deref()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
+                        lines.extend(format_jsdoc(&variant.doc, "  "));
+                        lines.push(format!("  {} = '{}',", variant.name, value));
+                    }
+                    lines.push("}".to_string());
                 }
-                lines.push("}".to_string());
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);

@@ -11,6 +11,23 @@ use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeD
 use std::fmt::Write;
 use std::path::PathBuf;
 
+/// Format a doc string as rustdoc comment lines.
+///
+/// Returns an empty string when `doc` is empty, otherwise returns each line
+/// prefixed with `/// ` and terminated with a newline, ready to prepend to an item.
+fn emit_rustdoc(doc: &str) -> String {
+    if doc.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for line in doc.lines() {
+        out.push_str("/// ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 /// Check if a TypeRef references a Named type that is in the exclude set.
 /// Used to skip fields whose types were excluded from WASM generation,
 /// preventing references to non-existent Js* wrapper types.
@@ -327,6 +344,7 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
 
     // We can't use StructBuilder for private fields, so build manually
     let mut out = String::with_capacity(256);
+    out.push_str(&emit_rustdoc(&typ.doc));
     writeln!(out, "#[derive(Clone)]").ok();
     writeln!(out, "#[wasm_bindgen]").ok();
     writeln!(out, "pub struct {} {{", js_name).ok();
@@ -462,7 +480,7 @@ fn gen_opaque_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
-    let mut attrs = String::new();
+    let mut attrs = emit_rustdoc(&method.doc);
     // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
     if method.params.len() + 1 > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
@@ -547,7 +565,7 @@ fn gen_opaque_static_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
-    let mut attrs = String::new();
+    let mut attrs = emit_rustdoc(&method.doc);
     // Per-item clippy suppression: too_many_arguments when >7 params
     if method.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
@@ -573,6 +591,7 @@ fn gen_opaque_static_method(
 fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut out = String::with_capacity(512);
+    out.push_str(&emit_rustdoc(&typ.doc));
     // Binding types derive Clone and Default.
     // Default: enables using unwrap_or_default() in constructors.
     // Note: Do NOT derive Serialize/Deserialize on WASM types. wasm-bindgen handles conversion
@@ -807,7 +826,7 @@ fn gen_method(
         String::new()
     };
 
-    let mut attrs = String::new();
+    let mut attrs = emit_rustdoc(&method.doc);
     // Per-item clippy suppression: too_many_arguments when >7 params (including &self for instance methods)
     let effective_param_count = if method.is_static {
         method.params.len()
@@ -984,11 +1003,19 @@ fn format_param_unused(name: &str, ty: &str, unused: bool) -> String {
 /// Generate a wasm-bindgen enum definition.
 fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
     let js_name = format!("{prefix}{}", enum_def.name);
-    let mut lines = vec![
+    let mut lines = vec![];
+    let doc = emit_rustdoc(&enum_def.doc);
+    if !doc.is_empty() {
+        // emit_rustdoc includes trailing newlines; push each line individually
+        for line in doc.lines() {
+            lines.push(line.to_string());
+        }
+    }
+    lines.extend([
         "#[wasm_bindgen]".to_string(),
         "#[derive(Clone, Copy, PartialEq, Eq)]".to_string(),
         format!("pub enum {} {{", js_name),
-    ];
+    ]);
 
     for (idx, variant) in enum_def.variants.iter().enumerate() {
         lines.push(format!("    {} = {},", variant.name, idx));
@@ -1038,7 +1065,7 @@ fn gen_function(
         String::new()
     };
 
-    let mut attrs = String::new();
+    let mut attrs = emit_rustdoc(&func.doc);
     // Per-item clippy suppression: too_many_arguments when >7 params
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");

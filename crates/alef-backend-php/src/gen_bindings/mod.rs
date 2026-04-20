@@ -215,6 +215,7 @@ impl Backend for PhpBackend {
                         &mapper,
                         &opaque_types,
                         &core_import,
+                        &config.trait_bridges,
                     ));
                 } else {
                     method_items.push(gen_function_as_static_method(
@@ -222,6 +223,7 @@ impl Backend for PhpBackend {
                         &mapper,
                         &opaque_types,
                         &core_import,
+                        &config.trait_bridges,
                     ));
                 }
             }
@@ -397,10 +399,24 @@ impl Backend for PhpBackend {
         content.push_str(&format!("final class {}\n", class_name));
         content.push_str("{\n");
 
+        // Build the set of bridge param names so they are excluded from public PHP signatures.
+        let bridge_param_names_pub: ahash::AHashSet<&str> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.param_name.as_deref())
+            .collect();
+
         // Generate wrapper methods for functions
         for func in &api.functions {
             let method_name = func.name.to_lower_camel_case();
             let return_php_type = php_type(&func.return_type);
+
+            // Visible params exclude bridge params (not surfaced to PHP callers).
+            let visible_params: Vec<_> = func
+                .params
+                .iter()
+                .filter(|p| !bridge_param_names_pub.contains(p.name.as_str()))
+                .collect();
 
             // PHPDoc block
             content.push_str("    /**\n");
@@ -415,7 +431,7 @@ impl Backend for PhpBackend {
                 content.push_str(&format!("     * {}.\n", method_name));
             }
             content.push_str("     *\n");
-            for p in &func.params {
+            for p in &visible_params {
                 let ptype = php_phpdoc_type(&p.ty);
                 let nullable_prefix = if p.optional { "?" } else { "" };
                 content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
@@ -430,8 +446,7 @@ impl Backend for PhpBackend {
             // Method signature with type hints
             content.push_str(&format!("    public static function {}(", method_name));
 
-            let params: Vec<String> = func
-                .params
+            let params: Vec<String> = visible_params
                 .iter()
                 .map(|p| {
                     let ptype = php_type(&p.ty);
@@ -460,7 +475,7 @@ impl Backend for PhpBackend {
                 namespace,
                 class_name,
                 ext_method_name,
-                func.params
+                visible_params
                     .iter()
                     .map(|p| format!("${}", p.name))
                     .collect::<Vec<_>>()
@@ -673,18 +688,30 @@ impl Backend for PhpBackend {
         // Using a class instead of global functions avoids the `inventory` crate registration
         // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
         if !api.functions.is_empty() {
+            // Bridge params are hidden from the PHP-visible API in stubs too.
+            let bridge_param_names_stubs: ahash::AHashSet<&str> = config
+                .trait_bridges
+                .iter()
+                .filter_map(|b| b.param_name.as_deref())
+                .collect();
+
             content.push_str(&format!("class {}Api\n{{\n", class_name));
             for func in &api.functions {
                 let return_type = php_type_fq(&func.return_type, &namespace);
                 let return_phpdoc = php_phpdoc_type_fq(&func.return_type, &namespace);
-                // PHPDoc block
-                let has_array_params = func
+                // Visible params exclude bridge params.
+                let visible_params: Vec<_> = func
                     .params
+                    .iter()
+                    .filter(|p| !bridge_param_names_stubs.contains(p.name.as_str()))
+                    .collect();
+                // PHPDoc block
+                let has_array_params = visible_params
                     .iter()
                     .any(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
                 if has_array_params {
                     content.push_str("    /**\n");
-                    for p in &func.params {
+                    for p in &visible_params {
                         let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
                         let nullable_prefix = if p.optional { "?" } else { "" };
                         content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
@@ -692,8 +719,7 @@ impl Backend for PhpBackend {
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
                     content.push_str("     */\n");
                 }
-                let params: Vec<String> = func
-                    .params
+                let params: Vec<String> = visible_params
                     .iter()
                     .map(|p| {
                         let ptype = php_type_fq(&p.ty, &namespace);

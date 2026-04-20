@@ -256,6 +256,12 @@ fn test_generate_public_api_creates_all_files() {
         paths.iter().any(|p| p.ends_with("my_lib/conversion_options.ex")),
         "Should generate my_lib/conversion_options.ex; got: {paths:?}"
     );
+
+    // Should generate enum module for HeadingStyle
+    assert!(
+        paths.iter().any(|p| p.ends_with("my_lib/heading_style.ex")),
+        "Should generate my_lib/heading_style.ex; got: {paths:?}"
+    );
 }
 
 #[test]
@@ -578,6 +584,81 @@ fn test_opaque_types_not_get_struct_module() {
         !has_engine_struct,
         "Opaque types should not get struct modules; got: {:?}",
         files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_simple_enum_module_has_type_and_accessors() {
+    let backend = RustlerBackend;
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "HeadingStyle".to_string(),
+            rust_path: "my_lib::HeadingStyle".to_string(),
+            variants: vec![
+                EnumVariant {
+                    name: "Setext".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Atx".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Heading style for Markdown output".to_string(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let enum_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/heading_style.ex"))
+        .expect("heading_style.ex should be generated");
+
+    let content = &enum_file.content;
+
+    // Correct module name
+    assert!(
+        content.contains("defmodule MyLib.HeadingStyle do"),
+        "Should define MyLib.HeadingStyle; content:\n{content}"
+    );
+
+    // Moduledoc from enum doc
+    assert!(
+        content.contains("@moduledoc \"Heading style for Markdown output\""),
+        "Should have moduledoc from enum doc; content:\n{content}"
+    );
+
+    // @type t union of atoms
+    assert!(
+        content.contains("@type t :: :setext | :atx"),
+        "Should have @type t with atom union; content:\n{content}"
+    );
+
+    // Accessor functions for each variant
+    assert!(
+        content.contains("def setext"),
+        "Should have setext/0 accessor; content:\n{content}"
+    );
+    assert!(
+        content.contains("def atx"),
+        "Should have atx/0 accessor; content:\n{content}"
     );
 }
 

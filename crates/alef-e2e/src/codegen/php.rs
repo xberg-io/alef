@@ -33,17 +33,11 @@ impl E2eCodegen for PhpCodegen {
 
         let mut files = Vec::new();
 
-        // Resolve call config with overrides.
+        // Resolve top-level call config to derive class/namespace/factory — these are
+        // shared across all categories. Per-fixture call routing (function name, args)
+        // is resolved inside render_test_method via e2e_config.resolve_call().
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
-        let mut function_name = overrides
-            .and_then(|o| o.function.as_ref())
-            .cloned()
-            .unwrap_or_else(|| call.function.clone());
-        // PHP ext-php-rs async methods have an _async suffix
-        if call.r#async {
-            function_name = format!("{function_name}_async");
-        }
         let extension_name = alef_config.php_extension_name();
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
@@ -64,7 +58,7 @@ impl E2eCodegen for PhpCodegen {
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
         let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
         let php_client_factory = overrides.and_then(|o| o.php_client_factory.as_deref());
-        let result_var = &call.result_var;
+        let options_via = overrides.and_then(|o| o.options_via.as_deref()).unwrap_or("array");
 
         // Resolve package config.
         let php_pkg = e2e_config.resolve_package("php");
@@ -130,16 +124,16 @@ impl E2eCodegen for PhpCodegen {
             let content = render_test_file(
                 &group.category,
                 &active,
+                e2e_config,
+                lang,
                 &namespace,
                 &class_name,
-                &function_name,
-                result_var,
                 &test_class,
-                &e2e_config.call.args,
                 &field_resolver,
                 enum_fields,
                 result_is_simple,
                 php_client_factory,
+                options_via,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -242,16 +236,16 @@ if (file_exists($pkgAutoloader)) {{
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
+    lang: &str,
     namespace: &str,
     class_name: &str,
-    function_name: &str,
-    result_var: &str,
     test_class: &str,
-    args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     php_client_factory: Option<&str>,
+    options_via: &str,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "<?php");
@@ -263,7 +257,8 @@ fn render_test_file(
     let _ = writeln!(out);
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
     let needs_crawl_config_import = fixtures.iter().any(|f| {
-        args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+        let call = e2e_config.resolve_call(f.call.as_deref());
+        call.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
             let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
@@ -283,15 +278,15 @@ fn render_test_file(
         render_test_method(
             &mut out,
             fixture,
+            e2e_config,
+            lang,
             namespace,
             class_name,
-            function_name,
-            result_var,
-            args,
             field_resolver,
             enum_fields,
             result_is_simple,
             php_client_factory,
+            options_via,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -306,21 +301,36 @@ fn render_test_file(
 fn render_test_method(
     out: &mut String,
     fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    lang: &str,
     namespace: &str,
     class_name: &str,
-    function_name: &str,
-    result_var: &str,
-    args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     php_client_factory: Option<&str>,
+    options_via: &str,
 ) {
+    // Resolve per-fixture call config: supports named calls via fixture.call field.
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_overrides = call_config.overrides.get(lang);
+    let mut function_name = call_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
+    // PHP ext-php-rs async methods have an _async suffix.
+    if call_config.r#async {
+        function_name = format!("{function_name}_async");
+    }
+    let result_var = &call_config.result_var;
+    let args = &call_config.args;
+
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id);
+    let (setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
 
     let call_expr = if php_client_factory.is_some() {
         format!("$client->{function_name}({args_str})")
@@ -376,6 +386,10 @@ fn render_test_method(
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
+/// `options_via` controls how `json_object` args are passed:
+/// - `"array"` (default): PHP array literal `["key" => value, ...]`
+/// - `"json"`: JSON string via `json_encode([...])` — use when the Rust method accepts `Option<String>`
+///
 /// Returns `(setup_lines, args_string)`.
 fn build_args_and_setup(
     input: &serde_json::Value,
@@ -383,6 +397,7 @@ fn build_args_and_setup(
     class_name: &str,
     enum_fields: &HashMap<String, String>,
     fixture_id: &str,
+    options_via: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), json_to_php(input));
@@ -445,33 +460,43 @@ fn build_args_and_setup(
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0".to_string(),
                     "bool" | "boolean" => "false".to_string(),
+                    "json_object" if options_via == "json" => "null".to_string(),
                     _ => "null".to_string(),
                 };
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args, convert keys to snake_case and enum values appropriately.
                 if arg.arg_type == "json_object" && !v.is_null() {
-                    if let Some(obj) = v.as_object() {
-                        let items: Vec<String> = obj
-                            .iter()
-                            .map(|(k, vv)| {
-                                let snake_key = k.to_snake_case();
-                                let php_val = if enum_fields.contains_key(k) {
-                                    if let Some(s) = vv.as_str() {
-                                        let snake_val = s.to_snake_case();
-                                        format!("\"{}\"", escape_php(&snake_val))
-                                    } else {
-                                        json_to_php(vv)
-                                    }
-                                } else {
-                                    json_to_php(vv)
-                                };
-                                format!("\"{}\" => {}", escape_php(&snake_key), php_val)
-                            })
-                            .collect();
-                        parts.push(format!("[{}]", items.join(", ")));
-                        continue;
+                    match options_via {
+                        "json" => {
+                            // Pass as JSON string via json_encode(); the Rust method accepts Option<String>.
+                            parts.push(format!("json_encode({})", json_to_php(v)));
+                            continue;
+                        }
+                        _ => {
+                            // Default: PHP array literal with snake_case keys.
+                            if let Some(obj) = v.as_object() {
+                                let items: Vec<String> = obj
+                                    .iter()
+                                    .map(|(k, vv)| {
+                                        let snake_key = k.to_snake_case();
+                                        let php_val = if enum_fields.contains_key(k) {
+                                            if let Some(s) = vv.as_str() {
+                                                let snake_val = s.to_snake_case();
+                                                format!("\"{}\"", escape_php(&snake_val))
+                                            } else {
+                                                json_to_php(vv)
+                                            }
+                                        } else {
+                                            json_to_php(vv)
+                                        };
+                                        format!("\"{}\" => {}", escape_php(&snake_key), php_val)
+                                    })
+                                    .collect();
+                                parts.push(format!("[{}]", items.join(", ")));
+                                continue;
+                            }
+                        }
                     }
                 }
                 parts.push(json_to_php(v));

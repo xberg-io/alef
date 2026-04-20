@@ -3,12 +3,49 @@ use ahash::AHashSet;
 use alef_codegen::generators;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
+use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
 use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
+
+/// Build the set of parameter names that are trait bridge params.
+/// Bridge params are sanitized to a String/Option<String> in the IR but must be
+/// passed as `None` to the core function (the PHP backend has no bridge implementation).
+fn bridge_param_names(bridges: &[TraitBridgeConfig]) -> AHashSet<&str> {
+    bridges
+        .iter()
+        .filter_map(|b| b.param_name.as_deref())
+        .collect()
+}
+
+/// Replace the argument expression for each bridge param with `None` in the comma-separated
+/// call args string.  The replacement is done term-by-term so partial-name matches are avoided.
+fn apply_bridge_none_substitutions(
+    call_args: &str,
+    func: &FunctionDef,
+    bridge_names: &AHashSet<&str>,
+) -> String {
+    if bridge_names.is_empty() || call_args.is_empty() {
+        return call_args.to_string();
+    }
+    // Split on ", " then zip with params to identify which slot to replace.
+    let terms: Vec<&str> = call_args.split(", ").collect();
+    let result: Vec<String> = terms
+        .into_iter()
+        .zip(func.params.iter())
+        .map(|(term, param)| {
+            if bridge_names.contains(param.name.as_str()) {
+                "None".to_string()
+            } else {
+                term.to_string()
+            }
+        })
+        .collect();
+    result.join(", ")
+}
 /// Generate an instance method binding for an opaque struct.
 pub(crate) fn gen_instance_method(
     method: &MethodDef,
@@ -330,9 +367,12 @@ pub(crate) fn gen_function_as_static_method(
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
-    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names);
-    let params = gen_php_function_params(&func.params, mapper, opaque_types);
+    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
+    let bridge_names = bridge_param_names(bridges);
+    let visible_params: Vec<_> = func.params.iter().filter(|p| !bridge_names.contains(p.name.as_str())).cloned().collect();
+    let params = gen_php_function_params(&visible_params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
@@ -359,11 +399,14 @@ fn gen_function_body(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     enum_names: &AHashSet<String>,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
+    let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
-        let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {
@@ -412,7 +455,8 @@ fn gen_function_body(
     } else {
         // Not auto-delegatable but try serde-based conversion
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
-        let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {
@@ -459,9 +503,12 @@ pub(crate) fn gen_async_function_as_static_method(
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
-    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names);
-    let params = gen_php_function_params(&func.params, mapper, opaque_types);
+    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
+    let bridge_names = bridge_param_names(bridges);
+    let visible_params: Vec<_> = func.params.iter().filter(|p| !bridge_names.contains(p.name.as_str())).cloned().collect();
+    let params = gen_php_function_params(&visible_params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
@@ -488,11 +535,14 @@ fn gen_async_function_body(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     enum_names: &AHashSet<String>,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
+    let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
-        let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {

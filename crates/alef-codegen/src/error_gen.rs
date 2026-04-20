@@ -243,7 +243,9 @@ pub fn napi_converter_fn_name(error: &ErrorDef) -> String {
 // WASM (wasm-bindgen) error generation
 // ---------------------------------------------------------------------------
 
-/// Generate a converter function that maps a core error to `JsValue`.
+/// Generate a converter function that maps a core error to a `JsValue` object
+/// with `code` (string) and `message` (string) fields, plus a private
+/// `error_code` helper that returns the variant code string.
 pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
@@ -252,13 +254,56 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
     };
 
     let fn_name = format!("{}_to_js_value", to_snake_case(&error.name));
+    let code_fn_name = format!("{}_error_code", to_snake_case(&error.name));
 
     let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a `JsValue` string."));
+
+    // error_code helper — maps each variant to a snake_case string code
+    lines.push(format!(
+        "/// Return the error code string for a `{rust_path}` variant."
+    ));
     lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!("fn {fn_name}(e: {rust_path}) -> wasm_bindgen::JsValue {{"));
-    lines.push("    wasm_bindgen::JsValue::from_str(&e.to_string())".to_string());
+    lines.push(format!(
+        "fn {code_fn_name}(e: &{rust_path}) -> &'static str {{"
+    ));
+    lines.push("    #[allow(unreachable_patterns)]".to_string());
+    lines.push("    match e {".to_string());
+    for variant in &error.variants {
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
+        let code = to_snake_case(&variant.name);
+        lines.push(format!("        {pattern} => \"{code}\","));
+    }
+    lines.push(format!(
+        "        _ => \"{}\",",
+        to_snake_case(&error.name)
+    ));
+    lines.push("    }".to_string());
     lines.push("}".to_string());
+
+    lines.push(String::new());
+
+    // main converter — returns a JS object { code, message }
+    lines.push(format!(
+        "/// Convert a `{rust_path}` error to a `JsValue` object with `code` and `message` fields."
+    ));
+    lines.push("#[allow(dead_code)]".to_string());
+    lines.push(format!(
+        "fn {fn_name}(e: {rust_path}) -> wasm_bindgen::JsValue {{"
+    ));
+    lines.push(format!(
+        "    let code = {code_fn_name}(&e);"
+    ));
+    lines.push("    let message = e.to_string();".to_string());
+    lines.push("    let obj = js_sys::Object::new();".to_string());
+    lines.push(
+        "    js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok();".to_string(),
+    );
+    lines.push(
+        "    js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok();".to_string(),
+    );
+    lines.push("    obj.into()".to_string());
+    lines.push("}".to_string());
+
     lines.join("\n")
 }
 
@@ -822,10 +867,20 @@ mod tests {
     fn test_gen_wasm_error_converter() {
         let error = sample_error();
         let output = gen_wasm_error_converter(&error, "html_to_markdown_rs");
+        // Main converter function signature
         assert!(output.contains(
             "fn conversion_error_to_js_value(e: html_to_markdown_rs::ConversionError) -> wasm_bindgen::JsValue {"
         ));
-        assert!(output.contains("JsValue::from_str(&e.to_string())"));
+        // Structured object with code + message
+        assert!(output.contains("js_sys::Object::new()"));
+        assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
+        assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
+        assert!(output.contains("obj.into()"));
+        // error_code helper
+        assert!(output.contains("fn conversion_error_error_code(e: &html_to_markdown_rs::ConversionError) -> &'static str {"));
+        assert!(output.contains("\"parse_error\""));
+        assert!(output.contains("\"io_error\""));
+        assert!(output.contains("\"other\""));
         assert!(output.contains("#[allow(dead_code)]"));
     }
 

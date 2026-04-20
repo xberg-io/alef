@@ -168,7 +168,7 @@ fn render_cargo_toml(
         String::new()
     } else {
         let feat_list: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
-        format!(", features = {:?}", feat_list)
+        format!(", default-features = false, features = {:?}", feat_list)
     };
     let dep_spec = match dep_mode {
         crate::config::DependencyMode::Registry => {
@@ -431,7 +431,23 @@ fn render_test_function(
         "_".to_string()
     };
 
-    if has_not_error || !fixture.assertions.is_empty() {
+    // Detect Option-returning functions: if there's an is_empty/is_false assertion
+    // without a not_error assertion, the function likely returns Option<T> — don't unwrap.
+    let only_emptiness_checks = !has_not_error
+        && fixture.assertions.iter().all(|a| {
+            matches!(
+                a.assertion_type.as_str(),
+                "is_empty" | "is_false" | "not_empty" | "is_true"
+            )
+        });
+
+    if only_emptiness_checks {
+        // Option-returning: don't unwrap, emit is_none/is_some checks directly
+        let _ = writeln!(
+            out,
+            "    let {result_binding} = {function_name}({args_str}){await_suffix};"
+        );
+    } else if has_not_error || !fixture.assertions.is_empty() {
         let _ = writeln!(
             out,
             "    let {result_binding} = {function_name}({args_str}){await_suffix}.expect(\"should succeed\");"
@@ -1270,9 +1286,10 @@ fn render_assertion(
                     );
                 }
             } else {
+                // No field: assertion on the result itself. Use is_some() for Option types.
                 let _ = writeln!(
                     out,
-                    "    assert!(!{field_access}.is_empty(), \"expected non-empty value\");"
+                    "    assert!({field_access}.is_some(), \"expected non-empty value\");"
                 );
             }
         }
@@ -1286,7 +1303,8 @@ fn render_assertion(
                     let _ = writeln!(out, "    assert!({field_access}.is_empty(), \"expected empty value\");");
                 }
             } else {
-                let _ = writeln!(out, "    assert!({field_access}.is_empty(), \"expected empty value\");");
+                // No field: assertion on the result itself. Use is_none() for Option types.
+                let _ = writeln!(out, "    assert!({field_access}.is_none(), \"expected empty value\");");
             }
         }
         "contains_any" => {

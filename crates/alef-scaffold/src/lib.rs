@@ -1497,6 +1497,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
+js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.6"
