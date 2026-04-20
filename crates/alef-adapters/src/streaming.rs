@@ -27,16 +27,20 @@ pub fn generate_body(
     Ok(result)
 }
 
-/// Build the call arguments with `.into()` conversion.
+/// Build the call arguments referencing `_core` locals created by the method codegen.
+///
+/// The regular method codegen already emits `let {name}_core: CoreType = {name}.into();`
+/// for each parameter, so the adapter body must use those converted locals — not call
+/// `.into()` a second time (which would trigger a use-after-move error).
 fn call_args(adapter: &AdapterConfig) -> Vec<String> {
     adapter
         .params
         .iter()
         .map(|p| {
             if p.optional {
-                format!("{}.map(Into::into)", p.name)
+                format!("{}_core", p.name)
             } else {
-                format!("{}.into()", p.name)
+                format!("{}_core", p.name)
             }
         })
         .collect()
