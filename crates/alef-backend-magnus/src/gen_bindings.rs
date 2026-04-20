@@ -236,7 +236,7 @@ impl Backend for MagnusBackend {
 
         let output_dir = resolve_output_dir(
             config.output.ruby.as_ref(),
-            &config.crate_config.name,
+            &config.crate_config.name.replace('-', "_"),
             "packages/ruby/ext/{name}_rb/native/src/",
         );
 

@@ -498,7 +498,10 @@ tokio = {{ version = "1", features = ["rt-multi-thread"] }}
     );
 
     Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("packages/ruby/ext/{}_rb/native/Cargo.toml", core_crate_dir)),
+        path: PathBuf::from(format!(
+            "packages/ruby/ext/{}_rb/native/Cargo.toml",
+            core_crate_dir.replace('-', "_")
+        )),
         content,
         generated_header: true,
     }])
