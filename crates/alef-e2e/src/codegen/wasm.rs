@@ -268,8 +268,13 @@ fn render_test_file(
     // Check if any fixture uses a json_object arg that needs the options type import.
     let needs_options_import = options_type.is_some()
         && fixtures.iter().any(|f| {
-            args.iter()
-                .any(|arg| arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null()))
+            args.iter().any(|arg| {
+                if arg.arg_type != "json_object" {
+                    return false;
+                }
+                let val = if arg.field == "input" { Some(&f.input) } else { f.input.get(&arg.field) };
+                val.is_some_and(|v| !v.is_null())
+            })
         });
 
     // Collect all enum types that need to be imported.
@@ -278,7 +283,8 @@ fn render_test_file(
         for fixture in fixtures {
             for arg in args {
                 if arg.arg_type == "json_object" {
-                    if let Some(val) = fixture.input.get(&arg.field) {
+                    let val = if arg.field == "input" { Some(&fixture.input) } else { fixture.input.get(&arg.field) };
+                    if let Some(val) = val {
                         if let Some(obj) = val.as_object() {
                             for k in obj.keys() {
                                 if let Some(enum_type) = enum_fields.get(k) {
