@@ -16,6 +16,7 @@ pub(crate) fn gen_instance_method(
     is_opaque: bool,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    core_import: &str,
 ) -> String {
     let params = gen_php_function_params(&method.params, mapper, opaque_types);
     let return_type = mapper.map_type(&method.return_type);
@@ -66,6 +67,25 @@ pub(crate) fn gen_instance_method(
                 method.returns_ref,
                 method.returns_cow,
             )
+        }
+    } else if is_opaque {
+        // Not auto-delegatable opaque instance method — use let-binding conversion
+        let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, core_import);
+        let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types);
+        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!(
+                    "{let_bindings}{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
+                )
+            } else {
+                let wrap = php_wrap_return("result", &method.return_type, type_name, opaque_types, true, method.returns_ref, method.returns_cow);
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                )
+            }
+        } else {
+            format!("{let_bindings}{}", php_wrap_return(&core_call, &method.return_type, type_name, opaque_types, true, method.returns_ref, method.returns_cow))
         }
     } else {
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -371,7 +391,45 @@ fn gen_function_body(
             )
         }
     } else {
-        gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
+        // Not auto-delegatable but try serde-based conversion
+        let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
+        let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({call_args})");
+        if func.error_type.is_some() {
+            let wrap = php_wrap_return(
+                "result",
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            );
+            format!(
+                "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+            )
+        } else {
+            format!(
+                "{let_bindings}{}",
+                php_wrap_return(
+                    &core_call,
+                    &func.return_type,
+                    "",
+                    opaque_types,
+                    false,
+                    func.returns_ref,
+                    false
+                )
+            )
+        }
     }
 }
 

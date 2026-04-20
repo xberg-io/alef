@@ -54,7 +54,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 opaque_types,
             ));
         } else {
-            impl_builder.add_method(&gen_instance_method(method, mapper, true, &typ.name, opaque_types));
+            impl_builder.add_method(&gen_instance_method(method, mapper, true, &typ.name, opaque_types, core_import));
         }
     }
     for method in &statics {

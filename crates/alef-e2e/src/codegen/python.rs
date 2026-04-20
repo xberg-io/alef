@@ -730,8 +730,11 @@ fn render_test_function(
 // ---------------------------------------------------------------------------
 
 fn resolve_field<'a>(input: &'a serde_json::Value, field_path: &str) -> &'a serde_json::Value {
+    // Field paths in call config are "input.path", "input.config", etc.
+    // Since we already receive `fixture.input`, strip the leading "input." prefix.
+    let path = field_path.strip_prefix("input.").unwrap_or(field_path);
     let mut current = input;
-    for part in field_path.split('.') {
+    for part in path.split('.') {
         current = current.get(part).unwrap_or(&serde_json::Value::Null);
     }
     current

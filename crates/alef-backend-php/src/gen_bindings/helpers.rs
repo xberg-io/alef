@@ -290,6 +290,14 @@ pub(crate) fn gen_php_named_let_bindings(
                             .ok();
                         }
                     }
+                } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
+                    // Vec<String> with is_ref=true: core expects &[&str]
+                    writeln!(
+                        out,
+                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();",
+                        p.name, p.name
+                    )
+                    .ok();
                 }
             }
             _ => {}
@@ -392,6 +400,9 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     } else {
                         format!("{}_core", p.name)
                     }
+                } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
+                    // Vec<String> with is_ref: use the _refs binding for &[&str] coercion
+                    format!("&{}_refs", p.name)
                 } else {
                     // Opaque or primitive types: no binding needed
                     if p.optional {
