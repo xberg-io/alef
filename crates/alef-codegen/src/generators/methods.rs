@@ -508,7 +508,9 @@ pub fn gen_method(
     // `PyResult<Bound<'py, PyAny>>`. Return `Err` directly — wrapping in
     // `future_into_py` would cause E0283 because the async block only returns `Err`
     // and Rust cannot infer the generic `T` parameter.
-    let body = if needs_py && !opaque_can_delegate {
+    let adapter_key = format!("{}.{}", type_name, method.name);
+    let has_adapter = adapter_bodies.contains_key(&adapter_key);
+    let body = if needs_py && !opaque_can_delegate && !has_adapter {
         let err_msg = format!("Not implemented: {type_name}.{}", method.name);
         // Suppress unused parameter warnings — params are not used in the stub body.
         let suppress = if method.params.is_empty() {
