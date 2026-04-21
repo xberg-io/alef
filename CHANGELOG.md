@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs: pre-allocate `String::with_capacity(8192)` for markdown output buffers
 - PyO3: use `ahash::AHashSet<&str>` instead of `std::collections::HashSet<String>` in code generation hot paths
 
+### Added
+
+- Docs: Rust language API reference generation
+- Docs: tuple type detection and per-language rendering (`tuple[A, B]` for Python, `[A, B]` for TypeScript, `(A, B)` for Rust/Go/C#, `Tuple<A, B>` for Java)
+
 ### Fixed
 
 - CLI: remove redundant double rustfmt pass on generated Rust files
@@ -42,7 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Codegen: remove unused `create_env()` from templates module
+- Codegen: remove unused `create_env()` and dead `templates` module
+- Codegen: remove unused `minijinja` dependency from alef-codegen
 
 ## [0.4.3] - 2026-04-20
 
