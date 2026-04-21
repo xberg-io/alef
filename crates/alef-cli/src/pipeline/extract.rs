@@ -120,52 +120,6 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
 ///
 /// This skips `[include]`/`[exclude]` binding filters and type sanitization so
 /// that docs contain ALL public types from source files, not just the subset
-/// that survives binding codegen filters.  Deduplication, cfg-field stripping,
-/// and path mappings are still applied because they improve doc quality without
-/// removing types.
-pub fn extract_unfiltered(config: &AlefConfig, config_path: &Path) -> anyhow::Result<ApiSurface> {
-    // Ensure .gitignore has required entries
-    if let Some(parent) = config_path.parent() {
-        ensure_gitignore(parent, config);
-    }
-
-    let source_hash = cache::compute_source_hash(&config.crate_config.sources, config_path)
-        .context("failed to compute source hash")?;
-
-    let unfiltered_hash = format!("{source_hash}-unfiltered");
-    if cache::is_ir_cached_as(&unfiltered_hash, "ir-unfiltered") {
-        info!("Using cached unfiltered IR");
-        return cache::read_cached_ir_as("ir-unfiltered").context("failed to read cached unfiltered IR");
-    }
-
-    let mut api = extract_raw(config, config_path)?;
-
-    // Skip apply_filters — we want ALL types for docs.
-    // Skip sanitize_unknown_types — docs don't need compilable type references.
-
-    // Inject declared opaque types (docs should show these too)
-    inject_declared_opaque_types(&mut api, config);
-
-    // Strip cfg-gated fields (these are legitimately conditional)
-    strip_cfg_fields(&mut api, &config.crate_config.features);
-
-    // Apply path mappings to rewrite rust_path fields before dedup (same
-    // rationale as in `extract`: rewritten paths must be used for dedup).
-    apply_path_mappings(&mut api, config);
-
-    // Deduplicate types, enums, and functions by name
-    dedup_api_surface(&mut api);
-
-    cache::write_ir_cache_as(&api, &unfiltered_hash, "ir-unfiltered").context("failed to write unfiltered IR cache")?;
-    info!(
-        "Extracted (unfiltered) {} types, {} functions, {} enums",
-        api.types.len(),
-        api.functions.len(),
-        api.enums.len()
-    );
-
-    Ok(api)
-}
 
 /// Shared raw extraction logic: parse sources, produce raw `ApiSurface`.
 ///

@@ -33,7 +33,32 @@ pub fn generate_body(
 /// for each parameter, so the adapter body must use those converted locals — not call
 /// `.into()` a second time (which would trigger a use-after-move error).
 fn call_args(adapter: &AdapterConfig) -> Vec<String> {
-    adapter.params.iter().map(|p| format!("{}_core", p.name)).collect()
+    adapter.params.iter().map(|p| format!("core_{}", p.name)).collect()
+}
+
+/// Build conversion let-bindings for core types.
+fn core_let_bindings(adapter: &AdapterConfig, core_import: &str) -> Vec<String> {
+    adapter
+        .params
+        .iter()
+        .map(|p| {
+            if p.optional {
+                format!(
+                    "let core_{name} = {name}.map(|v| -> {core_import}::{ty} {{ v.into() }});",
+                    name = p.name,
+                    core_import = core_import,
+                    ty = p.ty,
+                )
+            } else {
+                format!(
+                    "let core_{name}: {core_import}::{ty} = {name}.into();",
+                    name = p.name,
+                    core_import = core_import,
+                    ty = p.ty,
+                )
+            }
+        })
+        .collect()
 }
 
 /// Get the iterator struct name from the adapter name.

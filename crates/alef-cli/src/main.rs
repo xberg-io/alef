@@ -386,9 +386,8 @@ fn main() -> Result<()> {
             let config = load_config(config_path)?;
             let languages = resolve_doc_languages(&config, lang.as_deref())?;
             let config_toml = std::fs::read_to_string(config_path)?;
-            // Use unfiltered IR for docs so ALL public types are documented,
-            // not just the subset that survives [include]/[exclude] binding filters.
-            let api = pipeline::extract_unfiltered(&config, config_path)?;
+            // Use filtered IR so docs only cover the public API surface.
+            let api = pipeline::extract(&config, config_path, false)?;
             let ir_json = serde_json::to_string(&api)?;
             let stage_hash = cache::compute_stage_hash(&ir_json, "docs", &config_toml, &[]);
             if cache::is_stage_cached("docs", &stage_hash) {
@@ -677,10 +676,9 @@ fn main() -> Result<()> {
                 alef_e2e::format::run_formatters(&files, e2e_config);
             }
 
-            // Generate API docs using unfiltered IR so ALL public types are documented,
-            // not just the subset that survives [include]/[exclude] binding filters.
+            // Generate API docs using filtered IR so docs match the public API surface.
             eprintln!("Generating API docs...");
-            let docs_api = pipeline::extract_unfiltered(&config, config_path)?;
+            let docs_api = pipeline::extract(&config, config_path, false)?;
             let doc_languages = resolve_doc_languages(&config, None)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;

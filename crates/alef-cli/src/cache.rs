@@ -175,38 +175,6 @@ fn walkdir(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Check if a named IR variant (e.g. "ir-unfiltered") is cached and valid.
-pub fn is_ir_cached_as(source_hash: &str, name: &str) -> bool {
-    let hash_path = Path::new(CACHE_DIR).join(format!("{name}.hash"));
-    let ir_path = Path::new(CACHE_DIR).join(format!("{name}.json"));
-    if !ir_path.exists() {
-        return false;
-    }
-    match fs::read_to_string(&hash_path) {
-        Ok(cached) => cached.trim() == source_hash,
-        Err(_) => false,
-    }
-}
-
-/// Read a named cached IR variant.
-pub fn read_cached_ir_as(name: &str) -> anyhow::Result<alef_core::ir::ApiSurface> {
-    let ir_path = Path::new(CACHE_DIR).join(format!("{name}.json"));
-    let content = fs::read_to_string(&ir_path)?;
-    Ok(serde_json::from_str(&content)?)
-}
-
-/// Write a named IR variant to cache.
-pub fn write_ir_cache_as(api: &alef_core::ir::ApiSurface, source_hash: &str, name: &str) -> anyhow::Result<()> {
-    let cache_dir = Path::new(CACHE_DIR);
-    fs::create_dir_all(cache_dir)?;
-    fs::write(
-        cache_dir.join(format!("{name}.json")),
-        serde_json::to_string_pretty(api)?,
-    )?;
-    fs::write(cache_dir.join(format!("{name}.hash")), source_hash)?;
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Generation content hashing — used by `alef verify` for idempotent staleness
 // checking.  We blake3-hash the raw codegen output strings and store
