@@ -294,9 +294,6 @@ impl Backend for WasmBackend {
             builder.add_item(&alef_codegen::error_gen::gen_wasm_error_converter(error, &core_import));
         }
 
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Wasm)?;
-
         let content = builder.build();
 
         let output_dir = resolve_output_dir(
@@ -422,6 +419,7 @@ fn gen_opaque_struct_methods(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     prefix: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
@@ -438,7 +436,14 @@ fn gen_opaque_struct_methods(
                 prefix,
             ));
         } else {
-            impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types, prefix));
+            impl_builder.add_method(&gen_opaque_method(
+                method,
+                mapper,
+                &typ.name,
+                opaque_types,
+                prefix,
+                adapter_bodies,
+            ));
         }
     }
 
@@ -452,6 +457,7 @@ fn gen_opaque_method(
     type_name: &str,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
@@ -538,7 +544,12 @@ fn gen_opaque_method(
             )
         }
     } else {
-        gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        let adapter_key = format!("{type_name}.{}", method.name);
+        if let Some(body) = adapter_bodies.get(&adapter_key) {
+            body.clone()
+        } else {
+            gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        }
     };
 
     let mut attrs = emit_rustdoc(&method.doc);

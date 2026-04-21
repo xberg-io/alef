@@ -135,7 +135,7 @@ fn extract_raw(config: &AlefConfig, _config_path: &Path) -> anyhow::Result<ApiSu
 
     // Build source groups: use explicit source_crates config when available,
     // otherwise derive crate names from file paths in the flat sources list.
-    let mut groups: std::collections::HashMap<String, Vec<&Path>> = std::collections::HashMap::new();
+    let mut groups: std::collections::BTreeMap<String, Vec<&Path>> = std::collections::BTreeMap::new();
     if !config.crate_config.source_crates.is_empty() {
         for sc in &config.crate_config.source_crates {
             let crate_name = sc.name.replace('-', "_");

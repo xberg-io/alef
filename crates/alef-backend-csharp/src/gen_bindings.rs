@@ -463,7 +463,9 @@ fn gen_native_methods(
     // Emit from_json + free helpers for opaque types used as parameters.
     // Truly opaque handles (is_opaque = true) have no from_json — only free.
     // E.g. `htm_conversion_options_from_json(const char *json) -> HTMConversionOptions*`
-    for type_name in &opaque_param_types {
+    let mut sorted_param_types: Vec<&String> = opaque_param_types.iter().collect();
+    sorted_param_types.sort();
+    for type_name in sorted_param_types {
         let snake = type_name.to_snake_case();
         if !true_opaque_types.contains(type_name) {
             let from_json_entry = format!("{prefix}_{snake}_from_json");
@@ -489,7 +491,9 @@ fn gen_native_methods(
 
     // Emit to_json + free helpers for opaque types returned from functions.
     // Truly opaque handles (is_opaque = true) have no to_json — only free.
-    for type_name in &opaque_return_types {
+    let mut sorted_return_types: Vec<&String> = opaque_return_types.iter().collect();
+    sorted_return_types.sort();
+    for type_name in sorted_return_types {
         let snake = type_name.to_snake_case();
         if !true_opaque_types.contains(type_name) {
             let to_json_entry = format!("{prefix}_{snake}_to_json");

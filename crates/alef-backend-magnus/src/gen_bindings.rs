@@ -139,10 +139,36 @@ impl Backend for MagnusBackend {
             .map(|t| t.name.as_str())
             .collect();
 
+        // Build adapter body map before type iteration so bodies are available for method generation.
+        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
+
+        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
+        for adapter in &config.adapters {
+            match adapter.pattern {
+                alef_core::config::AdapterPattern::Streaming => {
+                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    if let Some(struct_code) = adapter_bodies.get(&key) {
+                        builder.add_item(struct_code);
+                    }
+                }
+                alef_core::config::AdapterPattern::CallbackBridge => {
+                    let struct_key = format!("{}.__bridge_struct__", adapter.name);
+                    let impl_key = format!("{}.__bridge_impl__", adapter.name);
+                    if let Some(struct_code) = adapter_bodies.get(&struct_key) {
+                        builder.add_item(struct_code);
+                    }
+                    if let Some(impl_code) = adapter_bodies.get(&impl_key) {
+                        builder.add_item(impl_code);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &adapter_bodies));
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
@@ -249,9 +275,6 @@ impl Backend for MagnusBackend {
                 &core_import,
             ));
         }
-
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
 
         builder.add_item(&gen_module_init(&module_name, api, config));
 
@@ -394,7 +417,12 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> Str
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    adapter_bodies: &alef_adapters::AdapterBodies,
+) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     for method in &typ.methods {
@@ -405,9 +433,16 @@ fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, opaque_types:
                     mapper,
                     &typ.name,
                     opaque_types,
+                    adapter_bodies,
                 ));
             } else {
-                impl_builder.add_method(&gen_opaque_instance_method(method, mapper, &typ.name, opaque_types));
+                impl_builder.add_method(&gen_opaque_instance_method(
+                    method,
+                    mapper,
+                    &typ.name,
+                    opaque_types,
+                    adapter_bodies,
+                ));
             }
         }
     }
@@ -421,6 +456,7 @@ fn gen_opaque_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -470,7 +506,12 @@ fn gen_opaque_instance_method(
             )
         }
     } else {
-        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        let adapter_key = format!("{type_name}.{}", method.name);
+        if let Some(body) = adapter_bodies.get(&adapter_key) {
+            body.clone()
+        } else {
+            gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        }
     };
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n    "
@@ -490,6 +531,7 @@ fn gen_opaque_async_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -524,11 +566,16 @@ fn gen_opaque_async_instance_method(
             )
         }
     } else {
-        gen_magnus_unimplemented_body(
-            &method.return_type,
-            &format!("{}_async", method.name),
-            method.error_type.is_some(),
-        )
+        let adapter_key = format!("{type_name}.{}", method.name);
+        if let Some(body) = adapter_bodies.get(&adapter_key) {
+            body.clone()
+        } else {
+            gen_magnus_unimplemented_body(
+                &method.return_type,
+                &format!("{}_async", method.name),
+                method.error_type.is_some(),
+            )
+        }
     };
     format!(
         "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \

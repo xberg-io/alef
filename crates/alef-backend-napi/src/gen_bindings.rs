@@ -167,7 +167,14 @@ impl Backend for NapiBackend {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
                 ));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types, &prefix, &adapter_bodies));
+                builder.add_item(&gen_opaque_struct_methods(
+                    typ,
+                    &mapper,
+                    &cfg,
+                    &opaque_types,
+                    &prefix,
+                    &adapter_bodies,
+                ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.

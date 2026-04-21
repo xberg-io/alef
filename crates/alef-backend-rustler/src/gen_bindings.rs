@@ -118,6 +118,32 @@ impl Backend for RustlerBackend {
             .map(|t| t.name.clone())
             .collect();
 
+        // Build adapter body map before method iteration so bodies are available for NIF generation.
+        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Elixir)?;
+
+        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
+        for adapter in &config.adapters {
+            match adapter.pattern {
+                alef_core::config::AdapterPattern::Streaming => {
+                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    if let Some(struct_code) = adapter_bodies.get(&key) {
+                        builder.add_item(struct_code);
+                    }
+                }
+                alef_core::config::AdapterPattern::CallbackBridge => {
+                    let struct_key = format!("{}.__bridge_struct__", adapter.name);
+                    let impl_key = format!("{}.__bridge_impl__", adapter.name);
+                    if let Some(struct_code) = adapter_bodies.get(&struct_key) {
+                        builder.add_item(struct_code);
+                    }
+                    if let Some(impl_code) = adapter_bodies.get(&impl_key) {
+                        builder.add_item(impl_code);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         for func in api
             .functions
             .iter()
@@ -179,6 +205,7 @@ impl Backend for RustlerBackend {
                         typ.is_opaque,
                         &opaque_types,
                         &core_import,
+                        &adapter_bodies,
                     ));
                 } else {
                     builder.add_item(&gen_nif_method(
@@ -188,6 +215,7 @@ impl Backend for RustlerBackend {
                         typ.is_opaque,
                         &opaque_types,
                         &core_import,
+                        &adapter_bodies,
                     ));
                 }
             }
@@ -237,9 +265,6 @@ impl Backend for RustlerBackend {
                 &core_import,
             ));
         }
-
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Elixir)?;
 
         builder.add_item(&gen_nif_init(api, config, &exclude_functions, &exclude_types));
 
@@ -1098,6 +1123,7 @@ fn gen_nif_method(
     is_opaque: bool,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let method_fn_name = format!("{}_{}", struct_name.to_lowercase(), method.name);
 
@@ -1164,7 +1190,12 @@ fn gen_nif_method(
             )
         }
     } else {
-        gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, method.error_type.is_some())
+        let adapter_key = format!("{struct_name}.{}", method.name);
+        if let Some(body) = adapter_bodies.get(&adapter_key) {
+            body.clone()
+        } else {
+            gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, method.error_type.is_some())
+        }
     };
     format!(
         "#[rustler::nif]\npub fn {}({}) -> {} {{\n    \
@@ -1183,6 +1214,7 @@ fn gen_nif_async_method(
     is_opaque: bool,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let method_fn_name = format!("{}_{}_async", struct_name.to_lowercase(), method.name);
 
@@ -1253,7 +1285,12 @@ fn gen_nif_async_method(
             )
         }
     } else {
-        gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, true)
+        let adapter_key = format!("{struct_name}.{}", method.name);
+        if let Some(body) = adapter_bodies.get(&adapter_key) {
+            body.clone()
+        } else {
+            gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, true)
+        }
     };
     format!(
         "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}({}) -> {} {{\n    \

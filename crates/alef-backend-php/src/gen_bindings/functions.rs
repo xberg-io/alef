@@ -1,5 +1,6 @@
 use crate::type_map::PhpMapper;
 use ahash::AHashSet;
+use alef_adapters::AdapterBodies;
 use alef_codegen::generators;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
@@ -47,6 +48,7 @@ pub(crate) fn gen_instance_method(
     type_name: &str,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    adapter_bodies: &AdapterBodies,
 ) -> String {
     let params = gen_php_function_params(&method.params, mapper, opaque_types);
     let return_type = mapper.map_type(&method.return_type);
@@ -60,7 +62,10 @@ pub(crate) fn gen_instance_method(
     // FromZvalMut), so gen_php_function_params uses &T and gen_php_call_args emits
     // `.clone().into()`.  This means we CAN delegate opaque methods even with non-opaque Named
     // params — the `&T` → clone → `.into()` chain handles the conversion correctly.
-    let body = if can_delegate && is_opaque {
+    let adapter_key = format!("{type_name}.{}", method.name);
+    let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
+        body.clone()
+    } else if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
         let core_call = if is_owned_receiver {
@@ -601,6 +606,7 @@ pub(crate) fn gen_async_instance_method(
     is_opaque: bool,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    adapter_bodies: &AdapterBodies,
 ) -> String {
     let params = gen_php_function_params(&method.params, mapper, opaque_types);
     let return_type = mapper.map_type(&method.return_type);
@@ -608,7 +614,10 @@ pub(crate) fn gen_async_instance_method(
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
-    let body = if can_delegate && is_opaque {
+    let adapter_key = format!("{type_name}.{}", method.name);
+    let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
+        body.clone()
+    } else if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let inner_clone = "let inner = self.inner.clone();\n    ";
         let core_call = format!("inner.{}({})", method.name, call_args);

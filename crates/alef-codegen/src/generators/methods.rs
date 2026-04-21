@@ -824,12 +824,12 @@ pub fn gen_impl_block(
     // Compute effective (non-sanitized or adapter-overridden) method counts for the early-return
     // check. Sanitized methods without adapters are skipped in the loops below, so they do not
     // contribute real content to the impl block.
-    let has_emittable_instance = instance.iter().any(|m| {
-        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
-    });
-    let has_emittable_statics = statics.iter().any(|m| {
-        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
-    });
+    let has_emittable_instance = instance
+        .iter()
+        .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
+    let has_emittable_statics = statics
+        .iter()
+        .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
     if !has_emittable_instance && !has_emittable_statics && typ.fields.is_empty() {
         return String::new();
     }
@@ -912,12 +912,12 @@ pub fn gen_opaque_impl_block(
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
     // Compute effective (non-sanitized or adapter-overridden) method counts.
-    let has_emittable_instance = instance.iter().any(|m| {
-        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
-    });
-    let has_emittable_statics = statics.iter().any(|m| {
-        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
-    });
+    let has_emittable_instance = instance
+        .iter()
+        .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
+    let has_emittable_statics = statics
+        .iter()
+        .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
     if !has_emittable_instance && !has_emittable_statics {
         return String::new();
     }

@@ -1,5 +1,6 @@
 use crate::type_map::PhpMapper;
 use ahash::AHashSet;
+use alef_adapters::AdapterBodies;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{constructor_parts, partition_methods};
@@ -38,6 +39,7 @@ pub(crate) fn gen_opaque_struct_methods(
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    adapter_bodies: &AdapterBodies,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -52,6 +54,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 true,
                 &typ.name,
                 opaque_types,
+                adapter_bodies,
             ));
         } else {
             impl_builder.add_method(&gen_instance_method(
@@ -61,6 +64,7 @@ pub(crate) fn gen_opaque_struct_methods(
                 &typ.name,
                 opaque_types,
                 core_import,
+                adapter_bodies,
             ));
         }
     }
@@ -295,6 +299,9 @@ fn gen_struct_methods_impl(
         }
     }
 
+    // Non-opaque structs don't have adapter bodies — adapters apply to opaque types only.
+    let empty_adapter_bodies: alef_adapters::AdapterBodies = Default::default();
+
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
@@ -305,6 +312,7 @@ fn gen_struct_methods_impl(
                 false,
                 &typ.name,
                 opaque_types,
+                &empty_adapter_bodies,
             ));
         } else {
             impl_builder.add_method(&gen_instance_method_non_opaque(
