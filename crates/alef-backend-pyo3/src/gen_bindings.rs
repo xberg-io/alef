@@ -158,7 +158,16 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
-        let opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
+        // Data enums (enums with data variants) are also generated as opaque wrappers —
+        // include them so structs containing these types skip Default/Serialize/Deserialize.
+        let data_enum_names: Vec<String> = api
+            .enums
+            .iter()
+            .filter(|e| generators::enum_has_data_variants(e))
+            .map(|e| e.name.clone())
+            .collect();
+        let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
+        opaque_names_vec.extend(data_enum_names);
         cfg.opaque_type_names = &opaque_names_vec;
         let mutex_types: AHashSet<String> = api
             .types

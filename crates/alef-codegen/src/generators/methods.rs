@@ -517,7 +517,7 @@ pub fn gen_method(
                 format!("let _ = ({});\n        ", names.join(", "))
             }
         };
-        format!("{suppress}Err::<(), _>(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
+        format!("{suppress}Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
     } else {
         body
     };

@@ -191,6 +191,17 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
         .map(|t| t.name.as_str())
         .collect();
 
+    // Data enums (enums with data variants) are generated as opaque wrappers in most
+    // backends. They don't have From conversions but are still "known" types — structs
+    // containing them can still generate core→binding conversions (the field uses the
+    // opaque wrapper's From impl or format!("{:?}")).
+    let data_enum_names: AHashSet<&str> = surface
+        .enums
+        .iter()
+        .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
+
     // Build rust_path maps for detecting type_rust_path mismatches.
     let (enum_paths, type_paths) = build_rust_path_maps(surface);
 
@@ -208,6 +219,7 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
         let snapshot: Vec<String> = convertible.iter().cloned().collect();
         let mut known: AHashSet<&str> = convertible.iter().map(|s| s.as_str()).collect();
         known.extend(&opaque_type_names);
+        known.extend(&data_enum_names);
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
@@ -279,19 +291,29 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         .map(|t| t.name.as_str())
         .collect();
 
+    // Data enums (enums with data variants) are generated as opaque wrappers — include
+    // them in the known set so structs containing them remain convertible.
+    let data_enum_names: AHashSet<&str> = surface
+        .enums
+        .iter()
+        .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
+
     // Build rust_path maps for detecting type_rust_path mismatches.
     let (enum_paths, type_paths) = build_rust_path_maps(surface);
 
     // Iteratively remove types whose fields reference non-convertible Named types.
-    // We check against `convertible ∪ opaque_types` so that types referencing
-    // excluded types (e.g. types with sanitized fields) are transitively removed,
-    // while opaque Named fields remain valid.
+    // We check against `convertible ∪ opaque_types ∪ data_enums` so that types
+    // referencing excluded types are transitively removed, while opaque and data
+    // enum Named fields remain valid.
     let mut changed = true;
     while changed {
         changed = false;
         let snapshot: Vec<String> = convertible.iter().cloned().collect();
         let mut known: AHashSet<&str> = convertible.iter().map(|s| s.as_str()).collect();
         known.extend(&opaque_type_names);
+        known.extend(&data_enum_names);
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {

@@ -1548,7 +1548,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| apply_rename_all(&variant.name, e.serde_rename_all.as_deref()));
                         lines.extend(format_jsdoc(&variant.doc, "  "));
-                        lines.push(format!("  {} = '{}',", variant.name, value));
+                        lines.push(format!("  {} = \"{}\",", variant.name, value));
                     }
                     lines.push("}".to_string());
                 }
@@ -1558,7 +1558,7 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
                 let params = dts_params(&func.params, prefix);
                 let ret = dts_return_type(&func.return_type, func.error_type.is_some(), func.is_async, prefix);
                 lines.extend(format_jsdoc(&func.doc, ""));
-                lines.push(format!("export declare function {js_name}({params}): {ret}"));
+                lines.push(format!("export declare function {js_name}({params}): {ret};"));
             }
         }
     }
