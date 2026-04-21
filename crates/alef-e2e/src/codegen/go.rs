@@ -21,7 +21,7 @@ impl E2eCodegen for GoCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _alef_config: &AlefConfig,
+        alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -57,7 +57,12 @@ impl E2eCodegen for GoCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
-            .unwrap_or_else(|| "v0.0.0".to_string());
+            .unwrap_or_else(|| {
+                alef_config
+                    .resolved_version()
+                    .map(|v| format!("v{v}"))
+                    .unwrap_or_else(|| "v0.0.0".to_string())
+            });
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,

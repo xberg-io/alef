@@ -70,8 +70,7 @@ impl E2eCodegen for CSharpCodegen {
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| {
-                let dir_name = &alef_config.crate_config.name;
-                format!("../../packages/csharp/{dir_name}/{pkg_name}.csproj")
+                format!("../../packages/csharp/{pkg_name}.csproj")
             });
         let pkg_version = cs_pkg
             .as_ref()

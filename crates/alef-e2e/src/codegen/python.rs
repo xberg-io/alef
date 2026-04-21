@@ -116,7 +116,7 @@ fn render_pyproject(
                 "dependencies = [\"{pkg_name}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n\
                  \n\
                  [tool.uv.sources]\n\
-                 {pkg_name} = {{ path = \"{pkg_path}\", editable = true }}\n"
+                 {pkg_name} = {{ workspace = true }}\n"
             )
         }
     };

@@ -1409,7 +1409,7 @@ fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
         .csharp
         .as_ref()
         .and_then(|c| c.target_framework.clone())
-        .unwrap_or_else(|| "net8.0".to_string());
+        .unwrap_or_else(|| "net10.0".to_string());
 
     let authors_csproj = if meta.authors.is_empty() {
         String::new()
