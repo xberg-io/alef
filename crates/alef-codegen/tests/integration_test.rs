@@ -303,7 +303,7 @@ fn test_gen_instance_method_with_ref_receiver() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn get_name"), "should contain method name");
     assert!(result.contains("&self"), "should have &self receiver");
@@ -376,7 +376,7 @@ fn test_gen_async_method_generates_async_signature() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(
         result.contains("pub fn process_async"),
@@ -448,7 +448,7 @@ fn test_gen_method_with_multiple_params() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn compute"), "should contain method name");
     assert!(result.contains("a: u32"), "should have parameter a");
@@ -481,7 +481,7 @@ fn test_gen_method_with_error_type() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn validate"), "should contain method name");
     // Should be wrapped in Result due to error_type
@@ -581,7 +581,7 @@ fn test_gen_method_with_optional_param() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn configure"), "should contain method name");
     assert!(result.contains("Option<u32>"), "should wrap optional param in Option");
@@ -1415,7 +1415,7 @@ fn test_gen_method_builder_pattern_opaque() {
         set
     };
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, true, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, true, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(
         result.contains("pub fn with_name"),
@@ -1467,7 +1467,7 @@ fn test_gen_method_builder_pattern_non_opaque() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(
         result.contains("pub fn with_count"),
@@ -1519,7 +1519,7 @@ fn test_gen_method_functional_ref_mut_unit_return() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     // Signature must use &self (not &mut self) and return Self
     assert!(result.contains("pub fn apply_update"), "should contain method name");
@@ -1577,7 +1577,7 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn apply_update"), "should contain method name");
     assert!(result.contains("&self"), "should use &self receiver");
@@ -1630,7 +1630,7 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &adapter_bodies);
+    let result = gen_method(&method, &mapper, &cfg, &typ, false, &opaque_types, &AHashSet::new(), &adapter_bodies);
 
     assert!(result.contains("pub fn try_apply"), "should contain method name");
     assert!(result.contains("&self"), "should use &self receiver");

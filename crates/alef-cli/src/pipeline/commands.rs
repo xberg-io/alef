@@ -175,8 +175,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         .map(|(lang, bc)| {
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
-            run_command_captured(&build_cmd)
-                .with_context(|| format!("failed to build language bindings for {lang}"))
+            run_command_captured(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))
         })
         .collect();
 
@@ -198,8 +197,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         .map(|(lang, bc)| {
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
-            run_command_captured(&build_cmd)
-                .with_context(|| format!("failed to build language bindings for {lang}"))
+            run_command_captured(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))
         })
         .collect();
 

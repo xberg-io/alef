@@ -98,11 +98,7 @@ fn gen_visitor_bridge(
         "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent as u32)?)?;"
     )
     .unwrap();
-    writeln!(
-        out,
-        "    obj.set_named_property(\"isInline\", ctx.is_inline)?;"
-    )
-    .unwrap();
+    writeln!(out, "    obj.set_named_property(\"isInline\", ctx.is_inline)?;").unwrap();
     writeln!(out, "    let parent_tag = match &ctx.parent_tag {{").unwrap();
     writeln!(out, "        Some(s) => env.create_string(s)?.to_unknown(),").unwrap();
     writeln!(out, "        None => {{").unwrap();
@@ -124,17 +120,9 @@ fn gen_visitor_bridge(
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }};").unwrap();
     writeln!(out, "    obj.set_named_property(\"parentTag\", parent_tag)?;").unwrap();
-    writeln!(
-        out,
-        "    let mut attrs = napi::bindgen_prelude::Object::new(env)?;"
-    )
-    .unwrap();
+    writeln!(out, "    let mut attrs = napi::bindgen_prelude::Object::new(env)?;").unwrap();
     writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(
-        out,
-        "        attrs.set_named_property(k, env.create_string(v)?)?;"
-    )
-    .unwrap();
+    writeln!(out, "        attrs.set_named_property(k, env.create_string(v)?)?;").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "    obj.set_named_property(\"attributes\", attrs)?;").unwrap();
     writeln!(out, "    Ok(obj)").unwrap();
@@ -271,11 +259,7 @@ fn gen_visitor_method_napi(
     } else {
         // Emit each arg as a let binding, then call with tuple
         for (i, expr) in js_args_exprs.iter().enumerate() {
-            writeln!(
-                out,
-                "        let arg_{i}: napi::bindgen_prelude::Unknown = {expr};"
-            )
-            .unwrap();
+            writeln!(out, "        let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").unwrap();
         }
         let tuple_args: Vec<String> = (0..arg_count).map(|i| format!("arg_{i}")).collect();
         let tuple_str = if arg_count == 1 {
