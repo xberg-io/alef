@@ -7,12 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-21
+
+### Added
+
+- Scaffold: render `extra_dependencies` in scaffold, auto path mappings
+- CI: rewrite CI and Publish workflows using shared `kreuzberg-dev/actions` composite actions
+- CI: add `typos` (spelling) and `actionlint` (GitHub Actions linting) pre-commit hooks
+
+### Changed
+
+- Publish: replace GoReleaser with native per-platform CLI builds via `build-rust-cli@v1`
+- Publish: phased publish pipeline (prepare, validate, check, build, publish, finalize)
+- Publish: OIDC authentication for crates.io via `publish-crates@v1`
+- Publish: draft-then-undraft GitHub release pattern
+
+### Fixed
+
+- Codegen: opaque `Default` fallback uses `todo!()` instead of `Default::default()` for opaque return types
+- PyO3: scan opaque type methods for `HashMap` usage to ensure import is added
+- NAPI: pass `opaque_types` to `gen_unimplemented_body` calls
+- E2E: make tokio dependency conditional in Rust e2e generator
+- Core: remove unused `ahash` dependency, fix `clippy::manual_strip` warning
+
 ## [0.4.6] - 2026-04-21
 
 ### Added
 
 - Config: `exclude_functions` and `exclude_types` support for Python (PyO3), FFI, and Node (NAPI) backends
-- Config: `ahash` workspace dependency for alef-core
 
 ### Fixed
 
