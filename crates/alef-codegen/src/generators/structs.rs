@@ -242,10 +242,17 @@ pub fn type_needs_mutex(typ: &TypeDef) -> bool {
 /// parameters, which would fail to compile.
 pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     let needs_mutex = type_needs_mutex(typ);
-    // When every method is sanitized the type is an opaque stub for a generic core type
-    // whose concrete parameters are unknown at codegen time. Omit the inner field so we
-    // don't emit an unresolvable `Arc<CoreType<_, _, _>>`.
+    // Omit the inner field only when the rust_path contains generic type parameters
+    // (angle brackets), which means the concrete types are unknown at codegen time and
+    // `Arc<CoreType<_, _, _>>` would fail to compile. This typically occurs for types
+    // created from a generic impl block where all methods are sanitized.
+    // We do NOT omit inner solely because all_methods_sanitized is true: even when no
+    // methods delegate to self.inner, the inner field may be required by From impls
+    // generated for non-opaque structs that have this type as a field.
+    let core_path = typ.rust_path.replace('-', "_");
+    let has_unresolvable_generics = core_path.contains('<');
     let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
+    let omit_inner = all_methods_sanitized && has_unresolvable_generics;
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -254,8 +261,7 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
         writeln!(out, "#[{attr}]").ok();
     }
     writeln!(out, "pub struct {} {{", typ.name).ok();
-    if !all_methods_sanitized {
-        let core_path = typ.rust_path.replace('-', "_");
+    if !omit_inner {
         if typ.is_trait {
             writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
         } else if needs_mutex {
@@ -275,7 +281,10 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
 /// See `gen_opaque_struct` for the rationale.
 pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix: &str) -> String {
     let needs_mutex = type_needs_mutex(typ);
+    let core_path = typ.rust_path.replace('-', "_");
+    let has_unresolvable_generics = core_path.contains('<');
     let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
+    let omit_inner = all_methods_sanitized && has_unresolvable_generics;
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -284,8 +293,7 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
         writeln!(out, "#[{attr}]").ok();
     }
     writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
-    if !all_methods_sanitized {
-        let core_path = typ.rust_path.replace('-', "_");
+    if !omit_inner {
         if typ.is_trait {
             writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
         } else if needs_mutex {
