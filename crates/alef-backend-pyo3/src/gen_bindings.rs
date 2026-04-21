@@ -190,13 +190,9 @@ impl Backend for Pyo3Backend {
                 AdapterPattern::Streaming => {
                     let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
                     if let Some(struct_code) = adapter_bodies.get(&key) {
-                        // The streaming struct uses `item_type::from(chunk)` unqualified,
-                        // so we must bring the core item type into scope.
-                        if let Some(item_type) = adapter.item_type.as_deref() {
-                            if !item_type.is_empty() {
-                                builder.add_import(&format!("{core_import}::{item_type}"));
-                            }
-                        }
+                        // Don't import item_type — the binding crate defines its own
+                        // wrapper struct with the same name. The streaming struct should
+                        // use the local wrapper type, not the core type.
                         builder.add_item(struct_code);
                     }
                 }

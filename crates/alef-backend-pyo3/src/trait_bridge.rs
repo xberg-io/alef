@@ -899,7 +899,7 @@ pub fn find_bridge_param<'a>(
 ///
 /// The bridge param becomes `Option<Py<PyAny>>` (or `Py<PyAny>` if not optional).
 /// Before calling the core function the bridge is constructed:
-/// ```rust
+/// ```rust,ignore
 /// let visitor = visitor.map(|v| {
 ///     let bridge = PyHtmlVisitorBridge::new(v);
 ///     std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
