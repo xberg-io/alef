@@ -624,8 +624,8 @@ fn find_after_crates_prefix(path: &str) -> Option<&str> {
     if let Some(pos) = path.find("/crates/") {
         return Some(&path[pos + "/crates/".len()..]);
     }
-    if path.starts_with("crates/") {
-        return Some(&path["crates/".len()..]);
+    if let Some(stripped) = path.strip_prefix("crates/") {
+        return Some(stripped);
     }
     None
 }

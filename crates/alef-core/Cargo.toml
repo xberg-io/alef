@@ -10,7 +10,6 @@ description = "Core types, config schema, and backend trait for the alef polyglo
 readme = "README.md"
 
 [dependencies]
-ahash = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
 serde = { workspace = true }

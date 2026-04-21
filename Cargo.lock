@@ -208,7 +208,6 @@ dependencies = [
 name = "alef-core"
 version = "0.4.6"
 dependencies = [
- "ahash",
  "anyhow",
  "heck",
  "serde",
