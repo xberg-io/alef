@@ -168,16 +168,61 @@ pub fn extract_unfiltered(config: &AlefConfig, config_path: &Path) -> anyhow::Re
 }
 
 /// Shared raw extraction logic: parse sources, produce raw `ApiSurface`.
+///
+/// Groups source files by their owning crate (derived from `crates/{name}/src/` path
+/// patterns) and extracts each group with the correct crate name. This ensures types
+/// get accurate `rust_path` values reflecting their actual defining crate, not the
+/// facade crate name from config.
 fn extract_raw(config: &AlefConfig, _config_path: &Path) -> anyhow::Result<ApiSurface> {
     info!("Extracting API surface from Rust source...");
-    let sources: Vec<&Path> = config.crate_config.sources.iter().map(|p| p.as_path()).collect();
-
-    // Read version from Cargo.toml
     let version = read_version(&config.crate_config.version_from)?;
-
     let workspace_root = config.crate_config.workspace_root.as_deref();
-    alef_extract::extractor::extract(&sources, &config.crate_config.name, &version, workspace_root)
-        .context("failed to extract API surface")
+    let default_name = &config.crate_config.name;
+
+    // Group sources by crate name derived from file path
+    let mut groups: std::collections::HashMap<String, Vec<&Path>> = std::collections::HashMap::new();
+    for source in &config.crate_config.sources {
+        let crate_name = derive_crate_name_from_path(source, default_name);
+        groups.entry(crate_name).or_default().push(source.as_path());
+    }
+
+    // Extract each group with its own crate name, then merge
+    let mut merged = ApiSurface {
+        crate_name: default_name.to_string(),
+        version: version.clone(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    for (crate_name, sources) in &groups {
+        let api = alef_extract::extractor::extract(sources, crate_name, &version, workspace_root)
+            .with_context(|| format!("failed to extract API surface from crate {crate_name}"))?;
+        merged.types.extend(api.types);
+        merged.functions.extend(api.functions);
+        merged.enums.extend(api.enums);
+        merged.errors.extend(api.errors);
+    }
+
+    Ok(merged)
+}
+
+/// Derive the crate name from a source file path.
+///
+/// Matches `crates/{name}/src/` pattern and converts hyphens to underscores.
+/// Falls back to the provided default name if the pattern doesn't match.
+fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
+    let path_str = path.to_string_lossy();
+    // Match both "crates/foo-bar/src/" and "/abs/path/crates/foo-bar/src/"
+    if let Some(after_crates) = path_str.split("crates/").nth(1) {
+        if let Some(name) = after_crates.split('/').next() {
+            if path_str.contains(&format!("crates/{name}/src/")) {
+                return name.replace('-', "_");
+            }
+        }
+    }
+    default.to_string()
 }
 
 /// Inject declared opaque types from config into the API surface.

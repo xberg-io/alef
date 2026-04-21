@@ -325,6 +325,8 @@ jobs:
       needs.build-homebrew-bottles.result == 'success' &&
       needs.upload-release-assets.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
