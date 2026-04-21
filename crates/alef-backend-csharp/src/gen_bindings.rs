@@ -667,6 +667,7 @@ fn gen_exception_class(namespace: &str, class_name: &str) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gen_wrapper_class(
     api: &ApiSurface,
     namespace: &str,
@@ -1087,6 +1088,7 @@ fn gen_wrapper_function(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gen_wrapper_method(
     method: &MethodDef,
     _exception_name: &str,

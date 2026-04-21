@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-04-21
+
+### Added
+
+- Codegen: visitor bridge generation for all backends (Go, Java, C#, Python, Ruby, Elixir, etc.)
+- Codegen: `gen_visitor.rs` for Go, Java, C# backends
+- E2E: visitor e2e test codegen for 8 languages
+
+### Fixed
+
+- Codegen: NAPI trait_bridge for napi-rs v3 compatibility
+- Codegen: PHP trait_bridge for ext-php-rs 0.15 compatibility
+- E2E: NodeConfig test fixes
+
 ## [0.4.4] - 2026-04-21
 
 ### Changed
