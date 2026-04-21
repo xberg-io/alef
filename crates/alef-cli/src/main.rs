@@ -245,14 +245,12 @@ fn main() -> Result<()> {
                 let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
                 if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-
                 }
             }
             // Update stubs hashes post-prek (prek may have modified stub files).
             let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
                 let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
-
             }
 
             println!("Generated {count} files");
@@ -565,14 +563,12 @@ fn main() -> Result<()> {
                 let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
                 if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-
                 }
             }
             // Stubs
             let stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
                 let _ = cache::write_stage_hash("stubs", &stubs_hash, &paths);
-
             }
 
             println!(
