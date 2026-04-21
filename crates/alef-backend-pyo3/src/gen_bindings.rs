@@ -1,5 +1,5 @@
 use crate::type_map::Pyo3Mapper;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
@@ -174,7 +174,7 @@ impl Backend for Pyo3Backend {
                 || matches!(&f.return_type, alef_core::ir::TypeRef::Map(_, _))
         });
         if has_maps {
-            builder.add_import("std::collections::HashMap");
+            builder.add_import("std::collections::HashMap"); // Used in Map field conversions
         }
 
         // Custom module declarations
@@ -485,17 +485,17 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
     }
 
     // Collect enum names for type detection (plain unit enums vs data enums)
-    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
     // Data enums (tagged unions) are exposed as dict-accepting structs, not str enums.
-    let data_enum_names: std::collections::HashSet<String> = api
+    let data_enum_names: AHashSet<&str> = api
         .enums
         .iter()
         .filter(|e| generators::enum_has_data_variants(e))
-        .map(|e| e.name.clone())
+        .map(|e| e.name.as_str())
         .collect();
 
     // Collect all Named types referenced by has_default types
-    let mut referenced_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut referenced_types: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default {
             for field in &typ.fields {
@@ -513,17 +513,17 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
     // Generate only "public" enums — skip internal types like TextDirection, LinkType etc.
     // that aren't part of the user-facing config API.
     // Only generate enums referenced by has_default type fields.
-    let mut needed_enums: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut needed_enums: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default {
             for field in &typ.fields {
                 if let TypeRef::Named(name) = &field.ty {
-                    if enum_names.contains(name) {
+                    if enum_names.contains(name.as_str()) {
                         needed_enums.insert(name.clone());
                     }
                 } else if let TypeRef::Optional(inner) = &field.ty {
                     if let TypeRef::Named(name) = inner.as_ref() {
-                        if enum_names.contains(name) {
+                        if enum_names.contains(name.as_str()) {
                             needed_enums.insert(name.clone());
                         }
                     }
@@ -548,7 +548,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
             continue;
         }
         // Data enums are dict-accepting structs on the Rust side; skip str,Enum generation.
-        if data_enum_names.contains(&enum_def.name) {
+        if data_enum_names.contains(enum_def.name.as_str()) {
             continue;
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
@@ -687,8 +687,8 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 /// ```
 fn gen_typeddict(
     typ: &alef_core::ir::TypeDef,
-    enum_names: &std::collections::HashSet<String>,
-    data_enum_names: &std::collections::HashSet<String>,
+    enum_names: &AHashSet<&str>,
+    data_enum_names: &AHashSet<&str>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
@@ -732,8 +732,8 @@ fn gen_typeddict(
 fn python_field_type(
     ty: &alef_core::ir::TypeRef,
     optional: bool,
-    enum_names: &std::collections::HashSet<String>,
-    data_enum_names: &std::collections::HashSet<String>,
+    enum_names: &AHashSet<&str>,
+    data_enum_names: &AHashSet<&str>,
 ) -> String {
     use alef_core::ir::TypeRef;
     let base = match ty {
@@ -751,8 +751,8 @@ fn python_field_type(
             python_field_type(v, false, enum_names, data_enum_names)
         ),
         // Data enums: users pass a dict with a "type" discriminator and fields.
-        TypeRef::Named(name) if data_enum_names.contains(name) => "dict[str, Any]".to_string(),
-        TypeRef::Named(name) if enum_names.contains(name) => "str".to_string(),
+        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => "dict[str, Any]".to_string(),
+        TypeRef::Named(name) if enum_names.contains(name.as_str()) => "str".to_string(),
         TypeRef::Named(_name) => "Any".to_string(), // Use Any for undefined types to avoid F821
         TypeRef::Optional(inner) => {
             return format!(
@@ -772,8 +772,8 @@ fn python_field_type(
 fn typed_default_to_python(
     td: &alef_core::ir::DefaultValue,
     ty: &alef_core::ir::TypeRef,
-    enum_defaults: &std::collections::HashMap<String, String>,
-    data_enum_names: &std::collections::HashSet<String>,
+    enum_defaults: &AHashMap<String, String>,
+    data_enum_names: &AHashSet<&str>,
 ) -> String {
     use alef_core::ir::{DefaultValue, TypeRef};
     match td {
@@ -796,7 +796,7 @@ fn typed_default_to_python(
         DefaultValue::Empty => {
             // For data enum-typed fields, use None (no sensible default dict).
             if let TypeRef::Named(name) = ty {
-                if data_enum_names.contains(name) {
+                if data_enum_names.contains(name.as_str()) {
                     return "None".to_string();
                 }
             }
@@ -831,8 +831,8 @@ fn typed_default_to_python(
 /// Generate a Python zero value for a type (when no typed_default is available).
 fn python_zero_value(
     ty: &alef_core::ir::TypeRef,
-    enum_names: &std::collections::HashSet<String>,
-    data_enum_names: &std::collections::HashSet<String>,
+    enum_names: &AHashSet<&str>,
+    data_enum_names: &AHashSet<&str>,
 ) -> String {
     use alef_core::ir::TypeRef;
     match ty {
@@ -846,8 +846,8 @@ fn python_zero_value(
         TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
         TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
         // Data enums have no simple zero value; default to None (they're typically Optional).
-        TypeRef::Named(name) if data_enum_names.contains(name) => "None".to_string(),
-        TypeRef::Named(name) if enum_names.contains(name) => "\"\"".to_string(),
+        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => "None".to_string(),
+        TypeRef::Named(name) if enum_names.contains(name.as_str()) => "\"\"".to_string(),
         TypeRef::Named(_) => "None".to_string(),
         TypeRef::Optional(_) => "None".to_string(),
         TypeRef::Unit => "None".to_string(),
@@ -858,7 +858,7 @@ fn python_zero_value(
 }
 
 /// Recursively collect all Named type references from a TypeRef.
-fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
+fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut AHashSet<String>) {
     use alef_core::ir::TypeRef;
     match ty {
         TypeRef::Named(n) => {
@@ -883,7 +883,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
     use heck::ToSnakeCase;
 
     // Build lookup: type_name → TypeDef for has_default types
-    let default_types: std::collections::HashMap<String, &alef_core::ir::TypeDef> = api
+    let default_types: AHashMap<String, &alef_core::ir::TypeDef> = api
         .types
         .iter()
         .filter(|t| t.has_default && !t.name.ends_with("Update"))
@@ -891,19 +891,19 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         .collect();
 
     // Collect enum names for conversion detection
-    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
 
     // Separate data enums (tagged unions exposed as dict-accepting structs) from simple int enums.
     // Data enums are passed through as dicts; simple enums need string→variant lookup.
-    let data_enum_names: std::collections::HashSet<String> = api
+    let data_enum_names: AHashSet<&str> = api
         .enums
         .iter()
         .filter(|e| generators::enum_has_data_variants(e))
-        .map(|e| e.name.clone())
+        .map(|e| e.name.as_str())
         .collect();
 
     // Build lookup: simple enum name → EnumDef (for generating value→Rust-variant maps).
-    let simple_enum_defs: std::collections::HashMap<String, &alef_core::ir::EnumDef> = api
+    let simple_enum_defs: AHashMap<String, &alef_core::ir::EnumDef> = api
         .enums
         .iter()
         .filter(|e| !generators::enum_has_data_variants(e))
@@ -912,13 +912,13 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
     // Determine which has_default types are referenced by function parameters (directly or nested)
     let mut needed_converters: Vec<String> = Vec::new();
-    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut visited: AHashSet<String> = AHashSet::new();
 
     fn collect_needed(
         type_name: &str,
-        default_types: &std::collections::HashMap<String, &alef_core::ir::TypeDef>,
+        default_types: &AHashMap<String, &alef_core::ir::TypeDef>,
         needed: &mut Vec<String>,
-        visited: &mut std::collections::HashSet<String>,
+        visited: &mut AHashSet<String>,
     ) {
         if !visited.insert(type_name.to_string()) {
             return;
@@ -968,7 +968,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
     // Collect all type names referenced in function signatures (params + returns)
     // that aren't converters — these need to be imported too.
-    let mut all_type_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut all_type_imports: AHashSet<String> = AHashSet::new();
     for type_name in &needed_converters {
         all_type_imports.insert(type_name.clone());
     }
@@ -991,17 +991,17 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
     // Split type imports: opaque/error types and non-options types come from the native module,
     // has_default dataclass types come from .options.
-    let opaque_names: std::collections::BTreeSet<String> = api
+    let opaque_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
-    let error_names: std::collections::BTreeSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+    let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
     // Collect types that appear as return types of functions/methods — these live in the
     // native module, not options.py.
-    let return_type_names: std::collections::BTreeSet<String> = {
-        fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
+    let return_type_names: AHashSet<String> = {
+        fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut AHashSet<String>) {
             match ty {
                 alef_core::ir::TypeRef::Named(name) => {
                     out.insert(name.clone());
@@ -1016,7 +1016,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                 _ => {}
             }
         }
-        let mut names = std::collections::BTreeSet::new();
+        let mut names = AHashSet::new();
         for func in &api.functions {
             collect_named_types(&func.return_type, &mut names);
         }
@@ -1045,7 +1045,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
     };
     // Types that exist in options.py: has_default structs (excluding Update types and return
     // types — return types are defined in the native module, not options.py).
-    let options_type_names: std::collections::BTreeSet<String> = api
+    let options_type_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| {
@@ -1054,8 +1054,8 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         .map(|t| t.name.clone())
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
-    let all_ir_type_names: std::collections::BTreeSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    let enum_type_names: std::collections::BTreeSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
+    let enum_type_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
     let mut options_imports: Vec<&str> = Vec::new();
     let mut native_imports: Vec<&str> = Vec::new();
@@ -1089,7 +1089,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
     // Collect simple enums referenced by converter types (for lookup map generation).
     // Walk all fields of needed_converters types to find enum references.
-    let mut needed_simple_enums: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut needed_simple_enums: AHashSet<String> = AHashSet::new();
     for type_name in &needed_converters {
         let typ = default_types[type_name];
         for field in &typ.fields {
@@ -1192,8 +1192,8 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                     continue;
                 }
                 // Single enum field: convert str -> Rust enum
-                if enum_names.contains(nested_name) {
-                    if data_enum_names.contains(nested_name) {
+                if enum_names.contains(&nested_name) {
+                    if data_enum_names.contains(&nested_name) {
                         // Data enum (tagged union): PyO3 constructor accepts a dict directly.
                         // If the caller already holds a _rust.{EnumName} instance (e.g. from a
                         // previous conversion), pass it through to avoid a double-wrap error;
@@ -1238,8 +1238,8 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
             // Vec<Enum> field: convert list[str] -> list[RustEnum]
             if let TypeRef::Vec(inner) = &field.ty {
                 if let TypeRef::Named(enum_name) = inner.as_ref() {
-                    if enum_names.contains(enum_name) {
-                        if data_enum_names.contains(enum_name) {
+                    if enum_names.contains(&enum_name.as_str()) {
+                        if data_enum_names.contains(&enum_name.as_str()) {
                             // Data enum list: each element is a dict passed to the PyO3 constructor.
                             out.push_str(&format!(
                                 "        {name}=[_rust.{enum_name}(v) for v in value.{name}],\n",
@@ -1431,12 +1431,12 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConf
     ));
 
     // Collect enum names referenced by config types (user-facing enums only)
-    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
-    let data_enum_names: std::collections::HashSet<String> = api
+    let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
+    let data_enum_names: AHashSet<&str> = api
         .enums
         .iter()
         .filter(|e| generators::enum_has_data_variants(e))
-        .map(|e| e.name.clone())
+        .map(|e| e.name.as_str())
         .collect();
     let output_style = dto.python_output_style();
     let mut needed_enums: Vec<String> = Vec::new();
@@ -1470,11 +1470,11 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConf
                     _ => None,
                 };
                 if let Some(name) = inner_name {
-                    if data_enum_names.contains(name) {
+                    if data_enum_names.contains(&name) {
                         if !needed_data_enums.iter().any(|n| n == name) {
                             needed_data_enums.push(name.to_string());
                         }
-                    } else if enum_names.contains(name) && !needed_enums.contains(&name.to_string()) {
+                    } else if enum_names.contains(&name) && !needed_enums.contains(&name.to_string()) {
                         needed_enums.push(name.to_string());
                     }
                 }

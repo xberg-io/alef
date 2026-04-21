@@ -7,6 +7,7 @@
 //! - `type_overrides`: Remap types (e.g., Path → String)
 
 mod gen_bindings;
+pub mod trait_bridge;
 mod type_map;
 
 pub use gen_bindings::WasmBackend;

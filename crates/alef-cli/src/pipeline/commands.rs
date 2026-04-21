@@ -38,16 +38,28 @@ pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
         .collect();
 
     // Print captured output and propagate first error
+    let mut first_error: Option<anyhow::Error> = None;
     for result in results {
-        let outputs = result?;
-        for (cmd, stdout, stderr) in outputs {
-            if !stdout.is_empty() {
-                info!("[{cmd}] stdout:\n{stdout}");
+        match result {
+            Ok(outputs) => {
+                for (cmd, stdout, stderr) in outputs {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
+                    }
+                }
             }
-            if !stderr.is_empty() {
-                info!("[{cmd}] stderr:\n{stderr}");
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
             }
         }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
     }
 
     Ok(())
@@ -80,16 +92,28 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool) -> anyhow::R
         })
         .collect();
 
+    let mut first_error: Option<anyhow::Error> = None;
     for result in results {
-        let outputs = result?;
-        for (cmd, stdout, stderr) in outputs {
-            if !stdout.is_empty() {
-                info!("[{cmd}] stdout:\n{stdout}");
+        match result {
+            Ok(outputs) => {
+                for (cmd, stdout, stderr) in outputs {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
+                    }
+                }
             }
-            if !stderr.is_empty() {
-                info!("[{cmd}] stderr:\n{stderr}");
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
             }
         }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
     }
 
     Ok(())
@@ -146,51 +170,49 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
     }
 
     // Build independent languages in parallel
-    let independent_results: Vec<_> = independent
+    let build_results: Vec<anyhow::Result<(String, String)>> = independent
         .par_iter()
         .map(|(lang, bc)| {
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
-            let (stdout, stderr) = run_command_captured(&build_cmd)
-                .with_context(|| format!("failed to build language bindings for {lang}"))?;
-            run_post_build(*lang, bc, config, &base_dir)
-                .with_context(|| format!("failed to run post-build steps for {lang}"))?;
-            Ok((lang.to_string(), build_cmd, stdout, stderr))
+            run_command_captured(&build_cmd)
+                .with_context(|| format!("failed to build language bindings for {lang}"))
         })
-        .collect::<Vec<anyhow::Result<_>>>();
+        .collect();
 
-    for result in independent_results {
-        let (lang, _cmd, stdout, stderr) = result?;
+    for ((lang, bc), result) in independent.iter().zip(build_results) {
+        let (stdout, stderr) = result?;
         if !stdout.is_empty() {
             info!("[{lang} build] {stdout}");
         }
         if !stderr.is_empty() {
             debug!("[{lang} build] {stderr}");
         }
+        run_post_build(*lang, bc, config, &base_dir)
+            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
     }
 
     // Build FFI-dependent languages in parallel
-    let ffi_dep_results: Vec<_> = ffi_dependent
+    let build_results: Vec<anyhow::Result<(String, String)>> = ffi_dependent
         .par_iter()
         .map(|(lang, bc)| {
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
-            let (stdout, stderr) = run_command_captured(&build_cmd)
-                .with_context(|| format!("failed to build language bindings for {lang}"))?;
-            run_post_build(*lang, bc, config, &base_dir)
-                .with_context(|| format!("failed to run post-build steps for {lang}"))?;
-            Ok((lang.to_string(), build_cmd, stdout, stderr))
+            run_command_captured(&build_cmd)
+                .with_context(|| format!("failed to build language bindings for {lang}"))
         })
-        .collect::<Vec<anyhow::Result<_>>>();
+        .collect();
 
-    for result in ffi_dep_results {
-        let (lang, _cmd, stdout, stderr) = result?;
+    for ((lang, bc), result) in ffi_dependent.iter().zip(build_results) {
+        let (stdout, stderr) = result?;
         if !stdout.is_empty() {
             info!("[{lang} build] {stdout}");
         }
         if !stderr.is_empty() {
             debug!("[{lang} build] {stderr}");
         }
+        run_post_build(*lang, bc, config, &base_dir)
+            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
     }
 
     Ok(())

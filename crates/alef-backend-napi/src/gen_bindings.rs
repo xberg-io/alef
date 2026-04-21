@@ -147,7 +147,29 @@ impl Backend for NapiBackend {
         }
 
         for func in &api.functions {
-            builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
+            let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            if let Some((param_idx, bridge_cfg)) = bridge_param {
+                builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                    func,
+                    param_idx,
+                    bridge_cfg,
+                    &mapper,
+                    &cfg,
+                    &Default::default(),
+                    &opaque_types,
+                    &core_import,
+                ));
+            } else {
+                builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
+            }
+        }
+
+        // Trait bridge wrappers — generate NAPI bridge structs that delegate to JS objects
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                builder.add_item(&bridge_code);
+            }
         }
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);

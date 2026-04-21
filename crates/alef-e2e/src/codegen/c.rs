@@ -568,8 +568,7 @@ fn render_test_function(
                             "    {prefix_upper}{request_type_pascal}* {var_name} = \
                              {prefix}_{request_type_snake}_from_json(\"{escaped}\");"
                         );
-                        let _ =
-                            writeln!(out, "    assert({var_name} != NULL && \"failed to build request\");");
+                        let _ = writeln!(out, "    assert({var_name} != NULL && \"failed to build request\");");
                         request_handle_vars.push((arg.name.clone(), var_name));
                     }
                 }

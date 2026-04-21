@@ -209,7 +209,17 @@ impl Backend for PhpBackend {
             // a #[php_impl] block which handles registration via the class machinery).
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
-                if func.is_async {
+                let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    method_items.push(crate::trait_bridge::gen_bridge_function(
+                        func,
+                        param_idx,
+                        bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                } else if func.is_async {
                     method_items.push(gen_async_function_as_static_method(
                         func,
                         &mapper,
@@ -227,6 +237,7 @@ impl Backend for PhpBackend {
                     ));
                 }
             }
+
             let methods_joined = method_items
                 .iter()
                 .map(|m| {
@@ -254,6 +265,14 @@ impl Backend for PhpBackend {
                 "#[php_class]\n#[{php_name_attr}]\npub struct {facade_class_name}Api;\n\n#[php_impl]\nimpl {facade_class_name}Api {{\n{methods_joined}\n}}"
             );
             builder.add_item(&facade_struct);
+
+            // Trait bridge structs — top-level items (outside the facade class)
+            for bridge_cfg in &config.trait_bridges {
+                if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                    let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                    builder.add_item(&bridge_code);
+                }
+            }
         }
 
         let convertible = alef_codegen::conversions::convertible_types(api);

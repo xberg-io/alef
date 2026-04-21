@@ -9,6 +9,7 @@ use alef_core::ir::{
     ApiSurface, DefaultValue, EnumDef, ErrorDef, FieldDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef,
 };
 use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
+use std::fmt::Write;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -64,15 +65,16 @@ fn generate_lang_doc(
     let version = &api.version;
     let lang_slug = lang_slug(lang);
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(8192);
 
     // Front matter
-    out.push_str(&format!("---\ntitle: \"{lang_display} API Reference\"\n---\n\n"));
+    let _ = writeln!(out, "---\ntitle: \"{lang_display} API Reference\"\n---\n");
 
     // Title
-    out.push_str(&format!(
-        "## {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n\n"
-    ));
+    let _ = writeln!(
+        out,
+        "## {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n"
+    );
 
     // --- Functions section ---
     let public_fns: Vec<&FunctionDef> = api.functions.iter().collect();
@@ -141,7 +143,7 @@ fn render_function(
     let mut out = String::new();
     let fn_name = func_name(&func.name, lang, ffi_prefix);
 
-    out.push_str(&format!("#### {fn_name}()\n\n"));
+    let _ = writeln!(out, "#### {fn_name}()\n");
 
     // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
@@ -156,7 +158,7 @@ fn render_function(
     out.push_str("**Signature:**\n\n");
     let lang_code = lang_code_fence(lang);
     let sig = render_function_signature(func, lang, ffi_prefix);
-    out.push_str(&format!("```{lang_code}\n{sig}\n```\n\n"));
+    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
 
     // Parameters table
     if !func.params.is_empty() {
@@ -176,21 +178,21 @@ fn render_function(
                     s.replace("ConversionOptions.default()", "default options")
                 })
                 .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
-            out.push_str(&format!("| `{pname}` | `{pty}` | {required} | {pdoc} |\n"));
+            let _ = writeln!(out, "| `{pname}` | `{pty}` | {required} | {pdoc} |");
         }
         out.push('\n');
     }
 
     // Return type
     let ret_ty = doc_type(&func.return_type, lang, ffi_prefix);
-    out.push_str(&format!("**Returns:** `{ret_ty}`"));
+    let _ = write!(out, "**Returns:** `{ret_ty}`");
     out.push('\n');
     out.push('\n');
 
     // Errors
     if let Some(err) = &func.error_type {
         let error_phrase = format_error_phrase(err, lang);
-        out.push_str(&format!("**Errors:** {error_phrase}\n\n"));
+        let _ = writeln!(out, "**Errors:** {error_phrase}\n");
     }
 
     let _ = api; // api is available for future use in function rendering
@@ -463,7 +465,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
     let mut out = String::new();
     let tname = type_name(&ty.name, lang, ffi_prefix);
 
-    out.push_str(&format!("#### {tname}\n\n"));
+    let _ = writeln!(out, "#### {tname}\n");
 
     let doc = clean_doc(&ty.doc, lang);
     if !doc.is_empty() {
@@ -488,7 +490,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
                     raw
                 }
             };
-            out.push_str(&format!("| `{fname}` | `{fty}` | {fdefault} | {fdoc} |\n"));
+            let _ = writeln!(out, "| `{fname}` | `{fty}` | {fdefault} | {fdoc} |");
         }
         out.push('\n');
     }
@@ -500,7 +502,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         } else {
             "Methods"
         };
-        out.push_str(&format!("##### {methods_heading}\n\n"));
+        let _ = writeln!(out, "##### {methods_heading}\n");
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
         }
@@ -513,7 +515,7 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let mut out = String::new();
     let mname = func_name(&method.name, lang, ffi_prefix);
 
-    out.push_str(&format!("###### {mname}()\n\n"));
+    let _ = writeln!(out, "###### {mname}()\n");
 
     let doc = clean_doc(&method.doc, lang);
     if !doc.is_empty() {
@@ -525,7 +527,7 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let lang_code = lang_code_fence(lang);
     let sig = render_method_signature(method, type_name_str, lang, ffi_prefix);
     out.push_str("**Signature:**\n\n");
-    out.push_str(&format!("```{lang_code}\n{sig}\n```\n\n"));
+    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
 
     out
 }
@@ -718,7 +720,7 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&en.name, lang, ffi_prefix);
 
-    out.push_str(&format!("#### {ename}\n\n"));
+    let _ = writeln!(out, "#### {ename}\n");
 
     let doc = clean_doc(&en.doc, lang);
     if !doc.is_empty() {
@@ -749,7 +751,7 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
-        out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
+        let _ = writeln!(out, "| `{vname}` | {vdoc} |");
     }
     out.push('\n');
 
@@ -764,7 +766,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&err.name, lang, ffi_prefix);
 
-    out.push_str(&format!("#### {ename}\n\n"));
+    let _ = writeln!(out, "#### {ename}\n");
 
     let doc = clean_doc(&err.doc, lang);
     if !doc.is_empty() {
@@ -780,7 +782,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
 
     // For Python, render as exception class hierarchy
     if lang == Language::Python {
-        out.push_str(&format!("**Base class:** `{ename}(Exception)`\n\n"));
+        let _ = writeln!(out, "**Base class:** `{ename}(Exception)`\n");
         out.push_str("| Exception | Description |\n");
         out.push_str("|-----------|-------------|\n");
         for variant in &err.variants {
@@ -792,7 +794,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            out.push_str(&format!("| `{vname}({ename})` | {vdoc} |\n"));
+            let _ = writeln!(out, "| `{vname}({ename})` | {vdoc} |");
         }
     } else {
         out.push_str("| Variant | Description |\n");
@@ -806,7 +808,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
+            let _ = writeln!(out, "| `{vname}` | {vdoc} |");
         }
     }
     out.push('\n');
@@ -823,7 +825,7 @@ fn generate_configuration_doc(
     _config: &AlefConfig,
     output_dir: &str,
 ) -> anyhow::Result<GeneratedFile> {
-    let mut out = String::new();
+    let mut out = String::with_capacity(8192);
 
     out.push_str("---\ntitle: \"Configuration Reference\"\n---\n\n");
     out.push_str("## Configuration Reference\n\n");
@@ -841,7 +843,7 @@ fn generate_configuration_doc(
         .collect();
 
     for ty in config_types {
-        out.push_str(&format!("### {}\n\n", ty.name));
+        let _ = writeln!(out, "### {}\n", ty.name);
         let doc = clean_doc(&ty.doc, Language::Python);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -863,7 +865,7 @@ fn generate_configuration_doc(
                         raw
                     }
                 };
-                out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
+                let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
             }
             out.push('\n');
         }
@@ -901,7 +903,7 @@ fn categorize_type(ty: &TypeDef) -> &'static str {
 }
 
 fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<GeneratedFile> {
-    let mut out = String::new();
+    let mut out = String::with_capacity(8192);
 
     out.push_str("---\ntitle: \"Types Reference\"\n---\n\n");
     out.push_str("## Types Reference\n\n");
@@ -941,14 +943,14 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         let Some(types) = groups.get(cat) else {
             continue;
         };
-        out.push_str(&format!("### {cat}\n\n"));
+        let _ = writeln!(out, "### {cat}\n");
 
         if cat == "Configuration Types" {
             out.push_str("See [Configuration Reference](configuration.md) for detailed defaults and language-specific representations.\n\n");
         }
 
         for ty in types {
-            out.push_str(&format!("#### {}\n\n", ty.name));
+            let _ = writeln!(out, "#### {}\n", ty.name);
 
             let doc = clean_doc(&ty.doc, Language::Python);
             if !doc.is_empty() {
@@ -976,7 +978,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                             raw
                         }
                     };
-                    out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
+                    let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
                 }
                 out.push('\n');
             }
@@ -1043,14 +1045,14 @@ fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
 // ---------------------------------------------------------------------------
 
 fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<GeneratedFile> {
-    let mut out = String::new();
+    let mut out = String::with_capacity(8192);
 
     out.push_str("---\ntitle: \"Error Reference\"\n---\n\n");
     out.push_str("## Error Reference\n\n");
     out.push_str("All error types thrown by the library across all languages.\n\n");
 
     for err in &api.errors {
-        out.push_str(&format!("### {}\n\n", err.name));
+        let _ = writeln!(out, "### {}\n", err.name);
 
         let doc = clean_doc(&err.doc, Language::Python);
         if !doc.is_empty() {
@@ -1068,7 +1070,7 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            out.push_str(&format!("| `{}` | {} | {} |\n", variant.name, tmpl, vdoc));
+            let _ = writeln!(out, "| `{}` | {} | {} |", variant.name, tmpl, vdoc);
         }
         out.push('\n');
         out.push_str("---\n\n");
@@ -1182,6 +1184,88 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Elixir => "map()".to_string(),
                 Language::R => "list".to_string(),
                 Language::Rust => format!("HashMap<{kty}, {vty}>"),
+                Language::Ffi => "void*".to_string(),
+            }
+        }
+        TypeRef::Named(name) if name.starts_with('(') && name.ends_with(')') => {
+            // Tuple type encoded as Named("(A, B)") — render idiomatically per language
+            let inner = &name[1..name.len() - 1];
+            let rendered: Vec<String> = inner
+                .split(',')
+                .map(|part| {
+                    let trimmed = part.trim();
+                    match trimmed {
+                        "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => match lang {
+                            Language::Python => "int".to_string(),
+                            Language::Node | Language::Wasm => "number".to_string(),
+                            Language::Go => "int".to_string(),
+                            Language::Java => "long".to_string(),
+                            Language::Csharp => "long".to_string(),
+                            Language::Ruby => "Integer".to_string(),
+                            Language::Php => "int".to_string(),
+                            Language::Elixir => "integer()".to_string(),
+                            Language::R => "integer".to_string(),
+                            Language::Rust => trimmed.to_string(),
+                            Language::Ffi => "uint64_t".to_string(),
+                        },
+                        s @ ("str" | "&str" | "String" | "&'static str" | "&'staticstr") => match lang {
+                            Language::Python => "str".to_string(),
+                            Language::Node | Language::Wasm => "string".to_string(),
+                            Language::Go => "string".to_string(),
+                            Language::Java => "String".to_string(),
+                            Language::Csharp => "string".to_string(),
+                            Language::Ruby => "String".to_string(),
+                            Language::Php => "string".to_string(),
+                            Language::Elixir => "String.t()".to_string(),
+                            Language::R => "character".to_string(),
+                            Language::Rust => s.to_string(),
+                            Language::Ffi => "const char*".to_string(),
+                        },
+                        // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
+                        // Also covers compacted IR forms like &'static[&'staticstr]
+                        s if s.contains("[&")
+                            || s.contains("[String")
+                            || s.contains("Vec<&")
+                            || s.contains("Vec<String")
+                            || s.contains("staticstr") =>
+                        {
+                            match lang {
+                                Language::Python => "list[str]".to_string(),
+                                Language::Node | Language::Wasm => "string[]".to_string(),
+                                Language::Go => "[]string".to_string(),
+                                Language::Java => "List<String>".to_string(),
+                                Language::Csharp => "List<string>".to_string(),
+                                Language::Ruby => "Array<String>".to_string(),
+                                Language::Php => "array<string>".to_string(),
+                                Language::Elixir => "list(String.t())".to_string(),
+                                Language::R => "list".to_string(),
+                                Language::Rust => s.to_string(),
+                                Language::Ffi => "const char**".to_string(),
+                            }
+                        }
+                        other => {
+                            // For Rust, preserve the raw type token rather than
+                            // PascalCasing it — Rust type names are already correct.
+                            if lang == Language::Rust {
+                                other.to_string()
+                            } else {
+                                type_name(other, lang, ffi_prefix)
+                            }
+                        }
+                    }
+                })
+                .collect();
+            match lang {
+                Language::Python => format!("tuple[{}]", rendered.join(", ")),
+                Language::Node | Language::Wasm => format!("[{}]", rendered.join(", ")),
+                Language::Go => format!("({})", rendered.join(", ")),
+                Language::Java => format!("Tuple<{}>", rendered.join(", ")),
+                Language::Csharp => format!("({})", rendered.join(", ")),
+                Language::Ruby => format!("[{}]", rendered.join(", ")),
+                Language::Php => format!("array{{{}}}", rendered.join(", ")),
+                Language::Elixir => format!("{{{}}}", rendered.join(", ")),
+                Language::R => "list".to_string(),
+                Language::Rust => format!("({})", rendered.join(", ")),
                 Language::Ffi => "void*".to_string(),
             }
         }
@@ -1886,7 +1970,7 @@ fn convert_doc_headings_to_bold(doc: &str) -> String {
                 || lower == "notes"
                 || lower == "note"
             {
-                out.push_str(&format!("**{heading_text}:**\n"));
+                let _ = writeln!(out, "**{heading_text}:**");
                 continue;
             }
         }

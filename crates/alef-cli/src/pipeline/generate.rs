@@ -46,9 +46,9 @@ pub fn generate(
         .collect();
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = to_generate
-        .into_iter()
+        .par_iter()
         .map(|(lang, lang_str, lang_hash)| {
-            let backend = registry::get_backend(lang);
+            let backend = registry::get_backend(*lang);
             info!("  {}: generating...", lang_str);
 
             let files = backend
@@ -56,9 +56,9 @@ pub fn generate(
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
             let base_dir = std::env::current_dir().unwrap_or_default();
             let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
-            cache::write_lang_hash(&lang_str, &lang_hash, &output_paths)
+            cache::write_lang_hash(lang_str, lang_hash, &output_paths)
                 .with_context(|| format!("failed to write language hash for {lang_str}"))?;
-            Ok((lang, files))
+            Ok((*lang, files))
         })
         .collect::<anyhow::Result<_>>()?;
 
@@ -262,9 +262,13 @@ pub fn format_rust_content(content: &str) -> String {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
+    let config_dir = std::env::current_dir().unwrap_or_default();
+
     let mut child = match Command::new("rustfmt")
         .arg("--edition")
         .arg("2024")
+        .arg("--config-path")
+        .arg(&config_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

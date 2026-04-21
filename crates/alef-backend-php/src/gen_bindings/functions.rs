@@ -15,19 +15,12 @@ use super::helpers::{
 /// Bridge params are sanitized to a String/Option<String> in the IR but must be
 /// passed as `None` to the core function (the PHP backend has no bridge implementation).
 fn bridge_param_names(bridges: &[TraitBridgeConfig]) -> AHashSet<&str> {
-    bridges
-        .iter()
-        .filter_map(|b| b.param_name.as_deref())
-        .collect()
+    bridges.iter().filter_map(|b| b.param_name.as_deref()).collect()
 }
 
 /// Replace the argument expression for each bridge param with `None` in the comma-separated
 /// call args string.  The replacement is done term-by-term so partial-name matches are avoided.
-fn apply_bridge_none_substitutions(
-    call_args: &str,
-    func: &FunctionDef,
-    bridge_names: &AHashSet<&str>,
-) -> String {
+fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_names: &AHashSet<&str>) -> String {
     if bridge_names.is_empty() || call_args.is_empty() {
         return call_args.to_string();
     }
@@ -371,7 +364,12 @@ pub(crate) fn gen_function_as_static_method(
 ) -> String {
     let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
     let bridge_names = bridge_param_names(bridges);
-    let visible_params: Vec<_> = func.params.iter().filter(|p| !bridge_names.contains(p.name.as_str())).cloned().collect();
+    let visible_params: Vec<_> = func
+        .params
+        .iter()
+        .filter(|p| !bridge_names.contains(p.name.as_str()))
+        .cloned()
+        .collect();
     let params = gen_php_function_params(&visible_params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -507,7 +505,12 @@ pub(crate) fn gen_async_function_as_static_method(
 ) -> String {
     let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
     let bridge_names = bridge_param_names(bridges);
-    let visible_params: Vec<_> = func.params.iter().filter(|p| !bridge_names.contains(p.name.as_str())).cloned().collect();
+    let visible_params: Vec<_> = func
+        .params
+        .iter()
+        .filter(|p| !bridge_names.contains(p.name.as_str()))
+        .cloned()
+        .collect();
     let params = gen_php_function_params(&visible_params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());

@@ -96,6 +96,12 @@ impl Backend for WasmBackend {
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
         builder.add_import("wasm_bindgen::prelude::*");
 
+        // Import js_sys when trait bridges are configured — generated bridge code uses
+        // js_sys::Reflect, js_sys::Function, js_sys::Object, and js_sys::Array.
+        if !config.trait_bridges.is_empty() {
+            builder.add_import("js_sys");
+        }
+
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);
@@ -163,7 +169,28 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types, &prefix));
+                let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                        func,
+                        param_idx,
+                        bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                        &prefix,
+                    ));
+                } else {
+                    builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types, &prefix));
+                }
+            }
+        }
+
+        // Trait bridge wrappers — generate WASM bridge structs that delegate to JS objects
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                builder.add_item(&bridge_code);
             }
         }
 

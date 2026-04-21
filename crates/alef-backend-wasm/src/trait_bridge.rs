@@ -1,7 +1,7 @@
-//! NAPI-RS-specific trait bridge code generation.
+//! WebAssembly (wasm-bindgen) specific trait bridge code generation.
 //!
 //! Generates Rust wrapper structs that implement Rust traits by delegating
-//! to JavaScript objects via NAPI-RS.
+//! to JavaScript objects via `js_sys::Reflect` and `js_sys::Function`.
 
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -15,7 +15,7 @@ pub fn gen_trait_bridge(
     api: &ApiSurface,
 ) -> String {
     let mut out = String::with_capacity(8192);
-    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+    let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
     let trait_path = trait_type.rust_path.replace('-', "_");
 
     // Build type name → rust_path lookup
@@ -47,10 +47,10 @@ pub fn gen_trait_bridge(
     out
 }
 
-/// Generate a visitor-style bridge wrapping a `napi::bindgen_prelude::Object`.
+/// Generate a visitor-style bridge wrapping a `wasm_bindgen::JsValue` object.
 ///
 /// Every trait method checks if the JS object has a matching camelCase property,
-/// then calls it with converted arguments and maps the JS return value to `VisitResult`.
+/// then calls it via `js_sys::Reflect` and maps the return value to `VisitResult`.
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
@@ -60,95 +60,70 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<&str, &str>,
 ) {
-    // Emit trait imports needed by the generated bridge code.
-    // napi::* glob does not re-export JsObjectValue or JsValue from bindgen_prelude.
-    writeln!(out, "#[allow(unused_imports)]").unwrap();
-    writeln!(
-        out,
-        "use napi::bindgen_prelude::{{JsObjectValue, ToNapiValue, Unknown, Object}};"
-    )
-    .unwrap();
-    writeln!(out, "#[allow(unused_imports)]").unwrap();
-    writeln!(out, "use napi::JsValue;").unwrap();
-    writeln!(out).unwrap();
-
-    // Helper: convert NodeContext to a JS object
-    writeln!(out, "fn nodecontext_to_js_object(").unwrap();
-    writeln!(out, "    env: &napi::Env,").unwrap();
+    // Helper: convert NodeContext to a JS object via js_sys::Object
+    writeln!(out, "fn nodecontext_to_js_value(").unwrap();
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> napi::Result<napi::bindgen_prelude::Object> {{").unwrap();
-    writeln!(out, "    let mut obj = napi::bindgen_prelude::Object::new(env)?;").unwrap();
+    writeln!(out, ") -> wasm_bindgen::JsValue {{").unwrap();
+    writeln!(out, "    let obj = js_sys::Object::new();").unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"nodeType\", env.create_string(&format!(\"{{:?}}\", ctx.node_type))?)?;"
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"nodeType\"), &wasm_bindgen::JsValue::from_str(&format!(\"{{:?}}\", ctx.node_type))).ok();"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"tagName\", env.create_string(&ctx.tag_name)?)?;"
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"tagName\"), &wasm_bindgen::JsValue::from_str(&ctx.tag_name)).ok();"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"depth\", env.create_uint32(ctx.depth as u32)?)?;"
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"depth\"), &wasm_bindgen::JsValue::from_f64(ctx.depth as f64)).ok();"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent as u32)?)?;"
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"indexInParent\"), &wasm_bindgen::JsValue::from_f64(ctx.index_in_parent as f64)).ok();"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"isInline\", ctx.is_inline)?;"
-    )
-    .unwrap();
-    writeln!(out, "    let parent_tag = match &ctx.parent_tag {{").unwrap();
-    writeln!(out, "        Some(s) => env.create_string(s)?.to_unknown(),").unwrap();
-    writeln!(out, "        None => {{").unwrap();
-    writeln!(
-        out,
-        "            // SAFETY: napi_get_null returns a valid napi_value for the given env."
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"isInline\"), &wasm_bindgen::JsValue::from_bool(ctx.is_inline)).ok();"
     )
     .unwrap();
     writeln!(
         out,
-        "            let raw = unsafe {{ napi::bindgen_prelude::ToNapiValue::to_napi_value(env.raw(), napi::bindgen_prelude::Null)? }};"
+        "    let parent_tag_val = match &ctx.parent_tag {{\n        Some(s) => wasm_bindgen::JsValue::from_str(s),\n        None => wasm_bindgen::JsValue::null(),\n    }};"
     )
     .unwrap();
     writeln!(
         out,
-        "            unsafe {{ napi::bindgen_prelude::Unknown::from_raw_unchecked(env.raw(), raw) }}"
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"parentTag\"), &parent_tag_val).ok();"
     )
     .unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }};").unwrap();
-    writeln!(out, "    obj.set_named_property(\"parentTag\", parent_tag)?;").unwrap();
-    writeln!(
-        out,
-        "    let mut attrs = napi::bindgen_prelude::Object::new(env)?;"
-    )
-    .unwrap();
+    writeln!(out, "    let attrs = js_sys::Object::new();").unwrap();
     writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
     writeln!(
         out,
-        "        attrs.set_named_property(k, env.create_string(v)?)?;"
+        "        js_sys::Reflect::set(&attrs, &wasm_bindgen::JsValue::from_str(k), &wasm_bindgen::JsValue::from_str(v)).ok();"
     )
     .unwrap();
     writeln!(out, "    }}").unwrap();
-    writeln!(out, "    obj.set_named_property(\"attributes\", attrs)?;").unwrap();
-    writeln!(out, "    Ok(obj)").unwrap();
+    writeln!(
+        out,
+        "    js_sys::Reflect::set(&obj, &wasm_bindgen::JsValue::from_str(\"attributes\"), &attrs).ok();"
+    )
+    .unwrap();
+    writeln!(out, "    obj.into()").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
     // Bridge struct
     writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    env: napi::Env,").unwrap();
-    writeln!(out, "    js_obj: napi::bindgen_prelude::Object,").unwrap();
+    writeln!(out, "    js_obj: wasm_bindgen::JsValue,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Manual Debug impl (Object doesn't implement Debug)
+    // Manual Debug impl
     writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
     writeln!(
         out,
@@ -162,12 +137,8 @@ fn gen_visitor_bridge(
 
     // Constructor
     writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    pub fn new(env: napi::Env, js_obj: napi::bindgen_prelude::Object) -> Self {{"
-    )
-    .unwrap();
-    writeln!(out, "        Self {{ env, js_obj }}").unwrap();
+    writeln!(out, "    pub fn new(js_obj: wasm_bindgen::JsValue) -> Self {{").unwrap();
+    writeln!(out, "        Self {{ js_obj }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -178,7 +149,7 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_napi(out, method, trait_path, core_crate, type_paths);
+        gen_visitor_method_wasm(out, method, type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -203,26 +174,9 @@ fn visitor_param_type(
     param_type(ty, "", is_ref, tp)
 }
 
-/// Build the Function args tuple type string for a given number of Unknown args.
-fn unknown_tuple_type(count: usize) -> String {
-    if count == 0 {
-        return "()".to_string();
-    }
-    let parts = vec!["napi::bindgen_prelude::Unknown"; count];
-    format!("({}{})", parts.join(", "), if count == 1 { "," } else { "" })
-}
-
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
-fn gen_visitor_method_napi(
-    out: &mut String,
-    method: &MethodDef,
-    _trait_path: &str,
-    _core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
+fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &std::collections::HashMap<&str, &str>) {
     let name = &method.name;
-
-    // Convert snake_case method name to camelCase for JS
     let js_name = to_camel_case(name);
 
     let mut sig_parts = vec!["&mut self".to_string()];
@@ -242,59 +196,46 @@ fn gen_visitor_method_napi(
 
     writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
 
-    // Check if JS object has the method
+    // Check if the JS object has the method via Reflect
+    writeln!(out, "        let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").unwrap();
     writeln!(
         out,
-        "        let has_method = self.js_obj.has_named_property(\"{js_name}\").unwrap_or(false);"
+        "        let has_method = js_sys::Reflect::has(&self.js_obj, &key).unwrap_or(false);"
     )
     .unwrap();
     writeln!(out, "        if !has_method {{").unwrap();
     writeln!(out, "            return {ret_ty}::Continue;").unwrap();
     writeln!(out, "        }}").unwrap();
 
-    // Get the JS function with the correct tuple arg type
-    let arg_count = method.params.len();
-    let args_tuple_ty = unknown_tuple_type(arg_count);
+    // Get the JS function
     writeln!(
         out,
-        "        let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.js_obj.get_named_property(\"{js_name}\") {{"
+        "        let func_val = match js_sys::Reflect::get(&self.js_obj, &key) {{"
     )
     .unwrap();
     writeln!(out, "            Ok(f) => f,").unwrap();
     writeln!(out, "            Err(_) => return {ret_ty}::Continue,").unwrap();
     writeln!(out, "        }};").unwrap();
+    writeln!(out, "        let func: js_sys::Function = match func_val.dyn_into() {{").unwrap();
+    writeln!(out, "            Ok(f) => f,").unwrap();
+    writeln!(out, "            Err(_) => return {ret_ty}::Continue,").unwrap();
+    writeln!(out, "        }};").unwrap();
 
-    // Build and call with args
-    let js_args_exprs = build_napi_args(method);
-    if arg_count == 0 {
-        writeln!(out, "        let result = func.call(());").unwrap();
-    } else {
-        // Emit each arg as a let binding, then call with tuple
-        for (i, expr) in js_args_exprs.iter().enumerate() {
-            writeln!(
-                out,
-                "        let arg_{i}: napi::bindgen_prelude::Unknown = {expr};"
-            )
-            .unwrap();
-        }
-        let tuple_args: Vec<String> = (0..arg_count).map(|i| format!("arg_{i}")).collect();
-        let tuple_str = if arg_count == 1 {
-            format!("({},)", tuple_args[0])
-        } else {
-            format!("({})", tuple_args.join(", "))
-        };
-        writeln!(out, "        let result = func.call({tuple_str});").unwrap();
+    // Build args array
+    writeln!(out, "        let args = js_sys::Array::new();").unwrap();
+    for p in &method.params {
+        let arg_val = build_wasm_arg(p);
+        writeln!(out, "        args.push(&{arg_val});").unwrap();
     }
+
+    // Call the function
+    writeln!(out, "        let result = func.apply(&self.js_obj, &args);").unwrap();
 
     // Parse result
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(
-        out,
-        "                if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).map(|s| s.into_owned()) {{"
-    )
-    .unwrap();
+    writeln!(out, "                if let Some(s) = val.as_string() {{").unwrap();
     writeln!(out, "                    match s.to_lowercase().as_str() {{").unwrap();
     writeln!(out, "                        \"continue\" => {ret_ty}::Continue,").unwrap();
     writeln!(out, "                        \"skip\" => {ret_ty}::Skip,").unwrap();
@@ -318,88 +259,31 @@ fn gen_visitor_method_napi(
     writeln!(out).unwrap();
 }
 
-/// Build NAPI argument expressions for a visitor method.
-///
-/// Returns one expression per parameter, each producing a `napi::bindgen_prelude::Unknown`.
-fn build_napi_args(method: &MethodDef) -> Vec<String> {
-    method
-        .params
-        .iter()
-        .map(|p| {
-            if let TypeRef::Named(n) = &p.ty {
-                if n == "NodeContext" {
-                    return format!(
-                        "nodecontext_to_js_object(&self.env, {}{}).map(|o| o.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
-                        if p.is_ref { "" } else { "&" },
-                        p.name
-                    );
-                }
-            }
-            // Option<&str>
-            if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-                return format!(
-                    "match {name} {{ \
-                     Some(s) => self.env.create_string(s).map(|v| v.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }}), \
-                     None => unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }} }}",
-                    name = p.name
-                );
-            }
-            // &str
-            if matches!(&p.ty, TypeRef::String) && p.is_ref {
-                return format!(
-                    "self.env.create_string({name}).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
-                    name = p.name
-                );
-            }
-            // String (owned)
-            if matches!(&p.ty, TypeRef::String) {
-                return format!(
-                    "self.env.create_string({name}.as_str()).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
-                    name = p.name
-                );
-            }
-            // Bool
-            if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-                return format!(
-                    "unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), {name}).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }}",
-                    name = p.name
-                );
-            }
-            // u32
-            if matches!(
-                &p.ty,
-                TypeRef::Primitive(alef_core::ir::PrimitiveType::U32)
-                    | TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)
-            ) {
-                return format!(
-                    "self.env.create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
-                    name = p.name
-                );
-            }
-            // Vec<String> or &[String] - serialize to JSON string as fallback
-            // Default: serialize as debug string
-            format!(
-                "self.env.create_string(&format!(\"{{:?}}\", {name})).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
-                name = p.name
-            )
-        })
-        .collect()
+/// Build a single wasm arg expression for a visitor method parameter.
+fn build_wasm_arg(p: &alef_core::ir::ParamDef) -> String {
+    if let TypeRef::Named(n) = &p.ty {
+        if n == "NodeContext" {
+            return format!("nodecontext_to_js_value({}{})", if p.is_ref { "" } else { "&" }, p.name);
+        }
+    }
+    // Optional &str must be checked before non-optional &str — otherwise Option<&str>
+    // would be passed to JsValue::from_str which expects &str, causing a type error.
+    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!(
+            "match {} {{ Some(s) => wasm_bindgen::JsValue::from_str(s), None => wasm_bindgen::JsValue::null() }}",
+            p.name
+        );
+    }
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("wasm_bindgen::JsValue::from_str({})", p.name);
+    }
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("wasm_bindgen::JsValue::from_str({}.as_str())", p.name);
+    }
+    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        return format!("wasm_bindgen::JsValue::from_bool({})", p.name);
+    }
+    format!("wasm_bindgen::JsValue::from_str(&format!(\"{{:?}}\", {}))", p.name)
 }
 
 /// Convert snake_case to camelCase.
@@ -505,36 +389,34 @@ pub fn find_bridge_param<'a>(
     None
 }
 
-/// Generate a NAPI free function that has one parameter replaced by
-/// `Option<napi::bindgen_prelude::Object>` (a trait bridge). The bridge is constructed
-/// before calling the core function.
+/// Generate a WASM free function that has one parameter replaced by
+/// `wasm_bindgen::JsValue` (a trait bridge).
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
     func: &alef_core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
-    _cfg: &alef_codegen::generators::RustBindingConfig<'_>,
-    _adapter_bodies: &alef_codegen::generators::AdapterBodies,
     opaque_types: &ahash::AHashSet<String>,
     core_import: &str,
+    prefix: &str,
 ) -> String {
     use alef_core::ir::TypeRef;
 
-    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+    let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
     let handle_path = format!("{core_import}::visitor::VisitorHandle");
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list: env as first param, bridge param becomes Option<Object>
-    let mut sig_parts = vec!["env: napi::Env".to_string()];
+    // Build parameter list
+    let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
             if is_optional {
-                sig_parts.push(format!("{}: Option<napi::bindgen_prelude::Object>", p.name));
+                sig_parts.push(format!("{}: Option<wasm_bindgen::JsValue>", p.name));
             } else {
-                sig_parts.push(format!("{}: napi::bindgen_prelude::Object", p.name));
+                sig_parts.push(format!("{}: wasm_bindgen::JsValue", p.name));
             }
         } else {
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
@@ -551,26 +433,29 @@ pub fn gen_bridge_function(
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+    let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
 
     // Bridge wrapping code
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
-             let bridge = {struct_name}::new(env, v);\n        \
+             let bridge = {struct_name}::new(v);\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }});"
         )
     } else {
         format!(
             "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new(env, {param_name});\n        \
+             let bridge = {struct_name}::new({param_name});\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };
 
-    // Serde-based let bindings for non-bridge Named params
+    // From conversion let bindings for non-bridge Named params.
+    // Uses the generated From<WasmType> impl to convert binding types to core types,
+    // which avoids requiring serde::Serialize on WASM binding types (many contain JsValue
+    // which cannot be serialized).
     let serde_bindings: String = func
         .params
         .iter()
@@ -608,17 +493,9 @@ pub fn gen_bridge_function(
                 }
             );
             if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-                format!(
-                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
-                     let json = serde_json::to_string(&v){err_conv}?;\n        \
-                     serde_json::from_str(&json){err_conv}\n    \
-                     }}).transpose()?;\n    "
-                )
+                format!("let {name}_core: Option<{core_path}> = {name}.map({core_path}::from);\n    ")
             } else {
-                format!(
-                    "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n    \
-                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n    "
-                )
+                format!("let {name}_core: {core_path} = {core_path}::from({name});\n    ")
             }
         })
         .collect();
@@ -677,11 +554,18 @@ pub fn gen_bridge_function(
 
     let return_wrap = match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+            format!("{prefix}{name} {{ inner: std::sync::Arc::new(val) }}")
         }
         TypeRef::Named(_) => "val.into()".to_string(),
         TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
         _ => "val".to_string(),
+    };
+
+    let js_name = to_camel_case(&func.name);
+    let js_name_attr = if js_name != func.name {
+        format!("(js_name = \"{}\")", js_name)
+    } else {
+        String::new()
     };
 
     let body = if func.error_type.is_some() {
@@ -694,35 +578,12 @@ pub fn gen_bridge_function(
         format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
     };
 
-    let js_name = {
-        let mut result = String::with_capacity(func.name.len());
-        let mut capitalize_next = false;
-        for (i, c) in func.name.chars().enumerate() {
-            if c == '_' {
-                capitalize_next = true;
-            } else if capitalize_next {
-                result.extend(c.to_uppercase());
-                capitalize_next = false;
-            } else if i == 0 {
-                result.extend(c.to_lowercase());
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    };
-    let js_name_attr = if js_name != func.name {
-        format!("(js_name = \"{}\")", js_name)
-    } else {
-        String::new()
-    };
-
+    let func_name = &func.name;
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {
         writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
     }
-    writeln!(out, "#[napi{js_name_attr}]").ok();
-    let func_name = &func.name;
+    writeln!(out, "#[wasm_bindgen{js_name_attr}]").ok();
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
     writeln!(out, "    {body}").ok();
     writeln!(out, "}}").ok();

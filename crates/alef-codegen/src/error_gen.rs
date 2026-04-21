@@ -259,13 +259,9 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let mut lines = Vec::new();
 
     // error_code helper — maps each variant to a snake_case string code
-    lines.push(format!(
-        "/// Return the error code string for a `{rust_path}` variant."
-    ));
+    lines.push(format!("/// Return the error code string for a `{rust_path}` variant."));
     lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!(
-        "fn {code_fn_name}(e: &{rust_path}) -> &'static str {{"
-    ));
+    lines.push(format!("fn {code_fn_name}(e: &{rust_path}) -> &'static str {{"));
     lines.push("    #[allow(unreachable_patterns)]".to_string());
     lines.push("    match e {".to_string());
     for variant in &error.variants {
@@ -273,10 +269,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
         let code = to_snake_case(&variant.name);
         lines.push(format!("        {pattern} => \"{code}\","));
     }
-    lines.push(format!(
-        "        _ => \"{}\",",
-        to_snake_case(&error.name)
-    ));
+    lines.push(format!("        _ => \"{}\",", to_snake_case(&error.name)));
     lines.push("    }".to_string());
     lines.push("}".to_string());
 
@@ -287,20 +280,12 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
         "/// Convert a `{rust_path}` error to a `JsValue` object with `code` and `message` fields."
     ));
     lines.push("#[allow(dead_code)]".to_string());
-    lines.push(format!(
-        "fn {fn_name}(e: {rust_path}) -> wasm_bindgen::JsValue {{"
-    ));
-    lines.push(format!(
-        "    let code = {code_fn_name}(&e);"
-    ));
+    lines.push(format!("fn {fn_name}(e: {rust_path}) -> wasm_bindgen::JsValue {{"));
+    lines.push(format!("    let code = {code_fn_name}(&e);"));
     lines.push("    let message = e.to_string();".to_string());
     lines.push("    let obj = js_sys::Object::new();".to_string());
-    lines.push(
-        "    js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok();".to_string(),
-    );
-    lines.push(
-        "    js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok();".to_string(),
-    );
+    lines.push("    js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok();".to_string());
+    lines.push("    js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok();".to_string());
     lines.push("    obj.into()".to_string());
     lines.push("}".to_string());
 
@@ -877,7 +862,10 @@ mod tests {
         assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
         assert!(output.contains("obj.into()"));
         // error_code helper
-        assert!(output.contains("fn conversion_error_error_code(e: &html_to_markdown_rs::ConversionError) -> &'static str {"));
+        assert!(
+            output
+                .contains("fn conversion_error_error_code(e: &html_to_markdown_rs::ConversionError) -> &'static str {")
+        );
         assert!(output.contains("\"parse_error\""));
         assert!(output.contains("\"io_error\""));
         assert!(output.contains("\"other\""));

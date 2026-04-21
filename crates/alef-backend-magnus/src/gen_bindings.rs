@@ -168,10 +168,30 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) {
-                builder.add_item(&gen_function(func, &mapper, &opaque_types, &core_import));
-                if func.is_async {
-                    builder.add_item(&gen_async_function(func, &mapper, &opaque_types, &core_import));
+                let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                        func,
+                        param_idx,
+                        bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                } else {
+                    builder.add_item(&gen_function(func, &mapper, &opaque_types, &core_import));
+                    if func.is_async {
+                        builder.add_item(&gen_async_function(func, &mapper, &opaque_types, &core_import));
+                    }
                 }
+            }
+        }
+
+        // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                builder.add_item(&bridge_code);
             }
         }
 

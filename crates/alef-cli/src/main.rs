@@ -748,7 +748,13 @@ fn resolve_languages_inner(
             }
             Ok(result)
         }
-        None => Ok(config.languages.clone()),
+        None => {
+            let mut langs = config.languages.clone();
+            if allow_rust && !langs.contains(&alef_core::config::Language::Rust) {
+                langs.push(alef_core::config::Language::Rust);
+            }
+            Ok(langs)
+        }
     }
 }
 

@@ -1056,11 +1056,19 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
         "visit_image" => "self, ctx, src, alt, title",
         "visit_heading" => "self, ctx, level, text, id",
         "visit_code_block" => "self, ctx, lang, code",
-        "visit_code_inline" | "visit_strong" | "visit_emphasis"
-        | "visit_strikethrough" | "visit_underline" | "visit_subscript"
-        | "visit_superscript" | "visit_mark" | "visit_button"
-        | "visit_summary" | "visit_figcaption"
-        | "visit_definition_term" | "visit_definition_description" => "self, ctx, text",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "self, ctx, text",
         "visit_text" => "self, ctx, text",
         "visit_list_item" => "self, ctx, ordered, marker, text",
         "visit_blockquote" => "self, ctx, content, depth",
@@ -1089,10 +1097,7 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
             let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
         }
         CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(
-                out,
-                "            return {{\"custom\": f\"{template}\"}}"
-            );
+            let _ = writeln!(out, "            return {{\"custom\": f\"{template}\"}}");
         }
     }
 }
