@@ -202,7 +202,6 @@ dependencies = [
  "ahash",
  "alef-core",
  "heck",
- "minijinja",
 ]
 
 [[package]]

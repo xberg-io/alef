@@ -153,6 +153,7 @@ fn is_skipped(fixture: &Fixture, language: &str) -> bool {
 // Rendering
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_cargo_toml(
     crate_name: &str,
     dep_name: &str,
@@ -1138,6 +1139,7 @@ async fn main() {
 // Assertion rendering
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

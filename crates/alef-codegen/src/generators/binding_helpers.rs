@@ -28,6 +28,7 @@ fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
 ///
 /// `mutex_types` identifies opaque types that use `Arc<Mutex<T>>` instead of `Arc<T>`, so
 /// constructor expressions use `Arc::new(Mutex::new(...))` where needed.
+#[allow(clippy::too_many_arguments)]
 pub fn wrap_return_with_mutex(
     expr: &str,
     return_type: &TypeRef,

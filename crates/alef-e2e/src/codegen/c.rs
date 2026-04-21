@@ -543,8 +543,8 @@ fn render_test_function(
             if arg.arg_type == "json_object" {
                 // Derive request type from result type: strip "Response", append "Request".
                 // E.g. "ChatCompletionResponse" -> "ChatCompletionRequest".
-                let request_type_pascal = if result_type_name.ends_with("Response") {
-                    format!("{}Request", &result_type_name[..result_type_name.len() - 8])
+                let request_type_pascal = if let Some(stripped) = result_type_name.strip_suffix("Response") {
+                    format!("{}Request", stripped)
                 } else {
                     format!("{result_type_name}Request")
                 };
@@ -805,6 +805,7 @@ fn render_test_function(
 ///
 /// The type chain is looked up from `fields_c_types` which maps
 /// `"{parent_snake_type}.{field}"` -> `"PascalCaseType"`.
+#[allow(clippy::too_many_arguments)]
 fn emit_nested_accessor(
     out: &mut String,
     prefix: &str,

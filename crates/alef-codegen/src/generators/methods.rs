@@ -59,6 +59,7 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
 /// `opaque_types` is the set of opaque type names, used for correct return wrapping.
 /// `mutex_types` is the subset of opaque types whose `inner` field is `Arc<Mutex<T>>`;
 /// method dispatch uses `.lock().unwrap()` for these types.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_method(
     method: &MethodDef,
     mapper: &dyn TypeMapper,

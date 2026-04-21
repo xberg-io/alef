@@ -33,17 +33,7 @@ pub fn generate_body(
 /// for each parameter, so the adapter body must use those converted locals — not call
 /// `.into()` a second time (which would trigger a use-after-move error).
 fn call_args(adapter: &AdapterConfig) -> Vec<String> {
-    adapter
-        .params
-        .iter()
-        .map(|p| {
-            if p.optional {
-                format!("{}_core", p.name)
-            } else {
-                format!("{}_core", p.name)
-            }
-        })
-        .collect()
+    adapter.params.iter().map(|p| format!("{}_core", p.name)).collect()
 }
 
 /// Get the iterator struct name from the adapter name.

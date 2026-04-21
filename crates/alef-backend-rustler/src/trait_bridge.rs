@@ -503,19 +503,9 @@ pub fn gen_bridge_function(
             if let TypeRef::Named(n) = &p.ty {
                 if default_types.contains(n) {
                     let core_ty = format!("{core_import}::{n}");
-                    if p.optional {
-                        return format!(
-                            "let {name}_core: Option<{core_ty}> = {name}.map(|s| serde_json::from_str::<{core_ty}>(&s){err_conv}).transpose(){err_conv}?;\n    "
-                        );
-                    } else if p.is_ref {
-                        return format!(
-                            "let {name}_core: Option<{core_ty}> = {name}.map(|s| serde_json::from_str::<{core_ty}>(&s){err_conv}).transpose(){err_conv}?;\n    "
-                        );
-                    } else {
-                        return format!(
-                            "let {name}_core: Option<{core_ty}> = {name}.map(|s| serde_json::from_str::<{core_ty}>(&s){err_conv}).transpose(){err_conv}?;\n    "
-                        );
-                    }
+                    return format!(
+                        "let {name}_core: Option<{core_ty}> = {name}.map(|s| serde_json::from_str::<{core_ty}>(&s){err_conv}).transpose(){err_conv}?;\n    "
+                    );
                 }
                 let core_ty = format!("{core_import}::{n}");
                 if p.optional {
