@@ -492,15 +492,24 @@ pub(crate) fn is_tuple_type_name(name: &str) -> bool {
 }
 
 /// Derive the Rust import path from rust_path, replacing hyphens with underscores.
+///
+/// Prefers `original_rust_path` (the path before auto_path_mappings rewriting)
+/// so that `From` impls reference the actual defining crate, avoiding orphan
+/// rule violations when `core_import` is a re-export facade.
 pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
-    // rust_path is like "liter-llm::tower::RateLimitConfig"
-    // We need "liter_llm::tower::RateLimitConfig"
-    let path = typ.rust_path.replace('-', "_");
-    // If the path starts with the core_import, use it directly
-    if path.starts_with(core_import) {
+    // Use original_rust_path if available — this is the real defining crate path
+    // (e.g. "spikard_http::ServerConfig") rather than the facade rewrite
+    // (e.g. "spikard::ServerConfig"). This avoids orphan rule (E0117) when the
+    // binding crate implements From<FacadeType> for BindingType.
+    let raw = if !typ.original_rust_path.is_empty() {
+        &typ.original_rust_path
+    } else {
+        &typ.rust_path
+    };
+    let path = raw.replace('-', "_");
+    if path.contains("::") {
         path
     } else {
-        // Fallback: just use core_import::name
         format!("{core_import}::{}", typ.name)
     }
 }
@@ -513,9 +522,11 @@ pub fn has_sanitized_fields(typ: &TypeDef) -> bool {
 /// Derive the Rust import path for an enum, replacing hyphens with underscores.
 pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
     let path = enum_def.rust_path.replace('-', "_");
-    if path.starts_with(core_import) {
+    if path.starts_with(core_import) || path.contains("::") {
+        // Path is already fully-qualified — use it verbatim.
         path
     } else {
+        // Bare unqualified name: prefix with the facade crate.
         format!("{core_import}::{}", enum_def.name)
     }
 }

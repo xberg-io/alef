@@ -46,6 +46,10 @@ pub struct ApiSurface {
 pub struct TypeDef {
     pub name: String,
     pub rust_path: String,
+    /// Original rust_path before path mapping rewrites. Used for From impl
+    /// targets to avoid orphan rule violations when core_import is a re-export facade.
+    #[serde(default)]
+    pub original_rust_path: String,
     pub fields: Vec<FieldDef>,
     pub methods: Vec<MethodDef>,
     pub is_opaque: bool,
@@ -179,6 +183,8 @@ pub enum ReceiverKind {
 pub struct FunctionDef {
     pub name: String,
     pub rust_path: String,
+    #[serde(default)]
+    pub original_rust_path: String,
     pub params: Vec<ParamDef>,
     pub return_type: TypeRef,
     pub is_async: bool,
@@ -237,6 +243,8 @@ pub struct ParamDef {
 pub struct EnumDef {
     pub name: String,
     pub rust_path: String,
+    #[serde(default)]
+    pub original_rust_path: String,
     pub variants: Vec<EnumVariant>,
     pub doc: String,
     #[serde(default)]
@@ -268,6 +276,8 @@ pub struct EnumVariant {
 pub struct ErrorDef {
     pub name: String,
     pub rust_path: String,
+    #[serde(default)]
+    pub original_rust_path: String,
     pub variants: Vec<ErrorVariant>,
     pub doc: String,
 }

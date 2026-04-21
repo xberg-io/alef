@@ -96,11 +96,14 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     // Replace references to types not in the API surface with String
     sanitize_unknown_types(&mut api);
 
-    // Deduplicate types, enums, and functions by name
-    dedup_api_surface(&mut api);
-
-    // Apply path mappings to rewrite rust_path fields
+    // Apply path mappings to rewrite rust_path fields before dedup so that
+    // two types that had different raw paths but map to the same rewritten
+    // path are correctly collapsed into one.
     apply_path_mappings(&mut api, config);
+
+    // Deduplicate types, enums, and functions by name (after path mapping so
+    // rewritten paths are used for the shortest-path preference heuristic).
+    dedup_api_surface(&mut api);
 
     cache::write_ir_cache(&api, &source_hash).context("failed to write IR cache")?;
     info!(
@@ -146,11 +149,12 @@ pub fn extract_unfiltered(config: &AlefConfig, config_path: &Path) -> anyhow::Re
     // Strip cfg-gated fields (these are legitimately conditional)
     strip_cfg_fields(&mut api, &config.crate_config.features);
 
+    // Apply path mappings to rewrite rust_path fields before dedup (same
+    // rationale as in `extract`: rewritten paths must be used for dedup).
+    apply_path_mappings(&mut api, config);
+
     // Deduplicate types, enums, and functions by name
     dedup_api_surface(&mut api);
-
-    // Apply path mappings to rewrite rust_path fields
-    apply_path_mappings(&mut api, config);
 
     cache::write_ir_cache_as(&api, &unfiltered_hash, "ir-unfiltered").context("failed to write unfiltered IR cache")?;
     info!(
@@ -185,6 +189,7 @@ fn inject_declared_opaque_types(api: &mut ApiSurface, config: &AlefConfig) {
             api.types.push(alef_core::ir::TypeDef {
                 name: name.clone(),
                 rust_path: rust_path.clone(),
+                original_rust_path: rust_path.clone(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
@@ -547,15 +552,27 @@ fn apply_path_mappings(api: &mut ApiSurface, config: &AlefConfig) {
         return;
     }
     for typ in &mut api.types {
+        if typ.original_rust_path.is_empty() {
+            typ.original_rust_path = typ.rust_path.clone();
+        }
         typ.rust_path = rewrite_path(&typ.rust_path, &mappings);
     }
     for func in &mut api.functions {
+        if func.original_rust_path.is_empty() {
+            func.original_rust_path = func.rust_path.clone();
+        }
         func.rust_path = rewrite_path(&func.rust_path, &mappings);
     }
     for enum_def in &mut api.enums {
+        if enum_def.original_rust_path.is_empty() {
+            enum_def.original_rust_path = enum_def.rust_path.clone();
+        }
         enum_def.rust_path = rewrite_path(&enum_def.rust_path, &mappings);
     }
     for error_def in &mut api.errors {
+        if error_def.original_rust_path.is_empty() {
+            error_def.original_rust_path = error_def.rust_path.clone();
+        }
         error_def.rust_path = rewrite_path(&error_def.rust_path, &mappings);
     }
 }

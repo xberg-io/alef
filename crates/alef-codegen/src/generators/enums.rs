@@ -8,14 +8,34 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
     enum_def.variants.iter().any(|v| !v.fields.is_empty())
 }
 
+/// Returns true if any variant of the enum has a sanitized field.
+///
+/// A sanitized field means the extractor could not resolve the field's concrete type
+/// (e.g. a `dyn Stream` or another unsized / non-serde type). When this is true the
+/// core enum does NOT implement `Serialize`, `Deserialize`, or `Default`, so the
+/// binding must not try to forward those impls.
+fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
+    enum_def
+        .variants
+        .iter()
+        .any(|v| v.fields.iter().any(|f| f.sanitized))
+}
+
 /// Generate a PyO3 data enum as a `#[pyclass]` struct wrapping the core type.
 ///
 /// Data enums (tagged unions like `AuthConfig`) can't be flat int enums in PyO3.
 /// Instead, generate a frozen struct with `inner` that accepts a Python dict,
 /// serializes it to JSON, and deserializes into the core Rust type via serde.
+///
+/// When any variant field is sanitized (its type could not be resolved — e.g. contains
+/// `dyn Stream + Send` which is not `Serialize`/`Deserialize`/`Default`), the serde-
+/// based constructor and trait impls are omitted. The constructor body uses `todo!()`
+/// so the generated code still compiles while making it clear the conversion is not
+/// available at runtime.
 pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
     let core_path = crate::conversions::core_enum_path(enum_def, core_import);
+    let has_sanitized = enum_has_sanitized_fields(enum_def);
     let mut out = String::with_capacity(512);
 
     writeln!(out, "#[derive(Clone)]").ok();
@@ -28,24 +48,39 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     writeln!(out, "#[pymethods]").ok();
     writeln!(out, "impl {name} {{").ok();
     writeln!(out, "    #[new]").ok();
-    writeln!(
-        out,
-        "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
-    )
-    .ok();
-    writeln!(out, "        let json_mod = py.import(\"json\")?;").ok();
-    writeln!(
-        out,
-        "        let json_str: String = json_mod.call_method1(\"dumps\", (value,))?.extract()?;"
-    )
-    .ok();
-    writeln!(out, "        let inner: {core_path} = serde_json::from_str(&json_str)").ok();
-    writeln!(
-        out,
-        "            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?;"
-    )
-    .ok();
-    writeln!(out, "        Ok(Self {{ inner }})").ok();
+    if has_sanitized {
+        // The core type cannot be serde round-tripped (contains non-Serialize variants).
+        // Emit a stub constructor that compiles but panics at runtime with a clear message.
+        writeln!(
+            out,
+            "    fn new(_py: Python<'_>, _value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{name} cannot be constructed from Python: the core type contains non-serializable variants\"))"
+        )
+        .ok();
+    } else {
+        writeln!(
+            out,
+            "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
+        )
+        .ok();
+        writeln!(out, "        let json_mod = py.import(\"json\")?;").ok();
+        writeln!(
+            out,
+            "        let json_str: String = json_mod.call_method1(\"dumps\", (value,))?.extract()?;"
+        )
+        .ok();
+        writeln!(out, "        let inner: {core_path} = serde_json::from_str(&json_str)").ok();
+        writeln!(
+            out,
+            "            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?;"
+        )
+        .ok();
+        writeln!(out, "        Ok(Self {{ inner }})").ok();
+    }
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
@@ -60,41 +95,44 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     writeln!(out, "impl From<{core_path}> for {name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{ Self {{ inner: val }} }}").ok();
     writeln!(out, "}}").ok();
-    writeln!(out).ok();
 
-    // Serialize: forward to inner so parent structs that derive serde::Serialize compile.
-    writeln!(out, "impl serde::Serialize for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{"
-    )
-    .ok();
-    writeln!(out, "        self.inner.serialize(serializer)").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    if !has_sanitized {
+        writeln!(out).ok();
 
-    // Default: forward to inner's Default so parent structs that derive Default compile.
-    writeln!(out, "impl Default for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn default() -> Self {{ Self {{ inner: Default::default() }} }}"
-    )
-    .ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+        // Serialize: forward to inner so parent structs that derive serde::Serialize compile.
+        writeln!(out, "impl serde::Serialize for {name} {{").ok();
+        writeln!(
+            out,
+            "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{"
+        )
+        .ok();
+        writeln!(out, "        self.inner.serialize(serializer)").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
 
-    // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
-    writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
-    )
-    .ok();
-    writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
-    writeln!(out, "        Ok(Self {{ inner }})").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+        // Default: forward to inner's Default so parent structs that derive Default compile.
+        writeln!(out, "impl Default for {name} {{").ok();
+        writeln!(
+            out,
+            "    fn default() -> Self {{ Self {{ inner: Default::default() }} }}"
+        )
+        .ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
+
+        // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
+        writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
+        writeln!(
+            out,
+            "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
+        )
+        .ok();
+        writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
+        writeln!(out, "        Ok(Self {{ inner }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+    }
 
     out
 }

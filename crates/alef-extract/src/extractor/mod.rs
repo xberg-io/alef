@@ -596,6 +596,7 @@ fn extract_items(
                 surface.types.push(TypeDef {
                     name,
                     rust_path,
+                    original_rust_path: String::new(),
                     fields: vec![],
                     methods: vec![],
                     is_opaque: true, // type aliases are opaque (no fields)
@@ -695,6 +696,7 @@ fn extract_items(
                 surface.types.push(TypeDef {
                     name,
                     rust_path,
+                    original_rust_path: String::new(),
                     fields: vec![],
                     methods,
                     is_opaque: true,

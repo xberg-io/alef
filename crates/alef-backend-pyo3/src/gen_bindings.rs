@@ -229,6 +229,11 @@ impl Backend for Pyo3Backend {
         // also be generated as #[pyclass] structs (doing both causes E0428/E0119/E0592).
         let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
 
+        // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
+        // Duplicates can slip through when path-mapping collapses two distinct raw paths onto
+        // the same name after dedup has already run on the pre-mapping IR.
+        let mut emitted_pyclass_names: AHashSet<&str> = AHashSet::new();
+
         for typ in api
             .types
             .iter()
@@ -236,6 +241,10 @@ impl Backend for Pyo3Backend {
         {
             // Error types are emitted as pyo3::create_exception! macros, not as pyclass structs.
             if error_type_names.contains(typ.name.as_str()) {
+                continue;
+            }
+            // Skip duplicate struct definitions — only emit the first occurrence.
+            if !emitted_pyclass_names.insert(typ.name.as_str()) {
                 continue;
             }
             if typ.is_opaque {

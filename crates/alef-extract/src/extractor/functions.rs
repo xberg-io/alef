@@ -40,6 +40,7 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
 
     Some(FunctionDef {
         rust_path,
+        original_rust_path: String::new(),
         name,
         params,
         return_type,
@@ -124,6 +125,7 @@ pub(crate) fn extract_impl_block(
         surface.types.push(TypeDef {
             name: type_name.clone(),
             rust_path,
+            original_rust_path: String::new(),
             fields: vec![],
             methods,
             is_opaque: true,

@@ -103,6 +103,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
 
     Some(TypeDef {
         rust_path,
+        original_rust_path: String::new(),
         name,
         fields,
         methods: vec![],
@@ -138,6 +139,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
 
     Some(EnumDef {
         rust_path,
+        original_rust_path: String::new(),
         name,
         variants,
         doc,
@@ -240,6 +242,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
     Some(ErrorDef {
         name,
         rust_path,
+        original_rust_path: String::new(),
         variants,
         doc,
     })

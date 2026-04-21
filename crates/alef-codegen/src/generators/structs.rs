@@ -204,8 +204,18 @@ pub fn type_needs_mutex(typ: &TypeDef) -> bool {
 /// Generate an opaque wrapper struct with `inner: Arc<core::Type>`.
 /// For trait types, uses `Arc<dyn Type + Send + Sync>`.
 /// For types with `&mut self` methods, uses `Arc<Mutex<core::Type>>`.
+///
+/// Special case: if ALL methods on this type are sanitized, the type was created by the
+/// impl-block fallback for a generic core type (e.g. `GraphQLExecutor<Q,M,S>`). Sanitized
+/// methods never access `self.inner` (they emit `gen_unimplemented_body`), so we omit the
+/// `inner` field entirely. This avoids generating `Arc<CoreType>` with missing generic
+/// parameters, which would fail to compile.
 pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     let needs_mutex = type_needs_mutex(typ);
+    // When every method is sanitized the type is an opaque stub for a generic core type
+    // whose concrete parameters are unknown at codegen time. Omit the inner field so we
+    // don't emit an unresolvable `Arc<CoreType<_, _, _>>`.
+    let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -214,13 +224,15 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
         writeln!(out, "#[{attr}]").ok();
     }
     writeln!(out, "pub struct {} {{", typ.name).ok();
-    let core_path = typ.rust_path.replace('-', "_");
-    if typ.is_trait {
-        writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
-    } else if needs_mutex {
-        writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
-    } else {
-        writeln!(out, "    inner: Arc<{core_path}>,").ok();
+    if !all_methods_sanitized {
+        let core_path = typ.rust_path.replace('-', "_");
+        if typ.is_trait {
+            writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
+        } else if needs_mutex {
+            writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
+        } else {
+            writeln!(out, "    inner: Arc<{core_path}>,").ok();
+        }
     }
     write!(out, "}}").ok();
     out
@@ -228,8 +240,12 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
 
 /// Generate an opaque wrapper struct with `inner: Arc<core::Type>` and a name prefix.
 /// For types with `&mut self` methods, uses `Arc<Mutex<core::Type>>`.
+///
+/// Special case: if ALL methods on this type are sanitized, omit the `inner` field.
+/// See `gen_opaque_struct` for the rationale.
 pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix: &str) -> String {
     let needs_mutex = type_needs_mutex(typ);
+    let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -237,14 +253,16 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     for attr in cfg.struct_attrs {
         writeln!(out, "#[{attr}]").ok();
     }
-    let core_path = typ.rust_path.replace('-', "_");
     writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
-    if typ.is_trait {
-        writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
-    } else if needs_mutex {
-        writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
-    } else {
-        writeln!(out, "    inner: Arc<{core_path}>,").ok();
+    if !all_methods_sanitized {
+        let core_path = typ.rust_path.replace('-', "_");
+        if typ.is_trait {
+            writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
+        } else if needs_mutex {
+            writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
+        } else {
+            writeln!(out, "    inner: Arc<{core_path}>,").ok();
+        }
     }
     write!(out, "}}").ok();
     out
