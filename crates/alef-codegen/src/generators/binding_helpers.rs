@@ -732,8 +732,8 @@ pub fn gen_serde_let_bindings(
 ) -> String {
     let mut bindings = String::new();
     for p in params {
-        if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_path = format!("{}::{}", core_import, name);
                 if p.optional {
                     write!(
@@ -761,6 +761,39 @@ pub fn gen_serde_let_bindings(
                     .ok();
                 }
             }
+            TypeRef::Vec(inner) => {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_path = format!("{}::{}", core_import, name);
+                        if p.optional {
+                            write!(
+                                bindings,
+                                "let {name}_core: Option<Vec<{core_path}>> = {name}.map(|v| {{\n\
+                                 {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
+                                 {indent}    serde_json::from_str(&json){err_conv}\n\
+                                 {indent}}}).transpose()?;\n{indent}",
+                                name = p.name,
+                                core_path = core_path,
+                                err_conv = err_conv,
+                                indent = indent,
+                            )
+                            .ok();
+                        } else {
+                            write!(
+                                bindings,
+                                "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
+                                 {indent}let {name}_core: Vec<{core_path}> = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
+                                name = p.name,
+                                core_path = core_path,
+                                err_conv = err_conv,
+                                indent = indent,
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
     bindings

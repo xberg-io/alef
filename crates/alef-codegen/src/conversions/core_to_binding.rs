@@ -202,20 +202,21 @@ pub fn field_conversion_from_core(
                 );
             }
         }
-        // Vec<String>: sanitized from Vec<Box<str>>, Vec<Cow<str>>, etc.
+        // Vec<String>: sanitized from Vec<Box<str>>, Vec<Cow<str>>, Vec<Named>, etc.
+        // Use Debug formatting — the original core type may not implement Display.
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::String) {
                 if optional {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())");
+                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())");
                 }
-                return format!("{name}: val.{name}.iter().map(|i| i.to_string()).collect()");
+                return format!("{name}: val.{name}.iter().map(|i| format!(\"{{:?}}\", i)).collect()");
             }
         }
         // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>>, Optional<Vec<Cow<str>>>, etc.
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::String) {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())");
+                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())");
                 }
             }
         }

@@ -93,14 +93,12 @@ impl Backend for WasmBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit)");
         builder.add_import("wasm_bindgen::prelude::*");
 
-        // Import js_sys when trait bridges are configured — generated bridge code uses
-        // js_sys::Reflect, js_sys::Function, js_sys::Object, and js_sys::Array.
-        if !config.trait_bridges.is_empty() {
-            builder.add_import("js_sys");
-        }
+        // Always import js_sys — it's used by error converters (js_sys::Object, js_sys::Reflect)
+        // and trait bridge code (js_sys::Reflect, js_sys::Function, js_sys::Object, js_sys::Array).
+        builder.add_import("js_sys");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
@@ -169,6 +167,13 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
+                // Skip functions whose signature references excluded types
+                let refs_excluded = func.params.iter()
+                    .any(|p| field_references_excluded_type(&p.ty, &exclude_types))
+                    || field_references_excluded_type(&func.return_type, &exclude_types);
+                if refs_excluded {
+                    continue;
+                }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(

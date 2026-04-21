@@ -122,10 +122,16 @@ impl Backend for NapiBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        let exclude_types: ahash::AHashSet<String> = config
+            .node
+            .as_ref()
+            .map(|c| c.exclude_types.iter().cloned().collect())
+            .unwrap_or_default();
+
         // NAPI has some unique patterns: Js-prefixed names, Option-wrapped fields,
         // and custom constructor. Use shared generators for enums and functions,
         // but keep struct/method generation custom.
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
             if typ.is_opaque {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
@@ -146,7 +152,16 @@ impl Backend for NapiBackend {
             builder.add_item(&gen_enum(enum_def, &prefix, has_serde));
         }
 
+        let exclude_functions: ahash::AHashSet<String> = config
+            .node
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+
         for func in &api.functions {
+            if exclude_functions.contains(&func.name) {
+                continue;
+            }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(

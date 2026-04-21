@@ -53,6 +53,12 @@ pub struct NodeConfig {
     /// Defaults to `"Js"`.
     #[serde(default)]
     pub type_prefix: Option<String>,
+    /// Functions to exclude from Node binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Node binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
