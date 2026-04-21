@@ -35,6 +35,8 @@ fn make_config(app_name: &str) -> AlefConfig {
             serde_rename_all: None,
             exclude_functions: vec![],
             exclude_types: vec![],
+            extra_dependencies: Default::default(),
+            scaffold_output: Default::default(),
         }),
         wasm: None,
         ffi: None,

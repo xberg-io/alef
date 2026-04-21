@@ -1716,9 +1716,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     // Register error exception types
     let mut seen_registrations = AHashSet::new();
     for error in &api.errors {
-        for reg_line in
-            alef_codegen::error_gen::gen_pyo3_error_registration(error, &mut seen_registrations)
-        {
+        for reg_line in alef_codegen::error_gen::gen_pyo3_error_registration(error, &mut seen_registrations) {
             lines.push(reg_line);
         }
     }

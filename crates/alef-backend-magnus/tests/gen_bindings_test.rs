@@ -49,6 +49,8 @@ fn make_config() -> AlefConfig {
             stubs: None,
             features: None,
             serde_rename_all: None,
+            extra_dependencies: Default::default(),
+            scaffold_output: Default::default(),
         }),
         php: None,
         elixir: None,

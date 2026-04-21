@@ -50,6 +50,8 @@ fn make_config() -> AlefConfig {
             release_gil: false,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            extra_dependencies: Default::default(),
+            scaffold_output: Default::default(),
         }),
         node: None,
         ruby: None,
@@ -1316,6 +1318,8 @@ fn test_return_type_exported_from_native_module_not_options() {
         release_gil: false,
         exclude_functions: Vec::new(),
         exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
     });
 
     let files = backend

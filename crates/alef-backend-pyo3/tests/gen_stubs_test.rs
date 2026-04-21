@@ -53,6 +53,8 @@ fn make_config_with_stubs() -> AlefConfig {
             release_gil: false,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            extra_dependencies: Default::default(),
+            scaffold_output: Default::default(),
         }),
         node: None,
         ruby: None,
