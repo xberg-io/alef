@@ -88,9 +88,108 @@ pub struct Fixture {
     /// Source file path (populated during loading).
     #[serde(skip)]
     pub source: String,
+    /// HTTP server test specification. When present, this fixture tests
+    /// an HTTP handler rather than a function call.
+    #[serde(default)]
+    pub http: Option<HttpFixture>,
+}
+
+/// HTTP server test specification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpFixture {
+    /// Handler/route definition.
+    pub handler: HttpHandler,
+    /// The HTTP request to send.
+    pub request: HttpRequest,
+    /// Expected response.
+    pub expected_response: HttpExpectedResponse,
+}
+
+/// Handler/route definition for HTTP server tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpHandler {
+    /// Route pattern (e.g., "/users/{user_id}").
+    pub route: String,
+    /// HTTP method (GET, POST, PUT, etc.).
+    pub method: String,
+    /// JSON Schema for request body validation.
+    #[serde(default)]
+    pub body_schema: Option<serde_json::Value>,
+    /// Parameter schemas by source (path, query, header, cookie).
+    #[serde(default)]
+    pub parameters: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// Middleware configuration.
+    #[serde(default)]
+    pub middleware: Option<HttpMiddleware>,
+}
+
+/// HTTP request to send in a server test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpRequest {
+    pub method: String,
+    pub path: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub query_params: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub cookies: HashMap<String, String>,
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+/// Expected HTTP response specification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpExpectedResponse {
+    pub status_code: u16,
+    /// Exact body match.
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// Partial body match (only check specified fields).
+    #[serde(default)]
+    pub body_partial: Option<serde_json::Value>,
+    /// Header expectations. Special tokens: `<<uuid>>`, `<<present>>`, `<<absent>>`.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// Expected validation errors (for 422 responses).
+    #[serde(default)]
+    pub validation_errors: Option<Vec<ValidationErrorExpectation>>,
+}
+
+/// Expected validation error entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationErrorExpectation {
+    pub loc: Vec<String>,
+    pub msg: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+}
+
+/// Middleware configuration for HTTP handler tests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HttpMiddleware {
+    #[serde(default)]
+    pub jwt_auth: Option<serde_json::Value>,
+    #[serde(default)]
+    pub api_key_auth: Option<serde_json::Value>,
+    #[serde(default)]
+    pub compression: Option<serde_json::Value>,
+    #[serde(default)]
+    pub rate_limit: Option<serde_json::Value>,
+    #[serde(default)]
+    pub request_timeout: Option<serde_json::Value>,
+    #[serde(default)]
+    pub request_id: Option<serde_json::Value>,
 }
 
 impl Fixture {
+    /// Returns true if this is an HTTP server test fixture.
+    pub fn is_http_test(&self) -> bool {
+        self.http.is_some()
+    }
+
     /// Returns true if this fixture requires a mock HTTP server.
     pub fn needs_mock_server(&self) -> bool {
         self.mock_response.is_some()

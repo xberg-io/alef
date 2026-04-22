@@ -2963,4 +2963,39 @@ mod tests {
     fn test_generate_enum_variant_description_empty() {
         assert_eq!(generate_enum_variant_description(""), "");
     }
+
+    // Regression tests for GitHub issue #5: whitespace between `'static` and the
+    // following type name or bracket was being stripped, producing `&'staticstr`
+    // instead of `&'static str` and `&'static[&'staticstr]` instead of
+    // `&'static [&'static str]`.
+
+    #[test]
+    fn test_doc_type_rust_static_str_in_named_tuple() {
+        // A tuple type whose element is encoded as a Named with a static str.
+        // The Named string arrives from alef-extract's type_to_string, which now
+        // preserves the space after `'static`.
+        let ty = TypeRef::Named("(&'static str)".to_string());
+        // For Rust output the raw name is passed through unchanged.
+        assert_eq!(doc_type(&ty, Language::Rust, TEST_PREFIX), "(&'static str)");
+    }
+
+    #[test]
+    fn test_doc_type_named_static_str_renders_correctly_for_non_rust() {
+        // When a Named type encodes a two-element tuple where one element is `&'static str`,
+        // it should map to the idiomatic string type for each language.
+        let ty = TypeRef::Named("(&'static str, u32)".to_string());
+        // The inner element `&'static str` is recognised by the string-type arm.
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "tuple[str, int]");
+        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "[string, number]");
+    }
+
+    #[test]
+    fn test_doc_type_static_slice_in_tuple_element_rust() {
+        // The slice-of-strings arm covers `&'static [&'static str]` tokens.
+        // After the whitespace fix, the Named string is `&'static [&'static str]`
+        // (with spaces preserved); the arm detects `[&` and maps correctly.
+        let ty = TypeRef::Named("(&'static [&'static str], u32)".to_string());
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "tuple[list[str], int]");
+        assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "([]string, int)");
+    }
 }

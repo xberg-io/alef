@@ -103,8 +103,9 @@ pub fn gen_struct_with_per_field_attrs(
         sb.add_derive(d);
     }
     // Binding types derive Default, Serialize, and Deserialize unless any field references
-    // an opaque type (Arc-wrapped). Opaque types don't implement serde traits, so structs
-    // containing them (even via Option<OpaqueType>) cannot derive Serialize/Deserialize.
+    // Default can always be derived — it doesn't depend on serde.
+    // Opaque fields (Arc-wrapped) don't implement serde, so only skip Serialize/Deserialize.
+    sb.add_derive("Default");
     let has_opaque_field = typ.fields.iter().any(|f| {
         if f.cfg.is_some() {
             return false;
@@ -112,7 +113,6 @@ pub fn gen_struct_with_per_field_attrs(
         field_references_opaque_type(&f.ty, cfg.opaque_type_names)
     });
     if !has_opaque_field {
-        sb.add_derive("Default");
         sb.add_derive("serde::Serialize");
         sb.add_derive("serde::Deserialize");
     }
@@ -154,8 +154,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         sb.add_derive(d);
     }
     // Binding types derive Default, Serialize, and Deserialize unless any field references
-    // an opaque type (Arc-wrapped). Opaque types don't implement serde traits, so structs
-    // containing them (even via Option<OpaqueType>) cannot derive Serialize/Deserialize.
+    // Default can always be derived — it doesn't depend on serde.
+    // Opaque fields (Arc-wrapped) don't implement serde, so only skip Serialize/Deserialize.
+    sb.add_derive("Default");
     let has_opaque_field = typ.fields.iter().any(|f| {
         if f.cfg.is_some() {
             return false;
@@ -163,7 +164,6 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         field_references_opaque_type(&f.ty, cfg.opaque_type_names)
     });
     if !has_opaque_field {
-        sb.add_derive("Default");
         sb.add_derive("serde::Serialize");
         sb.add_derive("serde::Deserialize");
     }

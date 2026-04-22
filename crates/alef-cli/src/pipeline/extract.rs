@@ -116,11 +116,6 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     Ok(api)
 }
 
-/// Extract the full, unfiltered API surface for documentation generation.
-///
-/// This skips `[include]`/`[exclude]` binding filters and type sanitization so
-/// that docs contain ALL public types from source files, not just the subset
-
 /// Shared raw extraction logic: parse sources, produce raw `ApiSurface`.
 ///
 /// Groups source files by their owning crate (derived from `crates/{name}/src/` path
@@ -193,7 +188,7 @@ fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
 /// These are external crate types that alef can't extract but needs to generate wrappers for.
 fn inject_declared_opaque_types(api: &mut ApiSurface, config: &AlefConfig) {
     let mut sorted_opaques: Vec<_> = config.opaque_types.iter().collect();
-    sorted_opaques.sort_by_key(|(name, _)| name.clone());
+    sorted_opaques.sort_by_key(|(name, _)| (*name).clone());
     for (name, rust_path) in sorted_opaques {
         // Only add if not already in the API surface
         if !api.types.iter().any(|t| t.name == *name) && !api.enums.iter().any(|e| e.name == *name) {

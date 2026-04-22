@@ -1257,6 +1257,90 @@ fn gen_function(
             params.join(", "),
             return_annotation
         )
+    } else if !func.sanitized
+        && func.error_type.is_some()
+        && alef_codegen::generators::has_named_params(&func.params, opaque_types)
+    {
+        // Serde recovery: accept Named non-opaque params as JsValue and deserialize
+        // to core types via serde_wasm_bindgen. WASM binding structs don't derive
+        // Serialize/Deserialize, so we can't round-trip through the binding type;
+        // instead we accept raw JsValue from JS and deserialize directly to core types.
+        // This handles functions like extract_file(&ExtractionConfig) whose binding→core
+        // From impl can't be generated (sanitized fields on ExtractionConfig, etc.).
+        let serde_params: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| match &p.ty {
+                TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                    // Accept as JsValue so serde_wasm_bindgen::from_value can deserialize
+                    let mapped_ty = if p.optional {
+                        "Option<JsValue>".to_string()
+                    } else {
+                        "JsValue".to_string()
+                    };
+                    format!("{}: {}", p.name, mapped_ty)
+                }
+                _ => {
+                    let ty = mapper.map_type(&p.ty);
+                    let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                    format!("{}: {}", p.name, mapped_ty)
+                }
+            })
+            .collect();
+
+        // Generate serde_wasm_bindgen::from_value let-bindings for Named non-opaque params
+        let mut serde_bindings = String::new();
+        for p in &func.params {
+            if let TypeRef::Named(name) = &p.ty {
+                if !opaque_types.contains(name.as_str()) {
+                    let core_path = format!("{}::{}", core_import, name);
+                    let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Option<{core_path}> = {n}.map(|v| \
+                             serde_wasm_bindgen::from_value::<{core_path}>(v){err_conv})\
+                             .transpose()?;\n    ",
+                            n = p.name,
+                            core_path = core_path,
+                            err_conv = err_conv,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: {core_path} = \
+                             serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
+                            n = p.name,
+                            core_path = core_path,
+                            err_conv = err_conv,
+                        ));
+                    }
+                }
+            }
+        }
+
+        let call_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
+        let core_call = format!("{core_fn_path}({call_args})");
+        let wrap = wasm_wrap_return_fn(
+            "result",
+            &func.return_type,
+            opaque_types,
+            func.returns_ref,
+            func.returns_cow,
+            prefix,
+        );
+        let body = if matches!(func.return_type, TypeRef::Unit) {
+            format!("{serde_bindings}{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
+        } else {
+            format!(
+                "{serde_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+            )
+        };
+        format!(
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+             {body}\n}}",
+            func.name,
+            serde_params.join(", "),
+            return_annotation
+        )
     } else {
         let body = gen_wasm_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
         format!(

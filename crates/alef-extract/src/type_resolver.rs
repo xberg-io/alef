@@ -43,9 +43,67 @@ pub fn resolve_type(ty: &syn::Type) -> TypeRef {
 }
 
 /// Convert a syn::Type to its string representation.
+///
+/// Strips cosmetic whitespace that `quote` adds around punctuation, while preserving
+/// the space between a lifetime (e.g. `'static`) and the type token that follows it.
+/// Without that preservation, `&'static str` would be rendered as `&'staticstr`.
 pub fn type_to_string(ty: &syn::Type) -> String {
     use quote::ToTokens;
-    ty.to_token_stream().to_string().replace(' ', "")
+    let raw = ty.to_token_stream().to_string();
+    normalize_type_string(&raw)
+}
+
+/// Remove cosmetic spaces added by `quote` around punctuation, but keep the space
+/// that separates a lifetime token from the type or bracket that follows it.
+///
+/// Examples:
+/// - `& 'static str`      → `&'static str`
+/// - `& 'static [ & 'static str ]` → `&'static [&'static str]`
+/// - `Vec < String >`     → `Vec<String>`
+fn normalize_type_string(s: &str) -> String {
+    let is_punct = |c: char| matches!(c, '<' | '>' | '[' | ']' | '(' | ')' | ',' | '*' | '&' | ':');
+
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+
+    while i < n {
+        let c = chars[i];
+        if c == ' ' {
+            let prev_is_punct = out.chars().last().map(is_punct).unwrap_or(false);
+            let next_is_punct = chars[i + 1..]
+                .iter()
+                .find(|&&ch| ch != ' ')
+                .copied()
+                .map(is_punct)
+                .unwrap_or(false);
+            // Keep the space when the preceding token is a lifetime — stripping it would
+            // concatenate the lifetime with the following type token (e.g. `'staticstr`).
+            let prev_ends_lifetime = ends_with_lifetime(&out);
+            if (prev_is_punct || next_is_punct) && !prev_ends_lifetime {
+                // Drop cosmetic space around punctuation.
+            } else {
+                out.push(' ');
+            }
+        } else {
+            out.push(c);
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Returns `true` if `s` ends with a lifetime token such as `'static` or `'a`.
+fn ends_with_lifetime(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = bytes.len();
+    // Walk back over the identifier characters of the lifetime name.
+    while i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
+        i -= 1;
+    }
+    // The character before the identifier must be a tick.
+    i > 0 && bytes[i - 1] == b'\''
 }
 
 /// Resolve a path-based type like `String`, `Vec<T>`, `Option<T>`, etc.
@@ -417,5 +475,43 @@ mod tests {
     fn test_extract_result_error() {
         let ty = parse_type("Result<String, MyError>");
         assert_eq!(extract_result_error_type(&ty), Some("MyError".into()));
+    }
+
+    // Regression tests for whitespace between lifetime tokens and following type/bracket.
+    // Previously, `type_to_string` called `.replace(' ', "")` which collapsed
+    // `&'static str` into `&'staticstr` and `&'static [&'static str]` into
+    // `&'static[&'staticstr]`.
+
+    #[test]
+    fn test_normalize_type_string_static_str() {
+        // quote produces "& 'static str"; must become "&'static str"
+        assert_eq!(normalize_type_string("& 'static str"), "&'static str");
+    }
+
+    #[test]
+    fn test_normalize_type_string_static_slice_of_static_str() {
+        // quote produces "& 'static [& 'static str]"; must become "&'static [&'static str]"
+        assert_eq!(
+            normalize_type_string("& 'static [& 'static str]"),
+            "&'static [&'static str]"
+        );
+    }
+
+    #[test]
+    fn test_normalize_type_string_generic_no_spaces() {
+        // Cosmetic spaces around angle brackets must be stripped.
+        assert_eq!(normalize_type_string("Vec < String >"), "Vec<String>");
+    }
+
+    #[test]
+    fn test_type_to_string_static_str() {
+        let ty = parse_type("&'static str");
+        assert_eq!(type_to_string(&ty), "&'static str");
+    }
+
+    #[test]
+    fn test_type_to_string_static_slice_of_static_str() {
+        let ty = parse_type("&'static [&'static str]");
+        assert_eq!(type_to_string(&ty), "&'static [&'static str]");
     }
 }
