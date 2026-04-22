@@ -90,12 +90,12 @@ fn gen_visitor_bridge(
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"depth\", env.create_uint32(ctx.depth)?)?;"
+        "    obj.set_named_property(\"depth\", env.create_uint32(ctx.depth as u32)?)?;"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent)?)?;"
+        "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent as u32)?)?;"
     )
     .unwrap();
     writeln!(out, "    obj.set_named_property(\"isInline\", ctx.is_inline)?;").unwrap();

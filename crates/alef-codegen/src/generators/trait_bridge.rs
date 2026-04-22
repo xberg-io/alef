@@ -250,7 +250,15 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
 
     writeln!(out, "impl {trait_path} for {wrapper} {{").ok();
 
-    for (i, method) in spec.trait_def.methods.iter().enumerate() {
+    // Filter out methods inherited from super-traits (they're handled by gen_bridge_plugin_impl)
+    let own_methods: Vec<_> = spec
+        .trait_def
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none())
+        .collect();
+
+    for (i, method) in own_methods.iter().enumerate() {
         if i > 0 {
             writeln!(out).ok();
         }

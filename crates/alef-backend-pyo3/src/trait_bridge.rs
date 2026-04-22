@@ -3,9 +3,404 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Python objects via PyO3.
 
+use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+/// PyO3-specific trait bridge generator.
+/// Implements code generation for bridging Python objects to Rust traits.
+pub struct Pyo3BridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+}
+
+impl TraitBridgeGenerator for Pyo3BridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "Py<PyAny>"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![
+            "pyo3::prelude::*".to_string(),
+            "std::sync::Arc".to_string(),
+        ]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let has_error = method.error_type.is_some();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "Python::attach(|py| {{").ok();
+
+        let py_args = self.sync_py_args(method);
+        let call = if py_args.is_empty() {
+            format!("self.inner.bind(py).call_method0(\"{name}\")")
+        } else {
+            format!("self.inner.bind(py).call_method1(\"{name}\", ({py_args}))")
+        };
+
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "            {call}").ok();
+            if has_error {
+                writeln!(out, "                .map(|_| ())").ok();
+                self.write_error_map(&mut out, name, &spec.core_import);
+            } else {
+                writeln!(out, "                .map(|_| ()).unwrap_or(())").ok();
+            }
+        } else {
+            let ext = self.extract_ty(&method.return_type);
+            writeln!(out, "            {call}").ok();
+            writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").ok();
+            if has_error {
+                self.write_error_map(&mut out, name, &spec.core_import);
+            } else {
+                writeln!(out, "                .unwrap_or_default()").ok();
+            }
+        }
+
+        writeln!(out, "        }})").ok();
+        out
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(1024);
+
+        writeln!(
+            out,
+            "let python_obj = Python::attach(|py| self.inner.clone_ref(py));"
+        )
+        .ok();
+        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+
+        // Clone/convert params for the blocking closure
+        for p in &method.params {
+            match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => {
+                    writeln!(out, "let {0} = {0}.to_vec();", p.name).ok();
+                }
+                (TypeRef::Path, true) => {
+                    writeln!(out, "let {0}_str = {0}.to_string_lossy().to_string();", p.name).ok();
+                }
+                (TypeRef::Named(_), true) => {
+                    writeln!(
+                        out,
+                        "let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
+                        p.name
+                    )
+                    .ok();
+                }
+                (_, true) => {
+                    writeln!(out, "let {0} = {0}.to_owned();", p.name).ok();
+                }
+                _ => {
+                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
+                }
+            }
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "    Python::attach(|py| {{").ok();
+        writeln!(out, "        let obj = python_obj.bind(py);").ok();
+
+        let py_args = self.async_py_args(method);
+        let call = if py_args.is_empty() {
+            format!("obj.call_method0(\"{name}\")")
+        } else {
+            format!("obj.call_method1(\"{name}\", ({py_args}))")
+        };
+
+        if self.is_named(&method.return_type) {
+            // Complex return: Python returns dict, convert via serde JSON
+            writeln!(out, "        let py_result = {call}").ok();
+            writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(
+                out,
+                "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+            )
+            .ok();
+            writeln!(out, "                plugin_name: cached_name.clone(),").ok();
+            writeln!(out, "            }})?;").ok();
+            writeln!(out, "        let json_val: String = py").ok();
+            writeln!(out, "            .import(\"json\")").ok();
+            writeln!(out, "            .and_then(|m| m.call_method1(\"dumps\", (py_result,)))").ok();
+            writeln!(out, "            .and_then(|v| v.extract())").ok();
+            writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "                message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),").ok();
+            writeln!(out, "                plugin_name: cached_name.clone(),").ok();
+            writeln!(out, "            }})?;").ok();
+            writeln!(
+                out,
+                "        serde_json::from_str(&json_val).map_err(|e| {}::KreuzbergError::Plugin {{",
+                spec.core_import
+            )
+            .ok();
+            writeln!(
+                out,
+                "            message: format!(\"Plugin '{{}}': deserialization failed: {{}}\", cached_name, e),"
+            )
+            .ok();
+            writeln!(out, "            plugin_name: cached_name.clone(),").ok();
+            writeln!(out, "        }})").ok();
+        } else {
+            let ext = self.extract_ty(&method.return_type);
+            if matches!(method.return_type, TypeRef::Unit) {
+                writeln!(out, "        {call}").ok();
+                writeln!(out, "            .map(|_| ())").ok();
+                writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+                writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+                writeln!(out, "                plugin_name: cached_name.clone(),").ok();
+                writeln!(out, "            }})").ok();
+            } else {
+                writeln!(out, "        {call}").ok();
+                writeln!(out, "            .and_then(|v| v.extract::<{ext}>())").ok();
+                writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+                writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+                writeln!(out, "                plugin_name: cached_name.clone(),").ok();
+                writeln!(out, "            }})").ok();
+            }
+        }
+
+        writeln!(out, "    }})").ok();
+        writeln!(out, "}})").ok();
+        writeln!(out, ".await").ok();
+        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
+        writeln!(out, "    plugin_name: self.cached_name.clone(),").ok();
+        writeln!(out, "}})?").ok();
+        out
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "impl {wrapper} {{").ok();
+        writeln!(out, "    /// Create a new bridge wrapping a Python object.").ok();
+        writeln!(out, "    ///").ok();
+        writeln!(out, "    /// Validates that the Python object provides all required methods.").ok();
+        writeln!(out, "    pub fn new(python_obj: Py<PyAny>) -> PyResult<Self> {{").ok();
+        writeln!(out, "        Python::attach(|py| {{").ok();
+        writeln!(out, "            let obj = python_obj.bind(py);").ok();
+
+        // Validate all required methods exist
+        for req_method in spec.required_methods() {
+            writeln!(
+                out,
+                "            if !obj.hasattr(\"{}\").unwrap_or(false) {{",
+                req_method.name
+            )
+            .ok();
+            writeln!(
+                out,
+                "                return Err(pyo3::exceptions::PyAttributeError::new_err("
+            )
+            .ok();
+            writeln!(
+                out,
+                "                    \"Python object missing required method: {}\",",
+                req_method.name
+            )
+            .ok();
+            writeln!(out, "                ));").ok();
+            writeln!(out, "            }}").ok();
+        }
+
+        // Extract and cache name
+        writeln!(out, "            let cached_name: String = obj").ok();
+        writeln!(out, "                .call_method0(\"name\")").ok();
+        writeln!(out, "                .and_then(|v| v.extract())").ok();
+        writeln!(out, "                .unwrap_or_else(|_| \"unknown\".to_string());").ok();
+
+        writeln!(out).ok();
+        writeln!(out, "            Ok(Self {{").ok();
+        writeln!(out, "                inner: python_obj,").ok();
+        writeln!(out, "                cached_name,").ok();
+        writeln!(out, "            }})").ok();
+        writeln!(out, "        }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let register_fn = spec
+            .bridge_config
+            .register_fn
+            .as_deref()
+            .expect("gen_registration_fn called without register_fn");
+        let registry_getter = spec
+            .bridge_config
+            .registry_getter
+            .as_deref()
+            .expect("gen_registration_fn called without registry_getter");
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "#[pyfunction]").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(py: Python<'_>, backend: Py<PyAny>) -> PyResult<()> {{"
+        )
+        .ok();
+
+        // Validate required methods
+        let req_methods: Vec<&MethodDef> = spec.required_methods();
+        if !req_methods.is_empty() {
+            writeln!(
+                out,
+                "    let required_methods = [{}];",
+                req_methods.iter().map(|m| format!("\"{}\"", m.name)).collect::<Vec<_>>().join(", ")
+            )
+            .ok();
+            writeln!(out, "    let obj = backend.bind(py);").ok();
+            writeln!(out, "    for method in &required_methods {{").ok();
+            writeln!(out, "        if !obj.hasattr(*method)? {{").ok();
+            writeln!(
+                out,
+                "            return Err(pyo3::exceptions::PyAttributeError::new_err("
+            )
+            .ok();
+            writeln!(
+                out,
+                "                format!(\"Backend missing required method: {{}}\", method)"
+            )
+            .ok();
+            writeln!(out, "            ));").ok();
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+        }
+
+        // Create the wrapper using the constructor
+        writeln!(out).ok();
+        writeln!(out, "    let wrapper = {wrapper}::new(backend)?;").ok();
+        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").ok();
+        writeln!(out).ok();
+
+        // Register in the plugin registry
+        writeln!(out, "    py.detach(|| {{").ok();
+        writeln!(out, "        let registry = {registry_getter}();").ok();
+        writeln!(out, "        let mut registry = registry.write();").ok();
+        writeln!(
+            out,
+            "        registry.register(arc).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
+        )
+        .ok();
+        writeln!(out, "            format!(\"Failed to register backend: {{}}\", e)").ok();
+        writeln!(out, "        ))").ok();
+        writeln!(out, "    }})?;").ok();
+        writeln!(out, "    Ok(())").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+}
+
+impl Pyo3BridgeGenerator {
+    /// Extract the Python type that corresponds to a Rust TypeRef.
+    fn extract_ty(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Primitive(p) => self.prim(p).to_string(),
+            TypeRef::String | TypeRef::Path | TypeRef::Char => "String".into(),
+            TypeRef::Bytes => "Vec<u8>".into(),
+            TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
+            TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
+            TypeRef::Named(name) => name.clone(),
+            TypeRef::Unit => "()".into(),
+            TypeRef::Map(k, v) => format!(
+                "std::collections::HashMap<{}, {}>",
+                self.extract_ty(k),
+                self.extract_ty(v)
+            ),
+            TypeRef::Json => "String".into(),
+            TypeRef::Duration => "u64".into(),
+        }
+    }
+
+    /// Get the Rust string representation of a primitive type.
+    fn prim(&self, p: &alef_core::ir::PrimitiveType) -> &'static str {
+        use alef_core::ir::PrimitiveType::*;
+        match p {
+            Bool => "bool",
+            U8 => "u8",
+            U16 => "u16",
+            U32 => "u32",
+            U64 => "u64",
+            I8 => "i8",
+            I16 => "i16",
+            I32 => "i32",
+            I64 => "i64",
+            F32 => "f32",
+            F64 => "f64",
+            Usize => "usize",
+            Isize => "isize",
+        }
+    }
+
+    /// Build Python call argument expressions for a sync method.
+    fn sync_py_args(&self, method: &MethodDef) -> String {
+        let args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, {})", p.name),
+                (TypeRef::Path, true) => format!("{}.to_str().unwrap_or_default()", p.name),
+                (TypeRef::Named(_), true) => {
+                    format!("serde_json::to_string({}).unwrap_or_default()", p.name)
+                }
+                _ => p.name.clone(),
+            })
+            .collect();
+        if args.len() == 1 {
+            format!("{},", args[0])
+        } else {
+            args.join(", ")
+        }
+    }
+
+    /// Build Python call argument expressions for an async method.
+    fn async_py_args(&self, method: &MethodDef) -> String {
+        let args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
+                (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
+                (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
+                _ => p.name.clone(),
+            })
+            .collect();
+        if args.len() == 1 {
+            format!("{},", args[0])
+        } else {
+            args.join(", ")
+        }
+    }
+
+    /// Check if a TypeRef is a Named type.
+    fn is_named(&self, ty: &TypeRef) -> bool {
+        matches!(ty, TypeRef::Named(_))
+    }
+
+    /// Write error mapping code to the output.
+    fn write_error_map(&self, out: &mut String, method_name: &str, core_import: &str) {
+        writeln!(out, "                .map_err(|e| {core_import}::KreuzbergError::Plugin {{").ok();
+        writeln!(
+            out,
+            "                    message: format!(\"Plugin '{{}}' method '{method_name}' failed: {{}}\", self.cached_name, e),"
+        )
+        .ok();
+        writeln!(out, "                    plugin_name: self.cached_name.clone(),").ok();
+        writeln!(out, "                }})").ok();
+    }
+}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -14,16 +409,12 @@ pub fn gen_trait_bridge(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
-    let mut out = String::with_capacity(8192);
-    let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
-    let trait_path = trait_type.rust_path.replace('-', "_");
-
     // Build type name → rust_path lookup for qualifying Named types in signatures
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    let type_paths: HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
         .collect();
 
     // Determine bridge pattern: visitor-style (all methods have defaults, no registry) vs
@@ -34,20 +425,24 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
-        gen_visitor_bridge(&mut out, trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        let trait_path = trait_type.rust_path.replace('-', "_");
+        let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+        gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths)
     } else {
-        gen_plugin_bridge(
-            &mut out,
-            trait_type,
-            bridge_cfg,
-            &struct_name,
-            &trait_path,
+        // Use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = Pyo3BridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
             core_import,
-            &type_paths,
-        );
+            wrapper_prefix: "Py",
+            type_paths,
+        };
+        gen_bridge_all(&spec, &generator)
     }
-
-    out
 }
 
 /// Generate a visitor-style bridge: thin wrapper over `Py<PyAny>` where every trait method
@@ -58,13 +453,13 @@ pub fn gen_trait_bridge(
 /// - No registration function is needed (per-call construction via `type_alias`)
 /// - No super-trait forwarding
 fn gen_visitor_bridge(
-    out: &mut String,
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(4096);
     let core_crate = trait_path
         .split("::")
         .next()
@@ -127,109 +522,61 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method(out, method, trait_path, type_paths);
+        gen_visitor_method(&mut out, method, trait_path, type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+    out
 }
 
-/// Generate a plugin-style bridge: cached fields, optional super-trait, optional registration fn.
-fn gen_plugin_bridge(
-    out: &mut String,
-    trait_type: &TypeDef,
-    bridge_cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    trait_path: &str,
-    core_import: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
-    // Wrapper struct with cached fields
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    python_obj: Py<PyAny>,").unwrap();
-    writeln!(out, "    name: String,").unwrap();
-    writeln!(out, "    supported_languages: Vec<String>,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Plugin super-trait impl
-    if bridge_cfg.super_trait.is_some() {
-        gen_plugin_impl(out, struct_name, core_import);
-    }
-
-    // Main trait impl
-    writeln!(out, "#[async_trait]").unwrap();
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
+/// Map TypeRef to correct Rust type for trait signatures.
+fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
+    match ty {
+        TypeRef::Bytes if is_ref => "&[u8]".into(),
+        TypeRef::Bytes => "Vec<u8>".into(),
+        TypeRef::String if is_ref => "&str".into(),
+        TypeRef::String => "String".into(),
+        TypeRef::Path if is_ref => "&std::path::Path".into(),
+        TypeRef::Path => "std::path::PathBuf".into(),
+        TypeRef::Named(n) => {
+            let qualified = tp
+                .get(n)
+                .map(|p| p.clone())
+                .unwrap_or_else(|| format!("{ci}::{n}"));
+            if is_ref { format!("&{qualified}") } else { qualified }
         }
-        gen_method(out, method, core_import, type_paths);
-    }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Registration function — only generated when register_fn is configured
-    if bridge_cfg.register_fn.is_some() {
-        gen_registration_fn(out, bridge_cfg, struct_name, trait_path);
+        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
+        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
+        TypeRef::Primitive(p) => prim(p).into(),
+        TypeRef::Unit => "()".into(),
+        TypeRef::Char => "char".into(),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            param_type(k, ci, false, tp),
+            param_type(v, ci, false, tp)
+        ),
+        TypeRef::Json => "serde_json::Value".into(),
+        TypeRef::Duration => "std::time::Duration".into(),
     }
 }
 
-fn gen_plugin_impl(out: &mut String, struct_name: &str, ci: &str) {
-    writeln!(out, "impl {ci}::plugins::Plugin for {struct_name} {{").unwrap();
-    writeln!(out, "    fn name(&self) -> &str {{ &self.name }}").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "    fn version(&self) -> String {{").unwrap();
-    writeln!(out, "        Python::attach(|py| {{").unwrap();
-    writeln!(out, "            self.python_obj.bind(py)").unwrap();
-    writeln!(out, "                .call_method0(\"version\")").unwrap();
-    writeln!(out, "                .and_then(|v| v.extract::<String>())").unwrap();
-    writeln!(out, "                .unwrap_or_else(|_| \"1.0.0\".to_string())").unwrap();
-    writeln!(out, "        }})").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "    fn initialize(&self) -> {ci}::Result<()> {{").unwrap();
-    writeln!(out, "        Python::attach(|py| {{").unwrap();
-    writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
-    writeln!(out, "            if obj.hasattr(\"initialize\").unwrap_or(false) {{").unwrap();
-    writeln!(
-        out,
-        "                obj.call_method0(\"initialize\").map_err(|e| {ci}::KreuzbergError::Plugin {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    message: format!(\"Plugin '{{}}' initialize failed: {{}}\", self.name, e),"
-    )
-    .unwrap();
-    writeln!(out, "                    plugin_name: self.name.clone(),").unwrap();
-    writeln!(out, "                }})?;").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "            Ok(())").unwrap();
-    writeln!(out, "        }})").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "    fn shutdown(&self) -> {ci}::Result<()> {{").unwrap();
-    writeln!(out, "        Python::attach(|py| {{").unwrap();
-    writeln!(out, "            let obj = self.python_obj.bind(py);").unwrap();
-    writeln!(out, "            if obj.hasattr(\"shutdown\").unwrap_or(false) {{").unwrap();
-    writeln!(
-        out,
-        "                obj.call_method0(\"shutdown\").map_err(|e| {ci}::KreuzbergError::Plugin {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    message: format!(\"Plugin '{{}}' shutdown failed: {{}}\", self.name, e),"
-    )
-    .unwrap();
-    writeln!(out, "                    plugin_name: self.name.clone(),").unwrap();
-    writeln!(out, "                }})?;").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "            Ok(())").unwrap();
-    writeln!(out, "        }})").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
+    use alef_core::ir::PrimitiveType::*;
+    match p {
+        Bool => "bool",
+        U8 => "u8",
+        U16 => "u16",
+        U32 => "u32",
+        U64 => "u64",
+        I8 => "i8",
+        I16 => "i16",
+        I32 => "i32",
+        I64 => "i64",
+        F32 => "f32",
+        F64 => "f64",
+        Usize => "usize",
+        Isize => "isize",
+    }
 }
 
 /// Map a visitor method parameter type to the correct Rust type string, handling IR quirks:
@@ -240,7 +587,7 @@ fn visitor_param_type(
     ty: &TypeRef,
     is_ref: bool,
     optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
+    tp: &HashMap<String, String>,
 ) -> String {
     // `Option<&str>` case: IR collapses it to String + optional + is_ref
     if optional && matches!(ty, TypeRef::String) && is_ref {
@@ -267,7 +614,7 @@ fn gen_visitor_method(
     out: &mut String,
     method: &MethodDef,
     _trait_path: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &HashMap<String, String>,
 ) {
     use alef_core::ir::TypeRef;
 
@@ -288,8 +635,8 @@ fn gen_visitor_method(
     // Use the fully-qualified path from type_paths when available.
     let ret_ty = match &method.return_type {
         TypeRef::Named(n) => type_paths
-            .get(n.as_str())
-            .map(|p| p.replace('-', "_"))
+            .get(n)
+            .map(|p| p.clone())
             .unwrap_or_else(|| n.clone()),
         other => param_type(other, "", false, type_paths),
     };
@@ -439,404 +786,6 @@ fn build_visitor_py_args(method: &MethodDef) -> String {
     }
 }
 
-fn gen_method(out: &mut String, method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) {
-    let name = &method.name;
-    let sig = build_signature(method, ci, tp);
-    let ret = build_return(method, ci, tp);
-
-    if method.is_async {
-        writeln!(out, "    async fn {name}({sig}) -> {ret} {{").unwrap();
-        gen_async_body(out, method, ci);
-    } else {
-        writeln!(out, "    fn {name}({sig}) -> {ret} {{").unwrap();
-        gen_sync_body(out, method, ci);
-    }
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-}
-
-/// Build correct trait method signature with proper reference types.
-fn build_signature(method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) -> String {
-    let mut parts = Vec::new();
-    if method.receiver.is_some() {
-        parts.push("&self".to_string());
-    }
-    for p in &method.params {
-        parts.push(format!("{}: {}", p.name, param_type(&p.ty, ci, p.is_ref, tp)));
-    }
-    parts.join(", ")
-}
-
-/// Map TypeRef to correct Rust type for trait signatures.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
-                .unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-fn build_return(method: &MethodDef, ci: &str, tp: &std::collections::HashMap<&str, &str>) -> String {
-    let inner = param_type(&method.return_type, ci, false, tp);
-    if method.error_type.is_some() {
-        format!("{ci}::Result<{inner}>")
-    } else {
-        inner
-    }
-}
-
-fn gen_sync_body(out: &mut String, method: &MethodDef, ci: &str) {
-    let name = &method.name;
-    let has_error = method.error_type.is_some();
-
-    // Use cached fields for known methods
-    if name == "supported_languages" {
-        writeln!(out, "        self.supported_languages.clone()").unwrap();
-        return;
-    }
-    if name == "supports_language" {
-        writeln!(
-            out,
-            "        self.supported_languages.iter().any(|l| l == {0})",
-            method.params.first().map(|p| p.name.as_str()).unwrap_or("lang")
-        )
-        .unwrap();
-        return;
-    }
-    if name == "backend_type" {
-        // Use the fully-qualified core enum path
-        if let TypeRef::Named(n) = &method.return_type {
-            writeln!(out, "        {ci}::plugins::{n}::Custom").unwrap();
-        } else {
-            writeln!(out, "        Default::default()").unwrap();
-        }
-        return;
-    }
-
-    writeln!(out, "        Python::attach(|py| {{").unwrap();
-
-    let py_args = sync_py_args(method);
-    let call = if py_args.is_empty() {
-        format!("self.python_obj.bind(py).call_method0(\"{name}\")")
-    } else {
-        format!("self.python_obj.bind(py).call_method1(\"{name}\", ({py_args}))")
-    };
-
-    if matches!(method.return_type, TypeRef::Unit) {
-        writeln!(out, "            {call}").unwrap();
-        if has_error {
-            writeln!(out, "                .map(|_| ())").unwrap();
-            write_error_map(out, name, ci, "self.name");
-        } else {
-            writeln!(out, "                .map(|_| ()).unwrap_or(())").unwrap();
-        }
-    } else {
-        let ext = extract_ty(&method.return_type);
-        writeln!(out, "            {call}").unwrap();
-        writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").unwrap();
-        if has_error {
-            write_error_map(out, name, ci, "self.name");
-        } else {
-            writeln!(out, "                .unwrap_or_default()").unwrap();
-        }
-    }
-
-    writeln!(out, "        }})").unwrap();
-}
-
-fn gen_async_body(out: &mut String, method: &MethodDef, ci: &str) {
-    let name = &method.name;
-
-    writeln!(
-        out,
-        "        let python_obj = Python::attach(|py| self.python_obj.clone_ref(py));"
-    )
-    .unwrap();
-    writeln!(out, "        let cached_name = self.name.clone();").unwrap();
-
-    // Clone/convert params for the blocking closure
-    for p in &method.params {
-        match (&p.ty, p.is_ref) {
-            (TypeRef::Bytes, true) => {
-                writeln!(out, "        let {0} = {0}.to_vec();", p.name).unwrap();
-            }
-            (TypeRef::Path, true) => {
-                writeln!(out, "        let {0}_str = {0}.to_string_lossy().to_string();", p.name).unwrap();
-            }
-            (TypeRef::Named(n), true) if n == "OcrConfig" => {
-                writeln!(out, "        let language = {}.language.clone();", p.name).unwrap();
-            }
-            (TypeRef::Named(_), true) => {
-                writeln!(
-                    out,
-                    "        let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
-                    p.name
-                )
-                .unwrap();
-            }
-            (_, true) => {
-                writeln!(out, "        let {0} = {0}.to_owned();", p.name).unwrap();
-            }
-            _ => {
-                writeln!(out, "        let {0} = {0}.clone();", p.name).unwrap();
-            }
-        }
-    }
-
-    writeln!(out).unwrap();
-    writeln!(out, "        tokio::task::spawn_blocking(move || {{").unwrap();
-    writeln!(out, "            Python::attach(|py| {{").unwrap();
-    writeln!(out, "                let obj = python_obj.bind(py);").unwrap();
-
-    let py_args = async_py_args(method);
-    let call = if py_args.is_empty() {
-        format!("obj.call_method0(\"{name}\")")
-    } else {
-        format!("obj.call_method1(\"{name}\", ({py_args}))")
-    };
-
-    if is_named(&method.return_type) {
-        // Complex return: Python returns dict, convert via serde JSON
-        writeln!(out, "                let py_result = {call}").unwrap();
-        writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-        writeln!(
-            out,
-            "                        message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
-        )
-        .unwrap();
-        writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
-        writeln!(out, "                    }})?;").unwrap();
-        writeln!(out, "                let json_val: String = py").unwrap();
-        writeln!(out, "                    .import(\"json\")").unwrap();
-        writeln!(
-            out,
-            "                    .and_then(|m| m.call_method1(\"dumps\", (py_result,)))"
-        )
-        .unwrap();
-        writeln!(out, "                    .and_then(|v| v.extract())").unwrap();
-        writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-        writeln!(out, "                        message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),").unwrap();
-        writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
-        writeln!(out, "                    }})?;").unwrap();
-        writeln!(
-            out,
-            "                serde_json::from_str(&json_val).map_err(|e| {ci}::KreuzbergError::Plugin {{"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "                    message: format!(\"Plugin '{{}}': deserialization failed: {{}}\", cached_name, e),"
-        )
-        .unwrap();
-        writeln!(out, "                    plugin_name: cached_name.clone(),").unwrap();
-        writeln!(out, "                }})").unwrap();
-    } else {
-        let ext = extract_ty(&method.return_type);
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "                {call}").unwrap();
-            writeln!(out, "                    .map(|_| ())").unwrap();
-            writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-            writeln!(out, "                        message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").unwrap();
-            writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
-            writeln!(out, "                    }})").unwrap();
-        } else {
-            writeln!(out, "                {call}").unwrap();
-            writeln!(out, "                    .and_then(|v| v.extract::<{ext}>())").unwrap();
-            writeln!(out, "                    .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-            writeln!(out, "                        message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").unwrap();
-            writeln!(out, "                        plugin_name: cached_name.clone(),").unwrap();
-            writeln!(out, "                    }})").unwrap();
-        }
-    }
-
-    writeln!(out, "            }})").unwrap();
-    writeln!(out, "        }})").unwrap();
-    writeln!(out, "        .await").unwrap();
-    writeln!(out, "        .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-    writeln!(out, "            message: format!(\"spawn_blocking failed: {{}}\", e),").unwrap();
-    writeln!(out, "            plugin_name: self.name.clone(),").unwrap();
-    writeln!(out, "        }})?").unwrap();
-}
-
-fn write_error_map(out: &mut String, method_name: &str, ci: &str, name_expr: &str) {
-    writeln!(out, "                .map_err(|e| {ci}::KreuzbergError::Plugin {{").unwrap();
-    writeln!(
-        out,
-        "                    message: format!(\"Plugin '{{}}' method '{method_name}' failed: {{}}\", {name_expr}, e),"
-    )
-    .unwrap();
-    writeln!(out, "                    plugin_name: {name_expr}.clone(),").unwrap();
-    writeln!(out, "                }})").unwrap();
-}
-
-fn sync_py_args(method: &MethodDef) -> String {
-    let args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| match (&p.ty, p.is_ref) {
-            (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, {})", p.name),
-            (TypeRef::Path, true) => format!("{}.to_str().unwrap_or_default()", p.name),
-            (TypeRef::Named(n), true) if n == "OcrConfig" => {
-                format!("{}.language.as_str()", p.name)
-            }
-            (TypeRef::Named(_), true) => {
-                format!("serde_json::to_string({}).unwrap_or_default()", p.name)
-            }
-            _ => p.name.clone(),
-        })
-        .collect();
-    if args.len() == 1 {
-        format!("{},", args[0])
-    } else {
-        args.join(", ")
-    }
-}
-
-fn async_py_args(method: &MethodDef) -> String {
-    let args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| match (&p.ty, p.is_ref) {
-            (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
-            (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
-            (TypeRef::Named(n), true) if n == "OcrConfig" => "language.as_str()".into(),
-            (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
-            _ => p.name.clone(),
-        })
-        .collect();
-    if args.len() == 1 {
-        format!("{},", args[0])
-    } else {
-        args.join(", ")
-    }
-}
-
-fn extract_ty(ty: &TypeRef) -> String {
-    match ty {
-        TypeRef::Primitive(p) => prim(p).to_string(),
-        TypeRef::String | TypeRef::Path | TypeRef::Char => "String".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::Vec(inner) => format!("Vec<{}>", extract_ty(inner)),
-        TypeRef::Optional(inner) => format!("Option<{}>", extract_ty(inner)),
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Map(k, v) => format!("std::collections::HashMap<{}, {}>", extract_ty(k), extract_ty(v)),
-        TypeRef::Json => "String".into(),
-        TypeRef::Duration => "u64".into(),
-    }
-}
-
-fn is_named(ty: &TypeRef) -> bool {
-    matches!(ty, TypeRef::Named(_))
-}
-
-fn gen_registration_fn(out: &mut String, cfg: &TraitBridgeConfig, struct_name: &str, trait_path: &str) {
-    let register_fn = cfg
-        .register_fn
-        .as_deref()
-        .expect("gen_registration_fn called without register_fn");
-    let registry_getter = cfg
-        .registry_getter
-        .as_deref()
-        .expect("gen_registration_fn called without registry_getter");
-    let trait_name = &cfg.trait_name;
-
-    writeln!(out, "#[pyfunction]").unwrap();
-    writeln!(
-        out,
-        "pub fn {register_fn}(py: Python<'_>, backend: Py<PyAny>) -> PyResult<()> {{"
-    )
-    .unwrap();
-    writeln!(out, "    let obj = backend.bind(py);").unwrap();
-    writeln!(
-        out,
-        "    for method in &[\"name\", \"supported_languages\", \"process_image\"] {{"
-    )
-    .unwrap();
-    writeln!(out, "        if !obj.hasattr(*method)? {{").unwrap();
-    writeln!(
-        out,
-        "            return Err(pyo3::exceptions::PyAttributeError::new_err("
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                format!(\"{trait_name} missing required method: {{}}\", method)"
-    )
-    .unwrap();
-    writeln!(out, "            ));").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "    let name: String = obj.call_method0(\"name\")?.extract()?;").unwrap();
-    writeln!(
-        out,
-        "    let supported_languages: Vec<String> = obj.call_method0(\"supported_languages\")?.extract()?;"
-    )
-    .unwrap();
-    writeln!(out).unwrap();
-    writeln!(
-        out,
-        "    let wrapper = {struct_name} {{ python_obj: backend, name, supported_languages }};"
-    )
-    .unwrap();
-    writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "    py.detach(|| {{").unwrap();
-    writeln!(out, "        let registry = {registry_getter}();").unwrap();
-    writeln!(out, "        let mut registry = registry.write();").unwrap();
-    writeln!(
-        out,
-        "        registry.register(arc).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
-    )
-    .unwrap();
-    writeln!(out, "            format!(\"Failed to register {trait_name}: {{}}\", e)").unwrap();
-    writeln!(out, "        ))").unwrap();
-    writeln!(out, "    }})?;").unwrap();
-    writeln!(out, "    Ok(())").unwrap();
-    writeln!(out, "}}").unwrap();
-}
 
 /// Collect registration function names for module init.
 ///
