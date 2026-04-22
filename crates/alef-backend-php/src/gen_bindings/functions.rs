@@ -56,9 +56,9 @@ fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_n
 /// These are the params that would fail the `.clone().into()` path when no `From` impl exists,
 /// and for which the serde round-trip is a viable recovery path.
 fn has_ref_named_params(params: &[alef_core::ir::ParamDef], opaque_types: &AHashSet<String>) -> bool {
-    params.iter().any(|p| {
-        p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
-    })
+    params
+        .iter()
+        .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
 }
 
 /// Generate serde-based let bindings for Named (non-opaque) params that have `is_ref=true`.
@@ -76,41 +76,51 @@ fn gen_php_serde_let_bindings(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.is_ref {
-                    // Serde round-trip: binding type → JSON → core type.
-                    // Errors are surfaced as a String since the surrounding context uses `?`.
+                    // Serde round-trip: binding type -> JSON -> core type.
+                    // Build code lines directly to avoid format-string escaping issues.
+                    let pname = &p.name;
                     if p.optional {
-                        writeln!(
-                            out,
-                            "let {name}_core: Option<{core_import}::{name}> = {name}.as_ref().map(|v| {{\n                                 let _json = serde_json::to_string(v).map_err(|e| format!("{{{{e}}}}"))?;\n                                 serde_json::from_str::<{core_import}::{name}>(&_json).map_err(|e| format!("{{{{e}}}}"))\n                             }}).transpose()?;",
-                            name = p.name,
-                            core_import = core_import,
-                        )
-                        .ok();
+                        // Generated code pattern:
+                        //   let {pname}_core: Option<{core}::{name}> = {pname}.as_ref()
+                        //       .map(|v| {
+                        //           let _json = serde_json::to_string(v).map_err(|e| format!("{e}"))?;
+                        //           serde_json::from_str::<{core}::{name}>(&_json).map_err(|e| format!("{e}"))
+                        //       }).transpose()?;
+                        let mut line = String::new();
+                        write!(line, "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()").ok();
+                        write!(line, "\n        .map(|v| {{").ok();
+                        write!(line, "\n            let _json = serde_json::to_string(v)").ok();
+                        write!(line, ".map_err(|e| format!(\"{{e}}\"))?;").ok();
+                        write!(line, "\n            serde_json::from_str::<{core_import}::{name}>(&_json)").ok();
+                        write!(line, ".map_err(|e| format!(\"{{e}}\"))").ok();
+                        write!(line, "\n        }}).transpose()?;").ok();
+                        writeln!(out, "{line}").ok();
                     } else {
-                        writeln!(
-                            out,
-                            "let {name}_json = serde_json::to_string(&{name}).map_err(|e| format!("{{e}}"))?;\nlet {name}_core: {core_import}::{name} = serde_json::from_str(&{name}_json).map_err(|e| format!("{{e}}"))?;",
-                            name = p.name,
-                            core_import = core_import,
-                        )
-                        .ok();
+                        // Generated code pattern:
+                        //   let {pname}_json = serde_json::to_string(&{pname}).map_err(|e| format!("{e}"))?;
+                        //   let {pname}_core: {core}::{name} = serde_json::from_str(&{pname}_json)
+                        //       .map_err(|e| format!("{e}"))?;
+                        let mut line = String::new();
+                        write!(line, "let {pname}_json = serde_json::to_string(&{pname})").ok();
+                        write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
+                        write!(line, "\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)").ok();
+                        write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
+                        writeln!(out, "{line}").ok();
                     }
                 } else {
                     // Non-ref Named: use the standard .clone().into() path.
                     if p.optional {
                         writeln!(
                             out,
-                            "let {name}_core: Option<{core_import}::{name}> = {name}.map(|v| v.clone().into());",
-                            name = p.name,
-                            core_import = core_import,
+                            "let {}_core: Option<{core_import}::{name}> = {}.map(|v| v.clone().into());",
+                            p.name, p.name
                         )
                         .ok();
                     } else {
                         writeln!(
                             out,
-                            "let {name}_core: {core_import}::{name} = {name}.clone().into();",
-                            name = p.name,
-                            core_import = core_import,
+                            "let {}_core: {core_import}::{name} = {}.clone().into();",
+                            p.name, p.name
                         )
                         .ok();
                     }
@@ -122,19 +132,15 @@ fn gen_php_serde_let_bindings(
                         if p.optional {
                             writeln!(
                                 out,
-                                "let {pname}_core: Option<Vec<{core_import}::{name}>> = {pname}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());",
-                                pname = p.name,
-                                name = name,
-                                core_import = core_import,
+                                "let {}_core: Option<Vec<{core_import}::{name}>> = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());",
+                                p.name, p.name
                             )
                             .ok();
                         } else {
                             writeln!(
                                 out,
-                                "let {pname}_core: Vec<{core_import}::{name}> = {pname}.iter().map(|x| x.clone().into()).collect();",
-                                pname = p.name,
-                                name = name,
-                                core_import = core_import,
+                                "let {}_core: Vec<{core_import}::{name}> = {}.iter().map(|x| x.clone().into()).collect();",
+                                p.name, p.name
                             )
                             .ok();
                         }
@@ -142,8 +148,8 @@ fn gen_php_serde_let_bindings(
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
                     writeln!(
                         out,
-                        "let {pname}_refs: Vec<&str> = {pname}.iter().map(|s| s.as_str()).collect();",
-                        pname = p.name,
+                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();",
+                        p.name, p.name
                     )
                     .ok();
                 }
@@ -153,7 +159,6 @@ fn gen_php_serde_let_bindings(
     }
     out
 }
-
 /// Generate an instance method binding for an opaque struct.
 pub(crate) fn gen_instance_method(
     method: &MethodDef,

@@ -727,7 +727,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
     let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
         None
     }} else {{
-        Some(unsafe {{ &*(options as *const {core_import}::ConversionOptions) }}.clone())
+        Some(unsafe {{ &*options }}.clone())
     }};
 
     // Build the visitor handle if provided.

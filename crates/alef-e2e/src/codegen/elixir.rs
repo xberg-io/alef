@@ -3,7 +3,9 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_elixir, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -226,7 +228,10 @@ fn render_test_file(
     if has_http {
         let _ = writeln!(out);
         let _ = writeln!(out, "  defp base_url do");
-        let _ = writeln!(out, "    System.get_env(\"TEST_SERVER_URL\") || \"http://localhost:8080\"");
+        let _ = writeln!(
+            out,
+            "    System.get_env(\"TEST_SERVER_URL\") || \"http://localhost:8080\""
+        );
         let _ = writeln!(out, "  end");
         let _ = writeln!(out);
         let _ = writeln!(out, "  defp client do");
@@ -390,9 +395,8 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
         let header_key = name.to_lowercase();
         let key_lit = format!("\"{}\"", escape_elixir(&header_key));
         // Req stores response headers as a list of {name, value} tuples.
-        let get_header_expr = format!(
-            "Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: v end)"
-        );
+        let get_header_expr =
+            format!("Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: v end)");
         match value.as_str() {
             "<<present>>" => {
                 let _ = writeln!(out, "      assert {get_header_expr} != nil");
@@ -401,7 +405,11 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
                 let _ = writeln!(out, "      assert {get_header_expr} == nil");
             }
             "<<uuid>>" => {
-                let _ = writeln!(out, "      header_val_{} = {get_header_expr}", sanitize_ident(&header_key));
+                let _ = writeln!(
+                    out,
+                    "      header_val_{} = {get_header_expr}",
+                    sanitize_ident(&header_key)
+                );
                 let _ = writeln!(
                     out,
                     "      assert Regex.match?(~r/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i, to_string(header_val_{}))",

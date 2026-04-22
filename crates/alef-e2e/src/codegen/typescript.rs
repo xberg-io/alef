@@ -62,15 +62,18 @@ impl E2eCodegen for TypeScriptCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // Determine whether any group has HTTP server test fixtures.
-        let has_http_fixtures = groups
-            .iter()
-            .flat_map(|g| g.fixtures.iter())
-            .any(|f| f.is_http_test());
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
         // Generate package.json.
         files.push(GeneratedFile {
             path: output_base.join("package.json"),
-            content: render_package_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode, has_http_fixtures),
+            content: render_package_json(
+                &pkg_name,
+                &pkg_path,
+                &pkg_version,
+                e2e_config.dep_mode,
+                has_http_fixtures,
+            ),
             generated_header: false,
         });
 
@@ -434,7 +437,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     };
 
     let init_str = init_entries.join(", ");
-    let _ = writeln!(out, "    const response = await app.request({path_expr}, {{ {init_str} }});");
+    let _ = writeln!(
+        out,
+        "    const response = await app.request({path_expr}, {{ {init_str} }});"
+    );
 
     // Status code assertion.
     let status = http.expected_response.status_code;
@@ -451,7 +457,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
             for (key, val) in obj {
                 let js_key = escape_js(key);
                 let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect((data as Record<string, unknown>)['{js_key}']).toEqual({js_val});");
+                let _ = writeln!(
+                    out,
+                    "    expect((data as Record<string, unknown>)['{js_key}']).toEqual({js_val});"
+                );
             }
         }
     }
@@ -468,10 +477,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
                 );
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toBeNull();"
-                );
+                let _ = writeln!(out, "    expect(response.headers.get('{escaped_name}')).toBeNull();");
             }
             "<<uuid>>" => {
                 let _ = writeln!(
@@ -492,7 +498,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     // Validation error assertions.
     if let Some(validation_errors) = &http.expected_response.validation_errors {
         if !validation_errors.is_empty() {
-            let _ = writeln!(out, "    const body = await response.json() as {{ detail?: unknown[] }};");
+            let _ = writeln!(
+                out,
+                "    const body = await response.json() as {{ detail?: unknown[] }};"
+            );
             let _ = writeln!(out, "    const errors = body.detail ?? [];");
             for ve in validation_errors {
                 let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("'{}'", escape_js(s))).collect();

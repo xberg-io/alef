@@ -6,7 +6,9 @@
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -260,7 +262,10 @@ fn render_spec_file(
 
     // Emit a shared client helper when there are HTTP tests.
     if has_http {
-        let _ = writeln!(out, "  let(:base_url) {{ ENV.fetch('TEST_SERVER_URL', 'http://localhost:8080') }}");
+        let _ = writeln!(
+            out,
+            "  let(:base_url) {{ ENV.fetch('TEST_SERVER_URL', 'http://localhost:8080') }}"
+        );
         let _ = writeln!(out, "  let(:client) do");
         let _ = writeln!(out, "    Faraday.new(url: base_url) do |f|");
         let _ = writeln!(out, "      f.request :json");
@@ -387,7 +392,10 @@ fn render_ruby_http_request(out: &mut String, req: &HttpRequest) {
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join("; ");
-        opts.push(format!("headers: {{ 'Cookie' => {} }}", ruby_string_literal(&cookie_str)));
+        opts.push(format!(
+            "headers: {{ 'Cookie' => {} }}",
+            ruby_string_literal(&cookie_str)
+        ));
     }
 
     // Build path with optional query string.

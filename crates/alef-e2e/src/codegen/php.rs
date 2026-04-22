@@ -7,7 +7,9 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -290,7 +292,10 @@ fn render_test_file(
         let _ = writeln!(out, "    protected function setUp(): void");
         let _ = writeln!(out, "    {{");
         let _ = writeln!(out, "        parent::setUp();");
-        let _ = writeln!(out, "        $baseUrl = getenv('TEST_SERVER_URL') ?: 'http://localhost:8080';");
+        let _ = writeln!(
+            out,
+            "        $baseUrl = getenv('TEST_SERVER_URL') ?: 'http://localhost:8080';"
+        );
         let _ = writeln!(
             out,
             "        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false]);"
@@ -344,7 +349,10 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
 
     // Assert status code.
     let status = http.expected_response.status_code;
-    let _ = writeln!(out, "        $this->assertEquals({status}, $response->getStatusCode());");
+    let _ = writeln!(
+        out,
+        "        $this->assertEquals({status}, $response->getStatusCode());"
+    );
 
     // Assert response body.
     render_php_body_assertions(out, &http.expected_response);
@@ -403,9 +411,15 @@ fn render_php_http_request(out: &mut String, req: &HttpRequest) {
 
     let path_lit = format!("\"{}\"", escape_php(&req.path));
     if opts.is_empty() {
-        let _ = writeln!(out, "        $response = $this->httpClient->request('{method}', {path_lit});");
+        let _ = writeln!(
+            out,
+            "        $response = $this->httpClient->request('{method}', {path_lit});"
+        );
     } else {
-        let _ = writeln!(out, "        $response = $this->httpClient->request('{method}', {path_lit}, [");
+        let _ = writeln!(
+            out,
+            "        $response = $this->httpClient->request('{method}', {path_lit}, ["
+        );
         for opt in &opts {
             let _ = writeln!(out, "            {opt},");
         }
@@ -457,10 +471,16 @@ fn render_php_header_assertions(out: &mut String, expected: &HttpExpectedRespons
         let header_key_lit = format!("\"{}\"", escape_php(&header_key));
         match value.as_str() {
             "<<present>>" => {
-                let _ = writeln!(out, "        $this->assertTrue($response->hasHeader({header_key_lit}));");
+                let _ = writeln!(
+                    out,
+                    "        $this->assertTrue($response->hasHeader({header_key_lit}));"
+                );
             }
             "<<absent>>" => {
-                let _ = writeln!(out, "        $this->assertFalse($response->hasHeader({header_key_lit}));");
+                let _ = writeln!(
+                    out,
+                    "        $this->assertFalse($response->hasHeader({header_key_lit}));"
+                );
             }
             "<<uuid>>" => {
                 let _ = writeln!(

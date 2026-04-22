@@ -235,10 +235,7 @@ fn is_skipped(fixture: &Fixture, language: &str) -> bool {
 
 fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
-    let has_http_fixtures = groups
-        .iter()
-        .flat_map(|g| g.fixtures.iter())
-        .any(|f| f.is_http_test());
+    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
     if has_http_fixtures {
         format!(
@@ -315,12 +312,9 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     // HTTP tests with header UUID assertions need `import re`.
     let needs_re_import = has_http_tests
         && fixtures.iter().any(|f| {
-            f.http.as_ref().is_some_and(|h| {
-                h.expected_response
-                    .headers
-                    .values()
-                    .any(|v| v == "<<uuid>>")
-            })
+            f.http
+                .as_ref()
+                .is_some_and(|h| h.expected_response.headers.values().any(|v| v == "<<uuid>>"))
         });
 
     // Only import options_type when using "kwargs" mode.
@@ -631,10 +625,7 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         let escaped_name = escape_python(&lower_name);
         match header_value.as_str() {
             "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "    assert \"{escaped_name}\" in response.headers  # noqa: S101"
-                );
+                let _ = writeln!(out, "    assert \"{escaped_name}\" in response.headers  # noqa: S101");
             }
             "<<absent>>" => {
                 let _ = writeln!(
