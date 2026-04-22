@@ -16,6 +16,7 @@ pub struct ExtendrBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
+    error_type: error_type.to_string(),
 }
 
 impl TraitBridgeGenerator for ExtendrBridgeGenerator {

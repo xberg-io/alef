@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via NAPI-RS.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, BridgeOutput, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -16,6 +16,7 @@ pub struct NapiBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
+    error_type: error_type.to_string(),
 }
 
 impl TraitBridgeGenerator for NapiBridgeGenerator {
@@ -304,7 +305,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     api: &ApiSurface,
-) -> String {
+) -> BridgeOutput {
     // Build type name → rust_path lookup (converted to String-owned HashMap)
     let type_paths: HashMap<String, String> = api
         .types
@@ -326,19 +327,24 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        gen_visitor_bridge(
+        let code = gen_visitor_bridge(
             trait_type,
             bridge_cfg,
             &struct_name,
             &trait_path,
             core_import,
             &type_paths,
-        )
+        );
+        BridgeOutput {
+            imports: vec![],
+            code,
+        }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = NapiBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
         };
         let spec = TraitBridgeSpec {
             trait_def: trait_type,

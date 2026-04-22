@@ -16,6 +16,7 @@ pub struct WasmBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
+    error_type: error_type.to_string(),
 }
 
 impl TraitBridgeGenerator for WasmBridgeGenerator {
@@ -373,6 +374,7 @@ pub fn gen_trait_bridge(
         let generator = WasmBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
         };
         let spec = TraitBridgeSpec {
             trait_def: trait_type,

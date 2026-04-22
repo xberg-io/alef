@@ -39,6 +39,7 @@ pub struct FfiBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
+    error_type: error_type.to_string(),
 }
 
 impl FfiBridgeGenerator {
@@ -1095,6 +1096,7 @@ pub fn gen_trait_bridge(
         prefix: prefix.to_string(),
         core_import: core_import.to_string(),
         type_paths: type_paths.clone(),
+        error_type: error_type.to_string(),
     };
 
     let spec = TraitBridgeSpec {
