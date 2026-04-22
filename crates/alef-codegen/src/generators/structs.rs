@@ -190,13 +190,11 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             mapper.map_type(&field.ty)
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
-        if opaque_fields.contains(&field.name.as_str()) {
-            // Use `serde(default)` rather than `serde(skip)` so the struct remains
-            // deserializable from JSON (e.g. in e2e tests). The field is populated with
-            // Default::default() when absent from the input instead of being silently
-            // omitted, which `serde(skip)` would cause — breaking DeserializeOwned.
-            attrs.push("serde(default)".to_string());
-        }
+        // Only add #[serde(default)] when serde derives are present on the struct
+        // (opaque_fields empty = serde derives added, opaque field needs serde(default))
+        // This can't happen: if opaque_fields is empty, no field matches this check.
+        // If opaque_fields is non-empty, serde derives were suppressed → skip serde attr.
+        // So this block is effectively dead — remove it to prevent stale serde attrs.
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
     sb.build()
