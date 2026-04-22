@@ -907,6 +907,9 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
+[features]
+extension-module = []
+
 [lints]
 workspace = true
 "#,
