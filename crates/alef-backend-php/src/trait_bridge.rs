@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -16,7 +16,8 @@ pub struct PhpBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
-    error_type: error_type.to_string(),
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
 }
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
@@ -267,7 +268,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     api: &ApiSurface,
-) -> String {
+) -> BridgeOutput {
     // Build type name → rust_path lookup as owned HashMap
     let type_paths: HashMap<String, String> = api
         .types
@@ -289,7 +290,8 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths)
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        BridgeOutput { imports: vec![], code }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = PhpBridgeGenerator {

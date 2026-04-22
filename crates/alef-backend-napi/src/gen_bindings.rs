@@ -218,22 +218,19 @@ impl Backend for NapiBackend {
         }
 
         // Trait bridge wrappers — generate NAPI bridge structs that delegate to JS objects
-        if !config.trait_bridges.is_empty() {
-            // Add bridge-specific imports (builder deduplicates automatically)
-            builder.add_import("napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object}");
-            builder.add_import("napi::JsValue");
-            builder.add_import("std::sync::Arc");
-        }
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                let bridge = crate::trait_bridge::gen_trait_bridge(
                     trait_type,
                     bridge_cfg,
                     &core_import,
                     &config.error_type(),
                     api,
                 );
-                builder.add_item(&bridge_code);
+                for imp in &bridge.imports {
+                    builder.add_import(imp);
+                }
+                builder.add_item(&bridge.code);
             }
         }
 

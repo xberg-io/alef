@@ -472,10 +472,7 @@ mod tests {
     // Test helpers
     // ---------------------------------------------------------------------------
 
-    fn make_trait_bridge_config(
-        super_trait: Option<&str>,
-        register_fn: Option<&str>,
-    ) -> TraitBridgeConfig {
+    fn make_trait_bridge_config(super_trait: Option<&str>, register_fn: Option<&str>) -> TraitBridgeConfig {
         TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
             super_trait: super_trait.map(str::to_string),
@@ -595,11 +592,7 @@ mod tests {
         }
 
         fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-            let fn_name = spec
-                .bridge_config
-                .register_fn
-                .as_deref()
-                .unwrap_or("register");
+            let fn_name = spec.bridge_config.register_fn.as_deref().unwrap_or("register");
             format!("pub fn {fn_name}(obj: Py<PyAny>) {{ /* register */ }}")
         }
     }
@@ -695,11 +688,7 @@ mod tests {
             (TypeRef::Primitive(PrimitiveType::Isize), "isize"),
         ];
         for (ty, expected) in cases {
-            assert_eq!(
-                format_type_ref(&ty, &paths),
-                expected,
-                "mismatch for {expected}"
-            );
+            assert_eq!(format_type_ref(&ty, &paths), expected, "mismatch for {expected}");
         }
     }
 
@@ -720,10 +709,7 @@ mod tests {
 
     #[test]
     fn test_format_type_ref_path() {
-        assert_eq!(
-            format_type_ref(&TypeRef::Path, &HashMap::new()),
-            "std::path::PathBuf"
-        );
+        assert_eq!(format_type_ref(&TypeRef::Path, &HashMap::new()), "std::path::PathBuf");
     }
 
     #[test]
@@ -733,10 +719,7 @@ mod tests {
 
     #[test]
     fn test_format_type_ref_json() {
-        assert_eq!(
-            format_type_ref(&TypeRef::Json, &HashMap::new()),
-            "serde_json::Value"
-        );
+        assert_eq!(format_type_ref(&TypeRef::Json, &HashMap::new()), "serde_json::Value");
     }
 
     #[test]
@@ -750,10 +733,7 @@ mod tests {
     #[test]
     fn test_format_type_ref_optional() {
         let ty = TypeRef::Optional(Box::new(TypeRef::String));
-        assert_eq!(
-            format_type_ref(&ty, &HashMap::new()),
-            "Option<String>"
-        );
+        assert_eq!(format_type_ref(&ty, &HashMap::new()), "Option<String>");
     }
 
     #[test]
@@ -761,10 +741,7 @@ mod tests {
         let ty = TypeRef::Optional(Box::new(TypeRef::Optional(Box::new(TypeRef::Primitive(
             PrimitiveType::U32,
         )))));
-        assert_eq!(
-            format_type_ref(&ty, &HashMap::new()),
-            "Option<Option<u32>>"
-        );
+        assert_eq!(format_type_ref(&ty, &HashMap::new()), "Option<Option<u32>>");
     }
 
     #[test]
@@ -781,7 +758,10 @@ mod tests {
 
     #[test]
     fn test_format_type_ref_map() {
-        let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::I64)));
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Primitive(PrimitiveType::I64)),
+        );
         assert_eq!(
             format_type_ref(&ty, &HashMap::new()),
             "std::collections::HashMap<String, i64>"
@@ -853,19 +833,13 @@ mod tests {
     #[test]
     fn test_format_param_type_path_ref() {
         let param = make_param("path", TypeRef::Path, true);
-        assert_eq!(
-            format_param_type(&param, &HashMap::new()),
-            "&std::path::Path"
-        );
+        assert_eq!(format_param_type(&param, &HashMap::new()), "&std::path::Path");
     }
 
     #[test]
     fn test_format_param_type_path_owned() {
         let param = make_param("path", TypeRef::Path, false);
-        assert_eq!(
-            format_param_type(&param, &HashMap::new()),
-            "std::path::PathBuf"
-        );
+        assert_eq!(format_param_type(&param, &HashMap::new()), "std::path::PathBuf");
     }
 
     #[test]
@@ -933,11 +907,7 @@ mod tests {
     fn test_format_return_type_named_with_type_paths_and_error() {
         let mut paths = HashMap::new();
         paths.insert("Output".to_string(), "mylib::Output".to_string());
-        let result = format_return_type(
-            &TypeRef::Named("Output".to_string()),
-            Some("mylib::MyError"),
-            &paths,
-        );
+        let result = format_return_type(&TypeRef::Named("Output".to_string()), Some("mylib::MyError"), &paths);
         assert_eq!(result, "Result<mylib::Output, mylib::MyError>");
     }
 
@@ -965,10 +935,7 @@ mod tests {
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_wrapper_struct(&spec, &generator);
-        assert!(
-            result.contains("inner: Py<PyAny>"),
-            "missing inner field in:\n{result}"
-        );
+        assert!(result.contains("inner: Py<PyAny>"), "missing inner field in:\n{result}");
     }
 
     #[test]
@@ -1052,10 +1019,7 @@ mod tests {
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
-        assert!(
-            result.contains("fn version("),
-            "missing version() in:\n{result}"
-        );
+        assert!(result.contains("fn version("), "missing version() in:\n{result}");
     }
 
     #[test]
@@ -1065,10 +1029,7 @@ mod tests {
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
-        assert!(
-            result.contains("fn initialize("),
-            "missing initialize() in:\n{result}"
-        );
+        assert!(result.contains("fn initialize("), "missing initialize() in:\n{result}");
     }
 
     #[test]
@@ -1078,10 +1039,7 @@ mod tests {
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
-        assert!(
-            result.contains("fn shutdown("),
-            "missing shutdown() in:\n{result}"
-        );
+        assert!(result.contains("fn shutdown("), "missing shutdown() in:\n{result}");
     }
 
     // ---------------------------------------------------------------------------
@@ -1103,25 +1061,34 @@ mod tests {
 
     #[test]
     fn test_gen_bridge_trait_impl_includes_method_signatures() {
-        let methods = vec![
-            make_method("process", vec![], TypeRef::String, false, false, None, None),
-        ];
+        let methods = vec![make_method(
+            "process",
+            vec![],
+            TypeRef::String,
+            false,
+            false,
+            None,
+            None,
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_trait_impl(&spec, &generator);
-        assert!(
-            result.contains("fn process("),
-            "missing method signature in:\n{result}"
-        );
+        assert!(result.contains("fn process("), "missing method signature in:\n{result}");
     }
 
     #[test]
     fn test_gen_bridge_trait_impl_includes_method_body_from_generator() {
-        let methods = vec![
-            make_method("process", vec![], TypeRef::String, false, false, None, None),
-        ];
+        let methods = vec![make_method(
+            "process",
+            vec![],
+            TypeRef::String,
+            false,
+            false,
+            None,
+            None,
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
@@ -1135,9 +1102,15 @@ mod tests {
 
     #[test]
     fn test_gen_bridge_trait_impl_async_method_uses_async_body() {
-        let methods = vec![
-            make_method("process_async", vec![], TypeRef::String, true, false, None, None),
-        ];
+        let methods = vec![make_method(
+            "process_async",
+            vec![],
+            TypeRef::String,
+            true,
+            false,
+            None,
+            None,
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
@@ -1189,37 +1162,35 @@ mod tests {
             make_param("input", TypeRef::String, true),
             make_param("count", TypeRef::Primitive(PrimitiveType::U32), false),
         ];
-        let methods = vec![
-            make_method("process", params, TypeRef::String, false, false, None, None),
-        ];
+        let methods = vec![make_method(
+            "process",
+            params,
+            TypeRef::String,
+            false,
+            false,
+            None,
+            None,
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
         let generator = MockBridgeGenerator;
         let result = gen_bridge_trait_impl(&spec, &generator);
-        assert!(
-            result.contains("input: &str"),
-            "missing &str param in:\n{result}"
-        );
-        assert!(
-            result.contains("count: u32"),
-            "missing u32 param in:\n{result}"
-        );
+        assert!(result.contains("input: &str"), "missing &str param in:\n{result}");
+        assert!(result.contains("count: u32"), "missing u32 param in:\n{result}");
     }
 
     #[test]
     fn test_gen_bridge_trait_impl_return_type_with_error() {
-        let methods = vec![
-            make_method(
-                "process",
-                vec![],
-                TypeRef::String,
-                false,
-                false,
-                None,
-                Some("MyError"),
-            ),
-        ];
+        let methods = vec![make_method(
+            "process",
+            vec![],
+            TypeRef::String,
+            false,
+            false,
+            None,
+            Some("MyError"),
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
@@ -1304,7 +1275,15 @@ mod tests {
 
     #[test]
     fn test_gen_bridge_all_includes_trait_impl() {
-        let methods = vec![make_method("process", vec![], TypeRef::String, false, false, None, None)];
+        let methods = vec![make_method(
+            "process",
+            vec![],
+            TypeRef::String,
+            false,
+            false,
+            None,
+            None,
+        )];
         let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
         let config = make_trait_bridge_config(None, None);
         let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
@@ -1384,9 +1363,6 @@ mod tests {
             .code
             .find("impl mylib::OcrBackend for PyOcrBackendBridge")
             .unwrap();
-        assert!(
-            struct_pos < impl_pos,
-            "struct should appear before trait impl"
-        );
+        assert!(struct_pos < impl_pos, "struct should appear before trait impl");
     }
 }

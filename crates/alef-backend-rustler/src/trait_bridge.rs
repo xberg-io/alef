@@ -14,7 +14,7 @@
 //!    to extend term lifetime beyond the NIF call. Supports both sync and async dispatch
 //!    to Elixir callbacks via `tokio::runtime::Runtime` blocking.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -27,7 +27,8 @@ pub struct RustlerBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
-    error_type: error_type.to_string(),
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
 }
 
 impl TraitBridgeGenerator for RustlerBridgeGenerator {
@@ -319,7 +320,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     api: &ApiSurface,
-) -> String {
+) -> BridgeOutput {
     // Build type name → rust_path lookup: convert to owned HashMap<String, String>
     let type_paths: HashMap<String, String> = api
         .types
@@ -356,7 +357,10 @@ pub fn gen_trait_bridge(
             core_import,
             &borrowed_type_paths,
         );
-        out
+        BridgeOutput {
+            imports: vec![],
+            code: out,
+        }
     } else {
         // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure
         let generator = RustlerBridgeGenerator {

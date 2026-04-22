@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via `js_sys::Reflect` and `js_sys::Function`.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, BridgeOutput, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -16,7 +16,8 @@ pub struct WasmBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
-    error_type: error_type.to_string(),
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
 }
 
 impl TraitBridgeGenerator for WasmBridgeGenerator {
@@ -368,7 +369,10 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
         );
-        out
+        BridgeOutput {
+            imports: vec![],
+            code: out,
+        }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
         let generator = WasmBridgeGenerator {

@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to R objects (named lists of functions) via extendr.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ pub struct ExtendrBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
-    error_type: error_type.to_string(),
+    pub error_type: String,
 }
 
 impl TraitBridgeGenerator for ExtendrBridgeGenerator {
@@ -450,7 +450,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     api: &alef_core::ir::ApiSurface,
-) -> String {
+) -> BridgeOutput {
     let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
     let trait_path = trait_type.rust_path.replace('-', "_");
 
@@ -485,19 +485,23 @@ pub fn gen_trait_bridge(
             core_import,
             &ref_type_paths,
         );
-        out
+        BridgeOutput {
+            imports: vec![],
+            code: out,
+        }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = ExtendrBridgeGenerator {
             core_import: core_import.to_string(),
-            type_paths,
+            type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
         };
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
             bridge_config: bridge_cfg,
             core_import,
             wrapper_prefix: "R",
-            type_paths: generator.type_paths.clone(),
+            type_paths,
             error_type: error_type.to_string(),
         };
         gen_bridge_all(&spec, &generator)

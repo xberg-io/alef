@@ -2827,8 +2827,7 @@ fn test_trait_bridge_spec_wrapper_name() {
         bridge_config: &bridge_config,
         core_import: "my_crate",
         wrapper_prefix: "Python",
-        type_paths: HashMap::new(),\
-            error_type: "AlefError".to_string(),
+        type_paths: HashMap::new(),
     };
 
     assert_eq!(spec.wrapper_name(), "PythonMyTraitBridge");
@@ -3429,5 +3428,2666 @@ fn test_wrap_return_with_mutex_vec_opaque() {
     assert_eq!(
         result,
         "result.into_iter().map(|v| Item { inner: Arc::new(v) }).collect()"
+    );
+}
+
+// ==============================================================================
+// Additional tests for methods.rs coverage
+// ==============================================================================
+
+#[test]
+fn test_is_trait_method_name_known_names() {
+    use alef_codegen::generators::is_trait_method_name;
+    assert!(is_trait_method_name("from"), "from conflicts with From trait");
+    assert!(is_trait_method_name("into"), "into conflicts with Into trait");
+    assert!(is_trait_method_name("eq"), "eq conflicts with PartialEq");
+    assert!(is_trait_method_name("default"), "default conflicts with Default trait");
+    assert!(is_trait_method_name("add"), "add conflicts with Add trait");
+    assert!(is_trait_method_name("deref"), "deref conflicts with Deref trait");
+}
+
+#[test]
+fn test_is_trait_method_name_unknown_names() {
+    use alef_codegen::generators::is_trait_method_name;
+    assert!(!is_trait_method_name("process"), "process is not a trait method");
+    assert!(!is_trait_method_name("new"), "new is not a conflicting trait method");
+    assert!(!is_trait_method_name("build"), "build is not a trait method");
+    assert!(!is_trait_method_name(""), "empty string is not a trait method");
+}
+
+#[test]
+fn test_gen_method_trait_method_name_suppresses_clippy_lint() {
+    // Methods named "from" should get #[allow(clippy::should_implement_trait)]
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "from".to_string(),
+        params: vec![ParamDef {
+            name: "value".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+        }],
+        return_type: TypeRef::Named("MyConfig".to_string()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        false,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(
+        result.contains("should_implement_trait"),
+        "should suppress should_implement_trait for method named 'from'"
+    );
+}
+
+#[test]
+fn test_gen_method_error_type_with_opaque_unit_return() {
+    // Opaque method returning () with error type should generate Ok(()) body
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "update".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: Some("MyError".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn update"), "should contain method name");
+    assert!(result.contains("Ok(())"), "unit return with error should have Ok(())");
+    assert!(result.contains("Result"), "should return Result type");
+    assert!(
+        result.contains("missing_errors_doc"),
+        "should suppress missing_errors_doc"
+    );
+}
+
+#[test]
+fn test_gen_method_opaque_delegation_string_return() {
+    // Opaque type with simple String return — should delegate via self.inner
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "get_label".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn get_label"), "should have method name");
+    assert!(result.contains("self.inner"), "opaque delegation uses self.inner");
+    assert!(result.contains("-> String"), "should have String return type");
+}
+
+#[test]
+fn test_gen_method_opaque_delegation_returns_opaque_self() {
+    // Opaque method returning Self should wrap result in Self { inner: Arc::new(...) }
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "clone_with_prefix".to_string(),
+        params: vec![ParamDef {
+            name: "prefix".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+        }],
+        return_type: TypeRef::Named("MyConfig".to_string()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn clone_with_prefix"), "should have method name");
+    assert!(
+        result.contains("Self { inner: Arc::new"),
+        "opaque Self return wraps in Arc"
+    );
+}
+
+#[test]
+fn test_gen_method_with_mutex_opaque_type() {
+    // Mutex-wrapped opaque type should use .lock().unwrap() for method calls
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "get_count".to_string(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+    let mut mutex_types = AHashSet::new();
+    mutex_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &mutex_types,
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn get_count"), "should have method name");
+    assert!(
+        result.contains("lock().unwrap()"),
+        "mutex types acquire lock before calling method"
+    );
+}
+
+#[test]
+fn test_gen_method_trait_source_not_delegated() {
+    // Trait methods on opaque types cannot be delegated (Arc deref doesn't expose trait methods)
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "process".to_string(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: Some("MyTrait".to_string()),
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    // Trait methods on opaque types should fall back to unimplemented body
+    assert!(result.contains("pub fn process"), "should have method name");
+    // Should NOT directly delegate to self.inner (trait methods can't be called via deref)
+    assert!(
+        !result.contains("self.inner.process"),
+        "trait methods are not delegated via self.inner"
+    );
+}
+
+#[test]
+fn test_gen_static_method_with_error_type_generates_result() {
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "parse".to_string(),
+        params: vec![ParamDef {
+            name: "input".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+        }],
+        return_type: TypeRef::Named("MyConfig".to_string()),
+        is_async: false,
+        is_static: true,
+        error_type: Some("ParseError".to_string()),
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = gen_static_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        &adapter_bodies,
+        &opaque_types,
+        &mutex_types,
+    );
+
+    assert!(result.contains("pub fn parse"), "should have method name");
+    assert!(result.contains("input: String"), "should have input param");
+    assert!(result.contains("Result"), "should return Result due to error_type");
+    assert!(
+        result.contains("missing_errors_doc"),
+        "should suppress missing_errors_doc lint"
+    );
+    assert!(!result.contains("&self"), "static methods should not have &self");
+}
+
+#[test]
+fn test_gen_static_method_with_primitive_return() {
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "count".to_string(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        is_async: false,
+        is_static: true,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = gen_static_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        &adapter_bodies,
+        &opaque_types,
+        &mutex_types,
+    );
+
+    assert!(result.contains("pub fn count"), "should have method name");
+    assert!(result.contains("-> u32"), "should have u32 return type");
+    assert!(!result.contains("&self"), "static methods have no receiver");
+}
+
+#[test]
+fn test_gen_opaque_impl_block_generates_delegation() {
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    typ.methods = vec![MethodDef {
+        name: "get_name".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_opaque_impl_block(&typ, &mapper, &cfg, &opaque_types, &AHashSet::new(), &adapter_bodies);
+
+    assert!(result.contains("impl MyConfig {"), "should contain impl block");
+    assert!(result.contains("pub fn get_name"), "should contain delegated method");
+    assert!(result.starts_with("impl"), "should start with impl");
+    assert!(result.ends_with("}"), "should end with closing brace");
+}
+
+#[test]
+fn test_gen_opaque_impl_block_empty_when_all_sanitized() {
+    // When all methods are sanitized and have no adapter, the impl block is empty
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    typ.methods = vec![MethodDef {
+        name: "secret".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: true,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_opaque_impl_block(&typ, &mapper, &cfg, &opaque_types, &AHashSet::new(), &adapter_bodies);
+
+    assert!(
+        result.is_empty(),
+        "impl block should be empty when all methods are sanitized"
+    );
+}
+
+#[test]
+fn test_gen_method_too_many_arguments_gets_clippy_allow() {
+    // Methods with >7 params should get #[allow(clippy::too_many_arguments)]
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "complex".to_string(),
+        params: vec![
+            ParamDef {
+                name: "a".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "b".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "c".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "d".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "e".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "f".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "g".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "h".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+        ],
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        false,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(
+        result.contains("too_many_arguments"),
+        "should suppress too_many_arguments when >7 params"
+    );
+}
+
+#[test]
+fn test_gen_method_error_type_napi_async_pattern() {
+    // Non-opaque method with error type and NapiNativeAsync should use napi::Error
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "validate".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: Some("ValidErr".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::NapiNativeAsync;
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        false,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn validate"), "should have method name");
+    assert!(
+        result.contains("napi::Error"),
+        "napi pattern should use napi::Error for error conversion"
+    );
+}
+
+#[test]
+fn test_gen_method_error_type_pyo3_async_pattern() {
+    // Non-opaque method with error type and Pyo3FutureIntoPy should use PyRuntimeError
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "validate".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: Some("ValidErr".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        false,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn validate"), "should have method name");
+    assert!(
+        result.contains("PyRuntimeError"),
+        "pyo3 pattern should use PyRuntimeError for error conversion"
+    );
+}
+
+#[test]
+fn test_gen_static_method_adapter_body_used() {
+    // When an adapter body is provided, it should override the generated body
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "create_special".to_string(),
+        params: vec![],
+        // Json is not delegatable, so the adapter body path is exercised
+        return_type: TypeRef::Json,
+        is_async: false,
+        is_static: true,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let mut adapter_bodies = AdapterBodies::default();
+    adapter_bodies.insert(
+        "MyConfig.create_special".to_string(),
+        "MyConfig::create_impl_special()".to_string(),
+    );
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = gen_static_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        &adapter_bodies,
+        &opaque_types,
+        &mutex_types,
+    );
+
+    assert!(
+        result.contains("MyConfig::create_impl_special()"),
+        "should use adapter body instead of generated body"
+    );
+}
+
+#[test]
+fn test_gen_method_adapter_body_used() {
+    // When an adapter body is provided for an instance method, it overrides generated body
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "custom_method".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let mut adapter_bodies = AdapterBodies::default();
+    adapter_bodies.insert(
+        "MyConfig.custom_method".to_string(),
+        "\"custom adapter result\".to_string()".to_string(),
+    );
+    let opaque_types = AHashSet::new();
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        false,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("\"custom adapter result\""), "should use adapter body");
+}
+
+#[test]
+fn test_gen_impl_block_with_type_name_prefix() {
+    let typ = simple_type_def();
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.type_name_prefix = "Js";
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_impl_block(&typ, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("impl JsMyConfig {"), "should use type_name_prefix");
+}
+
+#[test]
+fn test_gen_impl_block_with_method_block_attr() {
+    let mut typ = simple_type_def();
+    typ.methods = vec![MethodDef {
+        name: "get_name".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.method_block_attr = Some("pymethods");
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_impl_block(&typ, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("#[pymethods]"), "should include method_block_attr");
+}
+
+#[test]
+fn test_gen_constructor_more_than_7_fields_gets_clippy_allow() {
+    // Types with >7 fields should get #[allow(clippy::too_many_arguments)] on constructor
+    let mut typ = simple_type_def();
+    for i in 0..8 {
+        typ.fields.push(FieldDef {
+            name: format!("extra_{i}"),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+    }
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+
+    let result = gen_constructor(&typ, &mapper, &cfg);
+
+    assert!(
+        result.contains("too_many_arguments"),
+        "should suppress too_many_arguments when >7 fields"
+    );
+}
+
+#[test]
+fn test_gen_static_method_async_napi_pattern() {
+    // Async static method with NAPI pattern should use native async await
+    let typ = simple_type_def();
+    let method = MethodDef {
+        name: "load_async".to_string(),
+        params: vec![],
+        return_type: TypeRef::Named("MyConfig".to_string()),
+        is_async: true,
+        is_static: true,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::NapiNativeAsync;
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = gen_static_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        &adapter_bodies,
+        &opaque_types,
+        &mutex_types,
+    );
+
+    assert!(result.contains("pub fn load_async"), "should have method name");
+    assert!(result.contains("await"), "async method should await the core call");
+}
+
+#[test]
+fn test_gen_method_opaque_with_error_non_unit_return() {
+    // Opaque method with error type and non-unit return wraps result appropriately
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    let method = MethodDef {
+        name: "transform".to_string(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: Some("MyError".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyConfig".to_string());
+
+    let result = gen_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        true,
+        &opaque_types,
+        &AHashSet::new(),
+        &adapter_bodies,
+    );
+
+    assert!(result.contains("pub fn transform"), "should have method name");
+    assert!(result.contains("Ok("), "should wrap result in Ok()");
+    assert!(result.contains("self.inner"), "should delegate to self.inner");
+}
+
+// ==============================================================================
+// Additional tests for binding_helpers.rs coverage
+// ==============================================================================
+
+#[test]
+fn test_apply_return_newtype_unwrap_none() {
+    let result = binding_helpers::apply_return_newtype_unwrap("result", &None);
+    assert_eq!(result, "result", "None wrapper should pass through unchanged");
+}
+
+#[test]
+fn test_apply_return_newtype_unwrap_some() {
+    let result = binding_helpers::apply_return_newtype_unwrap("result", &Some("NodeIndex".to_string()));
+    assert_eq!(result, "(result).0", "Some wrapper should unwrap with .0");
+}
+
+#[test]
+fn test_apply_return_newtype_unwrap_complex_expr() {
+    let result = binding_helpers::apply_return_newtype_unwrap("self.inner.method(args)", &Some("W".to_string()));
+    assert_eq!(
+        result, "(self.inner.method(args)).0",
+        "complex expression wrapped in parens then .0"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_opaque_self_with_mutex() {
+    // Self-returning opaque method with mutex type wraps in Arc::new(Mutex::new(...))
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyType".to_string());
+    let mut mutex_types = AHashSet::new();
+    mutex_types.insert("MyType".to_string());
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("MyType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        true,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "Self { inner: Arc::new(std::sync::Mutex::new(result)) }",
+        "mutex opaque self-return should use Mutex::new"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_other_opaque_with_mutex() {
+    // Cross-type opaque return with mutex wraps in the other type's pattern
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("OtherType".to_string());
+    let mut mutex_types = AHashSet::new();
+    mutex_types.insert("OtherType".to_string());
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("OtherType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "OtherType { inner: Arc::new(std::sync::Mutex::new(result)) }",
+        "mutex cross-type opaque return should use Mutex::new"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_returns_ref_owned() {
+    // returns_ref=true on an opaque self-return should clone before wrapping
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyType".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("MyType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        true,
+        true, // returns_ref
+        false,
+    );
+
+    assert!(
+        result.contains("result.clone()"),
+        "returns_ref should clone before wrapping"
+    );
+    assert!(result.contains("Self { inner: Arc::new"), "should still wrap in Self");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_returns_cow_opaque_self() {
+    // returns_cow=true on an opaque self-return should call .into_owned() first
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyType".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("MyType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        true,
+        false,
+        true, // returns_cow
+    );
+
+    assert!(
+        result.contains("result.into_owned()"),
+        "returns_cow should call .into_owned()"
+    );
+    assert!(result.contains("Self { inner: Arc::new"), "should wrap in Self");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_json_conversion() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Json,
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result.to_string()", "Json should serialize to string");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_non_opaque_named() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Named("Config".to_string()))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "result.map(Into::into)",
+        "Optional non-opaque Named should map with Into::into"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_opaque_returns_ref() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Handle".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Named("Handle".to_string()))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert!(
+        result.contains(".clone()"),
+        "returns_ref on optional opaque should clone"
+    );
+    assert!(
+        result.contains("Handle { inner: Arc::new("),
+        "should wrap Handle in Arc"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_string_returns_ref() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::String)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert_eq!(
+        result, "result.map(Into::into)",
+        "Optional String returns_ref should map Into::into"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_string_owned() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::String)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result", "Optional String owned should pass through");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_duration() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Duration)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "result.map(|d| d.as_millis() as u64)",
+        "Optional Duration should convert to millis"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_json() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Json)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "result.map(ToString::to_string)",
+        "Optional Json should serialize via ToString"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_path() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Path)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "result.map(Into::into)",
+        "Optional Path should convert via Into"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_vec_non_opaque_named_ref() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Vec(Box::new(TypeRef::Named("Config".to_string()))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert_eq!(
+        result, "result.into_iter().map(|v| v.clone().into()).collect()",
+        "Vec non-opaque Named returns_ref should clone each element"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_vec_string_returns_ref() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Vec(Box::new(TypeRef::String)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert_eq!(
+        result, "result.into_iter().map(Into::into).collect()",
+        "Vec String returns_ref should map Into::into"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_vec_string_owned() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Vec(Box::new(TypeRef::String)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result", "Vec String owned should pass through");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_vec_path() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Vec(Box::new(TypeRef::Path)),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(
+        result, "result.into_iter().map(Into::into).collect()",
+        "Vec Path should convert via Into"
+    );
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_vec_opaque_returns_ref() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Item".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert!(
+        result.contains(".clone()"),
+        "returns_ref on optional vec opaque should clone elements"
+    );
+    assert!(
+        result.contains("Item { inner: Arc::new("),
+        "should wrap each element in Arc"
+    );
+}
+
+#[test]
+fn test_gen_call_args_json_param() {
+    let params = vec![ParamDef {
+        name: "meta".to_string(),
+        ty: TypeRef::Json,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "serde_json::from_str(&meta).unwrap_or_default()",
+        "Json param should be parsed from string"
+    );
+}
+
+#[test]
+fn test_gen_call_args_json_param_optional() {
+    let params = vec![ParamDef {
+        name: "meta".to_string(),
+        ty: TypeRef::Json,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "meta.as_ref().and_then(|s| serde_json::from_str(s).ok())",
+        "Optional Json param should be conditionally parsed"
+    );
+}
+
+#[test]
+fn test_gen_call_args_bytes_param_is_ref() {
+    let params = vec![ParamDef {
+        name: "data".to_string(),
+        ty: TypeRef::Bytes,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(result, "&data", "Bytes is_ref should pass as reference");
+}
+
+#[test]
+fn test_gen_call_args_bytes_param_owned() {
+    let params = vec![ParamDef {
+        name: "data".to_string(),
+        ty: TypeRef::Bytes,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(result, "data", "Bytes owned should pass directly");
+}
+
+#[test]
+fn test_gen_call_args_bytes_optional_is_ref() {
+    let params = vec![ParamDef {
+        name: "data".to_string(),
+        ty: TypeRef::Bytes,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(result, "data.as_deref()", "Optional Bytes is_ref should use as_deref()");
+}
+
+#[test]
+fn test_gen_call_args_duration_optional() {
+    let params = vec![ParamDef {
+        name: "timeout".to_string(),
+        ty: TypeRef::Duration,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "timeout.map(std::time::Duration::from_millis)",
+        "Optional Duration should be mapped"
+    );
+}
+
+#[test]
+fn test_gen_call_args_path_is_ref() {
+    let params = vec![ParamDef {
+        name: "file".to_string(),
+        ty: TypeRef::Path,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "std::path::Path::new(&file)",
+        "Path is_ref should use Path::new"
+    );
+}
+
+#[test]
+fn test_gen_call_args_path_optional_is_ref() {
+    let params = vec![ParamDef {
+        name: "file".to_string(),
+        ty: TypeRef::Path,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "file.as_deref().map(std::path::Path::new)",
+        "Optional Path is_ref should use as_deref().map(Path::new)"
+    );
+}
+
+#[test]
+fn test_gen_call_args_path_optional_not_ref() {
+    let params = vec![ParamDef {
+        name: "dir".to_string(),
+        ty: TypeRef::Path,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "dir.map(std::path::PathBuf::from)",
+        "Optional Path owned should map with PathBuf::from"
+    );
+}
+
+#[test]
+fn test_gen_call_args_string_is_ref() {
+    let params = vec![ParamDef {
+        name: "name".to_string(),
+        ty: TypeRef::String,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(result, "&name", "String is_ref should pass as &str reference");
+}
+
+#[test]
+fn test_gen_call_args_string_optional_is_ref() {
+    let params = vec![ParamDef {
+        name: "label".to_string(),
+        ty: TypeRef::String,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "label.as_deref()",
+        "Optional String is_ref should use as_deref()"
+    );
+}
+
+#[test]
+fn test_gen_call_args_vec_mut_ref() {
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: true,
+        newtype_wrapper: None,
+    }];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(result, "&mut items", "Vec mut should pass as &mut");
+}
+
+#[test]
+fn test_gen_call_args_opaque_optional() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyOpaque".to_string());
+    let params = vec![ParamDef {
+        name: "obj".to_string(),
+        ty: TypeRef::Named("MyOpaque".to_string()),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "obj.as_ref().map(|v| &v.inner)",
+        "Optional opaque param should map to reference to inner"
+    );
+}
+
+#[test]
+fn test_gen_call_args_non_opaque_optional() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "cfg".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_call_args(&params, &opaque_types);
+    assert_eq!(
+        result, "cfg.map(Into::into)",
+        "Optional non-opaque Named should map with Into::into"
+    );
+}
+
+#[test]
+fn test_gen_named_let_bindings_no_promote_non_opaque() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, "my_crate");
+    assert!(
+        result.contains("let config_core: my_crate::Config = config.into();"),
+        "should generate let binding for non-opaque named param"
+    );
+}
+
+#[test]
+fn test_gen_named_let_bindings_optional_without_ref() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    assert!(
+        result.contains("let config_core: Option<my_crate::Config> = config.map(Into::into);"),
+        "should generate Option let binding for optional Named param"
+    );
+}
+
+#[test]
+fn test_gen_named_let_bindings_vec_named_non_opaque() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    assert!(
+        result.contains("let items_core: Vec<_> = items.into_iter().map(Into::into).collect();"),
+        "should generate Vec let binding converting elements"
+    );
+}
+
+#[test]
+fn test_gen_named_let_bindings_vec_string_is_ref() {
+    // Vec<String> with is_ref=true should generate a Vec<&str> intermediate
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "labels".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    assert!(
+        result.contains("let labels_refs: Vec<&str>"),
+        "should generate Vec<&str> intermediate for Vec<String> is_ref=true"
+    );
+    assert!(
+        result.contains(".iter().map(|s| s.as_str()).collect()"),
+        "should collect str references"
+    );
+}
+
+#[test]
+fn test_gen_named_let_bindings_vec_string_is_ref_optional() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "tags".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
+    assert!(
+        result.contains("let tags_refs: Option<Vec<&str>>"),
+        "should generate Option<Vec<&str>> for optional Vec<String> is_ref=true"
+    );
+}
+
+#[test]
+fn test_gen_serde_let_bindings_non_opaque_named_required() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let err_conv = ".map_err(|e| e.to_string())";
+    let indent = "        ";
+
+    let result = binding_helpers::gen_serde_let_bindings(&params, &opaque_types, "my_crate", err_conv, indent);
+
+    assert!(
+        result.contains("let config_json = serde_json::to_string(&config)"),
+        "should serialize binding to JSON"
+    );
+    assert!(
+        result.contains("let config_core: my_crate::Config = serde_json::from_str(&config_json)"),
+        "should deserialize JSON to core type"
+    );
+}
+
+#[test]
+fn test_gen_serde_let_bindings_non_opaque_named_optional() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let err_conv = ".map_err(|e| e.to_string())";
+    let indent = "        ";
+
+    let result = binding_helpers::gen_serde_let_bindings(&params, &opaque_types, "my_crate", err_conv, indent);
+
+    assert!(
+        result.contains("let config_core: Option<my_crate::Config>"),
+        "optional serde binding should wrap in Option"
+    );
+    assert!(result.contains(".map(|v| {"), "optional should use map pattern");
+}
+
+#[test]
+fn test_gen_serde_let_bindings_vec_named() {
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let err_conv = ".map_err(|e| e.to_string())";
+    let indent = "        ";
+
+    let result = binding_helpers::gen_serde_let_bindings(&params, &opaque_types, "my_crate", err_conv, indent);
+
+    assert!(
+        result.contains("let items_json = serde_json::to_string(&items)"),
+        "should serialize Vec binding to JSON"
+    );
+    assert!(
+        result.contains("let items_core: Vec<my_crate::Item>"),
+        "should deserialize to Vec of core type"
+    );
+}
+
+#[test]
+fn test_gen_serde_let_bindings_opaque_type_skipped() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyOpaque".to_string());
+    let params = vec![ParamDef {
+        name: "obj".to_string(),
+        ty: TypeRef::Named("MyOpaque".to_string()),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+    let err_conv = ".map_err(|e| e.to_string())";
+    let indent = "        ";
+
+    let result = binding_helpers::gen_serde_let_bindings(&params, &opaque_types, "my_crate", err_conv, indent);
+
+    assert!(result.is_empty(), "opaque types should not generate serde let bindings");
+}
+
+#[test]
+fn test_gen_serde_let_bindings_empty_params() {
+    let opaque_types = AHashSet::new();
+    let params = vec![];
+    let err_conv = ".map_err(|e| e.to_string())";
+    let indent = "        ";
+
+    let result = binding_helpers::gen_serde_let_bindings(&params, &opaque_types, "my_crate", err_conv, indent);
+
+    assert!(result.is_empty(), "empty params should produce empty bindings");
+}
+
+#[test]
+fn test_gen_async_body_tokio_block_on_with_error_opaque() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::TokioBlockOn;
+
+    let result = binding_helpers::gen_async_body("inner.process()", &cfg, true, "result", true, "", false, None);
+
+    assert!(
+        result.contains("tokio::runtime::Runtime::new()"),
+        "should create tokio runtime"
+    );
+    assert!(result.contains("block_on"), "should call block_on");
+    assert!(result.contains("map_err"), "should convert error");
+    assert!(result.contains("result"), "should contain return_wrap expression");
+}
+
+#[test]
+fn test_gen_async_body_tokio_block_on_no_error_opaque() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::TokioBlockOn;
+
+    let result = binding_helpers::gen_async_body("inner.process()", &cfg, false, "result", true, "", false, None);
+
+    assert!(
+        result.contains("tokio::runtime::Runtime::new()"),
+        "should create runtime"
+    );
+    assert!(result.contains("block_on"), "should call block_on");
+    assert!(result.contains("result"), "should include return wrap");
+}
+
+#[test]
+fn test_gen_async_body_tokio_block_on_no_error_non_opaque() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::TokioBlockOn;
+
+    let result = binding_helpers::gen_async_body("CoreType::process()", &cfg, false, "result", false, "", false, None);
+
+    assert!(
+        result.contains("tokio::runtime::Runtime::new()"),
+        "should create runtime"
+    );
+    assert!(result.contains("block_on"), "should call block_on");
+}
+
+#[test]
+fn test_gen_async_body_tokio_block_on_unit_return_opaque() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::TokioBlockOn;
+
+    let result = binding_helpers::gen_async_body("inner.process()", &cfg, false, "()", true, "", true, None);
+
+    assert!(
+        result.contains("tokio::runtime::Runtime::new()"),
+        "should create runtime"
+    );
+    assert!(result.contains("block_on"), "should call block_on");
+}
+
+#[test]
+fn test_gen_async_body_none_pattern() {
+    let cfg = default_cfg(); // AsyncPattern::None by default
+
+    let result = binding_helpers::gen_async_body("process()", &cfg, false, "result", false, "", false, None);
+
+    assert!(result.contains("todo!"), "AsyncPattern::None should emit todo!()");
+}
+
+#[test]
+fn test_gen_async_body_napi_no_error_no_unit() {
+    // NAPI pattern without error type returns value directly without Ok() wrapper
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::NapiNativeAsync;
+
+    let result = binding_helpers::gen_async_body("process()", &cfg, false, "wrapped_val", false, "", false, None);
+
+    assert!(result.contains("await"), "should have await");
+    assert!(result.contains("wrapped_val"), "should include return_wrap");
+    assert!(!result.contains("Ok("), "no-error NAPI path should not wrap in Ok()");
+}
+
+#[test]
+fn test_gen_async_body_pyo3_with_type_annotation() {
+    // When return_wrap contains .into() and return_type is provided, a type annotation is added
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
+
+    let result = binding_helpers::gen_async_body(
+        "inner.process()",
+        &cfg,
+        false,
+        "result.into()",
+        false,
+        "",
+        false,
+        Some("MyType"),
+    );
+
+    assert!(
+        result.contains("let wrapped_result: MyType"),
+        "should add explicit type annotation"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_optional_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Optional(Box::new(TypeRef::String)),
+        "get_optional",
+        false,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
+
+    assert_eq!(result, "None", "Optional return should default to None");
+}
+
+#[test]
+fn test_gen_unimplemented_body_map_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        "get_map",
+        false,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
+
+    assert_eq!(
+        result, "Default::default()",
+        "Map return should default to Default::default()"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_duration_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::Duration, "get_timeout", false, &cfg, &params, &empty_opaque);
+
+    assert_eq!(result, "0", "Duration return should default to 0");
+}
+
+#[test]
+fn test_gen_unimplemented_body_opaque_named_return_uses_todo() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("MyOpaque".to_string());
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Named("MyOpaque".to_string()),
+        "get_opaque",
+        false,
+        &cfg,
+        &params,
+        &opaque_types,
+    );
+
+    assert!(
+        result.contains("todo!"),
+        "opaque Named return should use todo! (no Default impl)"
+    );
+    assert!(result.contains("Not implemented"), "should contain error message");
+}
+
+#[test]
+fn test_gen_unimplemented_body_non_opaque_named_return_uses_default() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let opaque_types = AHashSet::new();
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Named("Config".to_string()),
+        "get_config",
+        false,
+        &cfg,
+        &params,
+        &opaque_types,
+    );
+
+    assert_eq!(
+        result, "Default::default()",
+        "non-opaque Named return should use Default::default()"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_json_return_without_error() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::Json, "get_json", false, &cfg, &params, &empty_opaque);
+
+    assert_eq!(
+        result, "Default::default()",
+        "Json return without error should use Default::default()"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_f32_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Primitive(PrimitiveType::F32),
+        "get_float",
+        false,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
+
+    assert_eq!(result, "0.0f32", "F32 return should default to 0.0f32");
+}
+
+#[test]
+fn test_gen_unimplemented_body_f64_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::Primitive(PrimitiveType::F64),
+        "get_score",
+        false,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
+
+    assert_eq!(result, "0.0f64", "F64 return should default to 0.0f64");
+}
+
+#[test]
+fn test_gen_unimplemented_body_napi_error() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::NapiNativeAsync;
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
+
+    assert!(
+        result.contains("napi::Error::new"),
+        "NAPI pattern should use napi::Error"
+    );
+    assert!(result.contains("Not implemented"), "should contain error message");
+}
+
+#[test]
+fn test_gen_unimplemented_body_wasm_error() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::WasmNativeAsync;
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
+
+    assert!(
+        result.contains("JsValue::from_str"),
+        "WASM pattern should use JsValue::from_str"
+    );
+    assert!(result.contains("Not implemented"), "should contain error message");
+}
+
+#[test]
+fn test_gen_unimplemented_body_pyo3_error() {
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
+
+    assert!(
+        result.contains("PyNotImplementedError"),
+        "PyO3 pattern should use PyNotImplementedError"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_multiple_params_suppressed() {
+    let cfg = default_cfg();
+    let params = vec![
+        ParamDef {
+            name: "a".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+        },
+        ParamDef {
+            name: "b".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+        },
+    ];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::Unit, "multi_param_fn", false, &cfg, &params, &empty_opaque);
+
+    assert!(
+        result.contains("let _ = (a, b);"),
+        "multiple params should use tuple suppression"
+    );
+}
+
+#[test]
+fn test_gen_unimplemented_body_bytes_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::Bytes, "get_bytes", false, &cfg, &params, &empty_opaque);
+
+    assert_eq!(result, "Vec::new()", "Bytes return should default to Vec::new()");
+}
+
+#[test]
+fn test_gen_unimplemented_body_path_return() {
+    let cfg = default_cfg();
+    let params = vec![];
+    let empty_opaque = AHashSet::new();
+
+    let result =
+        binding_helpers::gen_unimplemented_body(&TypeRef::Path, "get_path", false, &cfg, &params, &empty_opaque);
+
+    assert!(
+        result.contains("[unimplemented"),
+        "Path return should use placeholder string"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_string_field() {
+    let typ = simple_type_def();
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("name: self.name.clone(),"),
+        "String field should be cloned"
+    );
+    assert!(
+        result.contains("count: self.count,"),
+        "Primitive field should be copied directly"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_named_field() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "inner".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("inner: self.inner.clone().into(),"),
+        "Named field should be cloned and converted"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_path_field() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "file_path".to_string(),
+        ty: TypeRef::Path,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("file_path: self.file_path.clone().into(),"),
+        "Path field should be cloned and converted to PathBuf"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_path_optional() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "output_path".to_string(),
+        ty: TypeRef::Path,
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("output_path: self.output_path.clone().map(Into::into),"),
+        "Optional Path field should be cloned and mapped into PathBuf"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_json_field() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "metadata".to_string(),
+        ty: TypeRef::Json,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("serde_json::from_str(&self.metadata).unwrap_or_default()"),
+        "Json field should be parsed from string"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_json_optional() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "extra".to_string(),
+        ty: TypeRef::Json,
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("self.extra.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
+        "Optional Json field should be conditionally parsed"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_vec_named() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("items: self.items.clone().into_iter().map(Into::into).collect(),"),
+        "Vec<Named> field should clone and convert elements"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "entries".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Entry".to_string()))),
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("entries: self.entries.clone().map(|v| v.into_iter().map(Into::into).collect()),"),
+        "Optional Vec<Named> field should map and convert"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_mut_declares_mutable() {
+    let typ = simple_type_def();
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields_mut(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("let mut core_self"),
+        "gen_lossy_binding_to_core_fields_mut should declare core_self as mutable"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_has_stripped_cfg_fields() {
+    let mut typ = simple_type_def();
+    typ.has_stripped_cfg_fields = true;
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("..Default::default()"),
+        "should include ..Default::default() for stripped cfg fields"
+    );
+    assert!(
+        result.contains("needless_update"),
+        "should suppress needless_update lint for stripped cfg fields"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_char_field() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "separator".to_string(),
+        ty: TypeRef::Char,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("separator: self.separator.chars().next().unwrap_or('*'),"),
+        "Char field should extract first char with fallback"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_char_optional() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "delimiter".to_string(),
+        ty: TypeRef::Char,
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("delimiter: self.delimiter.as_ref().and_then(|s| s.chars().next()),"),
+        "Optional Char field should conditionally extract first char"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
+    // When option_duration_on_defaults=true and has_default=true, non-optional Duration fields
+    // are stored as Option<u64> and should use .map(...).unwrap_or_default()
+    let mut typ = simple_type_def();
+    typ.has_default = true;
+    typ.fields.push(FieldDef {
+        name: "timeout".to_string(),
+        ty: TypeRef::Duration,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", true);
+
+    assert!(
+        result.contains("self.timeout.map(std::time::Duration::from_millis).unwrap_or_default()"),
+        "option_duration_on_defaults should use map+unwrap_or_default pattern"
+    );
+}
+
+#[test]
+fn test_has_named_params_vec_string_with_is_ref() {
+    // Vec<String> with is_ref=true should count as having named params (needs &[&str] conversion)
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "labels".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    assert!(
+        binding_helpers::has_named_params(&params, &opaque_types),
+        "Vec<String> with is_ref=true should require let bindings"
+    );
+}
+
+#[test]
+fn test_has_named_params_vec_string_without_is_ref() {
+    // Vec<String> without is_ref should NOT require let bindings
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "labels".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    assert!(
+        !binding_helpers::has_named_params(&params, &opaque_types),
+        "Vec<String> without is_ref should not require let bindings"
+    );
+}
+
+#[test]
+fn test_has_named_params_vec_named_always_requires_binding() {
+    // Vec<Named> (non-opaque) always requires a let binding
+    let opaque_types = AHashSet::new();
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    assert!(
+        binding_helpers::has_named_params(&params, &opaque_types),
+        "Vec<Named> non-opaque should require let bindings"
+    );
+}
+
+#[test]
+fn test_has_named_params_vec_opaque_named_no_binding_needed() {
+    // Vec<OpaqueNamed> does NOT need a let binding (handled directly by gen_call_args)
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Item".to_string());
+    let params = vec![ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }];
+
+    assert!(
+        !binding_helpers::has_named_params(&params, &opaque_types),
+        "Vec<Opaque> should not require let bindings"
     );
 }

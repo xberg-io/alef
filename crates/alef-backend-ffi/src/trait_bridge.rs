@@ -39,7 +39,8 @@ pub struct FfiBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
-    error_type: error_type.to_string(),
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
 }
 
 impl FfiBridgeGenerator {

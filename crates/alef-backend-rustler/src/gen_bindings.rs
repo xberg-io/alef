@@ -182,14 +182,17 @@ impl Backend for RustlerBackend {
         // Trait bridge wrappers — generate Rustler bridge structs that delegate to Elixir terms
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                let bridge = crate::trait_bridge::gen_trait_bridge(
                     trait_type,
                     bridge_cfg,
                     &core_import,
                     &config.error_type(),
                     api,
                 );
-                builder.add_item(&bridge_code);
+                for imp in &bridge.imports {
+                    builder.add_import(imp);
+                }
+                builder.add_item(&bridge.code);
             }
         }
 
@@ -1738,7 +1741,7 @@ fn gen_elixir_enum_module(enum_def: &EnumDef, app_module: &str) -> String {
         if single_line.len() <= 120 {
             let _ = writeln!(out, "{single_line}");
         } else {
-            let _ = write!(out, "  @type t ::\n");
+            let _ = writeln!(out, "  @type t ::");
             for (i, arm) in atom_arms.iter().enumerate() {
                 if i == 0 {
                     let _ = writeln!(out, "          {arm}");

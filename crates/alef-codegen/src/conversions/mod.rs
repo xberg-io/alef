@@ -1637,7 +1637,10 @@ mod tests {
         };
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
         let result = field_conversion_to_core_cfg("items", &ty, true, &config);
-        assert_eq!(result, "items: val.items.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+        assert_eq!(
+            result,
+            "items: val.items.as_ref().and_then(|s| serde_json::from_str(s).ok())"
+        );
     }
 
     #[test]
@@ -1788,7 +1791,10 @@ mod tests {
         };
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
         let result = field_conversion_from_core_cfg("items", &ty, true, false, &no_opaques(), &config);
-        assert_eq!(result, "items: val.items.as_ref().and_then(|v| serde_json::to_string(v).ok())");
+        assert_eq!(
+            result,
+            "items: val.items.as_ref().and_then(|v| serde_json::to_string(v).ok())"
+        );
     }
 
     #[test]
@@ -1857,7 +1863,10 @@ mod tests {
         // Optional(Vec(Named)) — map into
         let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into())))));
         let result = field_conversion_to_core("items", &ty, false);
-        assert_eq!(result, "items: val.items.map(|v| v.into_iter().map(Into::into).collect())");
+        assert_eq!(
+            result,
+            "items: val.items.map(|v| v.into_iter().map(Into::into).collect())"
+        );
     }
 
     #[test]
@@ -1988,10 +1997,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_tuple_variant_false_for_underscore_only() {
-        // "_" alone has no digits after the underscore
+    fn test_is_tuple_variant_true_for_underscore_only() {
+        // "_".strip_prefix('_') == Some("") and "".chars().all(is_ascii_digit) is vacuously true
         let fields = vec![make_field("_", TypeRef::String)];
-        assert!(!is_tuple_variant(&fields));
+        assert!(is_tuple_variant(&fields));
     }
 
     #[test]
@@ -2305,7 +2314,6 @@ mod tests {
                 fields: vec![],
                 methods: vec![MethodDef {
                     name: "process".into(),
-                    rust_path: "my_crate::Client::process".into(),
                     params: vec![ParamDef {
                         name: "config".into(),
                         ty: TypeRef::Named("Config".into()),
@@ -2319,15 +2327,16 @@ mod tests {
                     }],
                     return_type: TypeRef::Unit,
                     is_async: false,
+                    is_static: false,
                     error_type: None,
                     doc: String::new(),
-                    cfg: None,
+                    receiver: None,
                     sanitized: false,
+                    trait_source: None,
                     returns_ref: false,
                     returns_cow: false,
                     return_newtype_wrapper: None,
-                    is_static: false,
-                    receiver: alef_core::ir::MethodReceiver::Ref,
+                    has_default_impl: false,
                 }],
                 is_opaque: false,
                 is_clone: true,
