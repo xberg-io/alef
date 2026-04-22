@@ -1,9 +1,8 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - v[0-9]+.*
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -255,14 +254,14 @@ jobs:
           path: dist/cli
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: Upload CLI artifacts to release
         uses: kreuzberg-dev/actions/publish-github-release@v1
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           title: ${{ needs.prepare.outputs.tag }}
           artifacts: "dist/cli/*"
-          generate-notes: "true"
-          draft: "true"
+          generate-notes: "false"
+          draft: "false"
           dry-run: ${{ needs.prepare.outputs.dry_run }}
 
   publish-crates:
@@ -369,12 +368,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
-
-      - name: Undraft GitHub release
-        if: needs.prepare.outputs.dry_run != 'true' && needs.upload-release-assets.result == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
 
       - name: Publish summary
         if: always()
