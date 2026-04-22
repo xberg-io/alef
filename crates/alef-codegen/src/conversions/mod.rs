@@ -673,6 +673,85 @@ mod tests {
         assert!(result.contains("v.to_string()"));
     }
 
+    #[test]
+    fn test_field_conversion_from_core_sanitized_vec_u32_non_optional() {
+        // Sanitized Vec<u32> (from homogeneous tuple like (u32, u32)) uses serde round-trip
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
+        let result = field_conversion_from_core("dimensions", &ty, false, true, &no_opaques());
+        assert!(
+            result.contains("serde_json::to_value"),
+            "should use serde_json::to_value for tuple-to-vec conversion, got: {result}"
+        );
+        assert!(
+            result.contains("serde_json::from_value"),
+            "should use serde_json::from_value for tuple-to-vec conversion, got: {result}"
+        );
+        assert!(
+            !result.contains("format!"),
+            "should NOT use format! debug for Vec<Primitive> sanitized field, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_sanitized_vec_u32_optional() {
+        // Optional sanitized Vec<u32> (from Option<(u32, u32)>) uses serde round-trip
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
+        let result = field_conversion_from_core("dimensions", &ty, true, true, &no_opaques());
+        assert!(
+            result.contains("serde_json::to_value"),
+            "should use serde_json::to_value for optional tuple-to-vec conversion, got: {result}"
+        );
+        assert!(
+            result.contains("serde_json::from_value"),
+            "should use serde_json::from_value for optional tuple-to-vec conversion, got: {result}"
+        );
+        assert!(
+            !result.contains("format!"),
+            "should NOT use format! debug for optional Vec<Primitive> sanitized field, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_sanitized_optional_vec_u32() {
+        // Optional(Vec(u32)): from the IR Optional wrapper around a tuple-to-vec sanitized type
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)))));
+        let result = field_conversion_from_core("dimensions", &ty, false, true, &no_opaques());
+        assert!(
+            result.contains("serde_json::to_value"),
+            "should use serde_json::to_value for Optional(Vec(Primitive)) sanitized field, got: {result}"
+        );
+        assert!(
+            result.contains("serde_json::from_value"),
+            "should use serde_json::from_value for Optional(Vec(Primitive)) sanitized field, got: {result}"
+        );
+        assert!(
+            !result.contains("format!"),
+            "should NOT use format! debug for Optional(Vec(Primitive)) sanitized field, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_from_binding_to_core_sanitized_vec_u32_uses_serde() {
+        // Sanitized Vec<u32> field (from tuple) should use serde round-trip in binding→core
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
+        let mut field = make_opt_field("dimensions", ty);
+        field.sanitized = true;
+        let typ = make_type("S", "c::S", vec![field]);
+        let result = gen_from_binding_to_core(&typ, "c");
+        assert!(
+            result.contains("serde_json::to_value"),
+            "binding→core for sanitized Vec<Primitive> should use serde_json::to_value, got:\n{result}"
+        );
+        assert!(
+            result.contains("serde_json::from_value"),
+            "binding→core for sanitized Vec<Primitive> should use serde_json::from_value, got:\n{result}"
+        );
+        assert!(
+            !result.contains("Default::default()"),
+            "binding→core for sanitized Vec<Primitive> should NOT use Default::default(), got:\n{result}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // helpers.rs: is_tuple_variant / is_newtype / is_tuple_type_name
     // -----------------------------------------------------------------------

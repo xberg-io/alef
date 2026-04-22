@@ -127,7 +127,14 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             continue;
         }
         let conversion = if field.sanitized || references_excluded {
-            format!("{}: Default::default()", field.name)
+            // Sanitized Vec<Primitive> fields come from homogeneous numeric tuples (e.g. (u32,u32)→Vec<u32>).
+            // Use serde round-trip instead of Default::default() so the binding value flows through
+            // correctly: Vec<u32> serializes as a JSON array, which tuples also deserialize from.
+            if !references_excluded && is_sanitized_vec_primitive(&field.ty) {
+                gen_sanitized_vec_primitive_to_core(&field.name, &field.ty, field.optional)
+            } else {
+                format!("{}: Default::default()", field.name)
+            }
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
             // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
@@ -697,4 +704,33 @@ fn apply_core_wrapper_to_core(
             }
         }
     }
+}
+
+/// Returns true if this is a sanitized tuple-to-vec field: `Vec(Primitive(_))` or
+/// `Optional(Vec(Primitive(_)))`. These come from homogeneous numeric tuples such as
+/// `(u32, u32)` which `sanitize_type_ref` maps to `Vec<u32>`.
+fn is_sanitized_vec_primitive(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_)),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(_)))
+        }
+        _ => false,
+    }
+}
+
+/// Generate binding→core conversion for a sanitized Vec<Primitive> field (tuple round-trip).
+/// Uses serde JSON round-trip: Vec<P> serializes as a JSON array, which tuples also parse from.
+fn gen_sanitized_vec_primitive_to_core(name: &str, ty: &TypeRef, optional: bool) -> String {
+    // Optional(Vec(Primitive)): binding holds Option<Vec<P>>, core expects Option<(P, P, ...)>
+    let is_option_vec = matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(_))));
+    if is_option_vec || optional {
+        return format!(
+            "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
+        );
+    }
+    // Non-optional Vec<Primitive>: binding holds Vec<P>, core expects (P, P, ...)
+    format!(
+        "{name}: serde_json::to_value(&val.{name}).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()"
+    )
 }

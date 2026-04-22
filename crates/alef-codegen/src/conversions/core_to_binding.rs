@@ -222,6 +222,29 @@ pub fn field_conversion_from_core(
                         "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
                     );
                 }
+                // Vec<Primitive>: sanitized from a homogeneous numeric tuple, e.g. (u32, u32) → Vec<u32>.
+                // Use serde round-trip to convert: tuples serialize as JSON arrays and Vec<Primitive>
+                // deserializes from JSON arrays, so the conversion is lossless for any arity.
+                if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
+                    return format!(
+                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
+                    );
+                }
+            }
+        }
+        // Vec<Primitive>: sanitized from a homogeneous numeric tuple, e.g. (u32, u32) → Vec<u32>.
+        // Use serde round-trip to convert: tuples serialize as JSON arrays and Vec<Primitive>
+        // deserializes from JSON arrays, so the conversion is lossless for any arity.
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Primitive(_)) {
+                if optional {
+                    return format!(
+                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
+                    );
+                }
+                return format!(
+                    "{name}: serde_json::to_value(&val.{name}).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()"
+                );
             }
         }
         // String: sanitized from Box<str>, Cow<str>, (u32, u32), etc.
