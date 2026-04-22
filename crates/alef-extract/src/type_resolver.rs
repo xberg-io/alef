@@ -533,10 +533,7 @@ mod tests {
     fn test_extract_result_error_from_alias_definition() {
         // Test extracting error type from `pub type Result<T> = std::result::Result<T, E>`
         let ty = parse_type("std::result::Result<T, KreuzbergError>");
-        assert_eq!(
-            extract_result_error_type_from_alias(&ty),
-            Some("KreuzbergError".into())
-        );
+        assert_eq!(extract_result_error_type_from_alias(&ty), Some("KreuzbergError".into()));
     }
 
     #[test]
@@ -550,10 +547,7 @@ mod tests {
         set_result_error_hints(hints);
 
         let ty = parse_type("Result<ExtractionResult>");
-        assert_eq!(
-            extract_result_error_type(&ty),
-            Some("KreuzbergError".into())
-        );
+        assert_eq!(extract_result_error_type(&ty), Some("KreuzbergError".into()));
     }
 
     #[test]

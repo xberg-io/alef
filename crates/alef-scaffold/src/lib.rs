@@ -2454,8 +2454,14 @@ mod tests {
         assert_eq!(files[4].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
         assert!(files[4].content.contains("create_rust_makefile"));
         assert!(files[4].content.contains("rb_sys/mkmf"));
-        assert!(files[4].content.contains("cargo_manifest"), "extconf.rb must set cargo_manifest so rb_sys finds native/Cargo.toml");
-        assert!(files[4].content.contains("native/Cargo.toml"), "extconf.rb cargo_manifest must point to native/Cargo.toml");
+        assert!(
+            files[4].content.contains("cargo_manifest"),
+            "extconf.rb must set cargo_manifest so rb_sys finds native/Cargo.toml"
+        );
+        assert!(
+            files[4].content.contains("native/Cargo.toml"),
+            "extconf.rb cargo_manifest must point to native/Cargo.toml"
+        );
         // files[5] is Gemfile; files[6] is Steepfile; files[7] is the Cargo.toml from scaffold_ruby_cargo
         assert_eq!(files[5].path, PathBuf::from("packages/ruby/Gemfile"));
         assert_eq!(files[6].path, PathBuf::from("packages/ruby/Steepfile"));
@@ -2466,7 +2472,9 @@ mod tests {
         );
         assert!(files[7].content.contains("magnus"));
         assert!(
-            files[7].content.contains("path = \"../../../../../crates/my-lib-rb/src/lib.rs\""),
+            files[7]
+                .content
+                .contains("path = \"../../../../../crates/my-lib-rb/src/lib.rs\""),
             "Ruby Cargo.toml [lib] must set path to the binding source crate"
         );
     }
@@ -2702,7 +2710,9 @@ mod tests {
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
         assert!(
-            cargo_toml.content.contains("path = \"../../../../crates/my-lib-elixir/src/lib.rs\""),
+            cargo_toml
+                .content
+                .contains("path = \"../../../../crates/my-lib-elixir/src/lib.rs\""),
             "Elixir Cargo.toml [lib] must set path to the binding source crate; content: {}",
             cargo_toml.content
         );

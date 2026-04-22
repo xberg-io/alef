@@ -362,11 +362,87 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
 }
 
 // ---------------------------------------------------------------------------
-// FFI (C ABI) -- Streaming not supported
+// FFI (C ABI) -- Callback-based streaming
 // ---------------------------------------------------------------------------
 
 fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
+    let core_path = &adapter.core_path;
+
+    let body = format!(
+        "clear_last_error();\n\n    \
+         if client.is_null() {{\n        \
+             set_last_error(99, \"literllm_{name}: client must not be NULL\");\n        \
+             return -1;\n    \
+         }}\n    \
+         if request_json.is_null() {{\n        \
+             set_last_error(99, \"literllm_{name}: request_json must not be NULL\");\n        \
+             return -1;\n    \
+         }}\n\n    \
+         // SAFETY: caller guarantees `client` and `request_json` are non-null and valid.\n    \
+         let client_ref = unsafe {{ &(*client) }};\n\n    \
+         let json_str = match unsafe {{ std::ffi::CStr::from_ptr(request_json) }}.to_str() {{\n        \
+             Ok(s) => s,\n        \
+             Err(e) => {{\n            \
+                 set_last_error(99, &format!(\"literllm_{name}: request_json is not valid UTF-8: {{e}}\"));\n            \
+                 return -1;\n        \
+             }}\n    \
+         }};\n\n    \
+         let request: liter_llm::ChatCompletionRequest = match serde_json::from_str(json_str) {{\n        \
+             Ok(r) => r,\n        \
+             Err(e) => {{\n            \
+                 set_last_error(99, &format!(\"literllm_{name}: failed to parse request JSON: {{e}}\"));\n            \
+                 return -1;\n        \
+             }}\n    \
+         }};\n\n    \
+         let rt = match runtime() {{\n        \
+             Ok(rt) => rt,\n        \
+             Err(e) => {{\n            \
+                 set_last_error(99, &format!(\"literllm_{name}: {{e}}\"));\n            \
+                 return -1;\n        \
+             }}\n    \
+         }};\n\n    \
+         let result = rt.block_on(async {{\n        \
+             use futures_core::Stream;\n        \
+             use std::pin::Pin;\n\n        \
+             let mut stream = match client_ref.inner.{core_path}(request).await {{\n            \
+                 Ok(s) => s,\n            \
+                 Err(e) => return Err(format!(\"literllm_{name}: failed to open stream: {{e}}\")),\n        \
+             }};\n\n        \
+             loop {{\n            \
+                 let next = std::future::poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await;\n            \
+                 match next {{\n                \
+                     None => break,\n                \
+                     Some(Err(e)) => return Err(format!(\"literllm_{name}: stream error: {{e}}\")),\n                \
+                     Some(Ok(chunk)) => {{\n                    \
+                         let chunk_json = match serde_json::to_string(&chunk) {{\n                        \
+                             Ok(s) => s,\n                        \
+                             Err(e) => return Err(format!(\"literllm_{name}: failed to serialise chunk: {{e}}\")),\n                    \
+                         }};\n                    \
+                         match std::ffi::CString::new(chunk_json) {{\n                        \
+                             Ok(c_str) => {{\n                            \
+                                 // SAFETY: `callback` is a valid function pointer supplied by the caller.\n                            \
+                                 // `c_str.as_ptr()` is valid for this block scope.\n                            \
+                                 // `user_data` is forwarded as-is; ownership stays with the caller.\n                            \
+                                 unsafe {{ callback(c_str.as_ptr(), user_data) }};\n                        \
+                             }}\n                        \
+                             Err(e) => return Err(format!(\"literllm_{name}: chunk JSON contained NUL byte: {{e}}\")),\n                    \
+                         }}\n                \
+                     }}\n            \
+                 }}\n        \
+             }}\n        \
+             Ok(())\n    \
+         }});\n\n    \
+         match result {{\n        \
+             Ok(()) => 0,\n        \
+             Err(e) => {{\n            \
+                 set_last_error(99, &e);\n            \
+                 -1\n        \
+             }}\n    \
+         }}",
+        name = adapter.name,
+        core_path = core_path,
+    );
+
     (body, None)
 }
 

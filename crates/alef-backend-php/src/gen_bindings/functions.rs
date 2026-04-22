@@ -273,7 +273,8 @@ pub(crate) fn gen_instance_method(
             )
         }
     } else {
-        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
+        return String::new();
     };
 
     let trait_allow = if generators::is_trait_method_name(&method.name) {
@@ -368,7 +369,8 @@ pub(crate) fn gen_instance_method_non_opaque(
             format!("{field_conversions}{wrapped_call}")
         }
     } else {
-        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
+        return String::new();
     };
 
     let trait_allow = if generators::is_trait_method_name(&method.name) {
@@ -466,7 +468,8 @@ pub(crate) fn gen_static_method(
             )
         }
     } else {
-        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
+        return String::new();
     };
 
     let trait_allow = if generators::is_trait_method_name(&method.name) {
@@ -593,10 +596,8 @@ fn gen_function_body(
             )
         }
     } else if func.sanitized {
-        // Sanitized functions have return types mapped from unknown types (e.g. tuples) to String.
-        // Calling the core function directly would be a type mismatch, so return an unimplemented
-        // stub — consistent with the pyo3 and napi backends.
-        gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
+        // Sanitized functions cannot be auto-delegated — skip entirely.
+        String::new()
     } else {
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
         // serde is available (avoids the missing From<BindingType> for core type compile error),
@@ -735,11 +736,8 @@ fn gen_async_function_body(
             )
         }
     } else {
-        gen_php_unimplemented_body(
-            &func.return_type,
-            &format!("{}_async", func.name),
-            func.error_type.is_some(),
-        )
+        // Cannot auto-delegate — skip entirely.
+        String::new()
     }
 }
 
@@ -786,11 +784,8 @@ pub(crate) fn gen_async_instance_method(
             )
         }
     } else {
-        gen_php_unimplemented_body(
-            &method.return_type,
-            &format!("{}_async", method.name),
-            method.error_type.is_some(),
-        )
+        // Cannot auto-delegate — skip entirely.
+        return String::new();
     };
 
     let ret_sig = return_type_sig(&return_annotation);
@@ -813,64 +808,12 @@ pub(crate) fn gen_async_instance_method(
 
 /// Generate an async static method binding for PHP (block on runtime).
 pub(crate) fn gen_async_static_method(
-    method: &MethodDef,
-    mapper: &PhpMapper,
-    opaque_types: &AHashSet<String>,
+    _method: &MethodDef,
+    _mapper: &PhpMapper,
+    _opaque_types: &AHashSet<String>,
 ) -> String {
-    let params = gen_php_function_params(&method.params, mapper, opaque_types);
-    let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
-
-    let body = gen_php_unimplemented_body(
-        &method.return_type,
-        &format!("{}_async", method.name),
-        method.error_type.is_some(),
-    );
-
-    let ret_sig = return_type_sig(&return_annotation);
-    if params.is_empty() {
-        format!(
-            "pub fn {}_async(){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
-        )
-    } else {
-        format!(
-            "pub fn {}_async({params}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
-        )
-    }
+    // Async static methods are not auto-delegatable — skip entirely.
+    String::new()
 }
 
-/// Generate a type-appropriate unimplemented body for PHP (no todo!()).
-pub(crate) fn gen_php_unimplemented_body(
-    return_type: &alef_core::ir::TypeRef,
-    fn_name: &str,
-    has_error: bool,
-) -> String {
-    use alef_core::ir::TypeRef;
-    let err_msg = format!("Not implemented: {fn_name}");
-    if has_error {
-        format!("Err(ext_php_rs::exception::PhpException::default(\"{err_msg}\".to_string()))")
-    } else {
-        match return_type {
-            TypeRef::Unit => "()".to_string(),
-            TypeRef::String | TypeRef::Char | TypeRef::Path => format!("String::from(\"[unimplemented: {fn_name}]\")"),
-            TypeRef::Bytes => "Vec::new()".to_string(),
-            TypeRef::Primitive(p) => match p {
-                alef_core::ir::PrimitiveType::Bool => "false".to_string(),
-                alef_core::ir::PrimitiveType::F32 => "0.0f32".to_string(),
-                alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
-                _ => "0".to_string(),
-            },
-            TypeRef::Optional(_) => "None".to_string(),
-            TypeRef::Vec(_) => "Vec::new()".to_string(),
-            TypeRef::Map(_, _) => "Default::default()".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"alef: {fn_name} not auto-delegatable\")"),
-            TypeRef::Duration => "std::time::Duration::default()".to_string(),
-        }
-    }
-}
+

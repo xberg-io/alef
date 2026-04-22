@@ -188,11 +188,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out).ok();
 
     // initialize() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn initialize(&self) -> Result<(), {error_path}> {{"
-    )
-    .ok();
+    writeln!(out, "    fn initialize(&self) -> Result<(), {error_path}> {{").ok();
     let init_method = MethodDef {
         name: "initialize".to_string(),
         params: vec![],
@@ -217,11 +213,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out).ok();
 
     // shutdown() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn shutdown(&self) -> Result<(), {error_path}> {{"
-    )
-    .ok();
+    writeln!(out, "    fn shutdown(&self) -> Result<(), {error_path}> {{").ok();
     let shutdown_method = MethodDef {
         name: "shutdown".to_string(),
         params: vec![],

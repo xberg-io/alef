@@ -1399,8 +1399,8 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        let class_used = (!typ.is_opaque && !typ.fields.is_empty())
-            || typ.methods.iter().any(|m| !m.is_static && !m.sanitized);
+        let class_used =
+            (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static && !m.sanitized);
         let binding = if class_used { "class" } else { "_class" };
         lines.push(format!(
             r#"    let {binding} = module.define_class("{}", ruby.class_object())?;"#,

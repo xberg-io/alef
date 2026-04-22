@@ -62,9 +62,7 @@ pub fn escape_js(s: &str) -> String {
 /// Template literals interpolate `${...}` and use backtick delimiters, so both
 /// `` ` `` and `$` must be escaped to prevent unintended interpolation.
 pub fn escape_js_template(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('`', "\\`")
-        .replace('$', "\\$")
+    s.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$")
 }
 
 /// Format a string as a Go string literal (backtick or quoted).
