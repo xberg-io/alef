@@ -20,6 +20,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),
@@ -97,6 +98,7 @@ fn make_config() -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),
@@ -1335,7 +1337,7 @@ fn test_php_visitor_bridge_produces_visitor_struct() {
     let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("PhpHtmlVisitorBridge"),
@@ -1358,7 +1360,7 @@ fn test_php_visitor_bridge_has_php_obj_field() {
     let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
@@ -1381,7 +1383,7 @@ fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
     let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("pub struct PhpOcrBackendBridge"),
@@ -1408,7 +1410,7 @@ fn test_php_plugin_bridge_generates_super_trait_impl() {
     let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("impl my_lib::Plugin for PhpOcrBackendBridge"),
@@ -1436,7 +1438,7 @@ fn test_php_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("impl my_lib::OcrBackend for PhpOcrBackendBridge"),
@@ -1459,7 +1461,7 @@ fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute(
     let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("#[php_function]"),
@@ -1492,7 +1494,7 @@ fn test_php_plugin_bridge_validates_required_methods() {
     };
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     // Registration fn must null-check the required method "analyze" via get_property
     assert!(
@@ -1513,7 +1515,7 @@ fn test_php_sync_method_body_uses_try_call_method() {
     let bridge_cfg = make_plugin_bridge_cfg_php("Scanner");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("try_call_method"),
@@ -1529,7 +1531,7 @@ fn test_php_async_method_body_uses_box_pin() {
     let bridge_cfg = make_plugin_bridge_cfg_php("Processor");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("Box::pin(async move"),
@@ -1548,7 +1550,7 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
     let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
     let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("unsafe impl Send for PhpHtmlVisitorBridge"),

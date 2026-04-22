@@ -2829,6 +2829,7 @@ fn test_trait_bridge_spec_wrapper_name() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     assert_eq!(spec.wrapper_name(), "PythonMyTraitBridge");
@@ -2845,6 +2846,7 @@ fn test_trait_bridge_spec_trait_snake() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     assert_eq!(spec.trait_snake(), "my_trait");
@@ -2861,6 +2863,7 @@ fn test_trait_bridge_spec_required_vs_optional_methods() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let required = spec.required_methods();
@@ -2883,6 +2886,7 @@ fn test_gen_bridge_wrapper_struct_contains_foreign_type_and_cached_name() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
     let generator = MockBridgeGenerator;
 
@@ -2910,6 +2914,7 @@ fn test_gen_bridge_trait_impl_generates_methods() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
     let generator = MockBridgeGenerator;
 
@@ -2935,6 +2940,7 @@ fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
     let generator = MockBridgeGenerator;
 
@@ -2981,6 +2987,7 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
     let generator = MockBridgeGenerator;
 

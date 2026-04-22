@@ -607,6 +607,7 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     } else {
         format!("\n{extra_deps}")
     };
+    let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
     let content = format!(
         r#"{pkg_header}
 
@@ -626,7 +627,7 @@ tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
 workspace = true
 "#,
         pkg_header = pkg_header,
-        lib_name = format!("{}_rb", core_crate_dir.replace('-', "_")),
+        lib_name = lib_name,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),

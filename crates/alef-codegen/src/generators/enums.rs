@@ -11,9 +11,12 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
 /// Returns true if any variant of the enum has a sanitized field.
 ///
 /// A sanitized field means the extractor could not resolve the field's concrete type
-/// (e.g. a `dyn Stream` or another unsized / non-serde type). When this is true the
-/// core enum does NOT implement `Serialize`, `Deserialize`, or `Default`, so the
-/// binding must not try to forward those impls.
+/// (e.g. a tuple like `Vec<(String, String)>` that has no direct IR representation).
+/// When this is true the `#[new]` constructor that round-trips via serde/JSON cannot
+/// be generated, because the Python-dict → JSON → core deserialization path would not
+/// produce a valid value for the sanitized field. The forwarding trait impls
+/// (`Default`, `Serialize`, `Deserialize`) are still generated unconditionally since
+/// the wrapper struct always delegates to the core type.
 fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
     enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.sanitized))
 }
@@ -26,9 +29,10 @@ fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
 ///
 /// When any variant field is sanitized (its type could not be resolved — e.g. contains
 /// `dyn Stream + Send` which is not `Serialize`/`Deserialize`/`Default`), the serde-
-/// based constructor and trait impls are omitted. The constructor body uses `todo!()`
-/// so the generated code still compiles while making it clear the conversion is not
-/// available at runtime.
+/// based `#[new]` constructor is omitted. The type is still useful as a return value
+/// from Rust (passed back via From impls). The forwarding impls for Default, Serialize,
+/// and Deserialize are always generated regardless of sanitized fields, because the
+/// wrapper struct always delegates to the core type which implements those traits.
 pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
     let core_path = crate::conversions::core_enum_path(enum_def, core_import);
@@ -45,9 +49,9 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     writeln!(out, "#[pymethods]").ok();
     writeln!(out, "impl {name} {{").ok();
     if has_sanitized {
-        // The core type cannot be serde round-tripped (contains non-Serialize variants).
-        // Omit the #[new] constructor entirely — the type is still useful as a return value
-        // from Rust (passed back via From impls), but cannot be constructed from Python.
+        // The core type cannot be serde round-tripped from a Python dict (contains
+        // non-representable variant fields). Omit the #[new] constructor — the type
+        // is still useful as a return value from Rust passed back via From impls.
         writeln!(out, "}}").ok();
     } else {
         writeln!(out, "    #[new]").ok();
@@ -84,44 +88,44 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     writeln!(out, "impl From<{core_path}> for {name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{ Self {{ inner: val }} }}").ok();
     writeln!(out, "}}").ok();
+    writeln!(out).ok();
 
-    if !has_sanitized {
-        writeln!(out).ok();
+    // Serialize: forward to inner so parent structs that derive serde::Serialize compile.
+    // Always generated — the wrapper delegates to the core type which always implements Serialize.
+    writeln!(out, "impl serde::Serialize for {name} {{").ok();
+    writeln!(
+        out,
+        "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{"
+    )
+    .ok();
+    writeln!(out, "        self.inner.serialize(serializer)").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
 
-        // Serialize: forward to inner so parent structs that derive serde::Serialize compile.
-        writeln!(out, "impl serde::Serialize for {name} {{").ok();
-        writeln!(
-            out,
-            "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {{"
-        )
-        .ok();
-        writeln!(out, "        self.inner.serialize(serializer)").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
+    // Default: forward to inner's Default so parent structs that derive Default compile.
+    // Always generated — the wrapper delegates to the core type which always implements Default.
+    writeln!(out, "impl Default for {name} {{").ok();
+    writeln!(
+        out,
+        "    fn default() -> Self {{ Self {{ inner: Default::default() }} }}"
+    )
+    .ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
 
-        // Default: forward to inner's Default so parent structs that derive Default compile.
-        writeln!(out, "impl Default for {name} {{").ok();
-        writeln!(
-            out,
-            "    fn default() -> Self {{ Self {{ inner: Default::default() }} }}"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
-        writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
-        writeln!(
-            out,
-            "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
-        )
-        .ok();
-        writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
-        writeln!(out, "        Ok(Self {{ inner }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-    }
+    // Deserialize: forward to inner so parent structs that derive serde::Deserialize compile.
+    // Always generated — the wrapper delegates to the core type which always implements Deserialize.
+    writeln!(out, "impl<'de> serde::Deserialize<'de> for {name} {{").ok();
+    writeln!(
+        out,
+        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {{"
+    )
+    .ok();
+    writeln!(out, "        let inner = {core_path}::deserialize(deserializer)?;").ok();
+    writeln!(out, "        Ok(Self {{ inner }})").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
 
     out
 }

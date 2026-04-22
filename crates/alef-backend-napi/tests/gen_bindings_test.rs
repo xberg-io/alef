@@ -36,6 +36,7 @@ fn make_config() -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),
@@ -1209,7 +1210,7 @@ fn test_napi_visitor_bridge_produces_visitor_struct() {
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("JsHtmlVisitorBridge"),
@@ -1232,7 +1233,7 @@ fn test_napi_visitor_bridge_has_obj_field() {
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("obj: napi::bindgen_prelude::Object<'static>"),
@@ -1251,7 +1252,7 @@ fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("pub struct JsOcrBackendBridge"),
@@ -1278,7 +1279,7 @@ fn test_napi_plugin_bridge_generates_super_trait_impl() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("impl my_lib::Plugin for JsOcrBackendBridge"),
@@ -1306,7 +1307,7 @@ fn test_napi_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("impl my_lib::OcrBackend for JsOcrBackendBridge"),
@@ -1329,7 +1330,7 @@ fn test_napi_plugin_bridge_generates_registration_fn_with_napi_attribute() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("#[napi]"),
@@ -1362,7 +1363,7 @@ fn test_napi_plugin_bridge_validates_required_methods() {
     };
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     // Constructor must check for the required method "analyze"
     assert!(
@@ -1379,7 +1380,7 @@ fn test_napi_sync_method_body_uses_get_named_property() {
     let bridge_cfg = make_plugin_bridge_cfg("Scanner");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("get_named_property"),
@@ -1395,7 +1396,7 @@ fn test_napi_async_method_body_uses_box_pin() {
     let bridge_cfg = make_plugin_bridge_cfg("Processor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("Box::pin(async move"),

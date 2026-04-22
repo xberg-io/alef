@@ -119,7 +119,7 @@ fn test_gen_trait_bridge_vtable_is_repr_c() {
     let bridge_cfg = make_bridge_cfg("OcrBackend");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(code.contains("#[repr(C)]"), "vtable struct must be #[repr(C)]");
     assert!(
@@ -140,7 +140,7 @@ fn test_gen_trait_bridge_vtable_has_function_pointer_fields_for_each_method() {
     let bridge_cfg = make_bridge_cfg("Analyzer");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("pub analyze:"),
@@ -162,7 +162,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_are_optional_extern_c() {
     let bridge_cfg = make_bridge_cfg("Scanner");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("Option<unsafe extern \"C\" fn("),
@@ -184,7 +184,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_take_user_data_first() {
     let bridge_cfg = make_bridge_cfg("Checker");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("user_data: *const std::ffi::c_void"),
@@ -206,7 +206,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
     let bridge_cfg = make_bridge_cfg("Greeter");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "g", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "g", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("*const std::ffi::c_char"),
@@ -231,7 +231,7 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", "Error::from({msg})", &api);
 
     // Convention: {prefix}_register_{trait_snake}
     assert!(
@@ -253,7 +253,7 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", "Error::from({msg})", &api);
 
     // Convention: {prefix}_unregister_{trait_snake}
     assert!(
@@ -276,7 +276,7 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
     let bridge_cfg = make_bridge_cfg("HtmlVisitor");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "Error", "Error::from({msg})", &api);
 
     // Without register_fn, no #[unsafe(no_mangle)] exported function is generated.
     // The vtable fields still contain `extern "C" fn` pointer *types*, but no
@@ -308,7 +308,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", "Error::from({msg})", &api);
 
     // When super_trait = "Plugin", the vtable must include Plugin lifecycle fn pointers
     assert!(
@@ -342,7 +342,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("impl my_lib::Plugin for KrOcrBackendBridge"),
@@ -369,7 +369,7 @@ fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
     let bridge_cfg = make_bridge_cfg("Runner");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "rn", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "rn", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("vtable: RnRunnerVTable"),
@@ -391,7 +391,7 @@ fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
     let bridge_cfg = make_bridge_cfg("Worker");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "wk", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "wk", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("unsafe impl Send for WkWorkerBridge"),
@@ -416,7 +416,7 @@ fn test_gen_trait_bridge_safety_comments_present() {
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("// SAFETY:"),
@@ -430,7 +430,7 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
     let bridge_cfg = make_bridge_cfg("Plugin");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "p", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "p", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("impl Drop for PPluginBridge"),
@@ -449,7 +449,7 @@ fn test_gen_trait_bridge_generates_trait_impl() {
     let bridge_cfg = make_bridge_cfg("Scanner");
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "sc", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "sc", "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.contains("impl my_lib::Scanner for ScScannerBridge"),
@@ -477,7 +477,7 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
     };
     let api = make_api();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "Error", "Error::from({msg})", &api);
 
     // Required method fn ptr must be null-checked; optional need not be
     assert!(

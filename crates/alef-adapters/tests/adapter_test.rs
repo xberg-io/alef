@@ -23,6 +23,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages,
         exclude: Default::default(),

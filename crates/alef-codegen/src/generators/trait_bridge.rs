@@ -1211,7 +1211,7 @@ mod tests {
         let generator = MockBridgeGenerator;
         let result = gen_bridge_trait_impl(&spec, &generator);
         assert!(
-            result.contains("-> Result<String, MyError>"),
+            result.contains("-> Result<String, mylib::MyError>"),
             "missing Result return type in:\n{result}"
         );
     }

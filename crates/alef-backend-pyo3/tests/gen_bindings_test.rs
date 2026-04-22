@@ -39,6 +39,7 @@ fn make_config() -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),
@@ -1534,6 +1535,7 @@ fn test_gen_sync_method_body_unit_return_no_error() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def("tick", vec![], TypeRef::Unit, false, false, false);
@@ -1562,6 +1564,7 @@ fn test_gen_sync_method_body_string_return_no_error() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
@@ -1587,6 +1590,7 @@ fn test_gen_sync_method_body_with_params_uses_call_method1() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def(
@@ -1617,6 +1621,7 @@ fn test_gen_sync_method_body_with_error_uses_map_err() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def("run", vec![], TypeRef::Unit, false, true, false);
@@ -1648,6 +1653,7 @@ fn test_gen_async_method_body_uses_spawn_blocking() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def("fetch", vec![], TypeRef::String, true, true, false);
@@ -1679,6 +1685,7 @@ fn test_gen_async_method_body_clones_ref_params() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def(
@@ -1710,6 +1717,7 @@ fn test_gen_async_method_body_unit_return() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let method = make_method_def("shutdown", vec![], TypeRef::Unit, true, true, false);
@@ -1749,6 +1757,7 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1779,6 +1788,7 @@ fn test_gen_registration_fn_validates_required_methods() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1827,6 +1837,7 @@ fn test_gen_registration_fn_calls_registry_getter() {
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1863,7 +1874,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(!code.code.is_empty(), "gen_trait_bridge must produce non-empty output");
     assert!(
@@ -1894,7 +1905,7 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     // The wrapper struct must hold the Python object and a cached name field
     assert!(
@@ -1921,7 +1932,7 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
         code.code.contains("fn register_inference_backend"),
@@ -1960,7 +1971,7 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(!code.code.is_empty(), "output must not be empty");
     // Sync method body uses Python::attach (no spawn_blocking)

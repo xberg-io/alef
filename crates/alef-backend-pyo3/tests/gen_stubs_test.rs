@@ -37,6 +37,7 @@ fn make_config_with_stubs() -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),

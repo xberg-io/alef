@@ -653,6 +653,7 @@ mod tests {
                 extra_dependencies: Default::default(),
                 source_crates: vec![],
                 error_type: None,
+                error_constructor: None,
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),

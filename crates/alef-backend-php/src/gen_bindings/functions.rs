@@ -596,8 +596,8 @@ fn gen_function_body(
             )
         }
     } else if func.sanitized {
-        // Sanitized functions cannot be auto-delegated — skip entirely.
-        String::new()
+        // Sanitized functions cannot be auto-delegated — emit a safe default return value.
+        gen_stub_return(&func.return_type)
     } else {
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
         // serde is available (avoids the missing From<BindingType> for core type compile error),
@@ -814,4 +814,23 @@ pub(crate) fn gen_async_static_method(
 ) -> String {
     // Async static methods are not auto-delegatable — skip entirely.
     String::new()
+}
+
+/// Generate a safe stub return expression for a sanitized function that cannot be auto-delegated.
+fn gen_stub_return(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Optional(_) => "None".to_string(),
+        TypeRef::Vec(_) => "Vec::new()".to_string(),
+        TypeRef::String => "String::new()".to_string(),
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "false".to_string(),
+                PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                _ => "0".to_string(),
+            }
+        }
+        TypeRef::Map(_, _) => "Default::default()".to_string(),
+        _ => "Default::default()".to_string(),
+    }
 }

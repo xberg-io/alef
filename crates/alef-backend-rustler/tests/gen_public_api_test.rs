@@ -22,6 +22,7 @@ fn make_config(app_name: &str) -> AlefConfig {
             extra_dependencies: Default::default(),
             source_crates: vec![],
             error_type: None,
+            error_constructor: None,
         },
         languages: vec![],
         exclude: Default::default(),
