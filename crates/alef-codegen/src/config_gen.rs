@@ -1171,4 +1171,942 @@ mod tests {
         assert_eq!(default_value_for_field(&field, "python"), "0");
         assert_eq!(default_value_for_field(&field, "go"), "0");
     }
+
+    fn make_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }
+    }
+
+    fn simple_type_mapper(tr: &TypeRef) -> String {
+        match tr {
+            TypeRef::Primitive(p) => match p {
+                PrimitiveType::U64 => "u64".to_string(),
+                PrimitiveType::Bool => "bool".to_string(),
+                PrimitiveType::U32 => "u32".to_string(),
+                _ => "i64".to_string(),
+            },
+            TypeRef::String | TypeRef::Char => "String".to_string(),
+            TypeRef::Optional(inner) => format!("Option<{}>", simple_type_mapper(inner)),
+            TypeRef::Vec(inner) => format!("Vec<{}>", simple_type_mapper(inner)),
+            TypeRef::Named(n) => n.clone(),
+            _ => "Value".to_string(),
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // default_value_for_field — untested branches
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_default_value_bool_literal_ruby() {
+        let field = FieldDef {
+            name: "flag".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::BoolLiteral(true)),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "ruby"), "true");
+        assert_eq!(default_value_for_field(&field, "php"), "true");
+        assert_eq!(default_value_for_field(&field, "csharp"), "true");
+        assert_eq!(default_value_for_field(&field, "java"), "true");
+        assert_eq!(default_value_for_field(&field, "rust"), "true");
+    }
+
+    #[test]
+    fn test_default_value_bool_literal_r() {
+        let field = FieldDef {
+            name: "flag".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::BoolLiteral(false)),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "r"), "FALSE");
+    }
+
+    #[test]
+    fn test_default_value_string_literal_rust() {
+        let field = FieldDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::StringLiteral("hello".to_string())),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "rust"), "\"hello\".to_string()");
+    }
+
+    #[test]
+    fn test_default_value_string_literal_escapes_quotes() {
+        let field = FieldDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::StringLiteral("say \"hi\"".to_string())),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "\"say \\\"hi\\\"\"");
+    }
+
+    #[test]
+    fn test_default_value_float_literal_whole_number() {
+        // A whole-number float should be rendered with ".0" suffix.
+        let field = FieldDef {
+            name: "scale".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::F32),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::FloatLiteral(2.0)),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        let result = default_value_for_field(&field, "python");
+        assert!(result.contains('.'), "whole-number float should contain '.': {result}");
+    }
+
+    #[test]
+    fn test_default_value_enum_variant_per_language() {
+        let field = FieldDef {
+            name: "format".to_string(),
+            ty: TypeRef::Named("OutputFormat".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::EnumVariant("JsonOutput".to_string())),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "OutputFormat.JSON_OUTPUT");
+        assert_eq!(default_value_for_field(&field, "ruby"), "OutputFormat::JsonOutput");
+        assert_eq!(default_value_for_field(&field, "go"), "OutputFormatJsonOutput");
+        assert_eq!(default_value_for_field(&field, "java"), "OutputFormat.JSON_OUTPUT");
+        assert_eq!(default_value_for_field(&field, "csharp"), "OutputFormat.JsonOutput");
+        assert_eq!(default_value_for_field(&field, "php"), "OutputFormat::JsonOutput");
+        assert_eq!(default_value_for_field(&field, "r"), "OutputFormat$JsonOutput");
+        assert_eq!(default_value_for_field(&field, "rust"), "OutputFormat::JsonOutput");
+    }
+
+    #[test]
+    fn test_default_value_empty_vec_per_language() {
+        let field = FieldDef {
+            name: "items".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::String)),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "[]");
+        assert_eq!(default_value_for_field(&field, "ruby"), "[]");
+        assert_eq!(default_value_for_field(&field, "csharp"), "[]");
+        assert_eq!(default_value_for_field(&field, "go"), "nil");
+        assert_eq!(default_value_for_field(&field, "java"), "List.of()");
+        assert_eq!(default_value_for_field(&field, "php"), "[]");
+        assert_eq!(default_value_for_field(&field, "r"), "c()");
+        assert_eq!(default_value_for_field(&field, "rust"), "vec![]");
+    }
+
+    #[test]
+    fn test_default_value_empty_map_per_language() {
+        let field = FieldDef {
+            name: "meta".to_string(),
+            ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "{}");
+        assert_eq!(default_value_for_field(&field, "go"), "nil");
+        assert_eq!(default_value_for_field(&field, "java"), "Map.of()");
+        assert_eq!(default_value_for_field(&field, "rust"), "Default::default()");
+    }
+
+    #[test]
+    fn test_default_value_empty_bool_primitive() {
+        let field = FieldDef {
+            name: "flag".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "False");
+        assert_eq!(default_value_for_field(&field, "ruby"), "false");
+        assert_eq!(default_value_for_field(&field, "go"), "false");
+    }
+
+    #[test]
+    fn test_default_value_empty_float_primitive() {
+        let field = FieldDef {
+            name: "ratio".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::F64),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "0.0");
+    }
+
+    #[test]
+    fn test_default_value_empty_string_type() {
+        let field = FieldDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "rust"), "String::new()");
+        assert_eq!(default_value_for_field(&field, "python"), "\"\"");
+    }
+
+    #[test]
+    fn test_default_value_empty_bytes_type() {
+        let field = FieldDef {
+            name: "data".to_string(),
+            ty: TypeRef::Bytes,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "b\"\"");
+        assert_eq!(default_value_for_field(&field, "go"), "[]byte{}");
+        assert_eq!(default_value_for_field(&field, "rust"), "vec![]");
+    }
+
+    #[test]
+    fn test_default_value_empty_json_type() {
+        let field = FieldDef {
+            name: "payload".to_string(),
+            ty: TypeRef::Json,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "python"), "{}");
+        assert_eq!(default_value_for_field(&field, "ruby"), "{}");
+        assert_eq!(default_value_for_field(&field, "go"), "json.RawMessage(nil)");
+        assert_eq!(default_value_for_field(&field, "r"), "list()");
+        assert_eq!(default_value_for_field(&field, "rust"), "serde_json::json!({})");
+    }
+
+    #[test]
+    fn test_default_value_none_ruby_php_r() {
+        let field = FieldDef {
+            name: "maybe".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::None),
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(default_value_for_field(&field, "ruby"), "nil");
+        assert_eq!(default_value_for_field(&field, "php"), "null");
+        assert_eq!(default_value_for_field(&field, "r"), "NULL");
+        assert_eq!(default_value_for_field(&field, "rust"), "None");
+    }
+
+    // -------------------------------------------------------------------------
+    // Fallback (no typed_default, no default) — type-based zero values
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_default_value_fallback_bool_all_languages() {
+        let field = make_field("flag", TypeRef::Primitive(PrimitiveType::Bool));
+        assert_eq!(default_value_for_field(&field, "python"), "False");
+        assert_eq!(default_value_for_field(&field, "ruby"), "false");
+        assert_eq!(default_value_for_field(&field, "csharp"), "false");
+        assert_eq!(default_value_for_field(&field, "java"), "false");
+        assert_eq!(default_value_for_field(&field, "php"), "false");
+        assert_eq!(default_value_for_field(&field, "r"), "FALSE");
+        assert_eq!(default_value_for_field(&field, "rust"), "false");
+    }
+
+    #[test]
+    fn test_default_value_fallback_float() {
+        let field = make_field("ratio", TypeRef::Primitive(PrimitiveType::F64));
+        assert_eq!(default_value_for_field(&field, "python"), "0.0");
+        assert_eq!(default_value_for_field(&field, "rust"), "0.0");
+    }
+
+    #[test]
+    fn test_default_value_fallback_string_all_languages() {
+        let field = make_field("name", TypeRef::String);
+        assert_eq!(default_value_for_field(&field, "python"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "ruby"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "go"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "java"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "csharp"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "php"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "r"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "rust"), "String::new()");
+    }
+
+    #[test]
+    fn test_default_value_fallback_bytes_all_languages() {
+        let field = make_field("data", TypeRef::Bytes);
+        assert_eq!(default_value_for_field(&field, "python"), "b\"\"");
+        assert_eq!(default_value_for_field(&field, "ruby"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "go"), "[]byte{}");
+        assert_eq!(default_value_for_field(&field, "java"), "new byte[]{}");
+        assert_eq!(default_value_for_field(&field, "csharp"), "new byte[]{}");
+        assert_eq!(default_value_for_field(&field, "php"), "\"\"");
+        assert_eq!(default_value_for_field(&field, "r"), "raw()");
+        assert_eq!(default_value_for_field(&field, "rust"), "vec![]");
+    }
+
+    #[test]
+    fn test_default_value_fallback_optional() {
+        let field = make_field("maybe", TypeRef::Optional(Box::new(TypeRef::String)));
+        assert_eq!(default_value_for_field(&field, "python"), "None");
+        assert_eq!(default_value_for_field(&field, "ruby"), "nil");
+        assert_eq!(default_value_for_field(&field, "go"), "nil");
+        assert_eq!(default_value_for_field(&field, "java"), "null");
+        assert_eq!(default_value_for_field(&field, "csharp"), "null");
+        assert_eq!(default_value_for_field(&field, "php"), "null");
+        assert_eq!(default_value_for_field(&field, "r"), "NULL");
+        assert_eq!(default_value_for_field(&field, "rust"), "None");
+    }
+
+    #[test]
+    fn test_default_value_fallback_vec_all_languages() {
+        let field = make_field("items", TypeRef::Vec(Box::new(TypeRef::String)));
+        assert_eq!(default_value_for_field(&field, "python"), "[]");
+        assert_eq!(default_value_for_field(&field, "ruby"), "[]");
+        assert_eq!(default_value_for_field(&field, "go"), "[]interface{}{}");
+        assert_eq!(default_value_for_field(&field, "java"), "new java.util.ArrayList<>()");
+        assert_eq!(default_value_for_field(&field, "csharp"), "[]");
+        assert_eq!(default_value_for_field(&field, "php"), "[]");
+        assert_eq!(default_value_for_field(&field, "r"), "c()");
+        assert_eq!(default_value_for_field(&field, "rust"), "vec![]");
+    }
+
+    #[test]
+    fn test_default_value_fallback_map_all_languages() {
+        let field = make_field(
+            "meta",
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        );
+        assert_eq!(default_value_for_field(&field, "python"), "{}");
+        assert_eq!(default_value_for_field(&field, "ruby"), "{}");
+        assert_eq!(default_value_for_field(&field, "go"), "make(map[string]interface{})");
+        assert_eq!(default_value_for_field(&field, "java"), "new java.util.HashMap<>()");
+        assert_eq!(default_value_for_field(&field, "csharp"), "new Dictionary<string, object>()");
+        assert_eq!(default_value_for_field(&field, "php"), "[]");
+        assert_eq!(default_value_for_field(&field, "r"), "list()");
+        assert_eq!(default_value_for_field(&field, "rust"), "std::collections::HashMap::new()");
+    }
+
+    #[test]
+    fn test_default_value_fallback_json_all_languages() {
+        let field = make_field("payload", TypeRef::Json);
+        assert_eq!(default_value_for_field(&field, "python"), "{}");
+        assert_eq!(default_value_for_field(&field, "ruby"), "{}");
+        assert_eq!(default_value_for_field(&field, "go"), "json.RawMessage(nil)");
+        assert_eq!(default_value_for_field(&field, "r"), "list()");
+        assert_eq!(default_value_for_field(&field, "rust"), "serde_json::json!({})");
+    }
+
+    #[test]
+    fn test_default_value_fallback_named_type() {
+        let field = make_field("config", TypeRef::Named("MyConfig".to_string()));
+        assert_eq!(default_value_for_field(&field, "rust"), "MyConfig::default()");
+        assert_eq!(default_value_for_field(&field, "python"), "None");
+        assert_eq!(default_value_for_field(&field, "ruby"), "nil");
+        assert_eq!(default_value_for_field(&field, "go"), "nil");
+        assert_eq!(default_value_for_field(&field, "java"), "null");
+        assert_eq!(default_value_for_field(&field, "csharp"), "null");
+        assert_eq!(default_value_for_field(&field, "php"), "null");
+        assert_eq!(default_value_for_field(&field, "r"), "NULL");
+    }
+
+    #[test]
+    fn test_default_value_fallback_duration() {
+        // Duration falls through to the wildcard arm
+        let field = make_field("timeout", TypeRef::Duration);
+        assert_eq!(default_value_for_field(&field, "python"), "None");
+        assert_eq!(default_value_for_field(&field, "rust"), "Default::default()");
+    }
+
+    // -------------------------------------------------------------------------
+    // gen_magnus_kwargs_constructor — positional (≤15 fields)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_magnus_kwargs_constructor_positional_basic() {
+        let typ = make_test_type();
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(output.contains("fn new("), "should have fn new");
+        // All params are Option<T>
+        assert!(output.contains("Option<u64>"), "timeout should be Option<u64>");
+        assert!(output.contains("Option<bool>"), "enabled should be Option<bool>");
+        assert!(output.contains("Option<String>"), "name should be Option<String>");
+        assert!(output.contains("-> Self {"), "should return Self");
+        // timeout has IntLiteral(30), use_unwrap_or_default is false for Named → uses unwrap_or
+        assert!(output.contains("timeout: timeout.unwrap_or(30),"), "should apply int default");
+        // enabled has BoolLiteral(true), not unwrap_or_default
+        assert!(
+            output.contains("enabled: enabled.unwrap_or(true),"),
+            "should apply bool default"
+        );
+        // name has StringLiteral, not unwrap_or_default
+        assert!(
+            output.contains("name: name.unwrap_or(\"default\".to_string()),"),
+            "should apply string default"
+        );
+    }
+
+    #[test]
+    fn test_gen_magnus_kwargs_constructor_positional_optional_field() {
+        // A field with optional=true should be assigned directly (no unwrap)
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "extra".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        // Optional field param is Option<String> and assigned directly
+        assert!(output.contains("extra,"), "optional field should be assigned directly");
+        assert!(
+            !output.contains("extra.unwrap"),
+            "optional field should not use unwrap"
+        );
+    }
+
+    #[test]
+    fn test_gen_magnus_kwargs_constructor_unwrap_or_default() {
+        // A primitive field with no typed_default and no default should use unwrap_or_default()
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "count".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("count: count.unwrap_or_default(),"),
+            "plain primitive with no default should use unwrap_or_default"
+        );
+    }
+
+    #[test]
+    fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
+        // Build a type with 16 fields (> MAGNUS_MAX_ARITY = 15) to force hash path
+        let mut fields: Vec<FieldDef> = (0..16)
+            .map(|i| FieldDef {
+                name: format!("field_{i}"),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            })
+            .collect();
+        // Make one field optional to exercise that branch in the hash constructor
+        fields[0].optional = true;
+
+        let typ = TypeDef {
+            name: "BigConfig".to_string(),
+            rust_path: "crate::BigConfig".to_string(),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(output.contains("kwargs: magnus::RHash"), "should accept RHash");
+        assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
+        // Optional field uses and_then without unwrap_or
+        assert!(
+            output.contains("field_0: kwargs.get(ruby.to_symbol(\"field_0\")).and_then(|v|"),
+            "optional field should use and_then"
+        );
+        assert!(
+            !output.contains("field_0:").then(|| ()).is_none(),
+            "field_0 should appear in output"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // gen_php_kwargs_constructor
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_php_kwargs_constructor_basic() {
+        let typ = make_test_type();
+        let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(output.contains("pub fn __construct("), "should use PHP constructor name");
+        // All params are Option<T>
+        assert!(output.contains("timeout: Option<u64>"), "timeout param should be Option<u64>");
+        assert!(output.contains("enabled: Option<bool>"), "enabled param should be Option<bool>");
+        assert!(output.contains("name: Option<String>"), "name param should be Option<String>");
+        assert!(output.contains("-> Self {"), "should return Self");
+        assert!(
+            output.contains("timeout: timeout.unwrap_or(30),"),
+            "should apply int default for timeout"
+        );
+        assert!(
+            output.contains("enabled: enabled.unwrap_or(true),"),
+            "should apply bool default for enabled"
+        );
+        assert!(
+            output.contains("name: name.unwrap_or(\"default\".to_string()),"),
+            "should apply string default for name"
+        );
+    }
+
+    #[test]
+    fn test_gen_php_kwargs_constructor_optional_field_passthrough() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "tag".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(output.contains("tag,"), "optional field should be passed through directly");
+        assert!(!output.contains("tag.unwrap"), "optional field should not call unwrap");
+    }
+
+    #[test]
+    fn test_gen_php_kwargs_constructor_unwrap_or_default_for_primitive() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "retries".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("retries: retries.unwrap_or_default(),"),
+            "primitive with no default should use unwrap_or_default"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // gen_rustler_kwargs_constructor
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_rustler_kwargs_constructor_basic() {
+        let typ = make_test_type();
+        let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(
+            output.contains("pub fn new(opts: std::collections::HashMap<String, rustler::Term>)"),
+            "should accept HashMap of Terms"
+        );
+        assert!(output.contains("Self {"), "should construct Self");
+        // timeout has IntLiteral(30) — explicit unwrap_or
+        assert!(
+            output.contains("timeout: opts.get(\"timeout\").and_then(|t| t.decode().ok()).unwrap_or(30),"),
+            "should apply int default for timeout"
+        );
+        // enabled has BoolLiteral(true) — explicit unwrap_or
+        assert!(
+            output.contains("enabled: opts.get(\"enabled\").and_then(|t| t.decode().ok()).unwrap_or(true),"),
+            "should apply bool default for enabled"
+        );
+    }
+
+    #[test]
+    fn test_gen_rustler_kwargs_constructor_optional_field() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "extra".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("extra: opts.get(\"extra\").and_then(|t| t.decode().ok()),"),
+            "optional field should decode without unwrap"
+        );
+    }
+
+    #[test]
+    fn test_gen_rustler_kwargs_constructor_named_type_uses_unwrap_or_default() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "inner".to_string(),
+            ty: TypeRef::Named("InnerConfig".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("inner: opts.get(\"inner\").and_then(|t| t.decode().ok()).unwrap_or_default(),"),
+            "Named type with no default should use unwrap_or_default"
+        );
+    }
+
+    #[test]
+    fn test_gen_rustler_kwargs_constructor_string_field_uses_unwrap_or_default() {
+        // A String field with a StringLiteral default contains "::", triggering the
+        // is_enum_variant_default check — should fall back to unwrap_or_default().
+        let mut typ = make_test_type();
+        // 'name' field in make_test_type() has StringLiteral("default") — verify it
+        let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("name: opts.get(\"name\").and_then(|t| t.decode().ok()).unwrap_or_default(),"),
+            "String field with quoted default should use unwrap_or_default"
+        );
+        // Also verify a plain string field (no default) also falls through to unwrap_or_default
+        typ.fields.push(FieldDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output2 = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output2.contains("label: opts.get(\"label\").and_then(|t| t.decode().ok()).unwrap_or_default(),"),
+            "String field with no default should use unwrap_or_default"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // gen_extendr_kwargs_constructor
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_extendr_kwargs_constructor_basic() {
+        let typ = make_test_type();
+        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper);
+
+        assert!(output.contains("#[extendr]"), "should have extendr attribute");
+        assert!(
+            output.contains("pub fn new_config("),
+            "function name should be lowercase type name"
+        );
+        // Fields appear as named parameters with defaults
+        assert!(output.contains("timeout: u64 = 30"), "should include timeout with default");
+        // extendr passes "r" to default_value_for_field; BoolLiteral(true) → "TRUE" in R
+        assert!(output.contains("enabled: bool = TRUE"), "should include enabled with R bool default");
+        assert!(output.contains("name: String = \"default\""), "should include name with default");
+        assert!(output.contains("-> Config {"), "should return Config");
+        assert!(output.contains("Config {"), "should construct Config");
+        assert!(output.contains("timeout,"), "should include timeout in struct literal");
+        assert!(output.contains("enabled,"), "should include enabled in struct literal");
+        assert!(output.contains("name,"), "should include name in struct literal");
+    }
+
+    #[test]
+    fn test_gen_extendr_kwargs_constructor_r_bool_default() {
+        // R language uses TRUE/FALSE; extendr calls default_value_for_field with "r"
+        let mut typ = make_test_type();
+        // Replace the enabled field so it has no typed_default, forcing fallback
+        typ.fields.retain(|f| f.name != "enabled");
+        typ.fields.push(FieldDef {
+            name: "verbose".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper);
+        assert!(
+            output.contains("verbose: bool = FALSE"),
+            "R bool default should be FALSE: {output}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // gen_go_functional_options — tuple-field filtering
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_go_functional_options_skips_tuple_fields() {
+        let mut typ = make_test_type();
+        typ.fields.push(FieldDef {
+            name: "_0".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        });
+        let output = gen_go_functional_options(&typ, &simple_type_mapper);
+        assert!(
+            !output.contains("_0"),
+            "tuple field _0 should be filtered out from Go output"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // as_type_path_prefix — tested indirectly through hash constructor
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_magnus_hash_constructor_generic_type_prefix() {
+        // A field with a Vec type should use <Vec<...>>::try_convert UFCS form
+        let fields: Vec<FieldDef> = (0..16)
+            .map(|i| FieldDef {
+                name: format!("field_{i}"),
+                ty: if i == 0 {
+                    TypeRef::Vec(Box::new(TypeRef::String))
+                } else {
+                    TypeRef::Primitive(PrimitiveType::U32)
+                },
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            })
+            .collect();
+        let typ = TypeDef {
+            name: "WideConfig".to_string(),
+            rust_path: "crate::WideConfig".to_string(),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        // Vec<String> is a generic type; must use <Vec<String>>::try_convert
+        assert!(
+            output.contains("<Vec<String>>::try_convert"),
+            "generic types should use UFCS angle-bracket prefix: {output}"
+        );
+    }
 }

@@ -1,14 +1,25 @@
 use ahash::AHashSet;
 use alef_codegen::generators::{
     AdapterBodies, AsyncPattern, RustBindingConfig, binding_helpers, gen_constructor, gen_enum, gen_function,
-    gen_impl_block, gen_method, gen_static_method, gen_struct,
+    gen_impl_block, gen_method, gen_opaque_impl_block, gen_static_method, gen_struct,
+};
+use alef_codegen::generators::enums::enum_has_data_variants;
+use alef_codegen::generators::functions::{collect_explicit_core_imports, collect_trait_imports};
+use alef_codegen::generators::structs::{
+    can_generate_default_impl, gen_opaque_struct, gen_struct_default_impl, type_needs_mutex,
+};
+use alef_codegen::generators::trait_bridge::{
+    TraitBridgeGenerator, TraitBridgeSpec, format_param_type, format_type_ref, gen_bridge_all,
+    gen_bridge_trait_impl, gen_bridge_wrapper_struct,
 };
 use alef_codegen::type_mapper::TypeMapper;
+use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{
-    CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind,
-    TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    ReceiverKind, TypeDef, TypeRef,
 };
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 /// Minimal TypeMapper using plain Rust type names (no backend-specific overrides).
 struct RustMapper;
@@ -1768,4 +1779,1541 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
         result.contains("Ok(core_self.into())"),
         "should return Ok(core_self.into()) on success"
     );
+}
+
+// ==============================================================================
+// Additional tests for structs.rs
+// ==============================================================================
+
+#[test]
+fn test_type_needs_mutex_false_when_no_ref_mut_methods() {
+    let typ = simple_type_def();
+    assert!(!type_needs_mutex(&typ), "type with no RefMut methods should not need mutex");
+}
+
+#[test]
+fn test_type_needs_mutex_true_when_ref_mut_method_present() {
+    let mut typ = simple_type_def();
+    typ.methods = vec![MethodDef {
+        name: "mutate".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+    assert!(type_needs_mutex(&typ), "type with RefMut method should need mutex");
+}
+
+#[test]
+fn test_gen_opaque_struct_arc_inner() {
+    let typ = TypeDef {
+        name: "MyService".to_string(),
+        rust_path: "my_crate::MyService".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let cfg = default_cfg();
+
+    let result = gen_opaque_struct(&typ, &cfg);
+
+    assert!(result.contains("pub struct MyService {"), "should have struct declaration");
+    assert!(
+        result.contains("inner: Arc<my_crate::MyService>"),
+        "should have Arc<...> inner field"
+    );
+    assert!(!result.contains("Mutex"), "plain opaque should not use Mutex");
+}
+
+#[test]
+fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
+    let mut typ = TypeDef {
+        name: "MutableService".to_string(),
+        rust_path: "my_crate::MutableService".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "update".to_string(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::RefMut),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    typ.is_opaque = true;
+    let cfg = default_cfg();
+
+    let result = gen_opaque_struct(&typ, &cfg);
+
+    assert!(result.contains("pub struct MutableService {"), "should have struct declaration");
+    assert!(
+        result.contains("Arc<std::sync::Mutex<my_crate::MutableService>>"),
+        "should use Arc<Mutex<...>> for RefMut types"
+    );
+}
+
+#[test]
+fn test_gen_opaque_struct_trait_uses_dyn() {
+    let typ = TypeDef {
+        name: "MyTrait".to_string(),
+        rust_path: "my_crate::MyTrait".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let cfg = default_cfg();
+
+    let result = gen_opaque_struct(&typ, &cfg);
+
+    assert!(
+        result.contains("Arc<dyn my_crate::MyTrait + Send + Sync>"),
+        "trait opaque should use Arc<dyn Trait + Send + Sync>"
+    );
+}
+
+#[test]
+fn test_gen_struct_default_impl_generates_correct_impl() {
+    let typ = simple_type_def();
+
+    let result = gen_struct_default_impl(&typ, "");
+
+    assert!(result.contains("impl Default for MyConfig {"), "should generate Default impl");
+    assert!(result.contains("fn default() -> Self {"), "should have default() method");
+    assert!(
+        result.contains("name: Default::default()"),
+        "non-optional fields use Default::default()"
+    );
+    assert!(result.contains("count: Default::default()"), "optional field uses Default::default()");
+}
+
+#[test]
+fn test_gen_struct_default_impl_with_name_prefix() {
+    let typ = simple_type_def();
+
+    let result = gen_struct_default_impl(&typ, "Js");
+
+    assert!(
+        result.contains("impl Default for JsMyConfig {"),
+        "should use prefixed name"
+    );
+}
+
+#[test]
+fn test_gen_struct_default_impl_optional_field_uses_none() {
+    let typ = TypeDef {
+        name: "OptConfig".to_string(),
+        rust_path: "my_crate::OptConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "value".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let result = gen_struct_default_impl(&typ, "");
+
+    assert!(result.contains("value: None"), "Optional<T> fields should default to None");
+}
+
+#[test]
+fn test_can_generate_default_impl_all_primitives() {
+    let typ = simple_type_def();
+    let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    assert!(
+        can_generate_default_impl(&typ, &known),
+        "type with only primitives and strings can generate Default"
+    );
+}
+
+#[test]
+fn test_can_generate_default_impl_named_not_in_known_set() {
+    let typ = TypeDef {
+        name: "Compound".to_string(),
+        rust_path: "my_crate::Compound".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "inner".to_string(),
+            ty: TypeRef::Named("UnknownType".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    assert!(
+        !can_generate_default_impl(&typ, &known),
+        "type with Named field not in known set cannot generate Default"
+    );
+}
+
+#[test]
+fn test_can_generate_default_impl_named_in_known_set() {
+    let typ = TypeDef {
+        name: "Compound".to_string(),
+        rust_path: "my_crate::Compound".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "inner".to_string(),
+            ty: TypeRef::Named("KnownType".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    known.insert("KnownType");
+    assert!(
+        can_generate_default_impl(&typ, &known),
+        "type with Named field in known set can generate Default"
+    );
+}
+
+#[test]
+fn test_gen_struct_with_opaque_field_skips_serde_derives() {
+    let mut cfg = default_cfg();
+    let opaque_names = vec!["OpaqueHandle".to_string()];
+    cfg.opaque_type_names = &opaque_names;
+
+    let typ = TypeDef {
+        name: "Wrapper".to_string(),
+        rust_path: "my_crate::Wrapper".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "handle".to_string(),
+            ty: TypeRef::Named("OpaqueHandle".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let mapper = RustMapper;
+
+    let result = gen_struct(&typ, &mapper, &cfg);
+
+    assert!(result.contains("pub struct Wrapper"), "should generate struct");
+    assert!(!result.contains("serde::Serialize"), "should skip Serialize derive for opaque fields");
+    assert!(!result.contains("serde::Deserialize"), "should skip Deserialize derive for opaque fields");
+    assert!(!result.contains("Default"), "should skip Default derive for opaque fields");
+}
+
+#[test]
+fn test_gen_opaque_impl_block_returns_empty_when_no_methods() {
+    let typ = simple_type_def();
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+    let adapter_bodies = AdapterBodies::default();
+
+    // simple_type_def has no methods and has fields, but gen_opaque_impl_block
+    // returns empty when there are no emittable methods (fields are ignored)
+    let result = gen_opaque_impl_block(&typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
+
+    assert!(result.is_empty(), "opaque impl block with no methods should be empty");
+}
+
+#[test]
+fn test_gen_opaque_impl_block_generates_impl_with_method() {
+    let mut typ = simple_type_def();
+    typ.is_opaque = true;
+    typ.methods = vec![MethodDef {
+        name: "run".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+    let adapter_bodies = AdapterBodies::default();
+
+    let result = gen_opaque_impl_block(&typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
+
+    assert!(result.contains("impl MyConfig {"), "should generate impl block");
+    assert!(result.contains("pub fn run"), "should contain the method");
+}
+
+// ==============================================================================
+// Additional tests for enums.rs
+// ==============================================================================
+
+#[test]
+fn test_enum_has_data_variants_false_for_unit_variants() {
+    let enum_def = simple_enum_def();
+    assert!(!enum_has_data_variants(&enum_def), "unit-only enum should not have data variants");
+}
+
+#[test]
+fn test_enum_has_data_variants_true_when_fields_present() {
+    let enum_def = EnumDef {
+        name: "DataEnum".to_string(),
+        rust_path: "my_crate::DataEnum".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "Variant".to_string(),
+            fields: vec![FieldDef {
+                name: "value".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+        }],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_rename_all: None,
+    };
+    assert!(enum_has_data_variants(&enum_def), "enum with fields should have data variants");
+}
+
+#[test]
+fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
+    let enum_def = EnumDef {
+        name: "Single".to_string(),
+        rust_path: "my_crate::Single".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "Only".to_string(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: true,
+            serde_rename: None,
+        }],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_rename_all: None,
+    };
+    let cfg = default_cfg();
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(result.contains("pub enum Single {"), "should have enum declaration");
+    assert!(result.contains("Only = 0"), "single variant has discriminant 0");
+    assert!(result.contains("#[default]"), "first variant gets #[default]");
+}
+
+#[test]
+fn test_gen_enum_with_enum_attrs() {
+    let enum_def = simple_enum_def();
+    let mut cfg = default_cfg();
+    let attrs = vec!["repr(u8)"];
+    cfg.enum_attrs = &attrs;
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(result.contains("#[repr(u8)]"), "should include enum attrs");
+}
+
+#[test]
+fn test_gen_enum_always_derives_serde() {
+    let enum_def = simple_enum_def();
+    let cfg = default_cfg();
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(result.contains("serde::Serialize"), "should always derive Serialize");
+    assert!(result.contains("serde::Deserialize"), "should always derive Deserialize");
+}
+
+#[test]
+fn test_gen_enum_discriminant_increments_correctly() {
+    let enum_def = EnumDef {
+        name: "Status".to_string(),
+        rust_path: "my_crate::Status".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Active".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Inactive".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Pending".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Deleted".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_rename_all: None,
+    };
+    let cfg = default_cfg();
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(result.contains("Active = 0"), "first variant = 0");
+    assert!(result.contains("Inactive = 1"), "second variant = 1");
+    assert!(result.contains("Pending = 2"), "third variant = 2");
+    assert!(result.contains("Deleted = 3"), "fourth variant = 3");
+    // Only first variant has #[default]
+    assert!(result.contains("#[default]"), "should have #[default]");
+}
+
+#[test]
+fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
+    let enum_def = EnumDef {
+        name: "PythonKeywords".to_string(),
+        rust_path: "my_crate::PythonKeywords".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "None".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "True".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Normal".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_rename_all: None,
+    };
+    let mut cfg = default_cfg();
+    let attrs = ["pyclass(eq, eq_int)"];
+    cfg.enum_attrs = &attrs;
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(
+        result.contains("#[pyo3(name = \"None_\")]"),
+        "Python keyword 'None' should be renamed"
+    );
+    assert!(
+        result.contains("#[pyo3(name = \"True_\")]"),
+        "Python keyword 'True' should be renamed"
+    );
+    assert!(
+        !result.contains("#[pyo3(name = \"Normal_\")]"),
+        "non-keyword 'Normal' should not be renamed"
+    );
+}
+
+#[test]
+fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
+    let enum_def = EnumDef {
+        name: "Formats".to_string(),
+        rust_path: "my_crate::Formats".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "None".to_string(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: true,
+            serde_rename: None,
+        }],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_rename_all: None,
+    };
+    let cfg = default_cfg(); // no pyclass attr
+
+    let result = gen_enum(&enum_def, &cfg);
+
+    assert!(
+        !result.contains("#[pyo3(name = \"None_\")]"),
+        "without pyclass, should not emit pyo3 rename"
+    );
+    assert!(result.contains("None = 0"), "variant should still appear");
+}
+
+// ==============================================================================
+// Additional tests for functions.rs
+// ==============================================================================
+
+#[test]
+fn test_gen_function_async_produces_async_signature() {
+    let mut func = simple_function_def();
+    func.is_async = true;
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("pub async fn process"), "async function should have async keyword");
+}
+
+#[test]
+fn test_gen_function_with_error_type_wraps_in_result() {
+    let mut func = simple_function_def();
+    func.error_type = Some("MyError".to_string());
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("-> Result"), "function with error_type should return Result");
+    assert!(
+        result.contains("missing_errors_doc"),
+        "should suppress missing_errors_doc lint"
+    );
+}
+
+#[test]
+fn test_gen_function_with_no_params_generates_empty_param_list() {
+    let func = FunctionDef {
+        name: "get_version".to_string(),
+        rust_path: "my_crate::get_version".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("pub fn get_version()"), "should have empty parameter list");
+    assert!(result.contains("-> String"), "should have String return type");
+}
+
+#[test]
+fn test_gen_function_with_optional_param_wraps_in_option() {
+    let func = FunctionDef {
+        name: "search".to_string(),
+        rust_path: "my_crate::search".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "query".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+            ParamDef {
+                name: "limit".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            },
+        ],
+        return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let mapper = RustMapper;
+    let cfg = default_cfg();
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("query: String"), "required param should be plain type");
+    assert!(result.contains("limit: Option<u32>"), "optional param should be wrapped in Option");
+}
+
+#[test]
+fn test_gen_function_uses_function_attr() {
+    let func = simple_function_def();
+    let mapper = RustMapper;
+    let cfg = default_cfg(); // function_attr = "#[no_mangle]"
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("#[no_mangle]"), "should include function_attr");
+}
+
+#[test]
+fn test_collect_trait_imports_empty_when_no_trait_methods() {
+    let api = ApiSurface {
+        crate_name: "my_crate".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![simple_type_def()],
+        enums: vec![],
+        functions: vec![],
+        errors: vec![],
+    };
+
+    let result = collect_trait_imports(&api);
+
+    assert!(result.is_empty(), "no trait methods means no trait imports");
+}
+
+#[test]
+fn test_collect_trait_imports_deduplicates_by_trait_name() {
+    let mut typ1 = simple_type_def();
+    typ1.methods = vec![MethodDef {
+        name: "execute".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: Some("my_crate::Executor".to_string()),
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+
+    let mut typ2 = simple_type_def();
+    typ2.name = "OtherType".to_string();
+    typ2.methods = vec![MethodDef {
+        name: "execute".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: Some("my_crate::Executor".to_string()),
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }];
+
+    let api = ApiSurface {
+        crate_name: "my_crate".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![typ1, typ2],
+        enums: vec![],
+        functions: vec![],
+        errors: vec![],
+    };
+
+    let result = collect_trait_imports(&api);
+
+    // Should deduplicate to one entry
+    assert_eq!(result.len(), 1, "should deduplicate same trait path");
+    assert_eq!(result[0], "my_crate::Executor");
+}
+
+#[test]
+fn test_collect_explicit_core_imports_returns_type_and_enum_names() {
+    let api = ApiSurface {
+        crate_name: "my_crate".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![simple_type_def()],
+        enums: vec![simple_enum_def()],
+        functions: vec![],
+        errors: vec![],
+    };
+
+    let result = collect_explicit_core_imports(&api);
+
+    assert!(result.contains(&"MyConfig".to_string()), "should include type name");
+    assert!(result.contains(&"OutputFormat".to_string()), "should include enum name");
+}
+
+#[test]
+fn test_collect_explicit_core_imports_is_sorted() {
+    let mut typ_b = simple_type_def();
+    typ_b.name = "Bravo".to_string();
+    let mut typ_a = simple_type_def();
+    typ_a.name = "Alpha".to_string();
+
+    let api = ApiSurface {
+        crate_name: "my_crate".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![typ_b, typ_a],
+        enums: vec![],
+        functions: vec![],
+        errors: vec![],
+    };
+
+    let result = collect_explicit_core_imports(&api);
+
+    assert_eq!(result, vec!["Alpha", "Bravo"], "imports should be alphabetically sorted");
+}
+
+// ==============================================================================
+// Tests for trait_bridge.rs
+// ==============================================================================
+
+/// Minimal TraitBridgeGenerator for testing the shared bridge helpers.
+struct MockBridgeGenerator;
+
+impl TraitBridgeGenerator for MockBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "MockObject"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec!["mock::MockObject".to_string()]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        format!("unimplemented!(\"sync: {}\")", method.name)
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        format!("unimplemented!(\"async: {}\")", method.name)
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        format!(
+            "impl {wrapper} {{\n    pub fn new(obj: MockObject) -> Self {{ Self {{ inner: obj, cached_name: String::new() }} }}\n}}"
+        )
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let fn_name = spec.bridge_config.register_fn.as_deref().unwrap_or("register");
+        format!("pub fn {fn_name}() {{}}")
+    }
+}
+
+fn simple_trait_def() -> TypeDef {
+    TypeDef {
+        name: "MyTrait".to_string(),
+        rust_path: "my_crate::MyTrait".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![
+            MethodDef {
+                name: "execute".to_string(),
+                params: vec![ParamDef {
+                    name: "input".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                }],
+                return_type: TypeRef::Primitive(PrimitiveType::U32),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+            },
+            MethodDef {
+                name: "optional_method".to_string(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: true,
+            },
+        ],
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "A test trait.".to_string(),
+        cfg: None,
+    }
+}
+
+fn simple_bridge_config() -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: "MyTrait".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+    }
+}
+
+#[test]
+fn test_trait_bridge_spec_wrapper_name() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+
+    assert_eq!(spec.wrapper_name(), "PythonMyTraitBridge");
+}
+
+#[test]
+fn test_trait_bridge_spec_trait_snake() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+
+    assert_eq!(spec.trait_snake(), "my_trait");
+}
+
+#[test]
+fn test_trait_bridge_spec_required_vs_optional_methods() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+
+    let required = spec.required_methods();
+    let optional = spec.optional_methods();
+
+    assert_eq!(required.len(), 1, "should have 1 required method");
+    assert_eq!(required[0].name, "execute");
+    assert_eq!(optional.len(), 1, "should have 1 optional method");
+    assert_eq!(optional[0].name, "optional_method");
+}
+
+#[test]
+fn test_gen_bridge_wrapper_struct_contains_foreign_type_and_cached_name() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+    let generator = MockBridgeGenerator;
+
+    let result = gen_bridge_wrapper_struct(&spec, &generator);
+
+    assert!(result.contains("pub struct PythonMyTraitBridge {"), "should have wrapper struct");
+    assert!(result.contains("inner: MockObject"), "should have inner field with foreign type");
+    assert!(result.contains("cached_name: String"), "should have cached_name field");
+}
+
+#[test]
+fn test_gen_bridge_trait_impl_generates_methods() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+    let generator = MockBridgeGenerator;
+
+    let result = gen_bridge_trait_impl(&spec, &generator);
+
+    assert!(
+        result.contains("impl my_crate::MyTrait for PythonMyTraitBridge {"),
+        "should implement the trait"
+    );
+    assert!(result.contains("fn execute("), "should have execute method");
+    assert!(result.contains("fn optional_method("), "should have optional_method");
+    assert!(result.contains("&self"), "should have self receiver");
+}
+
+#[test]
+fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
+    let trait_def = simple_trait_def();
+    let bridge_config = simple_bridge_config();
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+    let generator = MockBridgeGenerator;
+
+    let result = gen_bridge_all(&spec, &generator);
+
+    assert!(result.contains("use mock::MockObject;"), "should include bridge imports");
+    assert!(result.contains("pub struct PythonMyTraitBridge"), "should have wrapper struct");
+    assert!(result.contains("impl PythonMyTraitBridge {"), "should have constructor impl");
+    assert!(
+        result.contains("impl my_crate::MyTrait for PythonMyTraitBridge"),
+        "should have trait impl"
+    );
+    // No register_fn configured, so registration function should be absent
+    assert!(!result.contains("pub fn register"), "should not have registration fn when not configured");
+}
+
+#[test]
+fn test_gen_bridge_all_includes_registration_fn_when_configured() {
+    let trait_def = simple_trait_def();
+    let bridge_config = TraitBridgeConfig {
+        trait_name: "MyTrait".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: Some("register_my_trait".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_config,
+        core_import: "my_crate",
+        wrapper_prefix: "Python",
+        type_paths: HashMap::new(),
+    };
+    let generator = MockBridgeGenerator;
+
+    let result = gen_bridge_all(&spec, &generator);
+
+    assert!(
+        result.contains("pub fn register_my_trait"),
+        "should include registration function when register_fn is set"
+    );
+}
+
+#[test]
+fn test_format_type_ref_primitives() {
+    let type_paths = HashMap::new();
+
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::Bool), &type_paths), "bool");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U8), &type_paths), "u8");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U16), &type_paths), "u16");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U32), &type_paths), "u32");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U64), &type_paths), "u64");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::I32), &type_paths), "i32");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::I64), &type_paths), "i64");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::F32), &type_paths), "f32");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::F64), &type_paths), "f64");
+    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::Usize), &type_paths), "usize");
+}
+
+#[test]
+fn test_format_type_ref_special_types() {
+    let type_paths = HashMap::new();
+
+    assert_eq!(format_type_ref(&TypeRef::String, &type_paths), "String");
+    assert_eq!(format_type_ref(&TypeRef::Bytes, &type_paths), "Vec<u8>");
+    assert_eq!(format_type_ref(&TypeRef::Path, &type_paths), "std::path::PathBuf");
+    assert_eq!(format_type_ref(&TypeRef::Unit, &type_paths), "()");
+    assert_eq!(format_type_ref(&TypeRef::Json, &type_paths), "serde_json::Value");
+    assert_eq!(format_type_ref(&TypeRef::Duration, &type_paths), "std::time::Duration");
+}
+
+#[test]
+fn test_format_type_ref_optional_and_vec() {
+    let type_paths = HashMap::new();
+
+    let opt = TypeRef::Optional(Box::new(TypeRef::String));
+    assert_eq!(format_type_ref(&opt, &type_paths), "Option<String>");
+
+    let vec = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
+    assert_eq!(format_type_ref(&vec, &type_paths), "Vec<u32>");
+}
+
+#[test]
+fn test_format_type_ref_map() {
+    let type_paths = HashMap::new();
+
+    let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+    assert_eq!(
+        format_type_ref(&map, &type_paths),
+        "std::collections::HashMap<String, u64>"
+    );
+}
+
+#[test]
+fn test_format_type_ref_named_uses_type_paths() {
+    let mut type_paths = HashMap::new();
+    type_paths.insert("Config".to_string(), "my_crate::Config".to_string());
+
+    let named = TypeRef::Named("Config".to_string());
+    assert_eq!(
+        format_type_ref(&named, &type_paths),
+        "my_crate::Config",
+        "should use qualified path from type_paths"
+    );
+}
+
+#[test]
+fn test_format_type_ref_named_falls_back_to_name() {
+    let type_paths = HashMap::new();
+
+    let named = TypeRef::Named("UnknownType".to_string());
+    assert_eq!(
+        format_type_ref(&named, &type_paths),
+        "UnknownType",
+        "should fall back to unqualified name when not in type_paths"
+    );
+}
+
+#[test]
+fn test_format_param_type_string_with_is_ref() {
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "text".to_string(),
+        ty: TypeRef::String,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "&str");
+}
+
+#[test]
+fn test_format_param_type_bytes_with_is_ref() {
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "data".to_string(),
+        ty: TypeRef::Bytes,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "&[u8]");
+}
+
+#[test]
+fn test_format_param_type_path_with_is_ref() {
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "file_path".to_string(),
+        ty: TypeRef::Path,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "&std::path::Path");
+}
+
+#[test]
+fn test_format_param_type_vec_with_is_ref() {
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "items".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "&[u32]");
+}
+
+#[test]
+fn test_format_param_type_named_with_is_ref() {
+    let mut type_paths = HashMap::new();
+    type_paths.insert("Config".to_string(), "my_crate::Config".to_string());
+
+    let param = ParamDef {
+        name: "config".to_string(),
+        ty: TypeRef::Named("Config".to_string()),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "&my_crate::Config");
+}
+
+#[test]
+fn test_format_param_type_primitive_with_is_ref_passes_by_value() {
+    // Primitives (Copy types) are passed by value even when is_ref is true
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "count".to_string(),
+        ty: TypeRef::Primitive(PrimitiveType::U32),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(
+        format_param_type(&param, &type_paths),
+        "u32",
+        "Copy primitives should be passed by value even when is_ref=true"
+    );
+}
+
+#[test]
+fn test_format_param_type_without_is_ref_passes_by_value() {
+    let type_paths = HashMap::new();
+    let param = ParamDef {
+        name: "text".to_string(),
+        ty: TypeRef::String,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    };
+
+    assert_eq!(format_param_type(&param, &type_paths), "String", "without is_ref, String is owned");
+}
+
+// ==============================================================================
+// Additional tests for binding_helpers.rs — wrap_return_with_mutex
+// ==============================================================================
+
+#[test]
+fn test_wrap_return_with_mutex_self_opaque_plain() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("MyType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        true,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "Self { inner: Arc::new(result) }");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_self_opaque_mutex_type() {
+    let opaque_types = AHashSet::new();
+    let mut mutex_types = AHashSet::new();
+    mutex_types.insert("MyType".to_string());
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("MyType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        true,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "Self { inner: Arc::new(std::sync::Mutex::new(result)) }");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_other_opaque_type() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("OtherType".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("OtherType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "OtherType { inner: Arc::new(result) }");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_non_opaque_named_uses_into() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("SomeType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result.into()");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_string_returns_ref_uses_into() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::String,
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        true, // returns_ref
+        false,
+    );
+
+    assert_eq!(result, "result.into()");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_string_owned_passthrough() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::String,
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_returns_cow_owned_named() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Named("SomeType".to_string()),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        true, // returns_cow
+    );
+
+    assert_eq!(result, "result.into_owned().into()");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_duration() {
+    let opaque_types = AHashSet::new();
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Duration,
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result.as_millis() as u64");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_optional_opaque() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Handle".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Named("Handle".to_string()))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result.map(|v| Handle { inner: Arc::new(v) })");
+}
+
+#[test]
+fn test_wrap_return_with_mutex_vec_opaque() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Item".to_string());
+    let mutex_types = AHashSet::new();
+
+    let result = binding_helpers::wrap_return_with_mutex(
+        "result",
+        &TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+        "MyType",
+        &opaque_types,
+        &mutex_types,
+        false,
+        false,
+        false,
+    );
+
+    assert_eq!(result, "result.into_iter().map(|v| Item { inner: Arc::new(v) }).collect()");
 }

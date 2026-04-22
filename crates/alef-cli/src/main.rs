@@ -249,6 +249,10 @@ fn main() -> Result<()> {
 
             // Generate type stubs (e.g., .pyi for Python, .d.ts for TypeScript)
             let stub_files = pipeline::generate_stubs(&api, &config, &languages)?;
+            let stub_paths: Vec<PathBuf> = stub_files
+                .iter()
+                .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
+                .collect();
             if !stub_files.is_empty() {
                 let stub_hashes: Vec<(String, String)> = stub_files
                     .iter()
@@ -308,8 +312,8 @@ fn main() -> Result<()> {
             }
 
             // Hash on-disk stub files.
-            if let Ok(paths) = cache::read_manifest_paths("stubs") {
-                let hashes: Vec<(String, String)> = paths
+            if !stub_paths.is_empty() {
+                let hashes: Vec<(String, String)> = stub_paths
                     .iter()
                     .filter_map(|p| {
                         let content = std::fs::read_to_string(p).ok()?;
@@ -318,7 +322,7 @@ fn main() -> Result<()> {
                     .collect();
                 let _ = cache::write_generation_hashes("stubs", &hashes);
                 let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
-                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
+                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &stub_paths);
             }
 
             println!("Generated {total_written} files");
