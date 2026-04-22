@@ -267,6 +267,7 @@ fn print_generated_java_code() {
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
             source_crates: vec![],
+            error_type: None,
         },
         languages: vec![],
         exclude: Default::default(),

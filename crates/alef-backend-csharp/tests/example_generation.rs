@@ -138,6 +138,7 @@ fn test_generated_code_example() {
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
             source_crates: vec![],
+            error_type: None,
         },
         languages: vec![],
         exclude: Default::default(),

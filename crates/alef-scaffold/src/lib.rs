@@ -854,6 +854,18 @@ end
             .to_string(),
             generated_header: false,
         },
+        GeneratedFile {
+            path: PathBuf::from("packages/ruby/Steepfile"),
+            content: r#"# frozen_string_literal: true
+
+target :lib do
+  signature "sig"
+  check "lib"
+end
+"#
+            .to_string(),
+            generated_header: false,
+        },
     ])
 }
 

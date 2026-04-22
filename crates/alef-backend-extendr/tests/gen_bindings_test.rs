@@ -663,7 +663,7 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_trait_impl() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("impl my_lib::OcrBackend for ROcrBackendBridge"),
@@ -681,7 +681,7 @@ mod trait_bridge {
     fn test_plugin_bridge_sync_method_uses_dollar_lookup() {
         let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("Analyzer");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("dollar(\"analyze\")"),
@@ -695,7 +695,7 @@ mod trait_bridge {
     fn test_plugin_bridge_async_method_uses_spawn_blocking() {
         let trait_def = make_trait_def("Processor", vec![make_async_method("run")]);
         let cfg = make_plugin_bridge_cfg("Processor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("spawn_blocking"),
@@ -710,7 +710,7 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_registration_fn() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("pub fn register_ocrbackend("),
@@ -738,7 +738,7 @@ mod trait_bridge {
             ],
         );
         let cfg = make_plugin_bridge_cfg("Transform");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("\"transform\""),
@@ -756,7 +756,7 @@ mod trait_bridge {
     fn test_plugin_bridge_constructor_caches_name() {
         let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
         let cfg = make_plugin_bridge_cfg("Worker");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(code.contains("cached_name"), "constructor must populate cached_name");
         assert!(
@@ -778,7 +778,7 @@ mod trait_bridge {
             type_alias: None,
             param_name: None,
         };
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("impl my_lib::Plugin for ROcrBackendBridge"),
@@ -804,7 +804,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("pub struct RHtmlVisitorBridge"),
@@ -819,7 +819,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             !code.contains("#[extendr]"),
@@ -834,7 +834,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),

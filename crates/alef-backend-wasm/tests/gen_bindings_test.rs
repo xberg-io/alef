@@ -990,7 +990,7 @@ fn test_wasm_visitor_bridge_produces_visitor_struct() {
     let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("WasmHtmlVisitorBridge"),
@@ -1013,7 +1013,7 @@ fn test_wasm_visitor_bridge_has_js_obj_field() {
     let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("js_obj: wasm_bindgen::JsValue"),
@@ -1032,7 +1032,7 @@ fn test_wasm_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("pub struct WasmOcrBackendBridge"),
@@ -1059,7 +1059,7 @@ fn test_wasm_plugin_bridge_generates_super_trait_impl() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
@@ -1081,7 +1081,7 @@ fn test_wasm_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
@@ -1104,7 +1104,7 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("#[wasm_bindgen]"),
@@ -1137,7 +1137,7 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
     };
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     // Registration fn must check for the required camelCase method "analyze"
     assert!(
@@ -1154,7 +1154,7 @@ fn test_wasm_sync_method_body_uses_js_sys_reflect() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Scanner");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("js_sys::Reflect"),
@@ -1170,7 +1170,7 @@ fn test_wasm_async_method_body_uses_box_pin() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
         code.contains("Box::pin(async move"),
