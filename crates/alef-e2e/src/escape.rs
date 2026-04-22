@@ -45,13 +45,24 @@ pub fn rust_raw_string(s: &str) -> String {
     format!("r{h}\"{s}\"{h}")
 }
 
-/// Escape a string for embedding in a JavaScript/TypeScript string literal.
+/// Escape a string for embedding in a JavaScript/TypeScript double-quoted string literal.
+///
+/// `$` does not need escaping in double-quoted strings (only in template literals).
+/// Escaping it would produce `\$` which Biome flags as `noUselessEscapeInString`.
 pub fn escape_js(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+/// Escape a string for embedding in a JavaScript/TypeScript template literal (backtick string).
+///
+/// Template literals interpolate `${...}` and use backtick delimiters, so both
+/// `` ` `` and `$` must be escaped to prevent unintended interpolation.
+pub fn escape_js_template(s: &str) -> String {
+    s.replace('\\', "\\\\")
         .replace('`', "\\`")
         .replace('$', "\\$")
 }

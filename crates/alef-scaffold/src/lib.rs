@@ -608,6 +608,8 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
         r#"{pkg_header}
 
 [lib]
+name = "{lib_name}"
+path = "../../../../../crates/{core_crate_dir}-rb/src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -621,6 +623,7 @@ tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
 workspace = true
 "#,
         pkg_header = pkg_header,
+        lib_name = format!("{}_rb", core_crate_dir.replace('-', "_")),
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
@@ -805,6 +808,7 @@ default_profile = ENV.fetch('CARGO_PROFILE', 'release')
 
 create_rust_makefile('{ext_name}') do |config|
   config.profile = default_profile.to_sym
+  config.cargo_manifest = File.expand_path('native/Cargo.toml', __dir__)
 end
 "#,
         ext_name = ext_name,
@@ -1040,6 +1044,8 @@ fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
         r#"{pkg_header}
 
 [lib]
+name = "{nif_name}"
+path = "../../../../crates/{core_crate_dir}-elixir/src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -1053,6 +1059,7 @@ tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 workspace = true
 "#,
         pkg_header = pkg_header,
+        nif_name = nif_name,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
@@ -2425,9 +2432,9 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
         let files = language_files(&all_files);
-        // scaffold_ruby: gemspec, rubocop, Rakefile, lib/*.rb, extconf.rb, Gemfile = 6 files
+        // scaffold_ruby: gemspec, rubocop, Rakefile, lib/*.rb, extconf.rb, Gemfile, Steepfile = 7 files
         // scaffold_ruby_cargo: Cargo.toml = 1 file
-        assert_eq!(files.len(), 7);
+        assert_eq!(files.len(), 8);
         let content = &files[0].content;
         assert!(content.contains("spec.required_ruby_version"));
         assert!(content.contains("spec.extensions"));
@@ -2447,14 +2454,21 @@ mod tests {
         assert_eq!(files[4].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
         assert!(files[4].content.contains("create_rust_makefile"));
         assert!(files[4].content.contains("rb_sys/mkmf"));
-        // files[5] is Gemfile; files[6] is the Cargo.toml from scaffold_ruby_cargo
+        assert!(files[4].content.contains("cargo_manifest"), "extconf.rb must set cargo_manifest so rb_sys finds native/Cargo.toml");
+        assert!(files[4].content.contains("native/Cargo.toml"), "extconf.rb cargo_manifest must point to native/Cargo.toml");
+        // files[5] is Gemfile; files[6] is Steepfile; files[7] is the Cargo.toml from scaffold_ruby_cargo
         assert_eq!(files[5].path, PathBuf::from("packages/ruby/Gemfile"));
+        assert_eq!(files[6].path, PathBuf::from("packages/ruby/Steepfile"));
         // Check for Cargo.toml generation
         assert_eq!(
-            files[6].path,
+            files[7].path,
             PathBuf::from("packages/ruby/ext/my_lib_rb/native/Cargo.toml")
         );
-        assert!(files[6].content.contains("magnus"));
+        assert!(files[7].content.contains("magnus"));
+        assert!(
+            files[7].content.contains("path = \"../../../../../crates/my-lib-rb/src/lib.rs\""),
+            "Ruby Cargo.toml [lib] must set path to the binding source crate"
+        );
     }
 
     #[test]
@@ -2676,6 +2690,25 @@ mod tests {
         assert!(
             cargo_toml.content.contains("anyhow = \"1.0\""),
             "content: {}",
+            cargo_toml.content
+        );
+    }
+
+    #[test]
+    fn test_scaffold_elixir_cargo_lib_path() {
+        let config = test_config();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(
+            cargo_toml.content.contains("path = \"../../../../crates/my-lib-elixir/src/lib.rs\""),
+            "Elixir Cargo.toml [lib] must set path to the binding source crate; content: {}",
+            cargo_toml.content
+        );
+        assert!(
+            cargo_toml.content.contains("name = \"my_lib_nif\""),
+            "Elixir Cargo.toml [lib] must set name; content: {}",
             cargo_toml.content
         );
     }

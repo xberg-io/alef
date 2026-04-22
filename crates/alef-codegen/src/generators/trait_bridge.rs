@@ -160,9 +160,10 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    // version() -> &str — delegate to foreign object
-    writeln!(out, "    fn version(&self) -> &str {{").ok();
-    // Build a synthetic method for version
+    let error_path = spec.error_path();
+
+    // version() -> String — delegate to foreign object
+    writeln!(out, "    fn version(&self) -> String {{").ok();
     let version_method = MethodDef {
         name: "version".to_string(),
         params: vec![],
@@ -174,7 +175,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         receiver: Some(alef_core::ir::ReceiverKind::Ref),
         sanitized: false,
         trait_source: None,
-        returns_ref: true,
+        returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
@@ -186,10 +187,10 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    // initialize() -> Result<()> — delegate to foreign object
+    // initialize() -> Result<(), ErrorType>
     writeln!(
         out,
-        "    fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
+        "    fn initialize(&self) -> Result<(), {error_path}> {{"
     )
     .ok();
     let init_method = MethodDef {
@@ -198,7 +199,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         return_type: alef_core::ir::TypeRef::Unit,
         is_async: false,
         is_static: false,
-        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        error_type: Some(error_path.clone()),
         doc: String::new(),
         receiver: Some(alef_core::ir::ReceiverKind::Ref),
         sanitized: false,
@@ -215,10 +216,10 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    // shutdown() -> Result<()> — delegate to foreign object
+    // shutdown() -> Result<(), ErrorType>
     writeln!(
         out,
-        "    fn shutdown(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
+        "    fn shutdown(&self) -> Result<(), {error_path}> {{"
     )
     .ok();
     let shutdown_method = MethodDef {
@@ -227,7 +228,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         return_type: alef_core::ir::TypeRef::Unit,
         is_async: false,
         is_static: false,
-        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        error_type: Some(error_path.clone()),
         doc: String::new(),
         receiver: Some(alef_core::ir::ReceiverKind::Ref),
         sanitized: false,
