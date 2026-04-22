@@ -1553,7 +1553,7 @@ fn gen_native_ex(
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
         out,
-        "    force_build: System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
+        "    force_build:\n      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
     );
     let _ = writeln!(out, "    targets:");
     let _ = writeln!(
@@ -1733,7 +1733,20 @@ fn gen_elixir_enum_module(enum_def: &EnumDef, app_module: &str) -> String {
             .iter()
             .map(|v| format!(":{}", v.name.to_snake_case()))
             .collect();
-        let _ = writeln!(out, "  @type t :: {}", atom_arms.join(" | "));
+        // Emit multi-line @type when the single-line form exceeds 120 chars
+        let single_line = format!("  @type t :: {}", atom_arms.join(" | "));
+        if single_line.len() <= 120 {
+            let _ = writeln!(out, "{single_line}");
+        } else {
+            let _ = write!(out, "  @type t ::\n");
+            for (i, arm) in atom_arms.iter().enumerate() {
+                if i == 0 {
+                    let _ = writeln!(out, "          {arm}");
+                } else {
+                    let _ = writeln!(out, "          | {arm}");
+                }
+            }
+        }
         let _ = writeln!(out);
 
         // Module attributes for each variant value — convenient aliases

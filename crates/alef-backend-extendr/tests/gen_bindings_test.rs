@@ -35,6 +35,7 @@ fn make_config() -> AlefConfig {
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
             source_crates: vec![],
+            error_type: None,
         },
         languages: vec![],
         exclude: Default::default(),
@@ -640,7 +641,7 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_wrapper_struct() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
             code.contains("pub struct ROcrBackendBridge"),

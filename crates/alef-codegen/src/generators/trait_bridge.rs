@@ -335,14 +335,9 @@ pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitB
 pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let mut out = String::with_capacity(4096);
 
-    // Imports
-    let imports = generator.bridge_imports();
-    for imp in &imports {
-        writeln!(out, "use {imp};").ok();
-    }
-    if !imports.is_empty() {
-        writeln!(out).ok();
-    }
+    // NOTE: imports are NOT emitted here — callers should add them via
+    // builder.add_import() to avoid duplicates with the file-level imports.
+    // Use generator.bridge_imports() to get the list.
 
     // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));

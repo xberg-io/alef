@@ -383,11 +383,18 @@ python-packages = ["{python_package}"]
         crate_dir = core_crate_dir,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/python/pyproject.toml"),
-        content,
-        generated_header: true,
-    }])
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/python/pyproject.toml"),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/python/{python_package}/py.typed")),
+            content: String::new(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -551,6 +558,12 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         crate_dir = crate_dir,
     );
 
+    let dts_content = format!(
+        r#"export * from "../../crates/{crate_dir}-node/index";
+"#,
+        crate_dir = crate_dir,
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/typescript/package.json"),
@@ -560,6 +573,11 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         GeneratedFile {
             path: PathBuf::from(format!("crates/{crate_dir}-node/package.json")),
             content: crate_pkg,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/typescript/src/index.d.ts"),
+            content: dts_content,
             generated_header: false,
         },
     ])
@@ -658,7 +676,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = '>= 3.2.0'
 {metadata}  spec.metadata['rubygems_mfa_required'] = 'true'
 
-  spec.files         = Dir.glob(['lib/**/*', 'ext/**/*'])
+  spec.files         = Dir.glob(%w[lib/**/* ext/**/* sig/**/*])
   spec.require_paths = ['lib']
   spec.extensions    = ['ext/{ext_name}/extconf.rb']
 

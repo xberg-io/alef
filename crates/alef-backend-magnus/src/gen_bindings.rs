@@ -306,7 +306,8 @@ impl Backend for MagnusBackend {
             None => return Ok(vec![]),
         };
 
-        let content = crate::gen_stubs::gen_stubs(api);
+        let gem_name = config.ruby_gem_name();
+        let content = crate::gen_stubs::gen_stubs(api, &gem_name);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
