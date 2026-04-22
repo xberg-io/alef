@@ -244,7 +244,7 @@ fn gen_interface_method(out: &mut String, method: &MethodDef) {
     let mut params = Vec::new();
     for p in &method.params {
         let go_type = rust_to_go_type(&p.ty);
-        params.push(format!("{}: {}", p.name, go_type));
+        params.push(format!("{} {}", p.name, go_type));
     }
 
     let return_type = if method.error_type.is_some() {
@@ -282,7 +282,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
 
     for p in &method.params {
         let c_type = rust_to_c_type(&p.ty);
-        writeln!(out, "\t{}: {},", p.name, c_type).ok();
+        writeln!(out, "\t{} {},", p.name, c_type).ok();
     }
 
     if method.error_type.is_some() {
