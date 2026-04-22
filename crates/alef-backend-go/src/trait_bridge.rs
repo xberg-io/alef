@@ -491,9 +491,7 @@ fn rust_to_plain_c_type(ty: &TypeRef) -> String {
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => "char*".to_string(),
         TypeRef::Bytes => "uint8_t*".to_string(),
-        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => {
-            "char*".to_string()
-        }
+        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => "char*".to_string(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Duration => "uint64_t".to_string(),
         _ => "char*".to_string(),

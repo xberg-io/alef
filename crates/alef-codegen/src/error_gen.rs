@@ -466,15 +466,15 @@ pub fn gen_go_error_types(error: &ErrorDef) -> String {
     for variant in &error.variants {
         let err_name = format!("Err{}", variant.name);
         let msg = variant_display_message(variant);
-        lines.push(format!("    {} = errors.New(\"{}\")", err_name, msg));
+        lines.push(format!("\t{} = errors.New(\"{}\")", err_name, msg));
     }
     lines.push(")\n".to_string());
 
     // Structured error type
     lines.push(format!("// {} is a structured error type.", error.name));
     lines.push(format!("type {} struct {{", error.name));
-    lines.push("    Code    string".to_string());
-    lines.push("    Message string".to_string());
+    lines.push("\tCode    string".to_string());
+    lines.push("\tMessage string".to_string());
     lines.push("}\n".to_string());
 
     lines.push(format!(

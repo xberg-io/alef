@@ -353,7 +353,11 @@ fn gen_go_file(
         .collect();
 
     // Generate struct types
-    for typ in api.types.iter().filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str())) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str()))
+    {
         if typ.is_opaque {
             // If an error type has the same name as this opaque type, the structured error
             // struct was already emitted by gen_go_error_types. Skip the duplicate struct
@@ -585,12 +589,7 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
     writeln!(out, "\tif h.ptr != nil {{").ok();
-    writeln!(
-        out,
-        "\t\tC.{}_{}_free((*C.{})(h.ptr))",
-        ffi_prefix, type_snake, c_type
-    )
-    .ok();
+    writeln!(out, "\t\tC.{}_{}_free((*C.{})(h.ptr))", ffi_prefix, type_snake, c_type).ok();
     writeln!(out, "\t\th.ptr = nil").ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "}}").ok();
@@ -832,11 +831,7 @@ fn gen_function_wrapper(
             if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
                 // Sanitized bridge params have been removed from the C function signature;
                 // do not emit a nil slot for them.
-                if p.sanitized {
-                    vec![]
-                } else {
-                    vec!["nil".to_string()]
-                }
+                if p.sanitized { vec![] } else { vec!["nil".to_string()] }
             } else if matches!(p.ty, TypeRef::Bytes) {
                 let c_name = format!("c{}", p.name.to_pascal_case());
                 vec![c_name.clone(), format!("{}Len", c_name)]
@@ -1050,7 +1045,7 @@ fn gen_method_wrapper(
                 format!("C.{}_{}_{}()", ffi_prefix, type_snake, method_snake)
             } else {
                 format!(
-                    "C.{}_{}_{} ({})",
+                    "C.{}_{}_{}({})",
                     ffi_prefix,
                     type_snake,
                     method_snake,
@@ -1066,10 +1061,10 @@ fn gen_method_wrapper(
                 receiver_name
             );
             if c_params.is_empty() {
-                format!("C.{}_{}_{} ({})", ffi_prefix, type_snake, method_snake, c_receiver)
+                format!("C.{}_{}_{}({})", ffi_prefix, type_snake, method_snake, c_receiver)
             } else {
                 format!(
-                    "C.{}_{}_{} ({}, {})",
+                    "C.{}_{}_{}({}, {})",
                     ffi_prefix,
                     type_snake,
                     method_snake,
@@ -1100,10 +1095,10 @@ fn gen_method_wrapper(
             )
             .ok();
             if c_params.is_empty() {
-                format!("C.{}_{}_{} (cRecv)", ffi_prefix, type_snake, method_snake)
+                format!("C.{}_{}_{}(cRecv)", ffi_prefix, type_snake, method_snake)
             } else {
                 format!(
-                    "C.{}_{}_{} (cRecv, {})",
+                    "C.{}_{}_{}(cRecv, {})",
                     ffi_prefix,
                     type_snake,
                     method_snake,
@@ -1249,12 +1244,7 @@ fn gen_param_to_c(
             }
         }
         TypeRef::Bytes => {
-            writeln!(
-                out,
-                "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))",
-                c_name, param.name
-            )
-            .ok();
+            writeln!(out, "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
             writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, param.name).ok();
         }
         TypeRef::Named(name) => {

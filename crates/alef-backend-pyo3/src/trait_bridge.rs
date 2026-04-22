@@ -148,12 +148,12 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             .ok();
             writeln!(out, "                plugin_name: cached_name.clone(),").ok();
             writeln!(out, "            }})?;").ok();
-            let return_type = alef_codegen::generators::trait_bridge::format_type_ref(&method.return_type, &spec.type_paths);
+            let return_type =
+                alef_codegen::generators::trait_bridge::format_type_ref(&method.return_type, &spec.type_paths);
             writeln!(
                 out,
                 "        serde_json::from_str::<{}>(&json_val).map_err(|e| {}::KreuzbergError::Plugin {{",
-                return_type,
-                spec.core_import
+                return_type, spec.core_import
             )
             .ok();
             writeln!(
@@ -1112,11 +1112,35 @@ pub fn gen_bridge_function(
         _ => "val".to_string(),
     };
 
-    let body = if func.error_type.is_some() {
-        if return_wrap == "val" {
-            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{serde_err_conv}")
+    let body = if let Some(ref error_type) = func.error_type {
+        // Build the error conversion. For known error types, use the dedicated converter
+        // function (e.g. `conversion_error_to_py_err`). For generic/unknown error types
+        // (anyhow::Error, etc.), fall back to PyRuntimeError.
+        let core_err_conv = if error_type.contains("::") || error_type == "Error" {
+            // Generic error type — use PyRuntimeError
+            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
         } else {
-            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){serde_err_conv}")
+            // Known error type — convert PascalCase to snake_case for converter function name
+            let snake_error = {
+                let mut s = String::with_capacity(error_type.len() + 4);
+                for (i, c) in error_type.chars().enumerate() {
+                    if c.is_uppercase() {
+                        if i > 0 {
+                            s.push('_');
+                        }
+                        s.push(c.to_ascii_lowercase());
+                    } else {
+                        s.push(c);
+                    }
+                }
+                s
+            };
+            format!(".map_err({snake_error}_to_py_err)")
+        };
+        if return_wrap == "val" {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{core_err_conv}")
+        } else {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){core_err_conv}")
         }
     } else {
         format!("{bridge_wrap}\n    {serde_bindings}{core_call}")

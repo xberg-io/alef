@@ -49,7 +49,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         .ok();
         writeln!(out, "    Ok(f) => f,").ok();
         if has_error {
-            let err = spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)");
+            let err =
+                spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)");
             writeln!(out, "    Err(e) => return Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => return Default::default(),").ok();
@@ -76,7 +77,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         // Parse result
         writeln!(out, "match result {{").ok();
         if has_error {
-            let err = spec.make_error(&format!("format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", self.cached_name, e)", name));
+            let err = spec.make_error(&format!(
+                "format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", self.cached_name, e)",
+                name
+            ));
             writeln!(out, "    Err(e) => Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => Ok(Default::default()),").ok();
@@ -91,7 +95,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
             writeln!(out, "            .and_then(|s| s.into_owned())").ok();
             writeln!(out, "            .map_err(|e| {{").ok();
-            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{}}\", e)", name));
+            let err = spec.make_error(&format!(
+                "format!(\"Failed to extract return value from method '{}': {{}}\", e)",
+                name
+            ));
             writeln!(out, "                {err}").ok();
             writeln!(out, "            }})?;").ok();
             // Default: return as-is via Default::default() for simple types
@@ -146,7 +153,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         writeln!(out, "    let result = func.call({tuple_str});").ok();
         writeln!(out, "    match result {{").ok();
-        let err = spec.make_error(&format!("format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", cached_name, e)", name));
+        let err = spec.make_error(&format!(
+            "format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", cached_name, e)",
+            name
+        ));
         writeln!(out, "        Err(e) => Err({err}),").ok();
         writeln!(out, "        Ok(val) => {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
@@ -158,7 +168,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             writeln!(out, "                .and_then(|s| s.into_utf8())").ok();
             writeln!(out, "                .and_then(|s| s.into_owned())").ok();
             writeln!(out, "                .map_err(|e| {{").ok();
-            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{}}\", e)", name));
+            let err = spec.make_error(&format!(
+                "format!(\"Failed to extract return value from method '{}': {{}}\", e)",
+                name
+            ));
             writeln!(out, "                    {err}").ok();
             writeln!(out, "                }})?;").ok();
             // Default: return as-is via Default::default() for simple types

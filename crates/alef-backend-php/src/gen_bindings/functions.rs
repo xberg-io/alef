@@ -815,5 +815,3 @@ pub(crate) fn gen_async_static_method(
     // Async static methods are not auto-delegatable — skip entirely.
     String::new()
 }
-
-

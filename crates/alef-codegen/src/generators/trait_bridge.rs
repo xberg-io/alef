@@ -256,7 +256,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
     let mut out = String::with_capacity(2048);
 
     // Add #[async_trait] when the trait has async methods (needed for async_trait macro compatibility)
-    let has_async_methods = spec.trait_def.methods.iter().any(|m| m.is_async && m.trait_source.is_none());
+    let has_async_methods = spec
+        .trait_def
+        .methods
+        .iter()
+        .any(|m| m.is_async && m.trait_source.is_none());
     if has_async_methods {
         writeln!(out, "#[async_trait::async_trait]").ok();
     }

@@ -166,8 +166,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
     // Build adapter body map before the method loop so streaming adapters can
     // substitute in their callback-based bodies instead of the normal wrapper.
-    let adapter_bodies: AdapterBodies =
-        alef_adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
+    let adapter_bodies: AdapterBodies = alef_adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
 
     // Emit the stream callback type alias once if any streaming adapters exist.
     let has_streaming_adapters = config
@@ -217,13 +216,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             if let Some(adapter) = streaming_adapter {
                 let adapter_key = format!("{}.{}", typ.name, adapter.name);
                 if let Some(body) = adapter_bodies.get(&adapter_key) {
-                    builder.add_item(&gen_streaming_method_wrapper(
-                        typ,
-                        method,
-                        prefix,
-                        &core_import,
-                        body,
-                    ));
+                    builder.add_item(&gen_streaming_method_wrapper(typ, method, prefix, &core_import, body));
                     continue;
                 }
             }
