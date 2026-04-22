@@ -103,14 +103,22 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
     let args = call_args(adapter);
-    let call_str = args.join(", ");
 
-    format!(
-        "let core_req = {call_str};\n    \
-         self.inner.{core_path}(core_req).await\n        \
-         .map({returns}::from)\n        \
-         .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
-    )
+    if args.is_empty() {
+        format!(
+            "self.inner.{core_path}().await\n        \
+             .map({returns}::from)\n        \
+             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+        )
+    } else {
+        let call_str = args.join(", ");
+        format!(
+            "let core_req = {call_str};\n    \
+             self.inner.{core_path}(core_req).await\n        \
+             .map({returns}::from)\n        \
+             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -122,16 +130,26 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
     let args = call_args(adapter);
-    let call_str = args.join(", ");
 
-    format!(
-        "let rt = tokio::runtime::Runtime::new()\n        \
-             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-         let core_req = {call_str};\n    \
-         rt.block_on(async {{ self.inner.{core_path}(core_req).await }})\n        \
-         .map({returns}::from)\n        \
-         .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
-    )
+    if args.is_empty() {
+        format!(
+            "let rt = tokio::runtime::Runtime::new()\n        \
+                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+             rt.block_on(async {{ self.inner.{core_path}().await }})\n        \
+             .map({returns}::from)\n        \
+             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+        )
+    } else {
+        let call_str = args.join(", ");
+        format!(
+            "let rt = tokio::runtime::Runtime::new()\n        \
+                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+             let core_req = {call_str};\n    \
+             rt.block_on(async {{ self.inner.{core_path}(core_req).await }})\n        \
+             .map({returns}::from)\n        \
+             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,11 +161,17 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
     let args = call_args(adapter);
-    let call_str = args.join(", ");
+
+    let inner_call = if args.is_empty() {
+        format!("self.inner.{core_path}().await")
+    } else {
+        let call_str = args.join(", ");
+        format!("self.inner.{core_path}({call_str}.into()).await")
+    };
 
     format!(
         "WORKER_RUNTIME.block_on(async {{\n        \
-             self.inner.{core_path}({call_str}.into()).await\n    \
+             {inner_call}\n    \
          }})\n    \
          .map({returns}::from)\n    \
          .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()).into())"
@@ -167,7 +191,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 
     format!(
         "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-         rt.block_on(async {{ client.inner.{core_path}({call_str}).await }})\n        \
+         rt.block_on(async {{ resource.inner.{core_path}({call_str}).await }})\n        \
          .map({returns}::from)\n        \
          .map_err(|e| e.to_string())"
     )

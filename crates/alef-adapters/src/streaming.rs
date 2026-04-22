@@ -258,7 +258,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
         "use futures::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
          {bindings_block}\
-         let stream = client.inner.{core_path}({call_str});\n    \
+         let stream = resource.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
              stream\n            \
                  .map(|r| r.map({item_type}::from))\n            \
