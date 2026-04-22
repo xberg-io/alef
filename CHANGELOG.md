@@ -7,16 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-04-22
+
 ### Added
 
 - Trait bridges: plugin-pattern support across all 11 backends (issue #4)
-  - PyO3: de-hardcoded plugin bridge via shared `TraitBridgeGenerator` (no more `OcrBackend`-specific code)
+  - PyO3: de-hardcoded plugin bridge via shared `TraitBridgeGenerator`
   - NAPI, WASM, PHP, Magnus, Rustler, Extendr: implement `TraitBridgeGenerator` for plugin bridges
   - FFI: vtable + `user_data` ABI with `#[repr(C)]` function pointer struct
   - Go: cgo trampolines wrapping C FFI vtable via `cgo.Handle`
   - Java: Panama FFM upcall stubs wrapping C FFI vtable
   - C#: P/Invoke declarations for C FFI trait bridge registration
-- Codegen: shared `TraitBridgeGenerator` trait with `type_paths`, flexible registration signatures, configurable super-trait path
+- Codegen: shared `TraitBridgeGenerator` trait with `type_paths`, flexible registration, configurable super-trait
+- Codegen: `format_param_type` respects `is_ref` for reference-typed params (`&str`, `&[u8]`, `&Path`)
 - E2E: HTTP server fixture support for testing HTTP endpoints
 - E2E: HTTP test codegen for Python, Node, Ruby, PHP, Elixir
 - Scaffold: add `[lints] workspace = true` to all generated Cargo.toml templates
@@ -25,17 +28,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Docs: use filtered IR for API reference generation (docs now match public API surface)
+- Codegen: `gen_bridge_all` now emits constructor so `Wrapper::new()` exists for registration
+- Codegen: `gen_bridge_trait_impl` filters `trait_source` methods (super-trait handled separately)
+- Codegen: `gen_bridge_plugin_impl` strips body indentation to prevent double-indent
+- PyO3: remove `.expect()` panics in `gen_registration_fn`, use graceful fallback
+- PyO3: fix async double-`Result` flattening (`spawn_blocking` → `??`)
+- NAPI/WASM/PHP/Magnus/Rustler/Extendr: remove `.expect()` panics in `gen_registration_fn`
+- Magnus: implement actual registration logic (was a non-functional stub)
+- Magnus: add missing async `String` clone for blocking closures
+- Magnus/Rustler: fix `build_arg` ordering for optional `&str` (unreachable branch)
+- Rustler: replace `spawn_monitor` with direct `Term::apply` for sync dispatch
+- PHP: fix `&*self.php_obj` to `&mut *self.php_obj` for `try_call_method`
+- WASM: handle poisoned `RwLock` in registration instead of panicking
+- FFI: cache `version()` at construction (was leaking via `Box::leak` every call)
+- FFI: return error on NUL bytes in serialized params (was `unwrap_or_default`)
+- FFI: add `Sync` impl on async `_LocalBridge`
+- Go: use correct `ffi_prefix` parameter instead of deriving from `register_fn`
+- Go: fix `unsafe.Pointer(handle)` → `unsafe.Pointer(uintptr(handle))`
+- Go: fix `outResult` ABI mismatch (emit when `return_type != Unit`, not just `error_type`)
+- Go: fix syntax error in `C.GoString(` missing closing paren
+- Go: add `FreeUserData` trampoline to prevent `cgo.Handle` leak
+- Java: implement actual result serialization (was returning `MemorySegment.NULL`)
+- Java: fix use-after-free by storing bridge in static map (not `try-with-resources`)
+- Java: uncomment and implement FFI registration call
+- Java: conditionally emit super-trait vtable slots based on config
+- C#: add `[MarshalAs(UnmanagedType.LPUTF8Str)]` for UTF-8 string marshaling
+- C#: change `ref IntPtr outError` to `out IntPtr outError`
+- Docs: use filtered IR for API reference generation
 - Docs: use `dict[str, Any]` instead of bare `Any` for Python JSON types
 - Docs: box Java primitives in `Optional` (e.g. `Optional<Integer>` not `Optional<int>`)
 - Docs: emit `async Task<T>` for C# async method signatures
 - Docs: use `&str`/`&[u8]` for Rust method params matching free-function style
-- Docs: pluralize nouns after stripping `_count` suffix (row -> rows)
-- Docs: thread `Language` param through `clean_doc_inline` instead of hardcoding Python
+- Docs: pluralize nouns after stripping `_count` suffix
+- Docs: thread `Language` param through `clean_doc_inline`
 - Codegen: skip `Default`/`Serialize`/`Deserialize` derives for structs with opaque fields
-- Codegen: public API surface audit — path mappings, R backend, serde derives
 - Codegen: add serde recovery path to Rustler and PHP backends
-- Codegen: eliminate stubs and compile errors in generated bindings
 - Adapters: emit core type let bindings in Python streaming adapter
 - C#: deterministic DllImport ordering in NativeMethods.cs
 - CLI: use filtered IR for docs, remove dead unfiltered extraction code

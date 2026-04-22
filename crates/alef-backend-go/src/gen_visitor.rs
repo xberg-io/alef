@@ -1026,17 +1026,16 @@ pub fn gen_visitor_file(
 
 /// Build the C parameter list string for the extern declaration of an exported Go function.
 fn c_signature(spec: &CallbackSpec, _ffi_prefix: &str) -> String {
-    let mut parts = vec![
-        "const HTMHtmNodeContext* ctx".to_string(),
-        "void* user_data".to_string(),
-    ];
+    // CGO's //export generates non-const parameter types in the prolog header,
+    // so extern declarations must match — no const qualifiers.
+    let mut parts = vec!["HTMHtmNodeContext* ctx".to_string(), "void* user_data".to_string()];
     for ep in spec.extra {
         let ctype = match ep.c_type {
-            "*C.char" => "const char*",
+            "*C.char" => "char*",
             "C.int32_t" => "int32_t",
             "C.uint32_t" => "uint32_t",
             "C.size_t" => "size_t",
-            "**C.char" => "const char* const*",
+            "**C.char" => "char**",
             _ => "void*",
         };
         parts.push(format!("{ctype} {}", ep.c_name));

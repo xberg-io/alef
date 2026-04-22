@@ -132,7 +132,13 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
 
 fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
-    let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let prefix = config.node_type_prefix();
+    let raw_item = adapter.item_type.as_deref().unwrap_or("()");
+    let item_type = if raw_item == "()" {
+        raw_item.to_string()
+    } else {
+        format!("{prefix}{raw_item}")
+    };
     let core_import = config.core_import();
 
     let args = call_args(adapter);
@@ -146,9 +152,10 @@ fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          {bindings_block}\
-         let stream = self.inner.{core_path}({call_str});\n    \
+         let stream = self.inner.{core_path}({call_str}).await\n        \
+             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
          let chunks: Vec<_> = stream\n        \
              .map(|r| r.map({item_type}::from))\n        \
              .collect::<Vec<_>>().await\n        \
@@ -181,19 +188,20 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
              .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
          {bindings_block}\
-         let stream = self.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
+             let stream = self.inner.{core_path}({call_str}).await\n            \
+                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
              stream\n            \
                  .map(|r| r.map({item_type}::from))\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n    \
-         }})\n    \
-         .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
+                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))\n    \
+         }})"
     );
 
     (body, None)
@@ -219,17 +227,19 @@ fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          {bindings_block}\
          WORKER_RUNTIME.block_on(async {{\n        \
-             let stream = self.inner.{core_path}({call_str});\n        \
+             let stream = self.inner.{core_path}({call_str}).await\n            \
+                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
              stream\n            \
                  .map(|r| r.map({item_type}::from))\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n    \
+                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))\n    \
          }})\n    \
-         .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()).into())"
+         .map_err(Into::into)"
     );
 
     (body, None)
@@ -255,7 +265,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
          {bindings_block}\
          let stream = resource.inner.{core_path}({call_str});\n    \
@@ -292,7 +302,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          {bindings_block}\
          let stream = self.inner.{core_path}({call_str});\n    \
          let chunks: Vec<_> = stream\n        \
@@ -363,7 +373,7 @@ fn gen_r_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<S
     };
 
     let body = format!(
-        "use futures::StreamExt;\n    \
+        "use futures_util::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
              .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n    \
          {bindings_block}\

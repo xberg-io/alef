@@ -220,16 +220,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
@@ -277,7 +273,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         writeln!(out).ok();
 
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write().unwrap();").ok();
+        writeln!(out, "    let mut registry = registry.write().map_err(|e| wasm_bindgen::JsValue::from_str(&format!(\"registry lock poisoned: {{}}\", e)))?;").ok();
         writeln!(out, "    registry.register(arc)").ok();
         writeln!(
             out,

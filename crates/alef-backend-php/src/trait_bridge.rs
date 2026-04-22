@@ -199,16 +199,12 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
@@ -395,6 +391,16 @@ fn gen_visitor_bridge(
     writeln!(out, "unsafe impl Sync for {struct_name} {{}}").unwrap();
     writeln!(out).unwrap();
 
+    writeln!(out, "impl Clone for {struct_name} {{").unwrap();
+    writeln!(out, "    fn clone(&self) -> Self {{").unwrap();
+    writeln!(out, "        Self {{").unwrap();
+    writeln!(out, "            php_obj: self.php_obj,").unwrap();
+    writeln!(out, "            cached_name: self.cached_name.clone(),").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
     // Manual Debug impl
     writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
     writeln!(
@@ -480,7 +486,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         "        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call."
     )
     .unwrap();
-    writeln!(out, "        let php_obj_ref = unsafe {{ &*self.php_obj }};").unwrap();
+    writeln!(out, "        let php_obj_ref = unsafe {{ &mut *self.php_obj }};").unwrap();
 
     // Build args array
     let has_args = !method.params.is_empty();

@@ -202,7 +202,9 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
         writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
         writeln!(out, "    plugin_name: self.cached_name.clone(),").ok();
-        writeln!(out, "}})?").ok();
+        // Flatten: map_err converts the JoinError (outer) → KreuzbergError, then ? propagates it.
+        // The inner Result<T, E> from Python::attach is then propagated by the second ?.
+        writeln!(out, "}})??").ok();
         out
     }
 
@@ -263,16 +265,12 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 

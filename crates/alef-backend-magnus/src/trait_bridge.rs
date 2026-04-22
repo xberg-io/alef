@@ -103,6 +103,9 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
                 (TypeRef::String, true) => {
                     writeln!(out, "let {0} = {0}.to_string();", p.name).ok();
                 }
+                (TypeRef::String, false) => {
+                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
+                }
                 (TypeRef::Named(_), true) => {
                     writeln!(
                         out,
@@ -229,28 +232,36 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let _registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
-        let _wrapper = spec.wrapper_name();
-        let _trait_path = spec.trait_path();
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
 
         let mut out = String::with_capacity(1024);
 
         writeln!(out, "#[magnus::init]").ok();
-        writeln!(out, "pub fn {register_fn}(ruby: &magnus::Ruby) -> magnus::RModule {{").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(ruby: &magnus::Ruby) -> Result<(), magnus::Error> {{"
+        )
+        .ok();
 
-        // This would be called during extension initialization
-        // Return the module for Ruby side integration
-        writeln!(out, "    let module = ruby.define_module(\"Alef\").unwrap();").ok();
-        writeln!(out, "    module").ok();
+        // Create and validate the bridge
+        writeln!(out, "    let bridge = {wrapper}::new(ruby.obj_alloc())?;").ok();
+        writeln!(
+            out,
+            "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(bridge);"
+        )
+        .ok();
+
+        // Register in the plugin registry
+        writeln!(out, "    let registry = {registry_getter}();").ok();
+        writeln!(out, "    let mut registry = registry.write().map_err(|_| magnus::Error::new(magnus::exception::runtime_error(), \"registry lock poisoned\"))?;").ok();
+        writeln!(out, "    registry.register(arc).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))").ok();
         writeln!(out, "}}").ok();
         out
     }
@@ -324,12 +335,21 @@ impl MagnusBridgeGenerator {
         let args: Vec<String> = method
             .params
             .iter()
-            .map(|p| match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => format!("magnus::Value::from(&{}[..])", p.name),
-                (TypeRef::String, true) => format!("magnus::RString::new({})", p.name),
-                (TypeRef::String, false) => format!("magnus::RString::new({}.as_str())", p.name),
-                (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
-                _ => format!("magnus::Value::from({})", p.name),
+            .map(|p| {
+                // Check optional &str first, before non-optional &str
+                if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+                    return format!(
+                        "match {} {{ Some(s) => magnus::Value::from(magnus::RString::new(s)), None => magnus::Value::nil() }}",
+                        p.name
+                    );
+                }
+                match (&p.ty, p.is_ref) {
+                    (TypeRef::Bytes, true) => format!("magnus::Value::from(&{}[..])", p.name),
+                    (TypeRef::String, true) => format!("magnus::RString::new({})", p.name),
+                    (TypeRef::String, false) => format!("magnus::RString::new({}.as_str())", p.name),
+                    (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
+                    _ => format!("magnus::Value::from({})", p.name),
+                }
             })
             .collect();
         if args.len() == 1 {

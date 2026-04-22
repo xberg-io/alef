@@ -34,7 +34,7 @@ pub fn gen_trait_bridges_file(
     api: &ApiSurface,
     config: &alef_core::config::AlefConfig,
     pkg_name: &str,
-    _ffi_prefix: &str,
+    ffi_prefix: &str,
     ffi_header: &str,
     ffi_crate_dir: &str,
     to_root: &str,
@@ -57,15 +57,18 @@ pub fn gen_trait_bridges_file(
     // Forward-declare all exported Go trampolines
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
+            let pascal = bridge_cfg.trait_name.to_pascal_case();
             for method in &trait_def.methods {
-                let export_name = format!(
-                    "go{}{}",
-                    &bridge_cfg.trait_name.to_pascal_case(),
-                    method.name.to_pascal_case()
-                );
+                let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
                 let c_sig = c_trampoline_signature(&export_name, method);
                 writeln!(out, "extern int32_t {}({});", export_name, c_sig).ok();
             }
+            // Plugin lifecycle trampolines
+            writeln!(out, "extern int32_t go{}Name(void*, char**, char**);", pascal).ok();
+            writeln!(out, "extern int32_t go{}Version(void*, char**, char**);", pascal).ok();
+            writeln!(out, "extern int32_t go{}Initialize(void*, char**);", pascal).ok();
+            writeln!(out, "extern int32_t go{}Shutdown(void*, char**);", pascal).ok();
+            writeln!(out, "extern void go{}FreeUserData(void*);", pascal).ok();
         }
     }
 
@@ -84,7 +87,7 @@ pub fn gen_trait_bridges_file(
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-            gen_trait_bridge(&mut out, trait_def, bridge_cfg);
+            gen_trait_bridge(&mut out, trait_def, bridge_cfg, ffi_prefix);
             writeln!(out).ok();
         }
     }
@@ -93,11 +96,10 @@ pub fn gen_trait_bridges_file(
 }
 
 /// Generate one trait bridge: interface, trampolines, registration/unregistration functions.
-fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, bridge_cfg: &TraitBridgeConfig) {
+fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let trait_pascal = trait_name.to_pascal_case();
-    let ffi_prefix = bridge_cfg.register_fn.as_deref().unwrap_or("krz");
 
     // =========================================================================
     // Go interface
@@ -171,6 +173,9 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, bridge_cfg: &TraitBri
     writeln!(out, "\t\tinitialize: C.go{}Initialize?,", &trait_pascal).ok();
     writeln!(out, "\t\tshutdown: C.go{}Shutdown?,", &trait_pascal).ok();
 
+    // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
+    writeln!(out, "\t\tfree_user_data: C.go{}FreeUserData?,", &trait_pascal).ok();
+
     writeln!(out, "\t}}").ok();
     writeln!(out).ok();
 
@@ -183,7 +188,7 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, bridge_cfg: &TraitBri
     writeln!(out, "\trc := C.{}_{trait_snake}_register(", ffi_prefix).ok();
     writeln!(out, "\t\tcName,").ok();
     writeln!(out, "\t\tunsafe.Pointer(&vtable),").ok();
-    writeln!(out, "\t\tunsafe.Pointer(handle),").ok();
+    writeln!(out, "\t\tunsafe.Pointer(uintptr(handle)),").ok();
     writeln!(out, "\t\t&cErr,").ok();
     writeln!(out, "\t)").ok();
     writeln!(out).ok();
@@ -438,6 +443,13 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out, "\treturn 0").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
+
+    // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
+    writeln!(out, "//export go{}FreeUserData", trait_pascal).ok();
+    writeln!(out, "func go{}FreeUserData(userData unsafe.Pointer) {{", trait_pascal).ok();
+    writeln!(out, "\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
 }
 
 /// Build the C trampoline function signature for extern declaration.
@@ -447,7 +459,7 @@ fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
         let cty = rust_to_c_type(&p.ty);
         params.push(format!("{} {}", cty, p.name));
     }
-    if method.error_type.is_some() {
+    if !matches!(method.return_type, TypeRef::Unit) {
         params.push("char** out_result".to_string());
     }
     params.push("char** out_error".to_string());
@@ -528,8 +540,8 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
     let var_name = format!("go{}", capitalize(&param.name));
     match &param.ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            writeln!(out, "\tgo{} := C.GoString({}", capitalize(&param.name), param.name).ok();
-            writeln!(out, "\t").ok();
+            writeln!(out, "\tgo{} := C.GoString({})", capitalize(&param.name), param.name).ok();
+            writeln!(out).ok();
         }
         TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => {
             writeln!(out, "\tvar {} interface{{}}", var_name).ok();

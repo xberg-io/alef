@@ -22,10 +22,16 @@ use std::fmt::Write;
 
 /// Generate all trait bridge code for a single `[[trait_bridges]]` entry.
 /// Returns Java source code as a String.
+///
+/// `has_super_trait`: when `true`, the C vtable includes Plugin lifecycle slots
+/// (name_fn, version_fn, initialize_fn, shutdown_fn) and the bridge emits matching
+/// upcall stubs. When `false`, only the trait-method slots are emitted, matching
+/// the Rust-side vtable layout exactly.
 pub fn gen_trait_bridge(
     trait_name: &str,
     prefix: &str,
     trait_methods: &[(&str, &str)], // [(method_name, return_type), ...]
+    has_super_trait: bool,
 ) -> String {
     let trait_pascal = trait_name.to_pascal_case();
     let trait_snake = trait_name.to_snake_case();
@@ -47,22 +53,24 @@ pub fn gen_trait_bridge(
     writeln!(out, "public interface {} {{", trait_pascal).ok();
     writeln!(out).ok();
 
-    // Plugin lifecycle methods
-    writeln!(out, "    /** Return the plugin name. */").ok();
-    writeln!(out, "    String name();").ok();
-    writeln!(out).ok();
+    // Plugin lifecycle methods — only when a super_trait (Plugin) is configured
+    if has_super_trait {
+        writeln!(out, "    /** Return the plugin name. */").ok();
+        writeln!(out, "    String name();").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    /** Return the plugin version. */").ok();
-    writeln!(out, "    String version();").ok();
-    writeln!(out).ok();
+        writeln!(out, "    /** Return the plugin version. */").ok();
+        writeln!(out, "    String version();").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    /** Initialize the plugin. */").ok();
-    writeln!(out, "    void initialize() throws Exception;").ok();
-    writeln!(out).ok();
+        writeln!(out, "    /** Initialize the plugin. */").ok();
+        writeln!(out, "    void initialize() throws Exception;").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    /** Shut down the plugin. */").ok();
-    writeln!(out, "    void shutdown() throws Exception;").ok();
-    writeln!(out).ok();
+        writeln!(out, "    /** Shut down the plugin. */").ok();
+        writeln!(out, "    void shutdown() throws Exception;").ok();
+        writeln!(out).ok();
+    }
 
     // Trait methods
     for (method_name, return_type) in trait_methods {
@@ -95,13 +103,15 @@ pub fn gen_trait_bridge(
     .ok();
     writeln!(out).ok();
 
-    // Number of vtable fields: name_fn, version_fn, initialize_fn, shutdown_fn, + trait methods + free_user_data
+    // Number of vtable fields: optionally name_fn, version_fn, initialize_fn, shutdown_fn,
+    // then trait methods, then free_user_data.
     let num_methods = trait_methods.len();
-    let num_vtable_fields = 4 + num_methods + 1; // plugin lifecycle + trait methods + free_user_data
+    let num_super_slots = if has_super_trait { 4usize } else { 0usize };
+    let num_vtable_fields = num_super_slots + num_methods + 1; // (super-trait methods +) trait methods + free_user_data
     writeln!(
         out,
-        "    // C vtable: {} fields (4 plugin methods + {} trait methods + free_user_data)",
-        num_vtable_fields, num_methods
+        "    // C vtable: {} fields ({} plugin methods + {} trait methods + free_user_data)",
+        num_vtable_fields, num_super_slots, num_methods
     )
     .ok();
     writeln!(
@@ -127,81 +137,83 @@ pub fn gen_trait_bridge(
     writeln!(out, "            long offset = 0L;").ok();
     writeln!(out).ok();
 
-    // Register name_fn
-    writeln!(
-        out,
-        "            var stubName = LINKER.upcallStub(LOOKUP.bind(this, \"handleName\","
-    )
-    .ok();
-    writeln!(out, "                MethodType.methodType(MemorySegment.class)),").ok();
-    writeln!(
-        out,
-        "                FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS),"
-    )
-    .ok();
-    writeln!(out, "                arena);").ok();
-    writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, stubName);").ok();
-    writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-    writeln!(out).ok();
+    if has_super_trait {
+        // Register name_fn
+        writeln!(
+            out,
+            "            var stubName = LINKER.upcallStub(LOOKUP.bind(this, \"handleName\","
+        )
+        .ok();
+        writeln!(out, "                MethodType.methodType(MemorySegment.class)),").ok();
+        writeln!(
+            out,
+            "                FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS),"
+        )
+        .ok();
+        writeln!(out, "                arena);").ok();
+        writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, stubName);").ok();
+        writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
+        writeln!(out).ok();
 
-    // Register version_fn
-    writeln!(
-        out,
-        "            var stubVersion = LINKER.upcallStub(LOOKUP.bind(this, \"handleVersion\","
-    )
-    .ok();
-    writeln!(out, "                MethodType.methodType(MemorySegment.class)),").ok();
-    writeln!(
-        out,
-        "                FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS),"
-    )
-    .ok();
-    writeln!(out, "                arena);").ok();
-    writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, stubVersion);").ok();
-    writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-    writeln!(out).ok();
+        // Register version_fn
+        writeln!(
+            out,
+            "            var stubVersion = LINKER.upcallStub(LOOKUP.bind(this, \"handleVersion\","
+        )
+        .ok();
+        writeln!(out, "                MethodType.methodType(MemorySegment.class)),").ok();
+        writeln!(
+            out,
+            "                FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS),"
+        )
+        .ok();
+        writeln!(out, "                arena);").ok();
+        writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, stubVersion);").ok();
+        writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
+        writeln!(out).ok();
 
-    // Register initialize_fn
-    writeln!(
-        out,
-        "            var stubInitialize = LINKER.upcallStub(LOOKUP.bind(this, \"handleInitialize\","
-    )
-    .ok();
-    writeln!(out, "                MethodType.methodType(int.class)),").ok();
-    writeln!(
-        out,
-        "                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS),"
-    )
-    .ok();
-    writeln!(out, "                arena);").ok();
-    writeln!(
-        out,
-        "            vtable.set(ValueLayout.ADDRESS, offset, stubInitialize);"
-    )
-    .ok();
-    writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-    writeln!(out).ok();
+        // Register initialize_fn
+        writeln!(
+            out,
+            "            var stubInitialize = LINKER.upcallStub(LOOKUP.bind(this, \"handleInitialize\","
+        )
+        .ok();
+        writeln!(out, "                MethodType.methodType(int.class)),").ok();
+        writeln!(
+            out,
+            "                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS),"
+        )
+        .ok();
+        writeln!(out, "                arena);").ok();
+        writeln!(
+            out,
+            "            vtable.set(ValueLayout.ADDRESS, offset, stubInitialize);"
+        )
+        .ok();
+        writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
+        writeln!(out).ok();
 
-    // Register shutdown_fn
-    writeln!(
-        out,
-        "            var stubShutdown = LINKER.upcallStub(LOOKUP.bind(this, \"handleShutdown\","
-    )
-    .ok();
-    writeln!(out, "                MethodType.methodType(int.class)),").ok();
-    writeln!(
-        out,
-        "                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS),"
-    )
-    .ok();
-    writeln!(out, "                arena);").ok();
-    writeln!(
-        out,
-        "            vtable.set(ValueLayout.ADDRESS, offset, stubShutdown);"
-    )
-    .ok();
-    writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
-    writeln!(out).ok();
+        // Register shutdown_fn
+        writeln!(
+            out,
+            "            var stubShutdown = LINKER.upcallStub(LOOKUP.bind(this, \"handleShutdown\","
+        )
+        .ok();
+        writeln!(out, "                MethodType.methodType(int.class)),").ok();
+        writeln!(
+            out,
+            "                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS),"
+        )
+        .ok();
+        writeln!(out, "                arena);").ok();
+        writeln!(
+            out,
+            "            vtable.set(ValueLayout.ADDRESS, offset, stubShutdown);"
+        )
+        .ok();
+        writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
+        writeln!(out).ok();
+    }
 
     // Register trait methods
     for (method_name, _) in trait_methods {
@@ -263,48 +275,50 @@ pub fn gen_trait_bridge(
     .ok();
     writeln!(out).ok();
 
-    writeln!(out, "    private MemorySegment handleName() {{").ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            String name = impl.name();").ok();
-    writeln!(out, "            return arena.allocateFrom(name);").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            return MemorySegment.NULL;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+    if has_super_trait {
+        writeln!(out, "    private MemorySegment handleName() {{").ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(out, "            String name = impl.name();").ok();
+        writeln!(out, "            return arena.allocateFrom(name);").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            return MemorySegment.NULL;").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    private MemorySegment handleVersion() {{").ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            String version = impl.version();").ok();
-    writeln!(out, "            return arena.allocateFrom(version);").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            return MemorySegment.NULL;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+        writeln!(out, "    private MemorySegment handleVersion() {{").ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(out, "            String version = impl.version();").ok();
+        writeln!(out, "            return arena.allocateFrom(version);").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            return MemorySegment.NULL;").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    private int handleInitialize() {{").ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            impl.initialize();").ok();
-    writeln!(out, "            return 0;").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            return 1;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+        writeln!(out, "    private int handleInitialize() {{").ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(out, "            impl.initialize();").ok();
+        writeln!(out, "            return 0;").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            return 1;").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
 
-    writeln!(out, "    private int handleShutdown() {{").ok();
-    writeln!(out, "        try {{").ok();
-    writeln!(out, "            impl.shutdown();").ok();
-    writeln!(out, "            return 0;").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            return 1;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+        writeln!(out, "    private int handleShutdown() {{").ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(out, "            impl.shutdown();").ok();
+        writeln!(out, "            return 0;").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            return 1;").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
 
     // Trait method handlers
-    for (method_name, _) in trait_methods {
+    for (method_name, return_type) in trait_methods {
         writeln!(
             out,
             "    private MemorySegment handle{}() {{",
@@ -312,13 +326,14 @@ pub fn gen_trait_bridge(
         )
         .ok();
         writeln!(out, "        try {{").ok();
-        writeln!(out, "            Object result = impl.{}();", method_name).ok();
-        writeln!(
-            out,
-            "            // TODO: serialize result to JSON string and allocate in arena"
-        )
-        .ok();
-        writeln!(out, "            return MemorySegment.NULL;").ok();
+        if *return_type == "void" || *return_type == "Void" {
+            writeln!(out, "            impl.{}();", method_name).ok();
+            writeln!(out, "            return MemorySegment.NULL;").ok();
+        } else {
+            writeln!(out, "            {} result = impl.{}();", return_type, method_name).ok();
+            writeln!(out, "            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result);").ok();
+            writeln!(out, "            return arena.allocateFrom(json);").ok();
+        }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(out, "            return MemorySegment.NULL;").ok();
         writeln!(out, "        }}").ok();
@@ -331,6 +346,23 @@ pub fn gen_trait_bridge(
     writeln!(out, "        arena.close();").ok();
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // --- Bridge registry (keeps arenas + upcall stubs alive) ---
+    writeln!(
+        out,
+        "/** Registry of live {} bridges — keeps upcall stubs and arenas alive. */",
+        trait_pascal
+    )
+    .ok();
+    writeln!(
+        out,
+        "private static final java.util.concurrent.ConcurrentHashMap<String, {}Bridge> {}_BRIDGES",
+        trait_pascal,
+        trait_snake.to_uppercase()
+    )
+    .ok();
+    writeln!(out, "    = new java.util.concurrent.ConcurrentHashMap<>();").ok();
     writeln!(out).ok();
 
     // --- Registration helpers ---
@@ -346,22 +378,54 @@ pub fn gen_trait_bridge(
         trait_pascal, trait_pascal
     )
     .ok();
-    writeln!(out, "    try (var bridge = new {}Bridge(impl)) {{", trait_pascal).ok();
-    writeln!(out, "        // Call FFI: {}_register_{}", prefix, trait_snake).ok();
+    // Do NOT use try-with-resources: the bridge arena must stay open for the lifetime
+    // of the plugin. We store it in the static registry so it is not GC'd or closed early.
+    writeln!(out, "    var bridge = new {}Bridge(impl);", trait_pascal).ok();
+    writeln!(out, "    try {{").ok();
+    writeln!(out, "        try (var nameArena = Arena.ofConfined()) {{").ok();
+    writeln!(out, "            var nameCs = nameArena.allocateFrom(impl.name());").ok();
+    writeln!(out, "            var outErrArena = Arena.ofConfined();").ok();
     writeln!(
         out,
-        "        var nameCs = Arena.ofConfined().allocateFrom(impl.name());"
+        "            MemorySegment outErr = outErrArena.allocate(ValueLayout.ADDRESS);"
     )
     .ok();
     writeln!(
         out,
-        "        // var rc = NativeLib.{}_REGISTER_{}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL);",
+        "            int rc = (int) NativeLib.{}_REGISTER_{}.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr);",
         prefix_upper,
         trait_snake.to_uppercase()
     )
     .ok();
-    writeln!(out, "        // TODO: error handling").ok();
+    writeln!(out, "            if (rc != 0) {{").ok();
+    writeln!(
+        out,
+        "                MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                String msg = errPtr.equals(MemorySegment.NULL) ? \"registration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                throw new RuntimeException(\"register{}: \" + msg);",
+        trait_pascal
+    )
+    .ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }} catch (Throwable t) {{").ok();
+    writeln!(out, "        bridge.close();").ok();
+    writeln!(out, "        throw t;").ok();
     writeln!(out, "    }}").ok();
+    writeln!(
+        out,
+        "    {}_BRIDGES.put(impl.name(), bridge);",
+        trait_snake.to_uppercase()
+    )
+    .ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
@@ -372,18 +436,49 @@ pub fn gen_trait_bridge(
         trait_pascal
     )
     .ok();
-    writeln!(out, "    // Call FFI: {}_unregister_{}", prefix, trait_snake).ok();
-    writeln!(out, "    try (var arena = Arena.ofConfined()) {{").ok();
-    writeln!(out, "        var nameCs = arena.allocateFrom(name);").ok();
+    writeln!(out, "    try (var nameArena = Arena.ofConfined()) {{").ok();
+    writeln!(out, "        var nameCs = nameArena.allocateFrom(name);").ok();
+    writeln!(out, "        var outErrArena = Arena.ofConfined();").ok();
     writeln!(
         out,
-        "        // var rc = NativeLib.{}_UNREGISTER_{}.invoke(nameCs);",
+        "        MemorySegment outErr = outErrArena.allocate(ValueLayout.ADDRESS);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "        int rc = (int) NativeLib.{}_UNREGISTER_{}.invoke(nameCs, outErr);",
         prefix_upper,
         trait_snake.to_uppercase()
     )
     .ok();
-    writeln!(out, "        // TODO: error handling").ok();
+    writeln!(out, "        if (rc != 0) {{").ok();
+    writeln!(
+        out,
+        "            MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "            String msg = errPtr.equals(MemorySegment.NULL) ? \"unregistration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "            throw new RuntimeException(\"unregister{}: \" + msg);",
+        trait_pascal
+    )
+    .ok();
+    writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
+    // Close and remove the bridge after the C unregister call succeeds
+    writeln!(
+        out,
+        "    {}Bridge old = {}_BRIDGES.remove(name);",
+        trait_pascal,
+        trait_snake.to_uppercase()
+    )
+    .ok();
+    writeln!(out, "    if (old != null) {{ old.close(); }}").ok();
     writeln!(out, "}}").ok();
 
     out
@@ -395,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_gen_trait_bridge_basic() {
-        let code = gen_trait_bridge("MyPlugin", "mylib", &[("doWork", "String"), ("getStatus", "int")]);
+        let code = gen_trait_bridge("MyPlugin", "mylib", &[("doWork", "String"), ("getStatus", "int")], true);
 
         // Basic sanity checks
         assert!(code.contains("public interface MyPlugin"));
@@ -412,7 +507,7 @@ mod tests {
 
     #[test]
     fn test_gen_trait_bridge_vtable_stubs() {
-        let code = gen_trait_bridge("Handler", "lib", &[]);
+        let code = gen_trait_bridge("Handler", "lib", &[], true);
 
         // Verify Panama FFM upcall stubs are generated
         assert!(code.contains("LINKER.upcallStub"));
@@ -424,12 +519,28 @@ mod tests {
 
     #[test]
     fn test_gen_trait_bridge_lifecycle_methods() {
-        let code = gen_trait_bridge("Processor", "pfx", &[("process", "Object")]);
+        let code = gen_trait_bridge("Processor", "pfx", &[("process", "Object")], true);
 
         // Verify Plugin lifecycle methods are present in Java interface
         assert!(code.contains("String name()"));
         assert!(code.contains("String version()"));
         assert!(code.contains("void initialize()"));
         assert!(code.contains("void shutdown()"));
+    }
+
+    #[test]
+    fn test_gen_trait_bridge_no_super_trait_omits_lifecycle() {
+        let code = gen_trait_bridge("Transformer", "lib", &[("transform", "String")], false);
+
+        // Without super_trait, no lifecycle slots should be emitted
+        assert!(
+            !code.contains("String name()"),
+            "no lifecycle methods without super_trait"
+        );
+        assert!(
+            !code.contains("handleName"),
+            "no lifecycle handlers without super_trait"
+        );
+        assert!(code.contains("transform"), "trait method must still be emitted");
     }
 }

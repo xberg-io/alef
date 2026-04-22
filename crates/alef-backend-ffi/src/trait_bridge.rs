@@ -216,10 +216,25 @@ impl FfiBridgeGenerator {
                     .ok();
                     writeln!(
                         out,
-                        "let _{name}_cs = std::ffi::CString::new(_{name}_json).unwrap_or_default();",
+                        "let _{name}_cs = match std::ffi::CString::new(_{name}_json) {{",
                         name = p.name
                     )
                     .ok();
+                    writeln!(out, "    Ok(s) => s,").ok();
+                    writeln!(out, "    Err(_) => {{").ok();
+                    if has_error {
+                        writeln!(
+                            out,
+                            "        return Err(Box::from(\"nul byte in serialized param {}\"));",
+                            p.name
+                        )
+                        .ok();
+                    } else {
+                        let default_expr = default_for_type(&method.return_type);
+                        writeln!(out, "        return {default_expr};").ok();
+                    }
+                    writeln!(out, "    }}").ok();
+                    writeln!(out, "}};").ok();
                     writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
@@ -466,7 +481,7 @@ impl FfiBridgeGenerator {
         out
     }
 
-    /// Generate the bridge struct with `vtable`, `user_data`, and `cached_name`.
+    /// Generate the bridge struct with `vtable`, `user_data`, `cached_name`, and `cached_version`.
     fn gen_bridge_struct(&self, spec: &TraitBridgeSpec) -> String {
         let vtable = self.vtable_name(spec);
         let bridge = self.bridge_name(spec);
@@ -483,6 +498,7 @@ impl FfiBridgeGenerator {
         writeln!(out, "    vtable: {vtable},").ok();
         writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
         writeln!(out, "    cached_name: String,").ok();
+        writeln!(out, "    cached_version: String,").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
         writeln!(
@@ -564,19 +580,34 @@ impl FfiBridgeGenerator {
         )
         .ok();
         writeln!(out, "        unsafe {{ fp(self.user_data, &mut _out) }};").ok();
-        writeln!(out, "        if _out.is_null() {{ return \"\"; }}").ok();
+        writeln!(out, "        if _out.is_null() {{ return &self.cached_version; }}").ok();
         writeln!(
             out,
-            "        // SAFETY: _out is a callee-allocated CString; we take ownership and leak it"
+            "        // SAFETY: _out is a callee-allocated CString; we take ownership."
         )
         .ok();
-        writeln!(out, "        // into a &'static str — acceptable because version() returns &str.").ok();
-        writeln!(out, "        let cs = unsafe {{ std::ffi::CStr::from_ptr(_out) }};").ok();
         writeln!(
             out,
-            "        Box::leak(cs.to_string_lossy().into_owned().into_boxed_str())"
+            "        // We write into cached_version and return a reference to it."
         )
         .ok();
+        writeln!(out, "        let cs = unsafe {{ std::ffi::CString::from_raw(_out) }};").ok();
+        writeln!(
+            out,
+            "        // SAFETY: ptr aliases self; no concurrent mutation of cached_version."
+        )
+        .ok();
+        writeln!(
+            out,
+            "        let ptr = self as *const Self as *mut Self;"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        unsafe {{ (*ptr).cached_version = cs.to_string_lossy().into_owned(); }}"
+        )
+        .ok();
+        writeln!(out, "        &self.cached_version").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
@@ -724,7 +755,8 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "        cached_name: String,").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "    unsafe impl Send for _LocalBridge {{}}").ok();
-        writeln!(out, "    let bridge = _LocalBridge {{ vtable, user_data, cached_name: String::new() }};").ok();
+        writeln!(out, "    unsafe impl Sync for _LocalBridge {{}}").ok();
+        writeln!(out, "    let bridge = _LocalBridge {{ vtable, user_data, cached_name: String::new(), cached_version: String::new() }};").ok();
         writeln!(out, "    // Inline the sync body:").ok();
         for line in sync_body.lines() {
             writeln!(out, "    {line}").ok();
@@ -778,7 +810,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             "    pub unsafe fn new(name: String, vtable: {vtable}, user_data: *const std::ffi::c_void) -> Self {{"
         )
         .ok();
-        writeln!(out, "        Self {{ vtable, user_data, cached_name: name }}").ok();
+        writeln!(out, "        Self {{ vtable, user_data, cached_name: name, cached_version: String::new() }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         out

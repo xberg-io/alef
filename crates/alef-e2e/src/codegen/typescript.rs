@@ -161,9 +161,9 @@ fn render_package_json(
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
         crate::config::DependencyMode::Local => "workspace:*".to_string(),
     };
-    if has_http_fixtures {
-        format!(
-            r#"{{
+    let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
+    format!(
+        r#"{{
   "name": "{pkg_name}-e2e-typescript",
   "version": "0.1.0",
   "private": true,
@@ -177,25 +177,7 @@ fn render_package_json(
   }}
 }}
 "#
-        )
-    } else {
-        format!(
-            r#"{{
-  "name": "{pkg_name}-e2e-typescript",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {{
-    "test": "vitest run"
-  }},
-  "devDependencies": {{
-    "{pkg_name}": "{dep_value}",
-    "vitest": "^3.0.0"
-  }}
-}}
-"#
-        )
-    }
+    )
 }
 
 fn render_tsconfig() -> String {

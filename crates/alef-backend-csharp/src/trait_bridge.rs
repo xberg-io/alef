@@ -39,7 +39,7 @@ pub fn gen_native_methods_trait_bridges(
         .ok();
         writeln!(
             out,
-            "    internal static extern int Register{}(string name, IntPtr vtable, IntPtr userData, ref IntPtr outError);",
+            "    internal static extern int Register{}([MarshalAs(UnmanagedType.LPUTF8Str)] string name, IntPtr vtable, IntPtr userData, out IntPtr outError);",
             trait_name
         )
         .ok();
@@ -51,7 +51,7 @@ pub fn gen_native_methods_trait_bridges(
         .ok();
         writeln!(
             out,
-            "    internal static extern int Unregister{}(string name, ref IntPtr outError);",
+            "    internal static extern int Unregister{}([MarshalAs(UnmanagedType.LPUTF8Str)] string name, out IntPtr outError);",
             trait_name
         )
         .ok();

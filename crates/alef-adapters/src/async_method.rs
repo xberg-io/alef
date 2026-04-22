@@ -98,9 +98,15 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
 // Node (NAPI)
 // ---------------------------------------------------------------------------
 
-fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("()");
+    let prefix = config.node_type_prefix();
+    let raw_returns = adapter.returns.as_deref().unwrap_or("()");
+    let returns = if raw_returns == "()" {
+        raw_returns.to_string()
+    } else {
+        format!("{prefix}{raw_returns}")
+    };
 
     let args = call_args(adapter);
 

@@ -6,7 +6,7 @@
 //! handle the structural boilerplate.
 
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{MethodDef, TypeDef};
+use alef_core::ir::{MethodDef, ParamDef, TypeDef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -174,7 +174,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
     for line in version_body.lines() {
-        writeln!(out, "        {line}").ok();
+        writeln!(out, "        {}", line.trim_start()).ok();
     }
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
@@ -203,7 +203,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
     let init_body = generator.gen_sync_method_body(&init_method, spec);
     for line in init_body.lines() {
-        writeln!(out, "        {line}").ok();
+        writeln!(out, "        {}", line.trim_start()).ok();
     }
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
@@ -232,7 +232,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
     for line in shutdown_body.lines() {
-        writeln!(out, "        {line}").ok();
+        writeln!(out, "        {}", line.trim_start()).ok();
     }
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
@@ -272,11 +272,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
             None => "",
         };
 
-        // Build params (excluding self)
+        // Build params (excluding self), using format_param_type to respect is_ref/is_mut
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name, format_type_ref(&p.ty, &spec.type_paths)))
+            .map(|p| format!("{}: {}", p.name, format_param_type(p, &spec.type_paths)))
             .collect();
 
         let all_params = if receiver.is_empty() {
@@ -339,6 +339,11 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));
+    writeln!(out).ok();
+    writeln!(out).ok();
+
+    // Constructor (impl block with new())
+    out.push_str(&generator.gen_constructor(spec));
     writeln!(out).ok();
     writeln!(out).ok();
 
@@ -417,5 +422,34 @@ pub fn format_return_type(
     match error_type {
         Some(err) => format!("Result<{inner}, {err}>"),
         None => inner,
+    }
+}
+
+/// Format a parameter type, respecting `is_ref` and `is_mut` from the IR.
+///
+/// Unlike [`format_type_ref`], this function produces reference types when the
+/// original Rust parameter was a `&T` or `&mut T`:
+/// - `String + is_ref` → `&str`
+/// - `Bytes + is_ref` → `&[u8]`
+/// - `Path + is_ref` → `&std::path::Path`
+/// - `Vec<T> + is_ref` → `&[T]`
+/// - `Named(n) + is_ref` → `&{qualified_name}`
+pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>) -> String {
+    use alef_core::ir::TypeRef;
+    if param.is_ref {
+        match &param.ty {
+            TypeRef::String => "&str".to_string(),
+            TypeRef::Bytes => "&[u8]".to_string(),
+            TypeRef::Path => "&std::path::Path".to_string(),
+            TypeRef::Vec(inner) => format!("&[{}]", format_type_ref(inner, type_paths)),
+            TypeRef::Named(name) => {
+                let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                format!("&{qualified}")
+            }
+            // All other types are Copy/small — pass by value even when is_ref is set
+            other => format_type_ref(other, type_paths),
+        }
+    } else {
+        format_type_ref(&param.ty, type_paths)
     }
 }

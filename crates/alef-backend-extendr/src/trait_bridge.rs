@@ -127,7 +127,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             match &method.return_type {
                 TypeRef::String | TypeRef::Char => {
                     writeln!(out, "        if let Some(s) = val.as_str() {{").ok();
-                    writeln!(out, "            {}Ok(s.to_string())", if has_error { "" } else { "" }).ok();
+                    writeln!(out, "            Ok(s.to_string())").ok();
                     writeln!(out, "        }} else {{").ok();
                     if has_error {
                         writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
@@ -381,16 +381,12 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 

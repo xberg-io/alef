@@ -75,28 +75,25 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             writeln!(out, "    ];").ok();
         }
 
-        // Call via spawn_monitor (fire-and-forget process)
+        // Call the Elixir function directly with apply/2
         writeln!(
             out,
-            "    let (result_pid, _ref) = rustler::types::Pid::spawn_monitor(env, method_term, &args).ok()?;"
+            "    let result: rustler::Term = method_term.apply(env, &args).ok()?;"
         )
         .ok();
-
-        // Try to receive the result (with timeout to avoid blocking the NIF)
-        writeln!(out, "    result_pid.send(env, method_term).ok()").ok();
 
         // Parse result based on return type
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "    Some(())").ok();
         } else {
-            writeln!(out, "    Some(Default::default())").ok();
+            writeln!(out, "    result.decode::<String>().ok()").ok();
         }
 
         writeln!(out, "}}).unwrap_or_else(|| {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "    ()").ok();
         } else {
-            writeln!(out, "    Default::default()").ok();
+            writeln!(out, "    Err(\"method call failed\".into())").ok();
         }
         writeln!(out, "}})").ok();
 
@@ -237,16 +234,12 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let register_fn = spec
-            .bridge_config
-            .register_fn
-            .as_deref()
-            .expect("gen_registration_fn called without register_fn");
-        let registry_getter = spec
-            .bridge_config
-            .registry_getter
-            .as_deref()
-            .expect("gen_registration_fn called without registry_getter");
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
