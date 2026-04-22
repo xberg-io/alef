@@ -328,7 +328,7 @@ const CALLBACKS: &[CallbackSpec] = &[
             },
             ExtraParam {
                 c_name: "depth",
-                c_type: "C.size_t",
+                c_type: "C.uintptr_t",
                 go_name: "depth",
                 go_iface_type: "uint",
                 decode: "uint(depth)",
@@ -976,13 +976,13 @@ pub fn gen_visitor_file(
     writeln!(out).ok();
     writeln!(
         out,
-        "func encodeVisitResult(r VisitResult, outCustom **C.char, outLen *C.size_t) C.int32_t {{"
+        "func encodeVisitResult(r VisitResult, outCustom **C.char, outLen *C.uintptr_t) C.int32_t {{"
     )
     .ok();
     writeln!(out, "\tif (r.Code == 3 || r.Code == 4) && r.Custom != nil {{").ok();
     writeln!(out, "\t\tcs := C.CString(*r.Custom)").ok();
     writeln!(out, "\t\t*outCustom = cs").ok();
-    writeln!(out, "\t\t*outLen = C.size_t(len(*r.Custom))").ok();
+    writeln!(out, "\t\t*outLen = C.uintptr_t(len(*r.Custom))").ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\treturn C.int32_t(r.Code)").ok();
     writeln!(out, "}}").ok();
@@ -995,7 +995,7 @@ pub fn gen_visitor_file(
     writeln!(out, "\treturn &s").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
-    writeln!(out, "func decodeCells(cells **C.char, count C.size_t) []string {{").ok();
+    writeln!(out, "func decodeCells(cells **C.char, count C.uintptr_t) []string {{").ok();
     writeln!(out, "\tn := int(count)").ok();
     writeln!(out, "\tif n == 0 {{").ok();
     writeln!(out, "\t\treturn nil").ok();
@@ -1034,17 +1034,19 @@ fn c_signature(spec: &CallbackSpec, _ffi_prefix: &str) -> String {
             "*C.char" => "char*",
             "C.int32_t" => "int32_t",
             "C.uint32_t" => "uint32_t",
-            "C.size_t" => "size_t",
+            "C.uintptr_t" => "uintptr_t",
             "**C.char" => "char**",
             _ => "void*",
         };
         parts.push(format!("{ctype} {}", ep.c_name));
     }
     if spec.has_is_header {
+        // visit_table_row: cell_count precedes is_header in the C ABI.
+        parts.push("uintptr_t cellCount".to_string());
         parts.push("int32_t isHeader".to_string());
     }
     parts.push("char** out_custom".to_string());
-    parts.push("size_t* out_len".to_string());
+    parts.push("uintptr_t* out_len".to_string());
     parts.join(", ")
 }
 
@@ -1083,10 +1085,12 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
         go_params.push(format!("{} {}", ep.c_name, ep.c_type));
     }
     if spec.has_is_header {
+        // visit_table_row: cell_count precedes is_header in the C ABI.
+        go_params.push("cellCount C.uintptr_t".to_string());
         go_params.push("isHeader C.int32_t".to_string());
     }
     go_params.push("outCustom **C.char".to_string());
-    go_params.push("outLen *C.size_t".to_string());
+    go_params.push("outLen *C.uintptr_t".to_string());
 
     writeln!(out, "//export {}", spec.export_name).ok();
     writeln!(out, "func {}({}) C.int32_t {{", spec.export_name, go_params.join(", ")).ok();

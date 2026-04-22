@@ -546,23 +546,37 @@ fn extract_items(
     // items defined in that submodule should get a shorter path (this level's path).
     let reexport_map = collect_reexport_map(items);
 
-    // Pre-scan: detect generic type aliases whose definition wraps Result<T>.
-    // e.g. `pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;`
-    // When such an alias is used as `BoxFuture<'_, SomeType>`, the extractor should
-    // mark the return as is_result=true even though `SomeType` isn't `Result<...>`.
+    // Pre-scan: detect type aliases that are important for IR extraction.
+    // 1. Generic Result type aliases (e.g., `pub type Result<T> = std::result::Result<T, MyError>`)
+    //    will be stored in type_resolver for error type resolution.
+    // 2. Generic type aliases whose definition wraps Result<T>
+    //    (e.g., `pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>`)
+    //    When such an alias is used as `BoxFuture<'_, SomeType>`, the extractor should
+    //    mark the return as is_result=true even though `SomeType` isn't `Result<...>`.
+    let mut result_error_hints = ahash::AHashMap::new();
     for item in items {
         if let syn::Item::Type(item_type) = item {
-            if is_pub(&item_type.vis) && !item_type.generics.params.is_empty() {
+            if is_pub(&item_type.vis) {
                 let name = item_type.ident.to_string();
-                // Check if the RHS contains `Result<` — a heuristic that works for
-                // `Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>` patterns.
-                let rhs = quote::quote!(#item_type).to_string();
-                if rhs.contains("Result <") || rhs.contains("Result<") {
-                    result_wrapping_aliases.insert(name);
+                // For non-generic type aliases, check if this is `pub type Result<T> = std::result::Result<T, E>`
+                if item_type.generics.params.is_empty() {
+                    if name == "Result" {
+                        // Extract the error type from the RHS: std::result::Result<T, E>
+                        if let Some(error_type) = type_resolver::extract_result_error_type_from_alias(&item_type.ty) {
+                            result_error_hints.insert(name.clone(), error_type);
+                        }
+                    }
+                } else {
+                    // Generic type alias — check if it wraps Result<T>.
+                    let rhs = quote::quote!(#item_type).to_string();
+                    if rhs.contains("Result <") || rhs.contains("Result<") {
+                        result_wrapping_aliases.insert(name);
+                    }
                 }
             }
         }
     }
+    type_resolver::set_result_error_hints(result_error_hints);
 
     // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {

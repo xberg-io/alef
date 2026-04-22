@@ -200,6 +200,11 @@ impl Backend for NapiBackend {
             if exclude_functions.contains(&func.name) {
                 continue;
             }
+            // Skip sanitized functions — they cannot be auto-delegated and emitting a stub
+            // would expose a broken placeholder in the public API.
+            if func.sanitized {
+                continue;
+            }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
@@ -497,6 +502,12 @@ fn gen_opaque_struct_methods(
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
+        // Skip sanitized methods that have no adapter override — they cannot be delegated
+        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
+        let adapter_key = format!("{}.{}", typ.name, method.name);
+        if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         impl_builder.add_method(&gen_opaque_instance_method(
             method,
             mapper,
@@ -508,6 +519,11 @@ fn gen_opaque_struct_methods(
         ));
     }
     for method in &statics {
+        // Skip sanitized static methods that have no adapter override.
+        let adapter_key = format!("{}.{}", typ.name, method.name);
+        if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types, prefix));
     }
 

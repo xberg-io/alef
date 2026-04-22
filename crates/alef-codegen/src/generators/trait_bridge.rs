@@ -295,8 +295,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
             format!("{}, {}", receiver, params.join(", "))
         };
 
-        // Return type
-        let ret = format_return_type(&method.return_type, method.error_type.as_deref(), &spec.type_paths);
+        // Return type — override the IR's error type with the configured crate error type
+        // so the impl matches the actual trait definition (the IR may extract a different
+        // error type like anyhow::Error from re-exports or type alias resolution).
+        let error_override = method.error_type.as_ref().map(|_| spec.error_path());
+        let ret = format_return_type(&method.return_type, error_override.as_deref(), &spec.type_paths);
 
         writeln!(out, "    {async_kw}fn {}({all_params}) -> {ret} {{", method.name).ok();
 

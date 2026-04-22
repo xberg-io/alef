@@ -1,4 +1,23 @@
 use alef_core::ir::{PrimitiveType, TypeRef};
+use std::cell::RefCell;
+
+thread_local! {
+    /// Thread-local storage for Result type alias error hints.
+    /// Maps alias name (e.g., "Result") to the error type (e.g., "KreuzbergError").
+    static RESULT_ERROR_HINTS: RefCell<ahash::AHashMap<String, String>> = RefCell::new(ahash::AHashMap::new());
+}
+
+/// Set the Result error hints for the current extraction context.
+pub fn set_result_error_hints(hints: ahash::AHashMap<String, String>) {
+    RESULT_ERROR_HINTS.with(|h| {
+        *h.borrow_mut() = hints;
+    });
+}
+
+/// Get the error type hint for a Result type alias.
+fn get_result_error_hint(name: &str) -> Option<String> {
+    RESULT_ERROR_HINTS.with(|h| h.borrow().get(name).cloned())
+}
 
 /// Convert a `syn::Type` into our IR `TypeRef`.
 pub fn resolve_type(ty: &syn::Type) -> TypeRef {
@@ -289,6 +308,36 @@ pub fn is_option_type(ty: &syn::Type) -> Option<TypeRef> {
     None
 }
 
+/// Extract the error type from a `pub type Result<T> = std::result::Result<T, E>` alias definition.
+/// Returns the string representation of the error type E.
+pub fn extract_result_error_type_from_alias(ty: &syn::Type) -> Option<String> {
+    if let syn::Type::Path(type_path) = ty {
+        // For `std::result::Result<T, E>` or just `Result<T, E>`
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Result" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    let type_args: Vec<_> = args
+                        .args
+                        .iter()
+                        .filter_map(|a| {
+                            if let syn::GenericArgument::Type(ty) = a {
+                                Some(ty)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    // For a non-generic type alias, we expect exactly 2 args: T and E
+                    if type_args.len() == 2 {
+                        return Some(type_to_string(type_args[1]));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Extract the error type string from a `Result<T, E>` return type.
 pub fn extract_result_error_type(ty: &syn::Type) -> Option<String> {
     if let syn::Type::Path(type_path) = ty {
@@ -309,9 +358,12 @@ pub fn extract_result_error_type(ty: &syn::Type) -> Option<String> {
                     if type_args.len() >= 2 {
                         return Some(type_to_string(type_args[1]));
                     }
-                    // Result<T> with a single type arg (type alias) — error type is implicit.
-                    // Return a placeholder so that error handling code is still generated.
+                    // Result<T> with a single type arg (type alias) — look up the error type hint.
                     if !type_args.is_empty() {
+                        if let Some(hint) = get_result_error_hint("Result") {
+                            return Some(hint);
+                        }
+                        // Fallback to anyhow::Error if no hint is available
                         return Some("anyhow::Error".to_string());
                     }
                 }

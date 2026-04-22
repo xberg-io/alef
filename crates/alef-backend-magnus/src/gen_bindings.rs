@@ -195,6 +195,11 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) {
+                // Skip sanitized functions — they cannot be auto-delegated and emitting a stub
+                // would expose a broken placeholder in the public API.
+                if func.sanitized {
+                    continue;
+                }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
@@ -440,6 +445,12 @@ fn gen_opaque_struct_methods(
 
     for method in &typ.methods {
         if !method.is_static {
+            // Skip sanitized methods that have no adapter override — they cannot be delegated
+            // and emitting an unimplemented stub pollutes the public API with dead placeholders.
+            let adapter_key = format!("{}.{}", typ.name, method.name);
+            if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+                continue;
+            }
             if method.is_async {
                 impl_builder.add_method(&gen_opaque_async_instance_method(
                     method,
@@ -692,6 +703,11 @@ fn gen_struct_methods(
 
     for method in &typ.methods {
         if !method.is_static {
+            // Skip sanitized methods — they cannot be delegated and emitting a stub
+            // would expose a broken placeholder in the public API.
+            if method.sanitized {
+                continue;
+            }
             if method.is_async {
                 impl_builder.add_method(&gen_async_instance_method(
                     method,
@@ -1383,7 +1399,8 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        let class_used = (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static);
+        let class_used = (!typ.is_opaque && !typ.fields.is_empty())
+            || typ.methods.iter().any(|m| !m.is_static && !m.sanitized);
         let binding = if class_used { "class" } else { "_class" };
         lines.push(format!(
             r#"    let {binding} = module.define_class("{}", ruby.class_object())?;"#,
@@ -1414,6 +1431,10 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
         for method in &typ.methods {
             if !method.is_static {
+                // Sanitized methods are not emitted as Rust functions, so don't register them.
+                if method.sanitized {
+                    continue;
+                }
                 let method_name = if method.is_async {
                     format!("{}_async", method.name)
                 } else {
@@ -1435,6 +1456,10 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
     for func in &api.functions {
         if is_reserved_fn(&func.name) {
+            continue;
+        }
+        // Sanitized functions are not emitted as Rust functions, so don't register them.
+        if func.sanitized {
             continue;
         }
         let param_count = func.params.len();
