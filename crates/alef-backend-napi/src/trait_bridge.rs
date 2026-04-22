@@ -90,12 +90,12 @@ fn gen_visitor_bridge(
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"depth\", env.create_uint32(ctx.depth as u32)?)?;"
+        "    obj.set_named_property(\"depth\", env.create_uint32(ctx.depth)?)?;"
     )
     .unwrap();
     writeln!(
         out,
-        "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent as u32)?)?;"
+        "    obj.set_named_property(\"indexInParent\", env.create_uint32(ctx.index_in_parent)?)?;"
     )
     .unwrap();
     writeln!(out, "    obj.set_named_property(\"isInline\", ctx.is_inline)?;").unwrap();
@@ -403,12 +403,16 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                     name = p.name
                 );
             }
-            // u32
-            if matches!(
-                &p.ty,
-                TypeRef::Primitive(alef_core::ir::PrimitiveType::U32)
-                    | TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)
-            ) {
+            // u32 / usize: create_uint32 needs a u32; usize requires the cast but u32 does not.
+            if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::U32)) {
+                return format!(
+                    "self.env().create_uint32({name}).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                    name = p.name
+                );
+            }
+            if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)) {
                 return format!(
                     "self.env().create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                      let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \

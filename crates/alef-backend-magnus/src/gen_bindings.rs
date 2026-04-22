@@ -51,6 +51,10 @@ impl Backend for MagnusBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit)");
+        builder.add_inner_attribute(
+            "allow(clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+        );
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );

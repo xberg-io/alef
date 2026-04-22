@@ -12,6 +12,17 @@ use super::helpers::{
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
 
+/// Format the `-> ReturnType` part of a function signature.
+/// Returns an empty string for unit `()` return types to avoid
+/// emitting `-> ()` which triggers `clippy::unused_unit`.
+fn return_type_sig(annotation: &str) -> String {
+    if annotation == "()" {
+        String::new()
+    } else {
+        format!(" -> {annotation}")
+    }
+}
+
 /// Build the set of parameter names that are trait bridge params.
 /// Bridge params are sanitized to a String/Option<String> in the IR but must be
 /// passed as `None` to the core function (the PHP backend has no bridge implementation).
@@ -150,16 +161,17 @@ pub(crate) fn gen_instance_method(
     } else {
         ""
     };
+    let ret_sig = return_type_sig(&return_annotation);
     if params_str.is_empty() {
         format!(
-            "{trait_allow}pub fn {}(&self) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "{trait_allow}pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self, {params_str}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
@@ -244,16 +256,17 @@ pub(crate) fn gen_instance_method_non_opaque(
     } else {
         ""
     };
+    let ret_sig = return_type_sig(&return_annotation);
     if params_str.is_empty() {
         format!(
-            "{trait_allow}pub fn {}(&self) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "{trait_allow}pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self, {params_str}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
@@ -341,16 +354,17 @@ pub(crate) fn gen_static_method(
     } else {
         ""
     };
+    let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         format!(
-            "{trait_allow}pub fn {}() -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "{trait_allow}pub fn {}({params}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
@@ -379,16 +393,17 @@ pub(crate) fn gen_function_as_static_method(
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
+    let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         format!(
-            "pub fn {}() -> {return_annotation} {{\n    \
+            "pub fn {}(){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
         )
     } else {
         format!(
-            "pub fn {}({params}) -> {return_annotation} {{\n    \
+            "pub fn {}({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
@@ -525,16 +540,17 @@ pub(crate) fn gen_async_function_as_static_method(
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
+    let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         format!(
-            "pub fn {}_async() -> {return_annotation} {{\n    \
+            "pub fn {}_async(){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
         )
     } else {
         format!(
-            "pub fn {}_async({params}) -> {return_annotation} {{\n    \
+            "pub fn {}_async({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
@@ -649,16 +665,17 @@ pub(crate) fn gen_async_instance_method(
         )
     };
 
+    let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         format!(
-            "pub fn {}_async(&self) -> {return_annotation} {{\n    \
+            "pub fn {}_async(&self){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "pub fn {}_async(&self, {params}) -> {return_annotation} {{\n    \
+            "pub fn {}_async(&self, {params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name

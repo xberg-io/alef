@@ -291,6 +291,9 @@ serde_json = "1"{extra_deps_section}
 
 [features]
 extension-module = ["pyo3/extension-module"]
+
+[lints]
+workspace = true
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
@@ -423,6 +426,9 @@ serde_json = "1"{extra_deps_section}
 
 [build-dependencies]
 napi-build = "2"
+
+[lints]
+workspace = true
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
@@ -592,6 +598,9 @@ magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
+
+[lints]
+workspace = true
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
@@ -861,6 +870,9 @@ ext-php-rs = "0.15"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
+
+[lints]
+workspace = true
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
@@ -1004,6 +1016,9 @@ rustler = "0.37"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
+
+[lints]
+workspace = true
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,

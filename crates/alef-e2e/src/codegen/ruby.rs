@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -104,6 +104,10 @@ impl E2eCodegen for RubyCodegen {
             );
             // Skip the entire file if no fixture in this category produces output.
             let has_any_output = active.iter().any(|f| {
+                // HTTP tests always produce output.
+                if f.is_http_test() {
+                    return true;
+                }
                 let expects_error = f.assertions.iter().any(|a| a.assertion_type == "error");
                 expects_error || has_usable_assertion(f, &field_resolver_pre, result_is_simple)
             });
@@ -169,7 +173,8 @@ fn render_gemfile(
          {gem_line}\n\
          gem 'rspec', '~> 3.13'\n\
          gem 'rubocop', '~> 1.86'\n\
-         gem 'rubocop-rspec', '~> 3.9'\n"
+         gem 'rubocop-rspec', '~> 3.9'\n\
+         gem 'faraday', '~> 2.0'\n"
     )
 }
 
@@ -238,6 +243,12 @@ fn render_spec_file(
     let require_name = if module_path.is_empty() { gem_name } else { module_path };
     let _ = writeln!(out, "require '{}'", require_name.replace('-', "_"));
     let _ = writeln!(out, "require 'json'");
+
+    // Add faraday if any fixture is an HTTP test.
+    let has_http = fixtures.iter().any(|f| f.is_http_test());
+    if has_http {
+        let _ = writeln!(out, "require 'faraday'");
+    }
     let _ = writeln!(out);
 
     // Build the Ruby module/class qualifier for calls.
@@ -247,6 +258,18 @@ fn render_spec_file(
 
     let _ = writeln!(out, "RSpec.describe '{}' do", category);
 
+    // Emit a shared client helper when there are HTTP tests.
+    if has_http {
+        let _ = writeln!(out, "  let(:base_url) {{ ENV.fetch('TEST_SERVER_URL', 'http://localhost:8080') }}");
+        let _ = writeln!(out, "  let(:client) do");
+        let _ = writeln!(out, "    Faraday.new(url: base_url) do |f|");
+        let _ = writeln!(out, "      f.request :json");
+        let _ = writeln!(out, "      f.response :json, content_type: /\\bjson$/");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        let _ = writeln!(out);
+    }
+
     let mut first = true;
     for fixture in fixtures {
         if !first {
@@ -254,18 +277,22 @@ fn render_spec_file(
         }
         first = false;
 
-        render_example(
-            &mut out,
-            fixture,
-            function_name,
-            &call_receiver,
-            result_var,
-            args,
-            field_resolver,
-            options_type,
-            enum_fields,
-            result_is_simple,
-        );
+        if let Some(http) = &fixture.http {
+            render_http_example(&mut out, fixture, http);
+        } else {
+            render_example(
+                &mut out,
+                fixture,
+                function_name,
+                &call_receiver,
+                result_var,
+                args,
+                field_resolver,
+                options_type,
+                enum_fields,
+                result_is_simple,
+            );
+        }
     }
 
     let _ = writeln!(out, "end");
@@ -301,6 +328,158 @@ fn has_usable_assertion(fixture: &Fixture, field_resolver: &FieldResolver, resul
         true
     })
 }
+
+// ---------------------------------------------------------------------------
+// HTTP test rendering
+// ---------------------------------------------------------------------------
+
+/// Render an RSpec `describe` + `it` block for an HTTP server test fixture.
+fn render_http_example(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let description = fixture.description.replace('\'', "\\'");
+    let method = http.request.method.to_uppercase();
+    let path = &http.request.path;
+
+    let _ = writeln!(out, "  describe '{method} {path}' do");
+    let _ = writeln!(out, "    it '{}' do", description);
+
+    // Build request call.
+    render_ruby_http_request(out, &http.request);
+
+    // Assert status.
+    let status = http.expected_response.status_code;
+    let _ = writeln!(out, "      expect(response.status).to eq({status})");
+
+    // Assert response body.
+    render_ruby_body_assertions(out, &http.expected_response);
+
+    // Assert response headers.
+    render_ruby_header_assertions(out, &http.expected_response);
+
+    let _ = writeln!(out, "    end");
+    let _ = writeln!(out, "  end");
+}
+
+/// Emit the Faraday request lines inside an RSpec example.
+fn render_ruby_http_request(out: &mut String, req: &HttpRequest) {
+    let method = req.method.to_lowercase();
+
+    // Build options hash.
+    let mut opts: Vec<String> = Vec::new();
+
+    if let Some(body) = &req.body {
+        let ruby_body = json_to_ruby(body);
+        opts.push(format!("json: {ruby_body}"));
+    }
+
+    if !req.headers.is_empty() {
+        let header_pairs: Vec<String> = req
+            .headers
+            .iter()
+            .map(|(k, v)| format!("{} => {}", ruby_string_literal(k), ruby_string_literal(v)))
+            .collect();
+        opts.push(format!("headers: {{ {} }}", header_pairs.join(", ")));
+    }
+
+    if !req.cookies.is_empty() {
+        let cookie_str = req
+            .cookies
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("; ");
+        opts.push(format!("headers: {{ 'Cookie' => {} }}", ruby_string_literal(&cookie_str)));
+    }
+
+    // Build path with optional query string.
+    let path = if req.query_params.is_empty() {
+        ruby_string_literal(&req.path)
+    } else {
+        let pairs: Vec<String> = req
+            .query_params
+            .iter()
+            .map(|(k, v)| {
+                let val_str = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("{}={}", k, val_str)
+            })
+            .collect();
+        ruby_string_literal(&format!("{}?{}", req.path, pairs.join("&")))
+    };
+
+    if opts.is_empty() {
+        let _ = writeln!(out, "      response = client.{method}({path})");
+    } else {
+        let _ = writeln!(out, "      response = client.{method}({path},");
+        for (i, opt) in opts.iter().enumerate() {
+            if i + 1 < opts.len() {
+                let _ = writeln!(out, "        {opt},");
+            } else {
+                let _ = writeln!(out, "        {opt}");
+            }
+        }
+        let _ = writeln!(out, "      )");
+    }
+}
+
+/// Emit body assertions for an HTTP expected response.
+fn render_ruby_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    if let Some(body) = &expected.body {
+        let ruby_val = json_to_ruby(body);
+        let _ = writeln!(out, "      expect(response.body).to eq({ruby_val})");
+    }
+    if let Some(partial) = &expected.body_partial {
+        if let Some(obj) = partial.as_object() {
+            for (key, val) in obj {
+                let ruby_key = ruby_string_literal(key);
+                let ruby_val = json_to_ruby(val);
+                let _ = writeln!(out, "      expect(response.body[{ruby_key}]).to eq({ruby_val})");
+            }
+        }
+    }
+    if let Some(errors) = &expected.validation_errors {
+        for err in errors {
+            let msg_lit = ruby_string_literal(&err.msg);
+            let _ = writeln!(out, "      expect(response.body.to_s).to include({msg_lit})");
+        }
+    }
+}
+
+/// Emit header assertions for an HTTP expected response.
+///
+/// Special tokens:
+/// - `"<<present>>"` — assert the header key exists
+/// - `"<<absent>>"` — assert the header key is absent
+/// - `"<<uuid>>"` — assert the header value matches a UUID regex
+fn render_ruby_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    for (name, value) in &expected.headers {
+        let header_key = name.to_lowercase();
+        let header_expr = format!("response.headers[{}]", ruby_string_literal(&header_key));
+        match value.as_str() {
+            "<<present>>" => {
+                let _ = writeln!(out, "      expect({header_expr}).not_to be_nil");
+            }
+            "<<absent>>" => {
+                let _ = writeln!(out, "      expect({header_expr}).to be_nil");
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "      expect({header_expr}).to match(/\\A[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}\\z/i)"
+                );
+            }
+            literal => {
+                let ruby_val = ruby_string_literal(literal);
+                let _ = writeln!(out, "      expect({header_expr}).to eq({ruby_val})");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Function-call test rendering
+// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn render_example(

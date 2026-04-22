@@ -7,7 +7,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -167,12 +167,14 @@ fn render_composer_json(
     "{pkg_name}": "{pkg_version}"
   }},
   "require-dev": {{
-    "phpunit/phpunit": "^13.1"
+    "phpunit/phpunit": "^13.1",
+    "guzzlehttp/guzzle": "^7.0"
   }},"#
             )
         }
         crate::config::DependencyMode::Local => r#"  "require-dev": {
-    "phpunit/phpunit": "^13.1"
+    "phpunit/phpunit": "^13.1",
+    "guzzlehttp/guzzle": "^7.0"
   },"#
         .to_string(),
     };
@@ -255,6 +257,7 @@ fn render_test_file(
     let _ = writeln!(out);
     let _ = writeln!(out, "namespace Kreuzberg\\E2e;");
     let _ = writeln!(out);
+
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
     let needs_crawl_config_import = fixtures.iter().any(|f| {
         let call = e2e_config.resolve_call(f.call.as_deref());
@@ -264,30 +267,56 @@ fn render_test_file(
         })
     });
 
+    // Determine if any fixture is an HTTP test (needs GuzzleHttp).
+    let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
+
     let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
     let _ = writeln!(out, "use {namespace}\\{class_name};");
     if needs_crawl_config_import {
         let _ = writeln!(out, "use {namespace}\\CrawlConfig;");
+    }
+    if has_http_tests {
+        let _ = writeln!(out, "use GuzzleHttp\\Client;");
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
     let _ = writeln!(out, "final class {test_class} extends TestCase");
     let _ = writeln!(out, "{{");
 
-    for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_method(
-            &mut out,
-            fixture,
-            e2e_config,
-            lang,
-            namespace,
-            class_name,
-            field_resolver,
-            enum_fields,
-            result_is_simple,
-            php_client_factory,
-            options_via,
+    // Emit a shared HTTP client property when there are HTTP tests.
+    if has_http_tests {
+        let _ = writeln!(out, "    private Client $httpClient;");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    protected function setUp(): void");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        parent::setUp();");
+        let _ = writeln!(out, "        $baseUrl = getenv('TEST_SERVER_URL') ?: 'http://localhost:8080';");
+        let _ = writeln!(
+            out,
+            "        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false]);"
         );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+    }
+
+    for (i, fixture) in fixtures.iter().enumerate() {
+        if fixture.is_http_test() {
+            render_http_test_method(&mut out, fixture, fixture.http.as_ref().unwrap());
+        } else {
+            render_test_method(
+                &mut out,
+                fixture,
+                e2e_config,
+                lang,
+                namespace,
+                class_name,
+                field_resolver,
+                enum_fields,
+                result_is_simple,
+                php_client_factory,
+                options_via,
+            );
+        }
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -296,6 +325,163 @@ fn render_test_file(
     let _ = writeln!(out, "}}");
     out
 }
+
+// ---------------------------------------------------------------------------
+// HTTP test rendering
+// ---------------------------------------------------------------------------
+
+/// Render a PHPUnit test method for an HTTP server test fixture.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let method_name = sanitize_filename(&fixture.id);
+    let description = &fixture.description;
+
+    let _ = writeln!(out, "    /** {description} */");
+    let _ = writeln!(out, "    public function test_{method_name}(): void");
+    let _ = writeln!(out, "    {{");
+
+    // Build request.
+    render_php_http_request(out, &http.request);
+
+    // Assert status code.
+    let status = http.expected_response.status_code;
+    let _ = writeln!(out, "        $this->assertEquals({status}, $response->getStatusCode());");
+
+    // Assert response body.
+    render_php_body_assertions(out, &http.expected_response);
+
+    // Assert response headers.
+    render_php_header_assertions(out, &http.expected_response);
+
+    let _ = writeln!(out, "    }}");
+}
+
+/// Emit Guzzle request lines inside a PHPUnit test method.
+fn render_php_http_request(out: &mut String, req: &HttpRequest) {
+    let method = req.method.to_uppercase();
+
+    // Build options array.
+    let mut opts: Vec<String> = Vec::new();
+
+    if let Some(body) = &req.body {
+        let php_body = json_to_php(body);
+        opts.push(format!("'json' => {php_body}"));
+    }
+
+    if !req.headers.is_empty() {
+        let header_pairs: Vec<String> = req
+            .headers
+            .iter()
+            .map(|(k, v)| format!("\"{}\" => \"{}\"", escape_php(k), escape_php(v)))
+            .collect();
+        opts.push(format!("'headers' => [{}]", header_pairs.join(", ")));
+    }
+
+    if !req.cookies.is_empty() {
+        let cookie_str = req
+            .cookies
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("; ");
+        opts.push(format!("'headers' => ['Cookie' => \"{}\"]", escape_php(&cookie_str)));
+    }
+
+    if !req.query_params.is_empty() {
+        let pairs: Vec<String> = req
+            .query_params
+            .iter()
+            .map(|(k, v)| {
+                let val_str = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("\"{}\" => \"{}\"", escape_php(k), escape_php(&val_str))
+            })
+            .collect();
+        opts.push(format!("'query' => [{}]", pairs.join(", ")));
+    }
+
+    let path_lit = format!("\"{}\"", escape_php(&req.path));
+    if opts.is_empty() {
+        let _ = writeln!(out, "        $response = $this->httpClient->request('{method}', {path_lit});");
+    } else {
+        let _ = writeln!(out, "        $response = $this->httpClient->request('{method}', {path_lit}, [");
+        for opt in &opts {
+            let _ = writeln!(out, "            {opt},");
+        }
+        let _ = writeln!(out, "        ]);");
+    }
+
+    // Decode JSON body for assertions.
+    let _ = writeln!(
+        out,
+        "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
+    );
+}
+
+/// Emit body assertions for an HTTP expected response.
+fn render_php_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    if let Some(body) = &expected.body {
+        let php_val = json_to_php(body);
+        let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
+    }
+    if let Some(partial) = &expected.body_partial {
+        if let Some(obj) = partial.as_object() {
+            for (key, val) in obj {
+                let php_key = format!("\"{}\"", escape_php(key));
+                let php_val = json_to_php(val);
+                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body[{php_key}]);");
+            }
+        }
+    }
+    if let Some(errors) = &expected.validation_errors {
+        for err in errors {
+            let msg_lit = format!("\"{}\"", escape_php(&err.msg));
+            let _ = writeln!(
+                out,
+                "        $this->assertStringContainsString({msg_lit}, json_encode($body));"
+            );
+        }
+    }
+}
+
+/// Emit header assertions for an HTTP expected response.
+///
+/// Special tokens:
+/// - `"<<present>>"` — assert the header exists
+/// - `"<<absent>>"` — assert the header is absent
+/// - `"<<uuid>>"` — assert the header matches a UUID regex
+fn render_php_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    for (name, value) in &expected.headers {
+        let header_key = name.to_lowercase();
+        let header_key_lit = format!("\"{}\"", escape_php(&header_key));
+        match value.as_str() {
+            "<<present>>" => {
+                let _ = writeln!(out, "        $this->assertTrue($response->hasHeader({header_key_lit}));");
+            }
+            "<<absent>>" => {
+                let _ = writeln!(out, "        $this->assertFalse($response->hasHeader({header_key_lit}));");
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "        $this->assertMatchesRegularExpression('/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i', $response->getHeaderLine({header_key_lit}));"
+                );
+            }
+            literal => {
+                let val_lit = format!("\"{}\"", escape_php(literal));
+                let _ = writeln!(
+                    out,
+                    "        $this->assertEquals({val_lit}, $response->getHeaderLine({header_key_lit}));"
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Function-call test rendering
+// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(

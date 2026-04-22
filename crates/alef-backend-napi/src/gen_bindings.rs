@@ -75,6 +75,9 @@ impl Backend for NapiBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
+        builder.add_inner_attribute(
+            "allow(clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+        );
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
 
@@ -1414,10 +1417,12 @@ fn needs_vec_f32_conversion(ty: &TypeRef) -> bool {
 }
 
 fn needs_napi_cast(p: &alef_core::ir::PrimitiveType) -> bool {
+    // U32 maps to u32 in both NAPI and core, so no cast needed.
+    // U64/Usize/Isize map to i64 in NAPI but u64/usize/isize in core.
+    // F32 maps to f64 in NAPI but f32 in core.
     matches!(
         p,
-        alef_core::ir::PrimitiveType::U32
-            | alef_core::ir::PrimitiveType::U64
+        alef_core::ir::PrimitiveType::U64
             | alef_core::ir::PrimitiveType::Usize
             | alef_core::ir::PrimitiveType::Isize
             | alef_core::ir::PrimitiveType::F32
@@ -1426,7 +1431,6 @@ fn needs_napi_cast(p: &alef_core::ir::PrimitiveType) -> bool {
 
 fn core_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
     match p {
-        alef_core::ir::PrimitiveType::U32 => "u32",
         alef_core::ir::PrimitiveType::U64 => "u64",
         alef_core::ir::PrimitiveType::Usize => "usize",
         alef_core::ir::PrimitiveType::Isize => "isize",

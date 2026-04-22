@@ -47,6 +47,9 @@ impl Backend for RustlerBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit)");
+        builder.add_inner_attribute(
+            "allow(clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+        );
         builder.add_import("rustler::ResourceArc");
 
         // Import traits needed for trait method dispatch
@@ -941,6 +944,99 @@ fn gen_nif_function(
                 gen_rustler_wrap_return(&core_call, &func.return_type, "", opaque_types, func.returns_ref)
             )
         }
+    } else if !func.sanitized && func.error_type.is_some() {
+        // Serde recovery path: the function cannot be auto-delegated (e.g. a Named param is
+        // passed by reference and has no From impl), but the function returns a Result so we
+        // can propagate deserialization errors.  We serialize each non-opaque, non-default
+        // Named binding param to JSON and deserialize directly into the matching core type.
+        // This works because binding structs derive Serialize and core types derive Deserialize.
+        let mut deser_lines: Vec<String> = Vec::new();
+        let call_args: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if opaque_types.contains(n) {
+                        return format!("&{}.inner", p.name);
+                    }
+                    if default_types.contains(n) {
+                        // Default types already handled in the can_delegate branch above.
+                        // They cannot appear here, but guard for completeness.
+                        let core_ty = format!("{core_import}::{n}");
+                        deser_lines.push(format!(
+                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                            p.name, core_ty
+                        ));
+                        return if p.optional {
+                            format!("{}_core", p.name)
+                        } else if p.is_ref {
+                            format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name)
+                        } else {
+                            format!("{}_core.unwrap_or_default()", p.name)
+                        };
+                    }
+                    // Non-opaque Named param: round-trip via serde_json.
+                    let core_ty = format!("{core_import}::{n}");
+                    deser_lines.push(format!(
+                        "let {0}_json = serde_json::to_string(&{0}).map_err(|e| e.to_string())?;",
+                        p.name
+                    ));
+                    deser_lines.push(format!(
+                        "let {0}_core: {1} = serde_json::from_str(&{0}_json).map_err(|e| e.to_string())?;",
+                        p.name, core_ty
+                    ));
+                    return if p.is_ref {
+                        format!("&{}_core", p.name)
+                    } else {
+                        format!("{}_core", p.name)
+                    };
+                }
+                // Non-Named params: use the same expressions as the delegate path.
+                match &p.ty {
+                    TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
+                        format!("{}.as_deref()", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
+                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                    TypeRef::String | TypeRef::Char => p.name.clone(),
+                    TypeRef::Path => {
+                        if p.is_ref {
+                            format!("&std::path::PathBuf::from({})", p.name)
+                        } else {
+                            format!("std::path::PathBuf::from({})", p.name)
+                        }
+                    }
+                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(_) => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.to_string()
+                        }
+                    }
+                    _ => p.name.clone(),
+                }
+            })
+            .collect();
+
+        let preamble = if deser_lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n    ", deser_lines.join("\n    "))
+        };
+
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({})", call_args.join(", "));
+        let wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
+        format!("{preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
     } else {
         gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
