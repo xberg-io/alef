@@ -3,9 +3,278 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via `js_sys::Reflect` and `js_sys::Function`.
 
+use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+/// WASM-specific trait bridge generator.
+/// Implements code generation for bridging JavaScript objects to Rust traits.
+pub struct WasmBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+}
+
+impl TraitBridgeGenerator for WasmBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "wasm_bindgen::JsValue"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![
+            "use wasm_bindgen::prelude::*;".to_string(),
+            "use js_sys;".to_string(),
+            "use std::rc::Rc;".to_string(),
+            "use std::cell::RefCell;".to_string(),
+        ]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let js_name = to_camel_case(name);
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
+        writeln!(out, "let has_method = js_sys::Reflect::has(&self.inner, &key).unwrap_or(false);").ok();
+        writeln!(out, "if !has_method {{").ok();
+        writeln!(out, "    return Err(format!(\"Method '{{}}' not found on JS object\", \"{name}\").into());").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
+        writeln!(out, "    .map_err(|_| format!(\"Failed to get method '{{}}'\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
+        writeln!(out, "    .map_err(|_| format!(\"Method '{{}}' is not a function\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        // Build args array
+        writeln!(out, "let args = js_sys::Array::new();").ok();
+        for p in &method.params {
+            let arg_val = build_wasm_arg(p);
+            writeln!(out, "args.push(&{arg_val});").ok();
+        }
+        writeln!(out).ok();
+
+        // Call the function
+        writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
+        writeln!(out, "    .map_err(|_| format!(\"Failed to call method '{{}}'\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        // Convert result
+        let ret_ty = self.extract_ty(&method.return_type);
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "Ok(())").ok();
+        } else if matches!(method.return_type, TypeRef::String) {
+            writeln!(out, "result.as_string()").ok();
+            writeln!(out, "    .ok_or_else(|| \"Expected string return\".into())").ok();
+        } else {
+            writeln!(out, "// Convert JS result to {ret_ty}").ok();
+            writeln!(out, "result.as_string()").ok();
+            writeln!(out, "    .ok_or_else(|| \"Failed to convert result\".into())").ok();
+        }
+        out
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let js_name = to_camel_case(name);
+        let mut out = String::with_capacity(1024);
+
+        // WASM is single-threaded, so we just call the function synchronously
+        // wrapped in an async block. If the JS function returns a Promise,
+        // we'd need JsFuture, but for now assume synchronous methods.
+
+        writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
+        writeln!(out, "let has_method = js_sys::Reflect::has(&self.inner, &key).unwrap_or(false);").ok();
+        writeln!(out, "if !has_method {{").ok();
+        writeln!(out, "    return Box::pin(async move {{").ok();
+        writeln!(out, "        Err(format!(\"Method '{{}}' not found on JS object\", \"{name}\").into())").ok();
+        writeln!(out, "    }});").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "let inner = self.inner.clone();").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "Box::pin(async move {{").ok();
+        writeln!(out, "    let func_val = js_sys::Reflect::get(&inner, &key)").ok();
+        writeln!(out, "        .map_err(|_| format!(\"Failed to get method '{{}}'\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "    let func: js_sys::Function = func_val.dyn_into()").ok();
+        writeln!(out, "        .map_err(|_| format!(\"Method '{{}}' is not a function\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "    let args = js_sys::Array::new();").ok();
+        for p in &method.params {
+            let arg_val = build_wasm_arg(p);
+            writeln!(out, "    args.push(&{arg_val});").ok();
+        }
+        writeln!(out).ok();
+
+        writeln!(out, "    let result = func.apply(&inner, &args)").ok();
+        writeln!(out, "        .map_err(|_| format!(\"Failed to call method '{{}}'\", \"{name}\"))?;").ok();
+        writeln!(out).ok();
+
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "    Ok(())").ok();
+        } else if matches!(method.return_type, TypeRef::String) {
+            writeln!(out, "    result.as_string()").ok();
+            writeln!(out, "        .ok_or_else(|| \"Expected string return\".into())").ok();
+        } else {
+            writeln!(out, "    result.as_string()").ok();
+            writeln!(out, "        .ok_or_else(|| \"Failed to convert result\".into())").ok();
+        }
+        writeln!(out, "}})").ok();
+        out
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "impl {wrapper} {{").ok();
+        writeln!(out, "    /// Create a new bridge wrapping a JS object.").ok();
+        writeln!(out, "    ///").ok();
+        writeln!(out, "    /// Validates that the JS object provides all required methods.").ok();
+        writeln!(out, "    pub fn new(js_obj: wasm_bindgen::JsValue) -> Result<Self, String> {{").ok();
+
+        // Validate all required methods exist
+        for req_method in spec.required_methods() {
+            let js_name = to_camel_case(&req_method.name);
+            writeln!(
+                out,
+                "        if !js_sys::Reflect::has(&js_obj, &wasm_bindgen::JsValue::from_str(\"{js_name}\")).unwrap_or(false) {{"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            return Err(format!(\"JS object missing required method: {{}}\", \"{}\"));",
+                req_method.name
+            )
+            .ok();
+            writeln!(out, "        }}").ok();
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "        Ok(Self {{").ok();
+        writeln!(out, "            inner: js_obj,").ok();
+        writeln!(out, "            cached_name: \"wasm_bridge\".to_string(),").ok();
+        writeln!(out, "        }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let register_fn = spec
+            .bridge_config
+            .register_fn
+            .as_deref()
+            .expect("gen_registration_fn called without register_fn");
+        let registry_getter = spec
+            .bridge_config
+            .registry_getter
+            .as_deref()
+            .expect("gen_registration_fn called without registry_getter");
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "#[wasm_bindgen]").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(backend: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {{"
+        )
+        .ok();
+
+        // Validate required methods
+        let req_methods: Vec<&MethodDef> = spec.required_methods();
+        if !req_methods.is_empty() {
+            writeln!(out, "    let required_methods = vec![").ok();
+            for m in &req_methods {
+                writeln!(out, "        \"{}\",", to_camel_case(&m.name)).ok();
+            }
+            writeln!(out, "    ];").ok();
+            writeln!(out).ok();
+            writeln!(out, "    for method_name in required_methods {{").ok();
+            writeln!(
+                out,
+                "        if !js_sys::Reflect::has(&backend, &wasm_bindgen::JsValue::from_str(method_name)).unwrap_or(false) {{"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            return Err(wasm_bindgen::JsValue::from_str(&format!(\"Backend missing required method: {{}}\", method_name)));"
+            )
+            .ok();
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "    let wrapper = {wrapper}::new(backend)").ok();
+        writeln!(out, "        .map_err(|e| wasm_bindgen::JsValue::from_str(&e))?;").ok();
+        writeln!(out, "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(wrapper);").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "    let registry = {registry_getter}();").ok();
+        writeln!(out, "    let mut registry = registry.write().unwrap();").ok();
+        writeln!(out, "    registry.register(arc)").ok();
+        writeln!(out, "        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+}
+
+impl WasmBridgeGenerator {
+    /// Extract the Rust type that corresponds to a TypeRef.
+    fn extract_ty(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Primitive(p) => self.prim(p).to_string(),
+            TypeRef::String => "String".into(),
+            TypeRef::Path | TypeRef::Char => "String".into(),
+            TypeRef::Bytes => "Vec<u8>".into(),
+            TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
+            TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
+            TypeRef::Named(name) => name.clone(),
+            TypeRef::Unit => "()".into(),
+            TypeRef::Map(k, v) => format!(
+                "std::collections::HashMap<{}, {}>",
+                self.extract_ty(k),
+                self.extract_ty(v)
+            ),
+            TypeRef::Json => "String".into(),
+            TypeRef::Duration => "u64".into(),
+        }
+    }
+
+    /// Get the Rust string representation of a primitive type.
+    fn prim(&self, p: &alef_core::ir::PrimitiveType) -> &'static str {
+        use alef_core::ir::PrimitiveType::*;
+        match p {
+            Bool => "bool",
+            U8 => "u8",
+            U16 => "u16",
+            U32 => "u32",
+            U64 => "u64",
+            I8 => "i8",
+            I16 => "i16",
+            I32 => "i32",
+            I64 => "i64",
+            F32 => "f32",
+            F64 => "f64",
+            Usize => "usize",
+            Isize => "isize",
+        }
+    }
+}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -14,16 +283,12 @@ pub fn gen_trait_bridge(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
-    let mut out = String::with_capacity(8192);
-    let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
-    let trait_path = trait_type.rust_path.replace('-', "_");
-
-    // Build type name → rust_path lookup
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    // Build type name → rust_path lookup, converting to owned HashMap<String, String>
+    let type_paths: HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -33,6 +298,9 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
+        let mut out = String::with_capacity(8192);
+        let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
+        let trait_path = trait_type.rust_path.replace('-', "_");
         gen_visitor_bridge(
             &mut out,
             trait_type,
@@ -42,9 +310,22 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
         );
+        out
+    } else {
+        // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
+        let generator = WasmBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
+            core_import,
+            wrapper_prefix: "Wasm",
+            type_paths,
+        };
+        gen_bridge_all(&spec, &generator)
     }
-
-    out
 }
 
 /// Generate a visitor-style bridge wrapping a `wasm_bindgen::JsValue` object.
@@ -58,7 +339,7 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &HashMap<String, String>,
 ) {
     // Helper: convert NodeContext to a JS object via js_sys::Object
     writeln!(out, "fn nodecontext_to_js_value(").unwrap();
@@ -160,7 +441,7 @@ fn visitor_param_type(
     ty: &TypeRef,
     is_ref: bool,
     optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
+    tp: &HashMap<String, String>,
 ) -> String {
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
@@ -175,7 +456,7 @@ fn visitor_param_type(
 }
 
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
-fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &std::collections::HashMap<&str, &str>) {
+fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
     let name = &method.name;
     let js_name = to_camel_case(name);
 
@@ -306,7 +587,7 @@ fn to_camel_case(name: &str) -> String {
 }
 
 /// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
+fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
     match ty {
         TypeRef::Bytes if is_ref => "&[u8]".into(),
         TypeRef::Bytes => "Vec<u8>".into(),

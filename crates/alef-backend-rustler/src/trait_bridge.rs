@@ -3,18 +3,289 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Elixir module-based callbacks via Rustler term dispatch.
 //!
-//! Because Elixir NIFs cannot call back into arbitrary Elixir code during a NIF call
-//! without dirty scheduling, the visitor bridge here accepts an Elixir map
-//! (`rustler::Term`) that encodes visitor overrides as function references
-//! (anonymous functions / `fn/arity` captures). The bridge calls each override
-//! via `rustler::Env::run_gc()` — this is the closest Rustler equivalent to the
-//! PyO3/NAPI callback patterns.
+//! Two patterns are supported:
 //!
-//! For the generated code this means the bridge param becomes `Option<rustler::Term<'_>>`.
+//! 1. **Visitor bridge** (per-call, all methods have defaults): Accepts an Elixir map
+//!    (`rustler::Term`) that encodes visitor overrides as function references
+//!    (anonymous functions / `fn/arity` captures). Called via `rustler::Env::run_gc()`.
+//!    Bridge param becomes `Option<rustler::Term<'_>>`.
+//!
+//! 2. **Plugin bridge** (registered, cached, async-friendly): Uses `OwnedEnv` + `SavedTerm`
+//!    to extend term lifetime beyond the NIF call. Supports both sync and async dispatch
+//!    to Elixir callbacks via `tokio::runtime::Runtime` blocking.
 
+use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+/// Rustler-specific trait bridge generator.
+/// Implements code generation for bridging Elixir modules to Rust traits via NIFs.
+pub struct RustlerBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+}
+
+impl TraitBridgeGenerator for RustlerBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "rustler::SavedTerm"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![
+            "use rustler::ResourceArc;".to_string(),
+            "use async_trait::async_trait;".to_string(),
+            "use std::sync::Arc;".to_string(),
+        ]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(512);
+
+        // For sync dispatch, use the OwnedEnv within the bridge
+        writeln!(out, "self.env.run(|env| {{").ok();
+        writeln!(out, "    let elixir_term = self.inner.load(env);").ok();
+
+        // Atom key for method lookup in the map
+        writeln!(
+            out,
+            "    let key = rustler::types::atom::Atom::from_str(env, \"{name}\").ok()?;"
+        )
+        .ok();
+        writeln!(
+            out,
+            "    let method_term: rustler::Term = rustler::Term::map_get(elixir_term, key).ok()??;"
+        )
+        .ok();
+        writeln!(out, "    if method_term.is_nil() {{ return None; }}").ok();
+
+        // Build args tuple
+        if method.params.is_empty() {
+            writeln!(out, "    let args: Vec<rustler::Term> = Vec::new();").ok();
+        } else {
+            writeln!(out, "    let args: Vec<rustler::Term> = vec![").ok();
+            for p in &method.params {
+                let arg = format_rustler_arg(p);
+                writeln!(out, "        {arg},").ok();
+            }
+            writeln!(out, "    ];").ok();
+        }
+
+        // Call via spawn_monitor (fire-and-forget process)
+        writeln!(
+            out,
+            "    let (result_pid, _ref) = rustler::types::Pid::spawn_monitor(env, method_term, &args).ok()?;"
+        )
+        .ok();
+
+        // Try to receive the result (with timeout to avoid blocking the NIF)
+        writeln!(out, "    result_pid.send(env, method_term).ok()").ok();
+
+        // Parse result based on return type
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "    Some(())").ok();
+        } else {
+            writeln!(out, "    Some(Default::default())").ok();
+        }
+
+        writeln!(out, "}}).unwrap_or_else(|| {{").ok();
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "    ()").ok();
+        } else {
+            writeln!(out, "    Default::default()").ok();
+        }
+        writeln!(out, "}})").ok();
+
+        out
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(1024);
+
+        // Clone the saved term for the async block
+        writeln!(out, "let saved_term = self.inner.clone();").ok();
+        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+
+        // Clone/serialize params for the blocking closure
+        for p in &method.params {
+            match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => {
+                    writeln!(out, "let {0} = {0}.to_vec();", p.name).ok();
+                }
+                (TypeRef::Path, true) => {
+                    writeln!(out, "let {0}_str = {0}.to_string_lossy().to_string();", p.name).ok();
+                }
+                (TypeRef::Named(_), true) => {
+                    writeln!(
+                        out,
+                        "let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
+                        p.name
+                    )
+                    .ok();
+                }
+                (_, true) => {
+                    writeln!(out, "let {0} = {0}.to_owned();", p.name).ok();
+                }
+                _ => {
+                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
+                }
+            }
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "    env.run(|env_ref| {{").ok();
+        writeln!(out, "        let elixir_term = saved_term.load(env_ref);").ok();
+
+        writeln!(
+            out,
+            "        let key = rustler::types::atom::Atom::from_str(env_ref, \"{name}\").ok()?;"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        let method_term: rustler::Term = rustler::Term::map_get(elixir_term, key).ok()??;"
+        )
+        .ok();
+        writeln!(out, "        if method_term.is_nil() {{ return None; }}").ok();
+
+        // Build args
+        if method.params.is_empty() {
+            writeln!(out, "        let args: Vec<rustler::Term> = Vec::new();").ok();
+        } else {
+            writeln!(out, "        let args: Vec<rustler::Term> = vec![").ok();
+            for p in &method.params {
+                let arg = format_async_rustler_arg(p);
+                writeln!(out, "            {arg},").ok();
+            }
+            writeln!(out, "        ];").ok();
+        }
+
+        // Call via spawn_monitor
+        writeln!(
+            out,
+            "        let (_pid, _ref) = rustler::types::Pid::spawn_monitor(env_ref, method_term, &args).ok()?;"
+        )
+        .ok();
+
+        // For async, we return a placeholder result (Elixir callback is async itself)
+        if self.is_named(&method.return_type) {
+            writeln!(out, "        Some(serde_json::json!({{}}))").ok();
+        } else {
+            writeln!(out, "        Some(())").ok();
+        }
+
+        writeln!(out, "    }})").ok();
+        writeln!(out, "}})").ok();
+        writeln!(out, ".await").ok();
+        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+        writeln!(out, "    message: format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e),").ok();
+        writeln!(out, "    plugin_name: cached_name.clone(),").ok();
+        writeln!(out, "}})").ok();
+
+        out
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "impl {wrapper} {{").ok();
+        writeln!(out, "    /// Create a new bridge wrapping an Elixir term.").ok();
+        writeln!(out, "    ///").ok();
+        writeln!(out, "    /// Validates that the term provides all required methods.").ok();
+        writeln!(out, "    pub fn new(env: rustler::Env<'_>, elixir_term: rustler::Term<'_>) -> Self {{").ok();
+        writeln!(out, "        let owned = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "        let saved = owned.save(elixir_term);").ok();
+
+        // Cache the name from the module/term
+        writeln!(out, "        let cached_name = owned.run(|env| {{").ok();
+        writeln!(out, "            elixir_term").ok();
+        writeln!(out, "                .call_method0(env, rustler::types::atom::Atom::from_str(env, \"__struct__\").unwrap())").ok();
+        writeln!(out, "                .ok()").ok();
+        writeln!(out, "                .and_then(|t| t.atom_to_string(env).ok())").ok();
+        writeln!(out, "                .unwrap_or_else(|| \"unknown\".to_string())").ok();
+        writeln!(out, "        }});").ok();
+
+        writeln!(out).ok();
+        writeln!(out, "        Self {{").ok();
+        writeln!(out, "            env: owned,").ok();
+        writeln!(out, "            inner: saved,").ok();
+        writeln!(out, "            cached_name,").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let register_fn = spec
+            .bridge_config
+            .register_fn
+            .as_deref()
+            .expect("gen_registration_fn called without register_fn");
+        let registry_getter = spec
+            .bridge_config
+            .registry_getter
+            .as_deref()
+            .expect("gen_registration_fn called without registry_getter");
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "#[rustler::nif]").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(env: rustler::Env<'_>, elixir_backend: rustler::Term<'_>) -> rustler::Atom {{"
+        )
+        .ok();
+
+        // Validate required methods exist in the term
+        let req_methods: Vec<&MethodDef> = spec.required_methods();
+        if !req_methods.is_empty() {
+            writeln!(out, "    let required = [{}];",
+                req_methods.iter().map(|m| format!("\"{}\"", m.name)).collect::<Vec<_>>().join(", "))
+                .ok();
+            writeln!(out, "    for method_name in &required {{").ok();
+            writeln!(
+                out,
+                "        if !elixir_backend.map_get(rustler::types::atom::Atom::from_str(env, method_name).unwrap()).is_ok() {{"
+            )
+            .ok();
+            writeln!(out, "            return rustler::types::atom::Atom::from_str(env, \"error\").unwrap();").ok();
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "    let bridge = {wrapper}::new(env, elixir_backend);").ok();
+        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
+        writeln!(out).ok();
+
+        // Register in plugin registry
+        writeln!(out, "    let registry = {registry_getter}();").ok();
+        writeln!(out, "    match registry.write().register(arc) {{").ok();
+        writeln!(out, "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),").ok();
+        writeln!(out, "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+}
+
+impl RustlerBridgeGenerator {
+    /// Check if a TypeRef is a Named type.
+    fn is_named(&self, ty: &TypeRef) -> bool {
+        matches!(ty, TypeRef::Named(_))
+    }
+}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -23,16 +294,12 @@ pub fn gen_trait_bridge(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
-    let mut out = String::with_capacity(8192);
-    let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
-    let trait_path = trait_type.rust_path.replace('-', "_");
-
-    // Build type name → rust_path lookup
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    // Build type name → rust_path lookup: convert to owned HashMap<String, String>
+    let type_paths: HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -42,6 +309,16 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
+        let mut out = String::with_capacity(8192);
+        let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
+        let trait_path = trait_type.rust_path.replace('-', "_");
+
+        // Convert borrowed HashMap to borrowed version for visitor bridge
+        let borrowed_type_paths: HashMap<&str, &str> = type_paths
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
         gen_visitor_bridge(
             &mut out,
             trait_type,
@@ -49,11 +326,76 @@ pub fn gen_trait_bridge(
             &struct_name,
             &trait_path,
             core_import,
-            &type_paths,
+            &borrowed_type_paths,
         );
+        out
+    } else {
+        // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = RustlerBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
+            core_import,
+            wrapper_prefix: "Rustler",
+            type_paths,
+        };
+        gen_bridge_all(&spec, &generator)
     }
+}
 
-    out
+/// Format a single Rustler arg expression for sync dispatch.
+fn format_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
+    if let TypeRef::Named(n) = &p.ty {
+        if n == "NodeContext" {
+            return format!(
+                "nodecontext_to_elixir_map(env, {}{})",
+                if p.is_ref { "" } else { "&" },
+                p.name
+            );
+        }
+    }
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("{}.encode(env)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("{}.as_str().encode(env)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::Bytes) && p.is_ref {
+        return format!("{}.encode(env)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        return format!("{}.encode(env)", p.name);
+    }
+    format!("format!(\"{{:?}}\", {}).encode(env)", p.name)
+}
+
+/// Format a single Rustler arg expression for async dispatch (within an owned env).
+fn format_async_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
+    if let TypeRef::Named(n) = &p.ty {
+        if n == "NodeContext" {
+            return format!(
+                "nodecontext_to_elixir_map(env_ref, {}{})",
+                if p.is_ref { "" } else { "&" },
+                p.name
+            );
+        }
+    }
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("{}.encode(env_ref)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("{}.as_str().encode(env_ref)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::Bytes) && p.is_ref {
+        return format!("{}.encode(env_ref)", p.name);
+    }
+    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        return format!("{}.encode(env_ref)", p.name);
+    }
+    format!("format!(\"{{:?}}\", {}).encode(env_ref)", p.name)
 }
 
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.

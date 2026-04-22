@@ -3,9 +3,267 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via NAPI-RS.
 
+use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+/// NAPI-specific trait bridge generator.
+/// Implements code generation for bridging JavaScript objects to Rust traits.
+pub struct NapiBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+}
+
+impl TraitBridgeGenerator for NapiBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "napi::bindgen_prelude::Object<'static>"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![
+            "use napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object};".to_string(),
+            "use napi::JsValue;".to_string(),
+            "use std::sync::Arc;".to_string(),
+        ]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let has_error = method.error_type.is_some();
+        let mut out = String::with_capacity(512);
+
+        // Get the JS function from the object
+        let js_args_exprs = build_napi_args(method);
+        let args_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+
+        writeln!(
+            out,
+            "let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property(\"{name}\") {{"
+        )
+        .ok();
+        writeln!(out, "    Ok(f) => f,").ok();
+        if has_error {
+            writeln!(out, "    Err(e) => return Err({}::Error::new(", spec.core_import).ok();
+            writeln!(out, "        format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)").ok();
+            writeln!(out, "    )),").ok();
+        } else {
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+        }
+        writeln!(out, "}};").ok();
+
+        // Build and call with args
+        if js_args_exprs.is_empty() {
+            writeln!(out, "let result = func.call(());").ok();
+        } else {
+            // Emit each arg as a let binding, then call with tuple
+            for (i, expr) in js_args_exprs.iter().enumerate() {
+                writeln!(out, "let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").ok();
+            }
+            let tuple_args: Vec<String> = (0..js_args_exprs.len()).map(|i| format!("arg_{i}")).collect();
+            let tuple_str = if js_args_exprs.len() == 1 {
+                format!("({},)", tuple_args[0])
+            } else {
+                format!("({})", tuple_args.join(", "))
+            };
+            writeln!(out, "let result = func.call({tuple_str});").ok();
+        }
+
+        // Parse result
+        writeln!(out, "match result {{").ok();
+        if has_error {
+            writeln!(out, "    Err(e) => Err({}::Error::new(", spec.core_import).ok();
+            writeln!(out, "        format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)").ok();
+            writeln!(out, "    )),").ok();
+        } else {
+            writeln!(out, "    Err(_) => Ok(Default::default()),").ok();
+        }
+        writeln!(out, "    Ok(val) => {{").ok();
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "        Ok(())").ok();
+        } else {
+            writeln!(out, "        // Convert JS value to Rust type").ok();
+            writeln!(out, "        extract_napi_value(&val).map_err(|e| {{").ok();
+            writeln!(out, "            {}::Error::new(", spec.core_import).ok();
+            writeln!(out, "                format!(\"Failed to extract return value from method '{name}': {{}}\", e)").ok();
+            writeln!(out, "            )").ok();
+            writeln!(out, "        }})").ok();
+        }
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(1024);
+
+        // NAPI has native async support via BoxPromise
+        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+
+        // Build the JS function call
+        let js_args_exprs = build_napi_args(method);
+        let args_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+
+        writeln!(
+            out,
+            "let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.inner.get_named_property(\"{name}\") {{"
+        )
+        .ok();
+        writeln!(out, "    Ok(f) => f,").ok();
+        writeln!(out, "    Err(e) => {{").ok();
+        writeln!(out, "        return Box::pin(async move {{").ok();
+        writeln!(out, "            Err({}::Error::new(", spec.core_import).ok();
+        writeln!(out, "                format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)").ok();
+        writeln!(out, "            ))").ok();
+        writeln!(out, "        }});").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}};").ok();
+
+        // Emit args
+        for (i, expr) in js_args_exprs.iter().enumerate() {
+            writeln!(out, "let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").ok();
+        }
+
+        writeln!(out, "Box::pin(async move {{").ok();
+        let tuple_str = if js_args_exprs.is_empty() {
+            "()".to_string()
+        } else {
+            let tuple_args: Vec<String> = (0..js_args_exprs.len()).map(|i| format!("arg_{i}")).collect();
+            if js_args_exprs.len() == 1 {
+                format!("({},)", tuple_args[0])
+            } else {
+                format!("({})", tuple_args.join(", "))
+            }
+        };
+
+        writeln!(out, "    let result = func.call({tuple_str});").ok();
+        writeln!(out, "    match result {{").ok();
+        writeln!(out, "        Err(e) => Err({}::Error::new(", spec.core_import).ok();
+        writeln!(out, "            format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)").ok();
+        writeln!(out, "        )),").ok();
+        writeln!(out, "        Ok(val) => {{").ok();
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "            Ok(())").ok();
+        } else {
+            writeln!(out, "            extract_napi_value(&val).map_err(|e| {{").ok();
+            writeln!(out, "                {}::Error::new(", spec.core_import).ok();
+            writeln!(out, "                    format!(\"Failed to extract return value from method '{name}': {{}}\", e)").ok();
+            writeln!(out, "                )").ok();
+            writeln!(out, "            }})").ok();
+        }
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}})").ok();
+        out
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "impl {wrapper} {{").ok();
+        writeln!(out, "    /// Create a new bridge wrapping a NAPI Object.").ok();
+        writeln!(out, "    ///").ok();
+        writeln!(out, "    /// Validates that the object provides all required methods.").ok();
+        writeln!(out, "    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {{").ok();
+
+        // Validate all required methods exist
+        for req_method in spec.required_methods() {
+            writeln!(
+                out,
+                "        if !js_obj.has_named_property(\"{}\").unwrap_or(false) {{",
+                req_method.name
+            )
+            .ok();
+            writeln!(
+                out,
+                "            return Err(napi::Error::new("
+            )
+            .ok();
+            writeln!(
+                out,
+                "                napi::Status::GenericFailure,"
+            )
+            .ok();
+            writeln!(
+                out,
+                "                format!(\"Object missing required method: {{}}\", \"{}\")",
+                req_method.name
+            )
+            .ok();
+            writeln!(out, "            ));").ok();
+            writeln!(out, "        }}").ok();
+        }
+
+        // Transmute Object<'_> to Object<'static> for the stored field
+        writeln!(out, "        // SAFETY: The JS object is owned by the Node.js runtime and lives for").ok();
+        writeln!(out, "        // the duration of the enclosing #[napi] call. The bridge is only used").ok();
+        writeln!(out, "        // synchronously during that same call, so 'static is safe here.").ok();
+        writeln!(out, "        let js_obj: napi::bindgen_prelude::Object<'static> = unsafe {{").ok();
+        writeln!(out, "            std::mem::transmute(js_obj)").ok();
+        writeln!(out, "        }};").ok();
+
+        // Try to extract name from the object
+        writeln!(out, "        let cached_name = match js_obj.get_named_property::<String>(\"name\") {{").ok();
+        writeln!(out, "            Ok(n) => n,").ok();
+        writeln!(out, "            Err(_) => \"unknown\".to_string(),").ok();
+        writeln!(out, "        }};").ok();
+
+        writeln!(out, "        Ok(Self {{").ok();
+        writeln!(out, "            inner: js_obj,").ok();
+        writeln!(out, "            cached_name,").ok();
+        writeln!(out, "        }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let register_fn = spec
+            .bridge_config
+            .register_fn
+            .as_deref()
+            .expect("gen_registration_fn called without register_fn");
+        let registry_getter = spec
+            .bridge_config
+            .registry_getter
+            .as_deref()
+            .expect("gen_registration_fn called without registry_getter");
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "#[napi]").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(obj: napi::bindgen_prelude::Object) -> napi::Result<()> {{"
+        )
+        .ok();
+
+        // Create and validate the bridge
+        writeln!(out, "    let bridge = {wrapper}::new(obj)?;").ok();
+        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
+
+        // Register in the plugin registry (synchronous, no GC needed for NAPI)
+        writeln!(out, "    let registry = {registry_getter}();").ok();
+        writeln!(out, "    let mut registry = registry.write();").ok();
+        writeln!(
+            out,
+            "    registry.register(arc).map_err(|e| napi::Error::new("
+        )
+        .ok();
+        writeln!(out, "        napi::Status::GenericFailure,").ok();
+        writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
+        writeln!(out, "    ))").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -14,16 +272,12 @@ pub fn gen_trait_bridge(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
-    let mut out = String::with_capacity(8192);
-    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
-    let trait_path = trait_type.rust_path.replace('-', "_");
-
-    // Build type name → rust_path lookup
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    // Build type name → rust_path lookup (converted to String-owned HashMap)
+    let type_paths: HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -33,18 +287,31 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
+        let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+        let trait_path = trait_type.rust_path.replace('-', "_");
         gen_visitor_bridge(
-            &mut out,
             trait_type,
             bridge_cfg,
             &struct_name,
             &trait_path,
             core_import,
             &type_paths,
-        );
+        )
+    } else {
+        // Use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = NapiBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
+            core_import,
+            wrapper_prefix: "Js",
+            type_paths,
+        };
+        gen_bridge_all(&spec, &generator)
     }
-
-    out
 }
 
 /// Generate a visitor-style bridge wrapping a `napi::bindgen_prelude::Object`.
@@ -52,14 +319,14 @@ pub fn gen_trait_bridge(
 /// Every trait method checks if the JS object has a matching camelCase property,
 /// then calls it with converted arguments and maps the JS return value to `VisitResult`.
 fn gen_visitor_bridge(
-    out: &mut String,
     trait_type: &TypeDef,
     _bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(8192);
     // Emit trait imports needed by the generated bridge code.
     // napi::* glob does not re-export JsObjectValue or JsValue from bindgen_prelude.
     writeln!(out, "#[allow(unused_imports)]").unwrap();
@@ -204,10 +471,11 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_napi(out, method, trait_path, core_crate, type_paths);
+        gen_visitor_method_napi(&mut out, method, trait_path, core_crate, type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+    out
 }
 
 /// Map a visitor method parameter type to the correct Rust type string.
@@ -215,7 +483,7 @@ fn visitor_param_type(
     ty: &TypeRef,
     is_ref: bool,
     optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
+    tp: &HashMap<String, String>,
 ) -> String {
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
@@ -244,7 +512,7 @@ fn gen_visitor_method_napi(
     method: &MethodDef,
     _trait_path: &str,
     _core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &HashMap<String, String>,
 ) {
     let name = &method.name;
 
@@ -452,7 +720,7 @@ fn to_camel_case(name: &str) -> String {
 }
 
 /// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
+fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
     match ty {
         TypeRef::Bytes if is_ref => "&[u8]".into(),
         TypeRef::Bytes => "Vec<u8>".into(),
@@ -462,8 +730,8 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashM
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
             let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
+                .get(n)
+                .map(|p| p.clone())
                 .unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
         }

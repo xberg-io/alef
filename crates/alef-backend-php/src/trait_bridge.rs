@@ -3,9 +3,190 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
+use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+/// PHP-specific trait bridge generator.
+/// Implements code generation for bridging PHP objects to Rust traits.
+pub struct PhpBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+}
+
+impl TraitBridgeGenerator for PhpBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "&mut ext_php_rs::types::ZendObject"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![
+            "use std::rc::Rc;".to_string(),
+            "use std::cell::RefCell;".to_string(),
+        ]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(512);
+
+        // PHP is single-threaded; just call the method directly.
+        writeln!(out, "// SAFETY: PHP objects are single-threaded; method calls are safe within a request.").ok();
+
+        let has_args = !method.params.is_empty();
+        if has_args {
+            writeln!(out, "let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
+            for p in &method.params {
+                writeln!(out, "args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());", p.name).ok();
+            }
+        }
+
+        let args_expr = if has_args { "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()" } else { "vec![]" };
+
+        writeln!(out, "let result = self.inner.try_call_method(\"{name}\", {args_expr});").ok();
+        writeln!(out, "match result {{").ok();
+        writeln!(out, "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),").ok();
+        writeln!(out, "    Err(_) => Default::default(),").ok();
+        writeln!(out, "}}").ok();
+
+        out
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "let inner_obj = self.inner.clone();").ok();
+        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+
+        // Clone params for the blocking closure
+        for p in &method.params {
+            match &p.ty {
+                TypeRef::String => {
+                    writeln!(out, "let {} = {}.clone();", p.name, p.name).ok();
+                }
+                _ => {
+                    writeln!(out, "let {} = {};", p.name, p.name).ok();
+                }
+            }
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "Box::pin(async move {{").ok();
+        writeln!(out, "    // SAFETY: PHP objects are single-threaded within a request.").ok();
+        writeln!(out, "    // The block_on executes within the async runtime.").ok();
+        writeln!(out, "    let result = WORKER_RUNTIME.block_on(async {{").ok();
+
+        let has_args = !method.params.is_empty();
+        if has_args {
+            writeln!(out, "        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
+            for p in &method.params {
+                writeln!(out, "        args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());", p.name).ok();
+            }
+        }
+
+        let args_expr = if has_args { "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()" } else { "vec![]" };
+
+        writeln!(out, "        match inner_obj.try_call_method(\"{name}\", {args_expr}) {{").ok();
+        writeln!(out, "            Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),").ok();
+        writeln!(out, "            Err(e) => Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+        writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+        writeln!(out, "                plugin_name: cached_name.clone(),").ok();
+        writeln!(out, "            }}),").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }});").ok();
+        writeln!(out, "    result").ok();
+        writeln!(out, "}})").ok();
+
+        out
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let mut out = String::with_capacity(512);
+
+        writeln!(out, "impl {wrapper} {{").ok();
+        writeln!(out, "    /// Create a new bridge wrapping a PHP object.").ok();
+        writeln!(out, "    ///").ok();
+        writeln!(out, "    /// Validates that the PHP object provides all required methods.").ok();
+        writeln!(out, "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{").ok();
+
+        // Validate all required methods exist
+        for req_method in spec.required_methods() {
+            writeln!(out, "        debug_assert!(php_obj.get_property(\"{}\").is_some(),", req_method.name).ok();
+            writeln!(out, "            \"PHP object missing required method: {}\");", req_method.name).ok();
+        }
+
+        // Extract and cache name
+        writeln!(out, "        let cached_name = php_obj").ok();
+        writeln!(out, "            .try_call_method(\"name\", vec![])").ok();
+        writeln!(out, "            .ok()").ok();
+        writeln!(out, "            .and_then(|v| v.string())").ok();
+        writeln!(out, "            .unwrap_or(\"unknown\".into())").ok();
+        writeln!(out, "            .to_string();").ok();
+
+        writeln!(out).ok();
+        writeln!(out, "        Self {{").ok();
+        writeln!(out, "            inner: php_obj,").ok();
+        writeln!(out, "            cached_name,").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+
+        out
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let register_fn = spec
+            .bridge_config
+            .register_fn
+            .as_deref()
+            .expect("gen_registration_fn called without register_fn");
+        let registry_getter = spec
+            .bridge_config
+            .registry_getter
+            .as_deref()
+            .expect("gen_registration_fn called without registry_getter");
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let mut out = String::with_capacity(1024);
+
+        writeln!(out, "#[php_function]").ok();
+        writeln!(out, "pub fn {register_fn}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{").ok();
+
+        // Validate required methods
+        let req_methods: Vec<&MethodDef> = spec.required_methods();
+        if !req_methods.is_empty() {
+            for method in &req_methods {
+                writeln!(out, "    if backend.get_property(\"{}\").is_none() {{", method.name).ok();
+                writeln!(out, "        return Err(ext_php_rs::exception::PhpException::default(").ok();
+                writeln!(out, "            format!(\"Backend missing required method: {{}}\", \"{}\")", method.name).ok();
+                writeln!(out, "        ).into());").ok();
+                writeln!(out, "    }}").ok();
+            }
+        }
+
+        writeln!(out).ok();
+        writeln!(out, "    let wrapper = {wrapper}::new(backend);").ok();
+        writeln!(out, "    let arc: Rc<RefCell<dyn {trait_path}>> = Rc::new(RefCell::new(wrapper));").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "    let registry = {registry_getter}();").ok();
+        writeln!(out, "    let mut registry = registry;").ok();
+        writeln!(out, "    registry.register(arc).map_err(|e| ext_php_rs::exception::PhpException::default(").ok();
+        writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
+        writeln!(out, "    ))?;").ok();
+        writeln!(out, "    Ok(())").ok();
+        writeln!(out, "}}").ok();
+
+        out
+    }
+}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -14,16 +195,12 @@ pub fn gen_trait_bridge(
     core_import: &str,
     api: &ApiSurface,
 ) -> String {
-    let mut out = String::with_capacity(8192);
-    let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
-    let trait_path = trait_type.rust_path.replace('-', "_");
-
-    // Build type name → rust_path lookup
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    // Build type name → rust_path lookup as owned HashMap
+    let type_paths: HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -33,18 +210,24 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
-        gen_visitor_bridge(
-            &mut out,
-            trait_type,
-            bridge_cfg,
-            &struct_name,
-            &trait_path,
+        let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
+        let trait_path = trait_type.rust_path.replace('-', "_");
+        gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths)
+    } else {
+        // Use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = PhpBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
             core_import,
-            &type_paths,
-        );
+            wrapper_prefix: "Php",
+            type_paths,
+        };
+        gen_bridge_all(&spec, &generator)
     }
-
-    out
 }
 
 /// Generate a visitor-style bridge wrapping a PHP `Zval` object reference.
@@ -52,14 +235,18 @@ pub fn gen_trait_bridge(
 /// Every trait method checks if the PHP object has a matching camelCase method,
 /// then calls it and maps the PHP return value to `VisitResult`.
 fn gen_visitor_bridge(
-    out: &mut String,
     trait_type: &TypeDef,
     _bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
-    core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(4096);
+    let core_crate = trait_path
+        .split("::")
+        .next()
+        .unwrap_or("html_to_markdown_rs")
+        .to_string();
     // Helper: convert NodeContext to a PHP array (Zval)
     writeln!(out, "fn nodecontext_to_php_array(").unwrap();
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
@@ -112,11 +299,12 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct — stores a raw pointer to the PHP object.
-    // The pointer is valid for the duration of the PHP function call that
+    // Bridge struct — stores a reference to the PHP object.
+    // The reference is valid for the duration of the PHP function call that
     // created the bridge, which spans the entire Rust trait method dispatch.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
     writeln!(out, "    php_obj: *mut ext_php_rs::types::ZendObject,").unwrap();
+    writeln!(out, "    cached_name: String,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
@@ -149,7 +337,13 @@ fn gen_visitor_bridge(
         "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{"
     )
     .unwrap();
-    writeln!(out, "        Self {{ php_obj: php_obj as *mut _ }}").unwrap();
+    writeln!(out, "        let cached_name = php_obj").unwrap();
+    writeln!(out, "            .try_call_method(\"name\", vec![])").unwrap();
+    writeln!(out, "            .ok()").unwrap();
+    writeln!(out, "            .and_then(|v| v.string())").unwrap();
+    writeln!(out, "            .unwrap_or(\"unknown\".into())").unwrap();
+    writeln!(out, "            .to_string();").unwrap();
+    writeln!(out, "        Self {{ php_obj: php_obj as *mut _, cached_name }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -160,10 +354,12 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_php(out, method, type_paths);
+        gen_visitor_method_php(&mut out, method, type_paths);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+
+    out
 }
 
 /// Map a visitor method parameter type to the correct Rust type string.
@@ -171,7 +367,7 @@ fn visitor_param_type(
     ty: &TypeRef,
     is_ref: bool,
     optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
+    tp: &HashMap<String, String>,
 ) -> String {
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
@@ -186,7 +382,7 @@ fn visitor_param_type(
 }
 
 /// Generate a single visitor method that checks for a camelCase PHP method and calls it.
-fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std::collections::HashMap<&str, &str>) {
+fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
     let name = &method.name;
     let php_name = to_camel_case(name);
 
@@ -199,8 +395,8 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std
 
     let ret_ty = match &method.return_type {
         TypeRef::Named(n) => type_paths
-            .get(n.as_str())
-            .map(|p| p.replace('-', "_"))
+            .get(n)
+            .map(|p| p.clone())
             .unwrap_or_else(|| n.clone()),
         other => param_type(other, "", false, type_paths),
     };
@@ -347,7 +543,7 @@ fn to_camel_case(name: &str) -> String {
 }
 
 /// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
+fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
     match ty {
         TypeRef::Bytes if is_ref => "&[u8]".into(),
         TypeRef::Bytes => "Vec<u8>".into(),
@@ -357,8 +553,8 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashM
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
             let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
+                .get(n)
+                .map(|p| p.clone())
                 .unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
         }
