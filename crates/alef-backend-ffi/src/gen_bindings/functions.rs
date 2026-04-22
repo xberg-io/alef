@@ -10,6 +10,53 @@ use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_void
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
 // ---------------------------------------------------------------------------
+// Streaming method wrapper (callback-based, for Streaming adapters)
+// ---------------------------------------------------------------------------
+
+/// Generate a callback-based streaming wrapper for a method decorated with the
+/// `Streaming` adapter pattern.  The caller supplies a `LiterLlmStreamCallback`
+/// and an opaque `user_data` pointer; the body drives the async stream and
+/// invokes the callback once per chunk.
+pub(super) fn gen_streaming_method_wrapper(
+    typ: &TypeDef,
+    method: &MethodDef,
+    prefix: &str,
+    core_import: &str,
+    body: &str,
+) -> String {
+    let type_snake = typ.name.to_snake_case();
+    let method_name = &method.name;
+    let fn_name = format!("{prefix}_{type_snake}_{method_name}");
+    let qualified = core_type_path(typ, core_import);
+
+    let mut out = String::with_capacity(2048);
+
+    if !method.doc.is_empty() {
+        for line in method.doc.lines() {
+            writeln!(out, "/// {}", line).ok();
+        }
+    }
+    writeln!(out, "/// # Safety").ok();
+    writeln!(
+        out,
+        "/// `client` and `request_json` must be non-null valid pointers. \
+         `callback` must be a valid function pointer. \
+         `user_data` is forwarded as-is; ownership stays with the caller."
+    )
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
+    writeln!(out, "    client: *const {qualified},").ok();
+    writeln!(out, "    request_json: *const std::ffi::c_char,").ok();
+    writeln!(out, "    callback: LiterLlmStreamCallback,").ok();
+    writeln!(out, "    user_data: *mut std::ffi::c_void,").ok();
+    writeln!(out, ") -> i32 {{").ok();
+    writeln!(out, "    {}", body.replace('\n', "\n    ")).ok();
+    write!(out, "}}").ok();
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Method wrappers
 // ---------------------------------------------------------------------------
 

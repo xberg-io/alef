@@ -25,12 +25,19 @@ pub struct TraitBridgeSpec<'a> {
     pub type_paths: HashMap<String, String>,
     /// The crate's error type name (e.g., `"KreuzbergError"`). Defaults to `"Error"`.
     pub error_type: String,
+    /// Error constructor pattern. `{msg}` is replaced with the message expression.
+    pub error_constructor: String,
 }
 
 impl<'a> TraitBridgeSpec<'a> {
-    /// Fully qualified error constructor path (e.g., `"kreuzberg::KreuzbergError"`).
+    /// Fully qualified error type path (e.g., `"kreuzberg::KreuzbergError"`).
     pub fn error_path(&self) -> String {
         format!("{}::{}", self.core_import, self.error_type)
+    }
+
+    /// Generate an error construction expression from a message expression.
+    pub fn make_error(&self, msg_expr: &str) -> String {
+        self.error_constructor.replace("{msg}", msg_expr)
     }
 
     /// Wrapper struct name: `{prefix}{TraitName}Bridge` (e.g., `PythonOcrBackendBridge`).

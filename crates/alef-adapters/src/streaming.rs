@@ -394,23 +394,15 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
                  return -1;\n        \
              }}\n    \
          }};\n\n    \
-         let rt = match runtime() {{\n        \
-             Ok(rt) => rt,\n        \
-             Err(e) => {{\n            \
-                 set_last_error(99, &format!(\"literllm_{name}: {{e}}\"));\n            \
-                 return -1;\n        \
-             }}\n    \
-         }};\n\n    \
+         let rt = get_ffi_runtime();\n\n    \
          let result = rt.block_on(async {{\n        \
-             use futures_core::Stream;\n        \
-             use std::pin::Pin;\n\n        \
-             let mut stream = match client_ref.inner.{core_path}(request).await {{\n            \
+             use futures_util::StreamExt;\n\n        \
+             let mut stream = match client_ref.{core_path}(request).await {{\n            \
                  Ok(s) => s,\n            \
                  Err(e) => return Err(format!(\"literllm_{name}: failed to open stream: {{e}}\")),\n        \
              }};\n\n        \
              loop {{\n            \
-                 let next = std::future::poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await;\n            \
-                 match next {{\n                \
+                 match stream.next().await {{\n                \
                      None => break,\n                \
                      Some(Err(e)) => return Err(format!(\"literllm_{name}: stream error: {{e}}\")),\n                \
                      Some(Ok(chunk)) => {{\n                    \

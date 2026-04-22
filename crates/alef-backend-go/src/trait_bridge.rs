@@ -452,11 +452,12 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out).ok();
 }
 
-/// Build the C trampoline function signature for extern declaration.
+/// Build the C trampoline function signature for extern declaration in the CGo preamble.
+/// Uses actual C types (not Go CGo types like `C.int32_t`).
 fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
     let mut params = vec!["void* user_data".to_string()];
     for p in &method.params {
-        let cty = rust_to_c_type(&p.ty);
+        let cty = rust_to_plain_c_type(&p.ty);
         params.push(format!("{} {}", cty, p.name));
     }
     if !matches!(method.return_type, TypeRef::Unit) {
@@ -464,6 +465,39 @@ fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
     }
     params.push("char** out_error".to_string());
     params.join(", ")
+}
+
+/// Convert a Rust TypeRef to a plain C type string (for CGo preamble extern declarations).
+fn rust_to_plain_c_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType::*;
+            match p {
+                Bool => "int32_t",
+                U8 => "uint8_t",
+                U16 => "uint16_t",
+                U32 => "uint32_t",
+                U64 => "uint64_t",
+                I8 => "int8_t",
+                I16 => "int16_t",
+                I32 => "int32_t",
+                I64 => "int64_t",
+                F32 => "float",
+                F64 => "double",
+                Usize => "size_t",
+                Isize => "intptr_t",
+            }
+            .to_string()
+        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "char*".to_string(),
+        TypeRef::Bytes => "uint8_t*".to_string(),
+        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => {
+            "char*".to_string()
+        }
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::Duration => "uint64_t".to_string(),
+        _ => "char*".to_string(),
+    }
 }
 
 /// Convert a Rust TypeRef to a Go type string.

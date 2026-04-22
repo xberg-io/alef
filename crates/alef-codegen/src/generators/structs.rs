@@ -103,19 +103,19 @@ pub fn gen_struct_with_per_field_attrs(
         sb.add_derive(d);
     }
     // Default is always derived — all core types (including data enums) implement Default.
-    // Serialize and Deserialize are only derived when no field references an opaque type
-    // (Arc-wrapped), since opaque types don't implement those traits.
+    // Serialize and Deserialize are always derived. Fields that reference opaque types
+    // get `#[serde(skip)]` so the struct itself remains serializable (needed for the
+    // serde recovery path where binding types round-trip through JSON).
     sb.add_derive("Default");
-    let has_opaque_field = typ.fields.iter().any(|f| {
-        if f.cfg.is_some() {
-            return false;
-        }
-        field_references_opaque_type(&f.ty, cfg.opaque_type_names)
-    });
-    if !has_opaque_field {
-        sb.add_derive("serde::Serialize");
-        sb.add_derive("serde::Deserialize");
-    }
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
+    // Track which fields are opaque so we can add #[serde(skip)] later
+    let opaque_fields: Vec<&str> = typ
+        .fields
+        .iter()
+        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names))
+        .map(|f| f.name.as_str())
+        .collect();
     for field in &typ.fields {
         if field.cfg.is_some() {
             continue;
@@ -132,6 +132,11 @@ pub fn gen_struct_with_per_field_attrs(
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         attrs.extend(extra_field_attrs(field));
+        // Add #[serde(skip)] for fields that reference opaque types so the struct
+        // remains serializable for the serde recovery path
+        if opaque_fields.contains(&field.name.as_str()) {
+            attrs.push("serde(skip)".to_string());
+        }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
     sb.build()
@@ -154,18 +159,16 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         sb.add_derive(d);
     }
     // Default is always derived — all core types (including data enums) implement Default.
-    // Serialize and Deserialize are only derived when no field references an opaque type.
+    // Serialize and Deserialize are always derived. Opaque fields get #[serde(skip)].
     sb.add_derive("Default");
-    let has_opaque_field = typ.fields.iter().any(|f| {
-        if f.cfg.is_some() {
-            return false;
-        }
-        field_references_opaque_type(&f.ty, cfg.opaque_type_names)
-    });
-    if !has_opaque_field {
-        sb.add_derive("serde::Serialize");
-        sb.add_derive("serde::Deserialize");
-    }
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
+    let opaque_fields: Vec<&str> = typ
+        .fields
+        .iter()
+        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names))
+        .map(|f| f.name.as_str())
+        .collect();
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to
@@ -186,7 +189,10 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
-        let attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+        let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+        if opaque_fields.contains(&field.name.as_str()) {
+            attrs.push("serde(skip)".to_string());
+        }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
     sb.build()

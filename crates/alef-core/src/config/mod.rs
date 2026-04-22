@@ -120,6 +120,12 @@ pub struct CrateConfig {
     /// Defaults to `"Error"` if not set.
     #[serde(default)]
     pub error_type: Option<String>,
+    /// Pattern for constructing error values from a String message in trait bridges.
+    /// `{msg}` is replaced with the format!(...) expression.
+    /// Example: `"KreuzbergError::Plugin { message: {msg}, plugin_name: name.to_string() }"`
+    /// Defaults to `"{error_type}::from({msg})"` if not set.
+    #[serde(default)]
+    pub error_constructor: Option<String>,
     /// Cargo features that are enabled in binding crates.
     /// Fields gated by `#[cfg(feature = "...")]` matching these features
     /// are treated as always-present (cfg stripped from the IR).
@@ -269,6 +275,15 @@ impl AlefConfig {
             .error_type
             .clone()
             .unwrap_or_else(|| "Error".to_string())
+    }
+
+    /// Get the error constructor pattern. `{msg}` is replaced with the message expression.
+    /// Defaults to `"{core_import}::{error_type}::from({msg})"`.
+    pub fn error_constructor(&self) -> String {
+        self.crate_config
+            .error_constructor
+            .clone()
+            .unwrap_or_else(|| format!("{}::{}::from({{msg}})", self.core_import(), self.error_type()))
     }
 
     /// Get the FFI prefix (e.g., "kreuzberg"). Used by FFI, Go, Java, C# backends.

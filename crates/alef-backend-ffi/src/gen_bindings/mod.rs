@@ -9,7 +9,10 @@ use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-use functions::{gen_free_function, gen_method_wrapper};
+use alef_adapters::AdapterBodies;
+use alef_core::config::AdapterPattern;
+
+use functions::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
 use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
 use types::{
     gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
@@ -161,6 +164,25 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     // version helper
     builder.add_item(&gen_version(prefix));
 
+    // Build adapter body map before the method loop so streaming adapters can
+    // substitute in their callback-based bodies instead of the normal wrapper.
+    let adapter_bodies: AdapterBodies =
+        alef_adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
+
+    // Emit the stream callback type alias once if any streaming adapters exist.
+    let has_streaming_adapters = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
+    if has_streaming_adapters {
+        builder.add_item(
+            "/// Callback invoked for each streamed chunk.\n\
+             /// `chunk_json` is a JSON-encoded chunk; `user_data` is forwarded from the caller.\n\
+             pub type LiterLlmStreamCallback =\n    \
+             unsafe extern \"C\" fn(chunk_json: *const std::ffi::c_char, user_data: *mut std::ffi::c_void);",
+        );
+    }
+
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         // Generate from_json/to_json for types that derive serde Serialize/Deserialize.
@@ -185,8 +207,26 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             }
         }
 
-        // Method wrappers
+        // Method wrappers — streaming adapters get a dedicated callback-based wrapper.
         for method in &typ.methods {
+            let streaming_adapter = config.adapters.iter().find(|a| {
+                matches!(a.pattern, AdapterPattern::Streaming)
+                    && a.owner_type.as_deref() == Some(typ.name.as_str())
+                    && a.name == method.name
+            });
+            if let Some(adapter) = streaming_adapter {
+                let adapter_key = format!("{}.{}", typ.name, adapter.name);
+                if let Some(body) = adapter_bodies.get(&adapter_key) {
+                    builder.add_item(&gen_streaming_method_wrapper(
+                        typ,
+                        method,
+                        prefix,
+                        &core_import,
+                        body,
+                    ));
+                    continue;
+                }
+            }
             builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import, &path_map));
         }
     }
@@ -219,9 +259,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map));
     }
-
-    // Build adapter body map (consumed by generators via body substitution)
-    let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
 
     // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
     // Note: the generated code uses std::rc::Rc fully qualified, so no extra import needed.
