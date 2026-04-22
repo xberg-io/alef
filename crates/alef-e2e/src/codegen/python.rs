@@ -1285,11 +1285,7 @@ fn render_assertion(
 
 /// Build a Python call expression for a method_result assertion on a tree-sitter Tree.
 /// Maps method names to the appropriate Python function calls.
-fn build_python_method_call(
-    result_var: &str,
-    method_name: &str,
-    args: Option<&serde_json::Value>,
-) -> String {
+fn build_python_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
     match method_name {
         "root_child_count" => format!("{result_var}.root_node().child_count()"),
         "root_node_type" => format!("{result_var}.root_node().kind()"),

@@ -157,7 +157,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    let opaque_fields: Vec<&str> = typ
+    let _opaque_fields: Vec<&str> = typ
         .fields
         .iter()
         .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names))
@@ -166,7 +166,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     sb.add_derive("Default");
     sb.add_derive("serde::Serialize");
     sb.add_derive("serde::Deserialize");
-    let has_serde = true;
+    let _has_serde = true;
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to
@@ -187,7 +187,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
-        let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+        let attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         // Only add #[serde(default)] when serde derives are present on the struct
         // (opaque_fields empty = serde derives added, opaque field needs serde(default))
         // This can't happen: if opaque_fields is empty, no field matches this check.

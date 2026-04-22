@@ -884,11 +884,19 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    }} else {{").ok();
                 if param.is_ref {
                     // Core function takes Option<&T> — pass a reference, no clone needed.
-                    writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer.").ok();
+                    writeln!(
+                        out,
+                        "        // SAFETY: null check above guarantees {name} is a valid pointer."
+                    )
+                    .ok();
                     writeln!(out, "        Some(unsafe {{ &*{name} }})").ok();
                 } else {
                     // Core function takes Option<T> — clone out of the pointer.
-                    writeln!(out, "        // SAFETY: null check above guarantees {name} is a valid pointer.").ok();
+                    writeln!(
+                        out,
+                        "        // SAFETY: null check above guarantees {name} is a valid pointer."
+                    )
+                    .ok();
                     writeln!(out, "        Some(unsafe {{ &*{name} }}.clone())").ok();
                 }
                 writeln!(out, "    }};").ok();
@@ -1104,11 +1112,19 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    }}").ok();
                 if param.is_ref {
                     // Core function takes &T — pass a reference, no clone needed.
-                    writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer.").ok();
+                    writeln!(
+                        out,
+                        "    // SAFETY: null check above guarantees {name} is a valid pointer."
+                    )
+                    .ok();
                     writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }};").ok();
                 } else {
                     // Core function takes owned T — clone out of the pointer.
-                    writeln!(out, "    // SAFETY: null check above guarantees {name} is a valid pointer.").ok();
+                    writeln!(
+                        out,
+                        "    // SAFETY: null check above guarantees {name} is a valid pointer."
+                    )
+                    .ok();
                     writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").ok();
                 }
             }
@@ -1123,7 +1139,11 @@ pub(super) fn gen_param_conversion(
                 .ok();
                 writeln!(out, "        {fail_ret}").ok();
                 writeln!(out, "    }}").ok();
-                writeln!(out, "    // SAFETY: null check above; ptr and len validated by caller; data is valid for len elements.").ok();
+                writeln!(
+                    out,
+                    "    // SAFETY: null check above; ptr and len validated by caller; data is valid for len elements."
+                )
+                .ok();
                 writeln!(
                     out,
                     "    let {rs_name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len) }}.to_vec();"

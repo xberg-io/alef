@@ -83,6 +83,16 @@ pub fn gen_function(
             let returns_ref = func.returns_ref;
             let wrap_return = |expr: &str| -> String {
                 match &func.return_type {
+                    TypeRef::Vec(inner) => {
+                        // Vec<T>: check if elements need conversion
+                        match inner.as_ref() {
+                            TypeRef::Named(_) => {
+                                // Vec<Named>: convert each element using Into::into
+                                format!("{expr}.into_iter().map(Into::into).collect()")
+                            }
+                            _ => expr.to_string(),
+                        }
+                    }
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                         if returns_ref {
                             format!("{name} {{ inner: Arc::new({expr}.clone()) }}")

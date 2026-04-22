@@ -104,7 +104,11 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
     writeln!(out, "        set_last_error(1, \"Null pointer passed to to_json\");").ok();
     writeln!(out, "        return std::ptr::null_mut();").ok();
     writeln!(out, "    }}").ok();
-    writeln!(out, "    // SAFETY: null check above guarantees ptr is a valid pointer.").ok();
+    writeln!(
+        out,
+        "    // SAFETY: null check above guarantees ptr is a valid pointer."
+    )
+    .ok();
     writeln!(out, "    let val = unsafe {{ &*ptr }};").ok();
     writeln!(out, "    match serde_json::to_string(val) {{").ok();
     writeln!(out, "        Ok(s) => match CString::new(s) {{").ok();
@@ -140,7 +144,11 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
     )
     .ok();
     writeln!(out, "    if !ptr.is_null() {{").ok();
-    writeln!(out, "        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases.").ok();
+    writeln!(
+        out,
+        "        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases."
+    )
+    .ok();
     writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").ok();
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
@@ -222,7 +230,11 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
     writeln!(out, "    if ptr.is_null() {{").ok();
     writeln!(out, "        return {};", null_return_value(&effective_ty)).ok();
     writeln!(out, "    }}").ok();
-    writeln!(out, "    // SAFETY: null check above guarantees ptr is a valid pointer.").ok();
+    writeln!(
+        out,
+        "    // SAFETY: null check above guarantees ptr is a valid pointer."
+    )
+    .ok();
     writeln!(out, "    let obj = unsafe {{ &*ptr }};").ok();
 
     // Generate the accessor body based on field type
@@ -291,7 +303,11 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         // Bytes with length out-param
         writeln!(out, "    let data = &obj.{field_name};").ok();
         writeln!(out, "    if !out_len.is_null() {{").ok();
-        writeln!(out, "        // SAFETY: null check above guarantees out_len is a valid pointer.").ok();
+        writeln!(
+            out,
+            "        // SAFETY: null check above guarantees out_len is a valid pointer."
+        )
+        .ok();
         writeln!(out, "        unsafe {{ *out_len = data.len(); }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "    data.as_ptr() as *mut u8").ok();
@@ -378,7 +394,11 @@ pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &s
     writeln!(out, "        set_last_error(1, \"Null pointer passed for enum name\");").ok();
     writeln!(out, "        return -1;").ok();
     writeln!(out, "    }}").ok();
-    writeln!(out, "    // SAFETY: null check above guarantees name is a valid pointer; string is valid UTF-8 from caller.").ok();
+    writeln!(
+        out,
+        "    // SAFETY: null check above guarantees name is a valid pointer; string is valid UTF-8 from caller."
+    )
+    .ok();
     writeln!(out, "    let s = match unsafe {{ CStr::from_ptr(name) }}.to_str() {{").ok();
     writeln!(out, "        Ok(s) => s,").ok();
     writeln!(out, "        Err(_) => {{").ok();

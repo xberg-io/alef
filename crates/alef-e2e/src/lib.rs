@@ -20,7 +20,8 @@ use anyhow::{Context, Result};
 use config::E2eConfig;
 use fixture::{group_fixtures, load_fixtures};
 use std::path::Path;
-use tracing::info;
+use tracing::{info, warn};
+use validate::Severity;
 
 /// Generate e2e test projects from fixtures.
 ///
@@ -36,6 +37,15 @@ pub fn generate_e2e(
         .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
 
     info!("Loaded {} fixture(s) from {}", fixtures.len(), e2e_config.fixtures);
+
+    // Run semantic validation and emit warnings (don't block generation)
+    let diagnostics = validate::validate_fixtures_semantic(&fixtures, e2e_config, &e2e_config.languages);
+    for diag in &diagnostics {
+        match diag.severity {
+            Severity::Error => warn!("{}: {}", diag.file, diag.message),
+            Severity::Warning => warn!("{}: {}", diag.file, diag.message),
+        }
+    }
 
     let all_groups = group_fixtures(&fixtures);
 

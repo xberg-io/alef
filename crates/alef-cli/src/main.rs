@@ -826,18 +826,33 @@ fn main() -> Result<()> {
                 E2eAction::Validate => {
                     let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
                     eprintln!("Validating fixtures in {}...", fixtures_dir.display());
-                    let errors = alef_e2e::validate::validate_fixtures(fixtures_dir)
+
+                    // Schema validation
+                    let mut all_errors = alef_e2e::validate::validate_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to validate fixtures from {}", fixtures_dir.display()))?;
 
-                    if errors.is_empty() {
+                    // Semantic validation
+                    let fixtures = alef_e2e::fixture::load_fixtures(fixtures_dir)
+                        .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
+                    let semantic_errors =
+                        alef_e2e::validate::validate_fixtures_semantic(&fixtures, e2e_config, &e2e_config.languages);
+                    all_errors.extend(semantic_errors);
+
+                    if all_errors.is_empty() {
                         println!("All fixtures are valid.");
                         Ok(())
                     } else {
-                        println!("Found {} validation error(s):", errors.len());
-                        for err in &errors {
+                        use alef_e2e::validate::Severity;
+                        let error_count = all_errors.iter().filter(|e| e.severity == Severity::Error).count();
+                        let warning_count = all_errors.iter().filter(|e| e.severity == Severity::Warning).count();
+                        println!("Found {} error(s) and {} warning(s):", error_count, warning_count);
+                        for err in &all_errors {
                             println!("  {err}");
                         }
-                        process::exit(1);
+                        if error_count > 0 {
+                            process::exit(1);
+                        }
+                        Ok(())
                     }
                 }
             }

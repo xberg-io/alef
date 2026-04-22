@@ -545,7 +545,8 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         // Let binding created {name}_refs: Vec<&str> (or Option<Vec<&str>>).
                         // Pass &{name}_refs to coerce Vec<&str> -> &[&str].
                         if p.optional {
-                            format!("{}_refs.as_deref()", p.name)
+                            // Option<Vec<&str>> -> Option<&[&str]>: use as_ref() not as_deref()
+                            format!("{}_refs.as_ref().map(|v| v.as_slice())", p.name)
                         } else {
                             format!("&{}_refs", p.name)
                         }

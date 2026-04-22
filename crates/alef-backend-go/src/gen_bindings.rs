@@ -587,7 +587,12 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
 
     // Constructor — wraps the C {prefix}_{type_snake}() allocator.
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
-    writeln!(out, "// New{} creates a new {} by calling the C constructor.", typ.name, typ.name).ok();
+    writeln!(
+        out,
+        "// New{} creates a new {} by calling the C constructor.",
+        typ.name, typ.name
+    )
+    .ok();
     writeln!(out, "func New{}() *{} {{", typ.name, typ.name).ok();
     writeln!(out, "\tptr := C.{}_{}()", ffi_prefix, type_snake).ok();
     writeln!(out, "\tif ptr == nil {{").ok();
@@ -1122,8 +1127,8 @@ fn gen_method_wrapper(
         // Detect builder pattern: opaque type method that returns the same opaque type.
         // The C function consumes (Box::from_raw) the input pointer and returns a new pointer.
         // Instead of creating a new Go struct, update r.ptr so the caller's handle stays valid.
-        let is_builder_return = typ.is_opaque
-            && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
+        let is_builder_return =
+            typ.is_opaque && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
 
         if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {

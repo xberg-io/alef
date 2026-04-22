@@ -457,14 +457,15 @@ pub fn format_return_type(
 pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>) -> String {
     use alef_core::ir::TypeRef;
     if param.is_ref {
+        let mutability = if param.is_mut { "mut " } else { "" };
         match &param.ty {
-            TypeRef::String => "&str".to_string(),
-            TypeRef::Bytes => "&[u8]".to_string(),
-            TypeRef::Path => "&std::path::Path".to_string(),
-            TypeRef::Vec(inner) => format!("&[{}]", format_type_ref(inner, type_paths)),
+            TypeRef::String => format!("&{mutability}str"),
+            TypeRef::Bytes => format!("&{mutability}[u8]"),
+            TypeRef::Path => format!("&{mutability}std::path::Path"),
+            TypeRef::Vec(inner) => format!("&{mutability}[{}]", format_type_ref(inner, type_paths)),
             TypeRef::Named(name) => {
                 let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
-                format!("&{qualified}")
+                format!("&{mutability}{qualified}")
             }
             // All other types are Copy/small — pass by value even when is_ref is set
             other => format_type_ref(other, type_paths),
