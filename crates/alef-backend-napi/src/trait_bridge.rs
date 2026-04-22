@@ -85,11 +85,17 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "        Ok(())").ok();
         } else {
-            writeln!(out, "        // Convert JS value to Rust type").ok();
-            writeln!(out, "        extract_napi_value(&val).map_err(|e| {{").ok();
-            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{{{}}}}\", e)", name));
-            writeln!(out, "            {err}").ok();
-            writeln!(out, "        }})").ok();
+            // For most return types, attempt string coercion from the JS value
+            writeln!(out, "        // Convert JS value to Rust type via string coercion").ok();
+            writeln!(out, "        let s = val.coerce_to_string()").ok();
+            writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
+            writeln!(out, "            .and_then(|s| s.into_owned())").ok();
+            writeln!(out, "            .map_err(|e| {{").ok();
+            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{}}\", e)", name));
+            writeln!(out, "                {err}").ok();
+            writeln!(out, "            }})?;").ok();
+            // Default: return as-is via Default::default() for simple types
+            writeln!(out, "        Ok(s.parse().unwrap_or_default())").ok();
         }
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
@@ -146,10 +152,17 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "            Ok(())").ok();
         } else {
-            writeln!(out, "            extract_napi_value(&val).map_err(|e| {{").ok();
-            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{{{}}}}\", e)", name));
-            writeln!(out, "                {err}").ok();
-            writeln!(out, "            }})").ok();
+            // For most return types, attempt string coercion from the JS value
+            writeln!(out, "            // Convert JS value to Rust type via string coercion").ok();
+            writeln!(out, "            let s = val.coerce_to_string()").ok();
+            writeln!(out, "                .and_then(|s| s.into_utf8())").ok();
+            writeln!(out, "                .and_then(|s| s.into_owned())").ok();
+            writeln!(out, "                .map_err(|e| {{").ok();
+            let err = spec.make_error(&format!("format!(\"Failed to extract return value from method '{}': {{}}\", e)", name));
+            writeln!(out, "                    {err}").ok();
+            writeln!(out, "                }})?;").ok();
+            // Default: return as-is via Default::default() for simple types
+            writeln!(out, "            Ok(s.parse().unwrap_or_default())").ok();
         }
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();

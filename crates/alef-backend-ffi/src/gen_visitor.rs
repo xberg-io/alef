@@ -780,3 +780,74 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         visitor_ref_methods = visitor_ref_methods,
     )
 }
+
+/// Generate `{prefix}_convert` — the real no-visitor implementation of the core `convert`
+/// function.
+///
+/// When `visitor_callbacks = true`, the core `convert` function has a visitor parameter
+/// that causes the IR to sanitize the function (marking it as unimplementable via the normal
+/// codegen path).  Instead of emitting a stub, the FFI generator calls this function to
+/// produce a proper implementation that passes `None` for the visitor.
+///
+/// The generated function takes `html` and `options` (no visitor param) and returns a
+/// heap-allocated `*mut ConversionResult` that the caller must free with
+/// `{prefix}_conversion_result_free`.
+pub fn gen_convert_no_visitor(prefix: &str, core_import: &str) -> String {
+    let fn_name = format!("{prefix}_convert");
+    format!(
+        r#"/// Convert HTML to Markdown.
+///
+/// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
+/// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
+/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+///
+/// # Arguments
+///
+/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
+/// - `options`: optional conversion options; pass null for defaults.
+///
+/// # Safety
+///
+/// `html` must be a valid, non-null, null-terminated UTF-8 string.
+/// `options` must be a valid pointer or null.
+/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_name}(
+    html: *const std::ffi::c_char,
+    options: *const {core_import}::options::ConversionOptions,
+) -> *mut {core_import}::ConversionResult {{
+    clear_last_error();
+
+    if html.is_null() {{
+        set_last_error(1, "Null pointer passed for html");
+        return std::ptr::null_mut();
+    }}
+
+    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in html parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let options_rs: Option<{core_import}::options::ConversionOptions> = if options.is_null() {{
+        None
+    }} else {{
+        // SAFETY: options is a valid pointer guaranteed by the caller.
+        Some(unsafe {{ &*options }}.clone())
+    }};
+
+    match {core_import}::convert(html_str, options_rs, None) {{
+        Ok(result) => Box::into_raw(Box::new(result)),
+        Err(e) => {{
+            set_last_error(2, &e.to_string());
+            std::ptr::null_mut()
+        }}
+    }}
+}}"#,
+        prefix = prefix,
+        fn_name = fn_name,
+        core_import = core_import,
+    )
+}

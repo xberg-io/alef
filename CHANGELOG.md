@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-04-22
+
+### Fixed
+
+- Python stubs (.pyi): add `Any` to typing imports (used by `dict[str, Any]` fields).
+- Python stubs (.pyi): rename tagged union TypedDict variants with `Variant` suffix to avoid name collision with enum classes (e.g. `ToolChoiceModeVariant` instead of `ToolChoiceMode`).
+
 ## [0.5.6] - 2026-04-22
 
 ### Fixed

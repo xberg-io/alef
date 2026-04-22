@@ -694,12 +694,14 @@ fn gen_named_let_bindings_inner(
             }
             // Vec<String> with is_ref=true: core expects &[&str] but binding holds Vec<String>.
             // Generate a Vec<&str> intermediate so &{name}_refs coerces to &[&str].
+            // For Option<Vec<String>>, unwrap first then convert each element.
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 if p.optional {
+                    // Option<Vec<String>> -> unwrap_or_default() -> Vec<&str>
                     write!(
                         bindings,
-                        "let {}_refs: Option<Vec<&str>> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());\n    ",
-                        p.name, p.name
+                        "let {}_core: Vec<String> = {}.clone().unwrap_or_default();\n    let {}_refs: Vec<&str> = {}_core.iter().map(|s| s.as_str()).collect();\n    ",
+                        p.name, p.name, p.name, p.name
                     )
                     .ok();
                 } else {

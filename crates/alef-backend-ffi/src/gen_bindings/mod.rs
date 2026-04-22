@@ -246,6 +246,8 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         builder.add_item(&gen_ffi_tokio_runtime());
     }
 
+    let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
+
     let ffi_exclude_functions: ahash::AHashSet<String> = config
         .ffi
         .as_ref()
@@ -257,12 +259,23 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
+        // When visitor_callbacks is enabled, the core `convert` function has a visitor
+        // parameter that causes the IR sanitizer to mark the function as unimplementable
+        // (the visitor trait type is unknown to the IR).  Skip the sanitized stub here;
+        // the proper no-visitor implementation is emitted below via gen_convert_no_visitor.
+        if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
+            continue;
+        }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map));
     }
 
     // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
     // Note: the generated code uses std::rc::Rc fully qualified, so no extra import needed.
-    if config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks) {
+    if visitor_callbacks_enabled {
+        // Emit the real {prefix}_convert implementation (no-visitor path) before the visitor
+        // bindings so that {prefix}_convert_with_visitor can document itself as the visitor
+        // counterpart.
+        builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
         builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
     }
 

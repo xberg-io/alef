@@ -304,7 +304,7 @@ fn gen_go_file(
         "import (\n{}\n)\n",
         imports
             .iter()
-            .map(|i| format!("    {}", i))
+            .map(|i| format!("\t{}", i))
             .collect::<Vec<_>>()
             .join("\n")
     )
@@ -412,11 +412,11 @@ fn gen_last_error_helper(ffi_prefix: &str) -> String {
     // Note: ctx is a borrowed pointer into thread-local storage, NOT a heap allocation.
     // Do NOT call free_string on it — that causes a double-free crash on the next FFI call.
     format!(
-        "// lastError retrieves the last error from the FFI layer.\nfunc lastError() error {{\n    \
-         code := int32(C.{}_last_error_code())\n    \
-         if code == 0 {{\n        return nil\n    }}\n    \
-         ctx := C.{}_last_error_context()\n    \
-         message := C.GoString(ctx)\n    \
+        "// lastError retrieves the last error from the FFI layer.\nfunc lastError() error {{\n\t\
+         code := int32(C.{}_last_error_code())\n\t\
+         if code == 0 {{\n\t\treturn nil\n\t}}\n\t\
+         ctx := C.{}_last_error_context()\n\t\
+         message := C.GoString(ctx)\n\t\
          return fmt.Errorf(\"[%d] %s\", code, message)\n\
          }}",
         ffi_prefix, ffi_prefix
@@ -472,10 +472,10 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
         let wire_value = enum_variant_wire_value(variant, enum_def);
         if !variant.doc.is_empty() {
             for line in variant.doc.lines() {
-                writeln!(out, "    // {}", line.trim()).ok();
+                writeln!(out, "\t// {}", line.trim()).ok();
             }
         }
-        writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, wire_value).ok();
+        writeln!(out, "\t{} {} = \"{}\"", const_name, enum_def.name, wire_value).ok();
     }
 
     writeln!(out, ")").ok();
@@ -512,7 +512,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     // This ensures round-trip JSON serialization preserves the variant discriminator,
     // which Rust needs to deserialize the correct enum variant.
     if let Some(tag_name) = &enum_def.serde_tag {
-        writeln!(out, "    {} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
+        writeln!(out, "\t{} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
     }
 
     // Collect and deduplicate fields across all variants.
@@ -550,10 +550,10 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 
         if !field.doc.is_empty() {
             for line in field.doc.lines() {
-                writeln!(out, "    // {}", line.trim()).ok();
+                writeln!(out, "\t// {}", line.trim()).ok();
             }
         }
-        writeln!(out, "    {} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
+        writeln!(out, "\t{} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
     }
 
     writeln!(out, "}}").ok();
@@ -576,7 +576,7 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
         writeln!(out, "// {} is an opaque handle type.", typ.name).ok();
     }
     writeln!(out, "type {} struct {{", typ.name).ok();
-    writeln!(out, "    ptr unsafe.Pointer").ok();
+    writeln!(out, "\tptr unsafe.Pointer").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
@@ -584,15 +584,15 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
-    writeln!(out, "    if h.ptr != nil {{").ok();
+    writeln!(out, "\tif h.ptr != nil {{").ok();
     writeln!(
         out,
-        "        C.{}_{}_free((*C.{})(h.ptr))",
+        "\t\tC.{}_{}_free((*C.{})(h.ptr))",
         ffi_prefix, type_snake, c_type
     )
     .ok();
-    writeln!(out, "        h.ptr = nil").ok();
-    writeln!(out, "    }}").ok();
+    writeln!(out, "\t\th.ptr = nil").ok();
+    writeln!(out, "\t}}").ok();
     writeln!(out, "}}").ok();
 
     out
@@ -670,10 +670,10 @@ fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) 
 
         if !field.doc.is_empty() {
             for line in field.doc.lines() {
-                writeln!(out, "    // {}", line.trim()).ok();
+                writeln!(out, "\t// {}", line.trim()).ok();
             }
         }
-        writeln!(out, "    {} {} `{}`", to_go_name(&field.name), field_type, json_tag).ok();
+        writeln!(out, "\t{} {} `{}`", to_go_name(&field.name), field_type, json_tag).ok();
     }
 
     writeln!(out, "}}").ok();
@@ -820,14 +820,23 @@ fn gen_function_wrapper(
     }
 
     // Build the C call with converted parameters.
-    // Bridge params pass nil (no visitor) in the plain Convert(); ConvertWithVisitor handles the visitor path.
+    // Bridge params that are sanitized (unknown type in IR) are omitted from the C call — the
+    // FFI backend strips them from the generated C function signature entirely and handles the
+    // visitor path via a separate {prefix}_convert_with_visitor function.
+    // Non-sanitized bridge params pass nil (no visitor) in the plain Convert().
     // Bytes params expand to two C arguments: the pointer and the length.
     let c_params: Vec<String> = func
         .params
         .iter()
         .flat_map(|p| -> Vec<String> {
             if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
-                vec!["nil".to_string()]
+                // Sanitized bridge params have been removed from the C function signature;
+                // do not emit a nil slot for them.
+                if p.sanitized {
+                    vec![]
+                } else {
+                    vec!["nil".to_string()]
+                }
             } else if matches!(p.ty, TypeRef::Bytes) {
                 let c_name = format!("c{}", p.name.to_pascal_case());
                 vec![c_name.clone(), format!("{}Len", c_name)]
@@ -846,78 +855,78 @@ fn gen_function_wrapper(
     // lastError() will return nil and the return value flows through normally.
     if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
-            writeln!(out, "    {}", c_call).ok();
+            writeln!(out, "\t{}", c_call).ok();
             if func.error_type.is_some() {
-                writeln!(out, "    return lastError()").ok();
+                writeln!(out, "\treturn lastError()").ok();
             } else {
-                writeln!(out, "    return nil").ok();
+                writeln!(out, "\treturn nil").ok();
             }
         } else {
-            writeln!(out, "    ptr := {}", c_call).ok();
+            writeln!(out, "\tptr := {}", c_call).ok();
             if func.error_type.is_some() {
-                writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                writeln!(out, "\tif err := lastError(); err != nil {{").ok();
                 // Free the pointer if non-nil even on error, to avoid leaks
                 if matches!(
                     func.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
                 ) {
-                    writeln!(out, "        if ptr != nil {{").ok();
-                    writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
-                    writeln!(out, "        }}").ok();
+                    writeln!(out, "\t\tif ptr != nil {{").ok();
+                    writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
+                    writeln!(out, "\t\t}}").ok();
                 }
                 if let TypeRef::Named(name) = &func.return_type {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "        if ptr != nil {{").ok();
-                    writeln!(out, "            C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
-                    writeln!(out, "        }}").ok();
+                    writeln!(out, "\t\tif ptr != nil {{").ok();
+                    writeln!(out, "\t\t\tC.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    writeln!(out, "\t\t}}").ok();
                 }
-                writeln!(out, "        return nil, err").ok();
-                writeln!(out, "    }}").ok();
+                writeln!(out, "\t\treturn nil, err").ok();
+                writeln!(out, "\t}}").ok();
             }
             // Free the FFI-allocated string after unmarshaling
             if matches!(
                 func.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
             ) {
-                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
+                writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
             // For non-opaque Named types, free the handle after JSON extraction.
             // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &func.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                 }
             }
             writeln!(
                 out,
-                "    return {}, nil",
+                "\treturn {}, nil",
                 go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
             )
             .ok();
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
-        writeln!(out, "    {}", c_call).ok();
+        writeln!(out, "\t{}", c_call).ok();
     } else {
-        writeln!(out, "    ptr := {}", c_call).ok();
+        writeln!(out, "\tptr := {}", c_call).ok();
         // Add defer free for C string returns
         if matches!(
             func.return_type,
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
         ) {
-            writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
+            writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
         }
         // For non-opaque Named types, free the handle after JSON extraction.
         // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
         if let TypeRef::Named(name) = &func.return_type {
             if !opaque_names.contains(name.as_str()) {
                 let type_snake = name.to_snake_case();
-                writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
             }
         }
         writeln!(
             out,
-            "    return {}",
+            "\treturn {}",
             go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
         )
         .ok();
@@ -1076,13 +1085,13 @@ fn gen_method_wrapper(
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
             writeln!(
                 out,
-                "    jsonBytesRecv, err := json.Marshal({recv})\n    \
-                 if err != nil {{\n        \
-                 {err_action}\n    \
-                 }}\n    \
-                 tmpStrRecv := C.CString(string(jsonBytesRecv))\n    \
-                 cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n    \
-                 C.free(unsafe.Pointer(tmpStrRecv))\n    \
+                "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
+                 if err != nil {{\n\t\t\
+                 {err_action}\n\t\
+                 }}\n\t\
+                 tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
+                 cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n\t\
+                 C.free(unsafe.Pointer(tmpStrRecv))\n\t\
                  defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
                 recv = receiver_name,
                 err_action = err_action,
@@ -1105,72 +1114,72 @@ fn gen_method_wrapper(
 
         if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "    {}", c_call).ok();
+                writeln!(out, "\t{}", c_call).ok();
                 if method.error_type.is_some() {
-                    writeln!(out, "    return lastError()").ok();
+                    writeln!(out, "\treturn lastError()").ok();
                 } else {
-                    writeln!(out, "    return nil").ok();
+                    writeln!(out, "\treturn nil").ok();
                 }
             } else {
-                writeln!(out, "    ptr := {}", c_call).ok();
+                writeln!(out, "\tptr := {}", c_call).ok();
                 if method.error_type.is_some() {
-                    writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                    writeln!(out, "\tif err := lastError(); err != nil {{").ok();
                     // Free the pointer if non-nil even on error, to avoid leaks
                     if matches!(
                         method.return_type,
                         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
                     ) {
-                        writeln!(out, "        if ptr != nil {{").ok();
-                        writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
-                        writeln!(out, "        }}").ok();
+                        writeln!(out, "\t\tif ptr != nil {{").ok();
+                        writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
+                        writeln!(out, "\t\t}}").ok();
                     }
-                    writeln!(out, "        return nil, err").ok();
-                    writeln!(out, "    }}").ok();
+                    writeln!(out, "\t\treturn nil, err").ok();
+                    writeln!(out, "\t}}").ok();
                 }
                 // Free the FFI-allocated string after unmarshaling
                 if matches!(
                     method.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
                 ) {
-                    writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
+                    writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
                 // For non-opaque Named return types, free the handle after JSON extraction.
                 // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
                 if let TypeRef::Named(name) = &method.return_type {
                     if !opaque_names.contains(name.as_str()) {
                         let type_snake = name.to_snake_case();
-                        writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                        writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                     }
                 }
                 writeln!(
                     out,
-                    "    return {}, nil",
+                    "\treturn {}, nil",
                     go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
                 )
                 .ok();
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "    {}", c_call).ok();
+            writeln!(out, "\t{}", c_call).ok();
         } else {
-            writeln!(out, "    ptr := {}", c_call).ok();
+            writeln!(out, "\tptr := {}", c_call).ok();
             // Add defer free for C string returns
             if matches!(
                 method.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
             ) {
-                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
+                writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
             // For non-opaque Named return types, free the handle after JSON extraction.
             // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &method.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                 }
             }
             writeln!(
                 out,
-                "    return {}",
+                "\treturn {}",
                 go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
             )
             .ok();
@@ -1203,8 +1212,8 @@ fn gen_param_to_c(
                 // Optional string param (ty=String, optional=true): the Go variable holds *string.
                 writeln!(
                     out,
-                    "    var {c_name} *C.char\n    if {param} != nil {{\n        \
-                     {c_name} = C.CString(*{param})\n        defer C.free(unsafe.Pointer({c_name}))\n    \
+                    "\tvar {c_name} *C.char\n\tif {param} != nil {{\n\t\t\
+                     {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
                      }}",
                     c_name = c_name,
                     param = param.name,
@@ -1213,7 +1222,7 @@ fn gen_param_to_c(
             } else {
                 writeln!(
                     out,
-                    "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
+                    "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
                     c_name, param.name, c_name
                 )
                 .ok();
@@ -1223,8 +1232,8 @@ fn gen_param_to_c(
             if param.optional {
                 writeln!(
                     out,
-                    "    var {c_name} *C.char\n    if {param} != nil {{\n        \
-                     {c_name} = C.CString(*{param})\n        defer C.free(unsafe.Pointer({c_name}))\n    \
+                    "\tvar {c_name} *C.char\n\tif {param} != nil {{\n\t\t\
+                     {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
                      }}",
                     c_name = c_name,
                     param = param.name,
@@ -1233,7 +1242,7 @@ fn gen_param_to_c(
             } else {
                 writeln!(
                     out,
-                    "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
+                    "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
                     c_name, param.name, c_name
                 )
                 .ok();
@@ -1242,11 +1251,11 @@ fn gen_param_to_c(
         TypeRef::Bytes => {
             writeln!(
                 out,
-                "    {} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))",
+                "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))",
                 c_name, param.name
             )
             .ok();
-            writeln!(out, "    {}Len := C.uintptr_t(len({}))", c_name, param.name).ok();
+            writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, param.name).ok();
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
@@ -1254,7 +1263,7 @@ fn gen_param_to_c(
                 let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case());
                 writeln!(
                     out,
-                    "    {c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
+                    "\t{c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
                     param = param.name,
                 )
                 .ok();
@@ -1269,13 +1278,13 @@ fn gen_param_to_c(
                 };
                 writeln!(
                     out,
-                    "    jsonBytes{c_name}, err := json.Marshal({param})\n    \
-                     if err != nil {{\n        \
-                     {err_action}\n    \
-                     }}\n    \
-                     tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n    \
-                     {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n    \
-                     C.free(unsafe.Pointer(tmpStr{c_name}))\n    \
+                    "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
+                     if err != nil {{\n\t\t\
+                     {err_action}\n\t\
+                     }}\n\t\
+                     tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
+                     {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n\t\
+                     C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
                      defer C.{ffi_prefix}_{type_snake}_free({c_name})",
                     c_name = c_name,
                     param = param.name,
@@ -1295,11 +1304,11 @@ fn gen_param_to_c(
             };
             writeln!(
                 out,
-                "    jsonBytes{c_name}, err := json.Marshal({param})\n    \
-                 if err != nil {{\n        \
-                 {err_action}\n    \
-                 }}\n    \
-                 {c_name} := C.CString(string(jsonBytes{c_name}))\n    \
+                "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
+                 if err != nil {{\n\t\t\
+                 {err_action}\n\t\
+                 }}\n\t\
+                 {c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
                  defer C.free(unsafe.Pointer({c_name}))",
                 c_name = c_name,
                 param = param.name,
@@ -1312,8 +1321,8 @@ fn gen_param_to_c(
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     writeln!(
                         out,
-                        "    var {} *C.char\n    if {} != nil {{\n        \
-                         {} = C.CString(*{})\n        defer C.free(unsafe.Pointer({}))\n    \
+                        "\tvar {} *C.char\n\tif {} != nil {{\n\t\t\
+                         {} = C.CString(*{})\n\t\tdefer C.free(unsafe.Pointer({}))\n\t\
                          }}",
                         c_name, param.name, c_name, param.name, c_name
                     )
@@ -1324,8 +1333,8 @@ fn gen_param_to_c(
                     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case());
                     writeln!(
                         out,
-                        "    var {c_name} *C.{c_type}\n    if {param} != nil {{\n        \
-                         {c_name} = (*C.{c_type})(unsafe.Pointer({param}.ptr))\n    \
+                        "\tvar {c_name} *C.{c_type}\n\tif {param} != nil {{\n\t\t\
+                         {c_name} = (*C.{c_type})(unsafe.Pointer({param}.ptr))\n\t\
                          }}",
                         c_name = c_name,
                         c_type = c_type,
@@ -1336,10 +1345,10 @@ fn gen_param_to_c(
                 TypeRef::Named(_) => {
                     writeln!(
                         out,
-                        "    var {} *C.char\n    if {} != nil {{\n        \
-                         jsonBytes, _ := json.Marshal({})\n        \
-                         {} = C.CString(string(jsonBytes))\n        \
-                         defer C.free(unsafe.Pointer({}))\n    \
+                        "\tvar {} *C.char\n\tif {} != nil {{\n\t\t\
+                         jsonBytes, _ := json.Marshal({})\n\t\t\
+                         {} = C.CString(string(jsonBytes))\n\t\t\
+                         defer C.free(unsafe.Pointer({}))\n\t\
                          }}",
                         c_name, param.name, param.name, c_name, c_name
                     )
@@ -1347,7 +1356,7 @@ fn gen_param_to_c(
                 }
                 _ => {
                     // For other optional types, just pass nil or default
-                    writeln!(out, "    var {} *C.char", c_name).ok();
+                    writeln!(out, "\tvar {} *C.char", c_name).ok();
                 }
             }
         }
@@ -1358,7 +1367,7 @@ fn gen_param_to_c(
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
             writeln!(
                 out,
-                "    {c_name} := {cgo_ty}({go_ty}({param}))",
+                "\t{c_name} := {cgo_ty}({go_ty}({param}))",
                 c_name = c_name,
                 cgo_ty = cgo_ty,
                 go_ty = go_ty,
@@ -1381,8 +1390,8 @@ fn gen_param_to_c(
             let sentinel = primitive_max_sentinel(prim);
             writeln!(
                 out,
-                "    var {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n    if {param} != nil {{\n        \
-                 {c_name} = {cgo_ty}({go_ty}(*{param}))\n    }}",
+                "\tvar {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n\tif {param} != nil {{\n\t\t\
+                 {c_name} = {cgo_ty}({go_ty}(*{param}))\n\t}}",
                 c_name = c_name,
                 cgo_ty = cgo_ty,
                 go_ty = go_ty,
@@ -1624,7 +1633,7 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
         let assign_val = if use_ptr { "&v" } else { "v" };
         writeln!(
             out,
-            "    return func(c *{}) {{ c.{} = {} }}",
+            "\treturn func(c *{}) {{ c.{} = {} }}",
             typ.name, field_go_name, assign_val
         )
         .ok();
@@ -1640,7 +1649,7 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
     )
     .ok();
     writeln!(out, "func New{}(opts ...{}Option) *{} {{", typ.name, typ.name, typ.name).ok();
-    writeln!(out, "    c := &{} {{", typ.name).ok();
+    writeln!(out, "\tc := &{} {{", typ.name).ok();
 
     // Set default values for fields
     for field in &typ.fields {
@@ -1672,14 +1681,14 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
             }
             val
         };
-        writeln!(out, "        {}: {},", field_go_name, default_val).ok();
+        writeln!(out, "\t\t{}: {},", field_go_name, default_val).ok();
     }
 
-    writeln!(out, "    }}").ok();
-    writeln!(out, "    for _, opt := range opts {{").ok();
-    writeln!(out, "        opt(c)").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "    return c").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tfor _, opt := range opts {{").ok();
+    writeln!(out, "\t\topt(c)").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn c").ok();
     writeln!(out, "}}").ok();
 
     out
