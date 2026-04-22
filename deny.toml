@@ -42,7 +42,6 @@ skip = [
 ]
 allow = []
 deny = []
-skip = []
 skip-tree = []
 
 [sources]
