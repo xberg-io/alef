@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-04-23
+
+### Added
+
+- E2E: `is_false`, `method_result` assertion types and `resolve_call` per-fixture call routing across all 14 language generators.
+
+### Fixed
+
+- PyO3: exclude return types from `local_type_names` in `options.py` (prevents false re-exports).
+- PyO3/Magnus: remove stale `type: ignore` comments; add `VERSION` constant to RBS type signatures.
+- E2E (Python): add `ruff` per-file-ignores to generated `pyproject.toml`; add `noqa` comments for B017 and S108; add `method_result` helper imports.
+- E2E (C): add missing `find_nodes_by_type` and `is_error` check types to `run_query`.
+- E2E (Rust): add top-level `is_false` assertion support.
+- C#/Elixir: format generated code to pass `dotnet format` and `mix format`.
+- FFI: fix doc comment prefixes, duplicate imports, and optional param types.
+- Codegen: use serde round-trip for tuple-to-vec `From` impls.
+- Codegen: fix async return type wrapping, `Vec` element conversion, and `as_deref` option handling.
+- Codegen: fix serde derives for opaque fields, `error_constructor` propagation, `BridgeOutput` fields, and trait bridge generation.
+- Codegen: fix `Result` qualification, non-`Result` method returns, complex return types, PHP raw pointer handling, WASM scaffold paths.
+- Scaffold: wire `scaffold_output` from config; remove stale `serde(default)` on non-serde structs.
+- Python: dedup exception classes in `gen_exceptions_py`.
+- NodeContent derive forwarding and test fixture resolution.
+
 ## [0.5.7] - 2026-04-22
 
 ### Fixed

@@ -2192,6 +2192,15 @@ fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Ve
 
     if has(Language::Java) {
         local_hooks.push(
+            "      - id: java-spotless\n\
+             \x20       name: spotless apply (java)\n\
+             \x20       entry: bash -lc 'if [ -f \"$HOME/.sdkman/bin/sdkman-init.sh\" ]; then source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk env; fi; MAVEN_OPTS=\"${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow\" mvn -f packages/java/pom.xml -B spotless:apply -q'\n\
+             \x20       language: system\n\
+             \x20       files: ^packages/java/\n\
+             \x20       pass_filenames: false\n"
+                .to_string(),
+        );
+        local_hooks.push(
             "      - id: java-verify\n\
              \x20       name: maven verify (java)\n\
              \x20       entry: bash -lc 'if [ -f \"$HOME/.sdkman/bin/sdkman-init.sh\" ]; then source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk env; fi; MAVEN_OPTS=\"${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow\" mvn -f packages/java/pom.xml -B -DskipTests -Dgpg.skip=true -Dskip.rust.ffi=true verify'\n\
