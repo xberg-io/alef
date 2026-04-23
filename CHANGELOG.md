@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scaffold: wire `scaffold_output` from config; remove stale `serde(default)` on non-serde structs.
 - Python: dedup exception classes in `gen_exceptions_py`.
 - NodeContent derive forwarding and test fixture resolution.
+- Java: add `final` params, javadoc, `eclipse-formatter.xml`, `checkstyle.xml` scaffold with 120 line width, `spotless-apply` pre-commit hook.
+- C#: fix `VisitResult.Continue()` to `new VisitResult.Continue()`.
+- Elixir: add `ELIXIR_BUILTIN_TYPES` deny-list, suffix colliding type names with `_variant`.
+- PHP: fix double-escaped quotes in `get_property` calls in trait bridge.
 
 ## [0.5.7] - 2026-04-22
 

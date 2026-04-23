@@ -257,7 +257,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         for req_method in spec.required_methods() {
             writeln!(
                 out,
-                "        debug_assert!(php_obj.get_property::<ext_php_rs::types::Zval>(\\\"{}\\\").is_ok(),",
+                r#"        debug_assert!(php_obj.get_property::<ext_php_rs::types::Zval>("{}").is_ok(),"#,
                 req_method.name
             )
             .ok();
@@ -328,7 +328,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 // get_property is generic and needs a type annotation. Use Zval since we only care about existence.
                 writeln!(
                     out,
-                    "    if backend.get_property::<ext_php_rs::types::Zval>(\\\"{}\\\").is_err() {{",
+                    r#"    if backend.get_property::<ext_php_rs::types::Zval>("{}").is_err() {{"#,
                     method.name
                 )
                 .ok();
