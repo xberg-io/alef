@@ -348,7 +348,7 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
             // JSON compatibility: `null | [800, 600]` unmarshals correctly into `*[]uint32`.
             if let Some(elem_ty) = parse_homogeneous_tuple(name) {
                 *ty = TypeRef::Vec(Box::new(elem_ty));
-                return true;
+                return false; // Not sanitized — the converted Vec type is representable
             }
             *ty = TypeRef::String;
             true

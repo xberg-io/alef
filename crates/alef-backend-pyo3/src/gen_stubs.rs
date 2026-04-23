@@ -62,6 +62,9 @@ fn is_python_builtin_name(name: &str) -> bool {
         "compile",
         "exec",
         "eval",
+        "license",
+        "credits",
+        "copyright",
     ];
     BUILTINS.contains(&name)
 }
