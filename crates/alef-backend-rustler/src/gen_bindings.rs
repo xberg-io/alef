@@ -1565,7 +1565,7 @@ fn gen_native_ex(
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
         out,
-        "    force_build: System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
+        "    force_build:\n      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
     );
     let _ = writeln!(out, "    targets:");
     let _ = writeln!(

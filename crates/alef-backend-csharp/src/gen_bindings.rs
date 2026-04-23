@@ -1096,7 +1096,7 @@ fn gen_wrapper_function(
         // Check for FFI error (null result means the call failed).
         if func.return_type != TypeRef::Unit {
             out.push_str(
-                "            if (result == IntPtr.Zero) { var err = GetLastError(); if (err.Code != 0) throw err; }\n",
+                "            if (result == IntPtr.Zero)\n            {\n                var err = GetLastError();\n                if (err.Code != 0)\n                {\n                    throw err;\n                }\n            }\n",
             );
         }
 
@@ -1138,7 +1138,7 @@ fn gen_wrapper_function(
         // Check for FFI error (null result means the call failed).
         if func.return_type != TypeRef::Unit {
             out.push_str(
-                "        if (result == IntPtr.Zero) { var err = GetLastError(); if (err.Code != 0) throw err; }\n",
+                "        if (result == IntPtr.Zero)\n        {\n            var err = GetLastError();\n            if (err.Code != 0)\n            {\n                throw err;\n            }\n        }\n",
             );
         }
 
