@@ -1308,6 +1308,7 @@ fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef_core::config::TraitBridg
         register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     }
 }
 
@@ -1319,6 +1320,7 @@ fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef_core:
         register_fn: None,
         type_alias: Some(type_alias.to_string()),
         param_name: None,
+        register_extra_args: None,
     }
 }
 
@@ -1491,6 +1493,7 @@ fn test_php_plugin_bridge_validates_required_methods() {
         register_fn: Some("register_analyzer".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let api = make_api_php();
 

@@ -596,8 +596,8 @@ fn gen_function_body(
             )
         }
     } else if func.sanitized {
-        // Sanitized functions cannot be auto-delegated — emit a safe default return value.
-        gen_stub_return(&func.return_type)
+        // Sanitized functions cannot be auto-delegated — emit a safe error return value.
+        gen_stub_return(&func.return_type, true, &func.name)
     } else {
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
         // serde is available (avoids the missing From<BindingType> for core type compile error),
@@ -817,7 +817,16 @@ pub(crate) fn gen_async_static_method(
 }
 
 /// Generate a safe stub return expression for a sanitized function that cannot be auto-delegated.
-fn gen_stub_return(ty: &TypeRef) -> String {
+/// For PHP, returns a PhpResult error; for other targets, returns a default value.
+fn gen_stub_return(ty: &TypeRef, is_php_error: bool, func_name: &str) -> String {
+    if is_php_error {
+        // For PHP functions that return PhpResult<T>, return an error
+        return format!(
+            "Err(ext_php_rs::exception::PhpException::default(\"Not implemented: {func_name}\".to_string()))"
+        );
+    }
+
+    // For non-PHP targets, return default values
     match ty {
         TypeRef::Optional(_) => "None".to_string(),
         TypeRef::Vec(_) => "Vec::new()".to_string(),

@@ -499,7 +499,7 @@ fn build_brew_method_call(method_name: &str, args: Option<&serde_json::Value>) -
         "root_node_type" => "tree_sitter_language_pack tree-root-node-type \"$output\"".to_string(),
         "named_children_count" => "tree_sitter_language_pack tree-named-children-count \"$output\"".to_string(),
         "has_error_nodes" => "tree_sitter_language_pack tree-has-error-nodes \"$output\"".to_string(),
-        "error_count" => "tree_sitter_language_pack tree-error-count \"$output\"".to_string(),
+        "error_count" | "tree_error_count" => "tree_sitter_language_pack tree-error-count \"$output\"".to_string(),
         "tree_to_sexp" => "tree_sitter_language_pack tree-to-sexp \"$output\"".to_string(),
         "contains_node_type" => {
             let node_type = args

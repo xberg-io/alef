@@ -763,7 +763,10 @@ fn render_assertion(
                     || f_lower.starts_with("document")
                     || f_lower.starts_with("structure"))
             {
-                let _ = writeln!(out, "        // skipped: result_is_simple, field '{f}' not on simple result type");
+                let _ = writeln!(
+                    out,
+                    "        // skipped: result_is_simple, field '{f}' not on simple result type"
+                );
                 return;
             }
         }
@@ -1007,7 +1010,7 @@ fn build_php_method_call(result_var: &str, method_name: &str, args: Option<&serd
         "has_error_nodes" => {
             format!("TreeSitterLanguagePack::tree_has_error_nodes(${result_var})")
         }
-        "error_count" => {
+        "error_count" | "tree_error_count" => {
             format!("TreeSitterLanguagePack::tree_error_count(${result_var})")
         }
         "tree_to_sexp" => {

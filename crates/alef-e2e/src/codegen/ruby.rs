@@ -926,7 +926,7 @@ fn build_ruby_method_call(
         "root_node_type" => format!("{result_var}.root_node.type"),
         "named_children_count" => format!("{result_var}.root_node.named_child_count"),
         "has_error_nodes" => format!("{call_receiver}.tree_has_error_nodes({result_var})"),
-        "error_count" => format!("{call_receiver}.tree_error_count({result_var})"),
+        "error_count" | "tree_error_count" => format!("{call_receiver}.tree_error_count({result_var})"),
         "tree_to_sexp" => format!("{call_receiver}.tree_to_sexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

@@ -48,8 +48,9 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         .ok();
         writeln!(out, "if !has_method {{").ok();
         if has_error {
-            let err_msg = format!("\"Method '{{}}' not found on JS object\".to_string(), \"{name}\"");
-            let err_expr = spec.make_error(&format!("format!({err_msg})"));
+            let err_expr = spec.make_error(&format!(
+                "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
+            ));
             writeln!(out, "    return Err({err_expr});").ok();
         } else {
             writeln!(out, "    return Default::default();").ok();
@@ -128,7 +129,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\".to_string()")
+                    spec.make_error("\"Expected string return\"")
                 )
                 .ok();
             } else {
@@ -141,7 +142,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\".to_string()")
+                    spec.make_error("\"Failed to convert result\"")
                 )
                 .ok();
             } else {
@@ -173,8 +174,9 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         .ok();
         writeln!(out, "if !has_method {{").ok();
         if has_error {
-            let err_msg = format!("\"Method '{{}}' not found on JS object\".to_string(), \"{name}\"");
-            let err_expr = spec.make_error(&format!("format!({err_msg})"));
+            let err_expr = spec.make_error(&format!(
+                "format!(\"Method '{{}}' not found on JS object\", \"{name}\")"
+            ));
             writeln!(out, "    return Err({err_expr});").ok();
         } else {
             writeln!(out, "    return Default::default();").ok();
@@ -250,7 +252,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\".to_string()")
+                    spec.make_error("\"Expected string return\"")
                 )
                 .ok();
             } else {
@@ -262,7 +264,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\".to_string()")
+                    spec.make_error("\"Failed to convert result\"")
                 )
                 .ok();
             } else {
@@ -381,7 +383,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write().map_err(|e| wasm_bindgen::JsValue::from_str(&format!(\"registry lock poisoned: {{}}\", e)))?;").ok();
+        writeln!(out, "    let mut registry = registry.write();").ok();
         writeln!(out, "    registry.register(arc{extra})").ok();
         writeln!(
             out,

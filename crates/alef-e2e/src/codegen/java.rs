@@ -873,7 +873,7 @@ fn build_java_method_call(
         "root_node_type" => format!("{result_var}.rootNode().kind()"),
         "named_children_count" => format!("{result_var}.rootNode().namedChildCount()"),
         "has_error_nodes" => format!("{class_name}.treeHasErrorNodes({result_var})"),
-        "error_count" => format!("{class_name}.treeErrorCount({result_var})"),
+        "error_count" | "tree_error_count" => format!("{class_name}.treeErrorCount({result_var})"),
         "tree_to_sexp" => format!("{class_name}.treeToSexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

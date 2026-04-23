@@ -541,14 +541,12 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                             format!("{}_core", p.name)
                         }
                     } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                        // Vec<String> with is_ref=true: core expects &[&str].
-                        // Let binding created {name}_refs: Vec<&str> (or Option<Vec<&str>>).
-                        // Pass &{name}_refs to coerce Vec<&str> -> &[&str].
+                        // Vec<String> with is_ref=true: core expects &[String].
+                        // Vec<String> coerces directly to &[String] — just pass &{name}.
                         if p.optional {
-                            // Option<Vec<&str>> -> Option<&[&str]>: use as_ref() not as_deref()
-                            format!("{}_refs.as_ref().map(|v| v.as_slice())", p.name)
+                            format!("{}.as_deref()", p.name)
                         } else {
-                            format!("&{}_refs", p.name)
+                            format!("&{}", p.name)
                         }
                     } else if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -693,26 +691,10 @@ fn gen_named_let_bindings_inner(
                     .ok();
                 }
             }
-            // Vec<String> with is_ref=true: core expects &[&str] but binding holds Vec<String>.
-            // Generate a Vec<&str> intermediate so &{name}_refs coerces to &[&str].
-            // For Option<Vec<String>>, unwrap first then convert each element.
+            // Vec<String> with is_ref=true: core expects &[String].
+            // Vec<String> coerces directly to &[String] — no intermediate needed.
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                if p.optional {
-                    // Option<Vec<String>> -> unwrap_or_default() -> Vec<&str>
-                    write!(
-                        bindings,
-                        "let {}_core: Vec<String> = {}.clone().unwrap_or_default();\n    let {}_refs: Vec<&str> = {}_core.iter().map(|s| s.as_str()).collect();\n    ",
-                        p.name, p.name, p.name, p.name
-                    )
-                    .ok();
-                } else {
-                    write!(
-                        bindings,
-                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ",
-                        p.name, p.name
-                    )
-                    .ok();
-                }
+                // No let binding needed — Vec<String> coerces to &[String] automatically.
             }
             _ => {}
         }

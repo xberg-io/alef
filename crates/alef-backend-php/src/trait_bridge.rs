@@ -22,7 +22,7 @@ pub struct PhpBridgeGenerator {
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "&mut ext_php_rs::types::ZendObject"
+        "*mut ext_php_rs::types::ZendObject"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -44,12 +44,31 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         if has_args {
             writeln!(out, "let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
             for p in &method.params {
-                writeln!(
-                    out,
-                    "args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
-                    p.name
-                )
-                .ok();
+                let arg_expr = match &p.ty {
+                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
+                    TypeRef::Path => format!(
+                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Bytes => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Named(_) => {
+                        format!(
+                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
+                            p.name
+                        )
+                    }
+                    TypeRef::Primitive(_) => {
+                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+                    }
+                    _ => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                };
+                writeln!(out, "args.push({arg_expr});").ok();
             }
         }
 
@@ -117,12 +136,31 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         if has_args {
             writeln!(out, "    let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
             for p in &method.params {
-                writeln!(
-                    out,
-                    "    args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
-                    p.name
-                )
-                .ok();
+                let arg_expr = match &p.ty {
+                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
+                    TypeRef::Path => format!(
+                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Bytes => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Named(_) => {
+                        format!(
+                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
+                            p.name
+                        )
+                    }
+                    TypeRef::Primitive(_) => {
+                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+                    }
+                    _ => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                };
+                writeln!(out, "    args.push({arg_expr});").ok();
             }
         }
 
@@ -202,11 +240,25 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         writeln!(out).ok();
         writeln!(out, "        Self {{").ok();
-        writeln!(out, "            inner: php_obj,").ok();
+        writeln!(out, "            inner: php_obj as *mut _,").ok();
         writeln!(out, "            cached_name,").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
+
+        // SAFETY: PHP objects are single-threaded within a request.
+        // The raw pointer is only valid for the duration of the PHP call stack,
+        // and is never accessed concurrently or from multiple threads.
+        writeln!(out).ok();
+        writeln!(out, "// SAFETY: PHP is single-threaded within a request context.").ok();
+        writeln!(
+            out,
+            "// The raw pointer to ZendObject is only used within a single PHP request"
+        )
+        .ok();
+        writeln!(out, "// and is never accessed concurrently from multiple threads.").ok();
+        writeln!(out, "unsafe impl Send for {wrapper} {{}}").ok();
+        writeln!(out, "unsafe impl Sync for {wrapper} {{}}").ok();
 
         out
     }
@@ -263,17 +315,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(
-            out,
-            "    let mut registry = registry.write().map_err(|e| ext_php_rs::exception::PhpException::default("
-        )
-        .ok();
-        writeln!(
-            out,
-            "        format!(\"Failed to acquire registry write lock: {{}}\", e)"
-        )
-        .ok();
-        writeln!(out, "    ))?;").ok();
+        writeln!(out, "    let mut registry = registry.write();").ok();
         writeln!(
             out,
             "    registry.register(arc{extra}).map_err(|e| ext_php_rs::exception::PhpException::default("

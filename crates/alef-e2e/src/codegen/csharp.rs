@@ -326,7 +326,15 @@ fn render_test_method(
     );
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, class_name, exception_class, field_resolver, result_is_simple);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            class_name,
+            exception_class,
+            field_resolver,
+            result_is_simple,
+        );
     }
 
     let _ = writeln!(out, "    }}");
@@ -870,7 +878,7 @@ fn build_csharp_method_call(
         "root_node_type" => format!("{result_var}.RootNode.Kind"),
         "named_children_count" => format!("{result_var}.RootNode.NamedChildCount"),
         "has_error_nodes" => format!("{class_name}.TreeHasErrorNodes({result_var})"),
-        "error_count" => format!("{class_name}.TreeErrorCount({result_var})"),
+        "error_count" | "tree_error_count" => format!("{class_name}.TreeErrorCount({result_var})"),
         "tree_to_sexp" => format!("{class_name}.TreeToSexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

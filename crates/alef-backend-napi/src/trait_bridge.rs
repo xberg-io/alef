@@ -74,37 +74,76 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         }
 
         // Parse result
-        writeln!(out, "match result {{").ok();
         if has_error {
+            writeln!(out, "match result {{").ok();
             let err = spec.make_error(&format!(
                 "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", self.cached_name, e)",
                 name
             ));
             writeln!(out, "    Err(e) => Err({err}),").ok();
+            writeln!(out, "    Ok(val) => {{").ok();
+            if matches!(method.return_type, TypeRef::Unit) {
+                writeln!(out, "        Ok(())").ok();
+            } else {
+                // For most return types, attempt string coercion from the JS value
+                writeln!(out, "        // Convert JS value to Rust type via string coercion").ok();
+                writeln!(out, "        let s = val.coerce_to_string()").ok();
+                writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
+                writeln!(out, "            .and_then(|s| s.into_owned())").ok();
+                writeln!(out, "            .map_err(|e| {{").ok();
+                let err = spec.make_error(&format!(
+                    "format!(\"Failed to extract return value from method '{}': {{}}\", e)",
+                    name
+                ));
+                writeln!(out, "                {err}").ok();
+                writeln!(out, "            }})?;").ok();
+                writeln!(out, "        match s.as_str() {{").ok();
+                writeln!(out, "            \"\" | \"null\" => Ok(Default::default()),").ok();
+                writeln!(out, "            _ => {{").ok();
+                writeln!(out, "                if let Ok(val) = serde_json::from_str::<_>(&s) {{").ok();
+                writeln!(out, "                    Ok(val)").ok();
+                writeln!(out, "                }} else {{").ok();
+                writeln!(out, "                    s.parse().map_err(|_| {{").ok();
+                let err = spec.make_error(&format!(
+                    "format!(\"Failed to parse return value for method '{}'\", {})",
+                    name, "self.cached_name"
+                ));
+                writeln!(out, "                        {err}").ok();
+                writeln!(out, "                    }})").ok();
+                writeln!(out, "                }}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+            }
+            writeln!(out, "    }}").ok();
+            writeln!(out, "}}").ok();
         } else {
-            writeln!(out, "    Err(_) => Ok(Default::default()),").ok();
+            // Non-Result return: must not use ? or wrap in Ok()
+            writeln!(out, "match result {{").ok();
+            writeln!(out, "    Err(_) => Default::default(),").ok();
+            writeln!(out, "    Ok(val) => {{").ok();
+            if matches!(method.return_type, TypeRef::Unit) {
+                writeln!(out, "        ()").ok();
+            } else {
+                // For most return types, attempt string coercion from the JS value
+                writeln!(out, "        // Convert JS value to Rust type via string coercion").ok();
+                writeln!(out, "        let s = val.coerce_to_string()").ok();
+                writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
+                writeln!(out, "            .and_then(|s| s.into_owned())").ok();
+                writeln!(out, "            .unwrap_or_default();").ok();
+                writeln!(out, "        match s.as_str() {{").ok();
+                writeln!(out, "            \"\" | \"null\" => Default::default(),").ok();
+                writeln!(out, "            _ => {{").ok();
+                writeln!(out, "                if let Ok(val) = serde_json::from_str::<_>(&s) {{").ok();
+                writeln!(out, "                    val").ok();
+                writeln!(out, "                }} else {{").ok();
+                writeln!(out, "                    s.parse().unwrap_or_default()").ok();
+                writeln!(out, "                }}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+            }
+            writeln!(out, "    }}").ok();
+            writeln!(out, "}}").ok();
         }
-        writeln!(out, "    Ok(val) => {{").ok();
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "        Ok(())").ok();
-        } else {
-            // For most return types, attempt string coercion from the JS value
-            writeln!(out, "        // Convert JS value to Rust type via string coercion").ok();
-            writeln!(out, "        let s = val.coerce_to_string()").ok();
-            writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
-            writeln!(out, "            .and_then(|s| s.into_owned())").ok();
-            writeln!(out, "            .map_err(|e| {{").ok();
-            let err = spec.make_error(&format!(
-                "format!(\"Failed to extract return value from method '{}': {{}}\", e)",
-                name
-            ));
-            writeln!(out, "                {err}").ok();
-            writeln!(out, "            }})?;").ok();
-            // Default: return as-is via Default::default() for simple types
-            writeln!(out, "        Ok(s.parse().unwrap_or_default())").ok();
-        }
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
         out
     }
 

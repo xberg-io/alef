@@ -253,6 +253,7 @@ impl AlefConfig {
             extras::Language::Ruby => self.ruby.as_ref().map(|c| &c.extra_dependencies),
             extras::Language::Php => self.php.as_ref().map(|c| &c.extra_dependencies),
             extras::Language::Elixir => self.elixir.as_ref().map(|c| &c.extra_dependencies),
+            extras::Language::Wasm => self.wasm.as_ref().map(|c| &c.extra_dependencies),
             _ => None,
         };
         if let Some(lang_deps) = lang_deps {

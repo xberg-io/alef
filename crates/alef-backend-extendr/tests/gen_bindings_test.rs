@@ -622,6 +622,7 @@ mod trait_bridge {
             register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         }
     }
 
@@ -633,6 +634,7 @@ mod trait_bridge {
             register_fn: None,
             type_alias: Some(format!("{trait_name}Handle")),
             param_name: None,
+            register_extra_args: None,
         }
     }
 
@@ -784,6 +786,7 @@ mod trait_bridge {
             register_fn: Some("register_ocr_backend".to_string()),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

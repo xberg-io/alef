@@ -492,7 +492,10 @@ fn render_test_file(
         // Visitor fixtures are filtered out before render_test_file is called.
         // This guard is a safety net in case a fixture reaches here unexpectedly.
         if fixture.visitor.is_some() {
-            panic!("C e2e generator: visitor pattern not supported for fixture: {}", fixture.id);
+            panic!(
+                "C e2e generator: visitor pattern not supported for fixture: {}",
+                fixture.id
+            );
         }
 
         let call_info = resolve_fixture_call_info(fixture, e2e_config, lang);
@@ -1188,7 +1191,7 @@ fn render_method_result_assertion(
 
     match method_name {
         // Integer-returning methods: no heap allocation, inline assert.
-        "has_error_nodes" | "error_count" => match check {
+        "has_error_nodes" | "error_count" | "tree_error_count" => match check {
             "equals" => {
                 if let Some(val) = value {
                     let c_val = json_to_c(val);
@@ -1378,6 +1381,14 @@ fn render_method_result_assertion(
         "run_query" => {
             let _ = writeln!(out, "    {{");
             let _ = writeln!(out, "        char* _method_result = {call_expr};");
+            if check == "is_error" {
+                let _ = writeln!(
+                    out,
+                    "        assert(_method_result == NULL && \"expected method to return error\");"
+                );
+                let _ = writeln!(out, "    }}");
+                return;
+            }
             let _ = writeln!(
                 out,
                 "        assert(_method_result != NULL && \"method_result returned NULL\");"
@@ -1490,7 +1501,7 @@ fn build_c_method_call(result_var: &str, method_name: &str, args: Option<&serde_
             format!("ts_pack_node_info_named_child_count(ts_pack_root_node_info({result_var}))")
         }
         "has_error_nodes" => format!("ts_pack_tree_has_error_nodes({result_var})"),
-        "error_count" => format!("ts_pack_tree_error_count({result_var})"),
+        "error_count" | "tree_error_count" => format!("ts_pack_tree_error_count({result_var})"),
         "tree_to_sexp" => format!("ts_pack_tree_to_sexp({result_var})"),
         "named_children_count" => {
             format!("ts_pack_node_info_named_child_count(ts_pack_root_node_info({result_var}))")

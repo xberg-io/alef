@@ -1049,7 +1049,7 @@ fn build_go_method_call(
             is_pointer: true,
             value_cast: None,
         },
-        "error_count" => GoMethodCallInfo {
+        "error_count" | "tree_error_count" => GoMethodCallInfo {
             call_expr: format!("{import_alias}.TreeErrorCount({result_var})"),
             is_pointer: true,
             value_cast: Some("uint"),

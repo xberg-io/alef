@@ -1629,7 +1629,7 @@ fn tree_field_access_expr(field: &str, result_var: &str, module: &str) -> String
         "root_node_type" => format!("{result_var}.root_node().kind()"),
         "named_children_count" => format!("{result_var}.root_node().named_child_count()"),
         "has_error_nodes" => format!("{module}::tree_has_error_nodes(&{result_var})"),
-        "error_count" => format!("{module}::tree_error_count(&{result_var})"),
+        "error_count" | "tree_error_count" => format!("{module}::tree_error_count(&{result_var})"),
         "tree_to_sexp" => format!("{module}::tree_to_sexp(&{result_var})"),
         // Unknown pseudo-field: fall back to direct field access (will likely fail to compile,
         // but gives the developer a useful error pointing to the fixture).
@@ -1654,7 +1654,7 @@ fn build_tree_call_expr(
         "root_node_type" => format!("{field_access}.root_node().kind()"),
         "named_children_count" => format!("{field_access}.root_node().named_child_count()"),
         "has_error_nodes" => format!("{module}::tree_has_error_nodes(&{field_access})"),
-        "error_count" => format!("{module}::tree_error_count(&{field_access})"),
+        "error_count" | "tree_error_count" => format!("{module}::tree_error_count(&{field_access})"),
         "tree_to_sexp" => format!("{module}::tree_to_sexp(&{field_access})"),
         "contains_node_type" => {
             let node_type = args
@@ -1701,7 +1701,7 @@ fn build_tree_call_expr(
 /// meaning `>= N` comparisons should use direct numeric comparison rather than
 /// `.is_empty()` (which only works for collections).
 fn is_tree_numeric_method(method_name: &str) -> bool {
-    matches!(method_name, "root_child_count" | "named_children_count" | "error_count")
+    matches!(method_name, "root_child_count" | "named_children_count" | "error_count" | "tree_error_count")
 }
 
 /// Convert a JSON numeric value to a Rust literal suitable for comparisons.

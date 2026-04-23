@@ -2815,7 +2815,7 @@ fn simple_bridge_config() -> TraitBridgeConfig {
         register_fn: None,
         type_alias: None,
         param_name: None,
-            register_extra_args: None,
+        register_extra_args: None,
     }
 }
 
@@ -2980,7 +2980,7 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         register_fn: Some("register_my_trait".to_string()),
         type_alias: None,
         param_name: None,
-            register_extra_args: None,
+        register_extra_args: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,

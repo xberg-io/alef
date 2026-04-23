@@ -896,7 +896,7 @@ fn build_elixir_method_call(
     match method_name {
         "root_child_count" => format!("{module_path}.root_child_count({result_var})"),
         "has_error_nodes" => format!("{module_path}.tree_has_error_nodes({result_var})"),
-        "error_count" => format!("{module_path}.tree_error_count({result_var})"),
+        "error_count" | "tree_error_count" => format!("{module_path}.tree_error_count({result_var})"),
         "tree_to_sexp" => format!("{module_path}.tree_to_sexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

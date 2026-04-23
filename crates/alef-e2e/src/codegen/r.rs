@@ -533,7 +533,7 @@ fn build_r_method_call(result_var: &str, method_name: &str, args: Option<&serde_
         "root_node_type" => format!("{result_var}$root_node_type()"),
         "named_children_count" => format!("{result_var}$named_children_count()"),
         "has_error_nodes" => format!("tree_has_error_nodes({result_var})"),
-        "error_count" => format!("tree_error_count({result_var})"),
+        "error_count" | "tree_error_count" => format!("tree_error_count({result_var})"),
         "tree_to_sexp" => format!("tree_to_sexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

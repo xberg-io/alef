@@ -1294,7 +1294,7 @@ fn build_python_method_call(result_var: &str, method_name: &str, args: Option<&s
         "root_node_type" => format!("{result_var}.root_node().kind()"),
         "named_children_count" => format!("{result_var}.root_node().named_child_count()"),
         "has_error_nodes" => format!("tree_has_error_nodes({result_var})"),
-        "error_count" => format!("tree_error_count({result_var})"),
+        "error_count" | "tree_error_count" => format!("tree_error_count({result_var})"),
         "tree_to_sexp" => format!("tree_to_sexp({result_var})"),
         "contains_node_type" => {
             let node_type = args

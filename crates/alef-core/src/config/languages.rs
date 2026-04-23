@@ -177,6 +177,9 @@ pub struct WasmConfig {
     /// Wide-character C functions to shim for WASM external scanner interop.
     #[serde(default)]
     pub env_shims: Vec<String>,
+    /// Additional Cargo dependencies for the WASM binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

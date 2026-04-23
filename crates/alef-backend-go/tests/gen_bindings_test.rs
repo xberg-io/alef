@@ -1057,6 +1057,7 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
         register_fn: Some("register_ocr_backend".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1082,6 +1083,7 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
         register_fn: Some("register_scanner".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1128,6 +1130,7 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
         register_fn: Some("register_image_processor".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1160,6 +1163,7 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         register_fn: Some("register_analyzer".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1194,6 +1198,7 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
         register_fn: Some("register_ocr_backend".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1233,6 +1238,7 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
         register_fn: Some("register_scanner".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1267,6 +1273,7 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
         register_fn: Some("register_greeter".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1296,6 +1303,7 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         register_fn: Some("register_ocr_backend".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1337,6 +1345,7 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         register_fn: Some("register_scanner".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1374,6 +1383,7 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         register_fn: Some("register_analyzer".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1410,6 +1420,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         register_fn: Some("register_ocr_backend".to_string()),
         type_alias: None,
         param_name: None,
+        register_extra_args: None,
     };
 
     let api = ApiSurface {

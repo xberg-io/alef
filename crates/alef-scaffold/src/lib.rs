@@ -1688,6 +1688,13 @@ fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Wasm);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
+
     let content = format!(
         r#"{pkg_header}
 repository = "{repository}"
@@ -1701,6 +1708,7 @@ js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.6"
+serde_json = "1"{extra_deps_section}
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
@@ -1713,6 +1721,7 @@ ignored = ["wasm-bindgen-futures"]
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Wasm),
+        extra_deps_section = extra_deps_section,
     );
 
     let mut files = vec![GeneratedFile {
