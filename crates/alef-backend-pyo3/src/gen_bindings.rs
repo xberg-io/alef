@@ -844,11 +844,36 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     // Emit union type aliases for data enums referenced by has_default types.
     // These are tagged-union enums whose variants map to Python dataclasses or primitive types.
     // Example: `Message = SystemMessage | UserMessage | AssistantMessage | ...`
-    let needed_data_enum_aliases: Vec<&alef_core::ir::EnumDef> = api
+    let mut needed_data_enum_aliases: Vec<&alef_core::ir::EnumDef> = api
         .enums
         .iter()
         .filter(|e| needed_enums.contains(&e.name) && data_enum_names.contains(e.name.as_str()))
         .collect();
+    // Topological sort: emit enums that are referenced by other enums first.
+    // A data enum that appears in another data enum's variant fields must be
+    // defined before the referencing enum (e.g., ContentPart before UserContent).
+    let alias_names: AHashSet<&str> = needed_data_enum_aliases.iter().map(|e| e.name.as_str()).collect();
+    let refs_name = |e: &alef_core::ir::EnumDef, name: &str| -> bool {
+        e.variants.iter().any(|v| v.fields.iter().any(|f| f.ty.references_named(name)))
+    };
+    needed_data_enum_aliases.sort_by(|a, b| {
+        let a_refs_b = refs_name(a, &b.name);
+        let b_refs_a = refs_name(b, &a.name);
+        if a_refs_b {
+            std::cmp::Ordering::Greater
+        } else if b_refs_a {
+            std::cmp::Ordering::Less
+        } else {
+            // Stable: enums with fewer cross-references among aliases go first
+            let a_deps = a.variants.iter().flat_map(|v| &v.fields).filter(|f| {
+                alias_names.iter().any(|n| f.ty.references_named(n))
+            }).count();
+            let b_deps = b.variants.iter().flat_map(|v| &v.fields).filter(|f| {
+                alias_names.iter().any(|n| f.ty.references_named(n))
+            }).count();
+            a_deps.cmp(&b_deps)
+        }
+    });
     for enum_def in needed_data_enum_aliases {
         let member_types: Vec<String> = enum_def
             .variants

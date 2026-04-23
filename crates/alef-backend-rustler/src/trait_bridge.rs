@@ -747,19 +747,19 @@ fn build_json_arg(p: &alef_core::ir::ParamDef) -> String {
             return format!("serde_json::to_value({ref_expr}).unwrap_or(serde_json::Value::Null)");
         }
     }
+    // Optional string params (must check before non-optional: Option<&str> also has is_ref=true)
+    if p.optional && matches!(&p.ty, TypeRef::String) {
+        return format!(
+            "match {0} {{ Some(s) => serde_json::Value::String(s.to_string()), None => serde_json::Value::Null }}",
+            p.name
+        );
+    }
     // String params
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!("serde_json::Value::String({}.to_string())", p.name);
     }
     if matches!(&p.ty, TypeRef::String) {
         return format!("serde_json::Value::String({}.clone())", p.name);
-    }
-    // Optional string params
-    if p.optional && matches!(&p.ty, TypeRef::String) {
-        return format!(
-            "match {0} {{ Some(s) => serde_json::Value::String(s.to_string()), None => serde_json::Value::Null }}",
-            p.name
-        );
     }
     // Bool params
     if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
@@ -816,118 +816,6 @@ fn visitor_param_type(
         }
     }
     param_type(ty, "", is_ref, tp)
-}
-
-/// Generate a single visitor method that looks up the method atom in the visitor map
-/// and calls the stored anonymous function.
-fn gen_visitor_method_rustler(
-    out: &mut String,
-    method: &MethodDef,
-    type_paths: &std::collections::HashMap<&str, &str>,
-) {
-    let name = &method.name;
-
-    let mut sig_parts = vec!["&mut self".to_string()];
-    for p in &method.params {
-        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
-        sig_parts.push(format!("{}: {}", p.name, ty_str));
-    }
-    let sig = sig_parts.join(", ");
-
-    let ret_ty = match &method.return_type {
-        TypeRef::Named(n) => type_paths
-            .get(n.as_str())
-            .map(|p| p.replace('-', "_"))
-            .unwrap_or_else(|| n.clone()),
-        other => param_type(other, "", false, type_paths),
-    };
-
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
-
-    // Run in the owned env
-    writeln!(out, "        let result_str = self.env.run(|env| {{").unwrap();
-    writeln!(out, "            let visitor = self.visitor_term.load(env);").unwrap();
-    writeln!(
-        out,
-        "            let key = rustler::types::atom::Atom::from_str(env, \"{name}\").ok()?;"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "            let func_term: rustler::Term<'_> = rustler::Term::map_get(visitor, key).ok()??;"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "            if func_term.atom_to_string().ok().as_deref() == Some(\"nil\") {{ return None; }}"
-    )
-    .unwrap();
-
-    // Build the args tuple encoding
-    if method.params.is_empty() {
-        writeln!(out, "            let args: Vec<rustler::Term<'_>> = Vec::new();").unwrap();
-    } else {
-        writeln!(out, "            let args: Vec<rustler::Term<'_>> = vec![").unwrap();
-        for p in &method.params {
-            let arg = build_rustler_arg(p);
-            writeln!(out, "                {arg},").unwrap();
-        }
-        writeln!(out, "            ];").unwrap();
-    }
-
-    writeln!(
-        out,
-        "            let result: rustler::Term<'_> = env.call(func_term, &args).ok()?;"
-    )
-    .unwrap();
-    writeln!(out, "            result.decode::<String>().ok()").unwrap();
-    writeln!(out, "        }});").unwrap();
-
-    // Parse result
-    writeln!(out, "        match result_str {{").unwrap();
-    writeln!(out, "            None | Some(Err(_)) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Some(Ok(s)) => match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(out, "                other => {ret_ty}::Custom(other.to_string()),").unwrap();
-    writeln!(out, "            }},").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
-}
-
-/// Build a single Rustler arg expression encoded as a term.
-fn build_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
-    if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
-            return format!(
-                "nodecontext_to_elixir_map(env, {}{})",
-                if p.is_ref { "" } else { "&" },
-                p.name
-            );
-        }
-    }
-    if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("{}.encode(env)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::String) {
-        return format!("{}.as_str().encode(env)", p.name);
-    }
-    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!(
-            "match {} {{ Some(s) => s.encode(env), None => rustler::types::atom::Atom::from_str(env, \"nil\").unwrap().to_term(env) }}",
-            p.name
-        );
-    }
-    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-        return format!("{}.encode(env)", p.name);
-    }
-    format!("format!(\"{{:?}}\", {}).encode(env)", p.name)
 }
 
 /// Map TypeRef to a Rust type string.
@@ -1082,7 +970,7 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(term) if term.atom_to_string().ok().as_deref() != Some(\"nil\") => {{\n            \
-             let bridge = {struct_name}::new(env, term);\n            \
+             let bridge = {struct_name}::new(env, env.pid(), term);\n            \
              Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
              }},\n        \
              _ => None,\n    \
@@ -1091,7 +979,7 @@ pub fn gen_bridge_function(
     } else {
         format!(
             "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new(env, {param_name});\n        \
+             let bridge = {struct_name}::new(env, env.pid(), {param_name});\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }};"
         )
@@ -1154,10 +1042,7 @@ pub fn gen_bridge_function(
                     return format!("&{}.inner", p.name);
                 }
                 if default_types.contains(n) {
-                    if p.is_ref {
-                        return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
-                    }
-                    return format!("{}_core.unwrap_or_default()", p.name);
+                    return format!("{}_core", p.name);
                 }
             }
             match &p.ty {
@@ -1286,11 +1171,7 @@ pub fn gen_bridge_function(
                     p.name.clone()
                 } else if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
-                        if p.is_ref {
-                            format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name)
-                        } else {
-                            format!("{}_core.unwrap_or_default()", p.name)
-                        }
+                        format!("{}_core", p.name)
                     } else {
                         match &p.ty {
                             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),

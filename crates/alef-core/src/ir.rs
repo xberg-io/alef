@@ -326,6 +326,18 @@ pub enum TypeRef {
     Duration,
 }
 
+impl TypeRef {
+    /// Returns true if this type reference contains `Named(name)` at any depth.
+    pub fn references_named(&self, name: &str) -> bool {
+        match self {
+            Self::Named(n) => n == name,
+            Self::Optional(inner) | Self::Vec(inner) => inner.references_named(name),
+            Self::Map(k, v) => k.references_named(name) || v.references_named(name),
+            _ => false,
+        }
+    }
+}
+
 /// Rust primitive types.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PrimitiveType {

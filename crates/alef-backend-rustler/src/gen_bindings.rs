@@ -442,6 +442,26 @@ impl Backend for RustlerBackend {
             // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
             let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
 
+            // Detect if this function has a visitor bridge param.
+            let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
+                config.trait_bridges.iter().any(|b| {
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
+                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                            alef_core::ir::TypeRef::Optional(inner) => {
+                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                    }
+                })
+            });
+
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
             let arity_variants: Vec<usize> = if trailing_optional_count > 0 {
@@ -479,6 +499,32 @@ impl Backend for RustlerBackend {
                     .map(|(i, p)| if i < *arity { p.clone() } else { "nil".to_string() })
                     .collect();
 
+                // When a visitor is provided (non-nil at the bridge param index), delegate to
+                // the async visitor variant which drives a receive loop.
+                if let Some(vis_idx) = visitor_bridge_param_idx {
+                    if *arity > vis_idx {
+                        // Full-arity def: visitor param is present in signature.
+                        let vis_param = &all_params[vis_idx];
+                        // Emit a two-clause definition: visitor map → receive loop, nil → direct.
+                        content.push_str(&format!("  def {nif_fn_name}({}) when is_map({vis_param}) do\n", arity_params.join(", ")));
+                        let with_visitor_args = nif_call_args.join(", ");
+                        content.push_str(&format!("    :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"));
+                        content.push_str(&format!("    do_visitor_receive_loop({vis_param})\n"));
+                        content.push_str("  end\n\n");
+                        // Nil/no-visitor clause
+                        content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                        content.push_str(&format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", ")));
+                        content.push('\n');
+                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", arity_params.join(", ")));
+                        content.push_str(&format!(
+                            "    {native_mod}.{nif_fn_name}({})\n",
+                            nif_call_args.join(", ")
+                        ));
+                        content.push_str("  end\n\n");
+                        continue;
+                    }
+                }
+
                 if arity_params.is_empty() {
                     content.push_str(&format!("  def {nif_fn_name} do\n"));
                     content.push_str(&format!(
@@ -495,6 +541,65 @@ impl Backend for RustlerBackend {
                 }
                 content.push_str("  end\n\n");
             }
+        }
+
+        // Emit the visitor receive loop helper if any function has a visitor bridge.
+        let has_visitor_bridges = api.functions.iter().any(|func| {
+            func.params.iter().any(|p| {
+                config.trait_bridges.iter().any(|b| {
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
+                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                            alef_core::ir::TypeRef::Optional(inner) => {
+                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                    }
+                })
+            })
+        });
+
+        if has_visitor_bridges {
+            content.push_str(&format!(
+                r#"  @doc false
+  defp do_visitor_receive_loop(visitor) do
+    receive do
+      {{:visitor_callback, ref_id, callback_name, args_json}} ->
+        result =
+          case Map.get(visitor, callback_name) do
+            nil -> "continue"
+            fun -> apply_visitor_callback(fun, args_json)
+          end
+
+        {native_mod}.visitor_reply(ref_id, result)
+        do_visitor_receive_loop(visitor)
+
+      {{:ok, result}} ->
+        {{:ok, result}}
+
+      {{:error, reason}} ->
+        {{:error, reason}}
+    after
+      30_000 ->
+        {{:error, "visitor callback timeout after 30s"}}
+    end
+  end
+
+  @doc false
+  defp apply_visitor_callback(fun, args_json) do
+    args = Jason.decode!(args_json)
+    result = fun.(args)
+    if is_binary(result), do: result, else: "continue"
+  end
+
+"#
+            ));
         }
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)

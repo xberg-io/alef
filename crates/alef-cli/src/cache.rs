@@ -180,9 +180,8 @@ fn walkdir(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 // checking.  We blake3-hash the raw codegen output strings and store
 // `path\thash` entries in `.alef/hashes/<name>.output_hashes`.  During verify
 // we regenerate in-memory, hash the new content, and compare against stored
-// hashes.  Because codegen is deterministic (same IR + config → same output),
-// on-disk formatting is irrelevant and formatter re-runs during commit hooks
-// cannot produce false-positive staleness.
+// hashes.  Both sides are pure codegen output — on-disk state is never
+// consulted.  Formatter/linter autofixes cannot cause false positives.
 // ---------------------------------------------------------------------------
 
 /// Blake3 hash of a content string.

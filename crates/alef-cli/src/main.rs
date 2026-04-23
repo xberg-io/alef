@@ -249,10 +249,6 @@ fn main() -> Result<()> {
 
             // Generate type stubs (e.g., .pyi for Python, .d.ts for TypeScript)
             let stub_files = pipeline::generate_stubs(&api, &config, &languages)?;
-            let stub_paths: Vec<PathBuf> = stub_files
-                .iter()
-                .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
-                .collect();
             if !stub_files.is_empty() {
                 let stub_hashes: Vec<(String, String)> = stub_files
                     .iter()
@@ -281,48 +277,12 @@ fn main() -> Result<()> {
             }
 
             if any_written {
-                // Format and lint all generated files via prek (best-effort)
+                // Format and lint all generated files via prek (best-effort).
+                // Generation hashes are already stored from in-memory content
+                // (pre-formatter), so formatter modifications don't affect
+                // staleness detection. `alef verify` compares generation-to-
+                // generation, never consulting on-disk state.
                 pipeline::run_prek();
-            }
-
-            // Update hashes AFTER prek — hash the actual ON-DISK content so that
-            // `alef verify` can detect whether files have been modified since we
-            // wrote them.  This is immune to codegen non-determinism because we
-            // hash what's on disk, not what codegen produced in-memory.
-            let post_config_struct = load_config(config_path)?;
-            let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
-            let post_ir = serde_json::to_string(&post_api)?;
-            let post_config = toml::to_string(&post_config_struct).unwrap_or_default();
-
-            // Hash on-disk files for each language.
-            for lang in &languages {
-                let lang_str = lang.to_string();
-                if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
-                    let hashes: Vec<(String, String)> = paths
-                        .iter()
-                        .filter_map(|p| {
-                            let content = std::fs::read_to_string(p).ok()?;
-                            Some((p.display().to_string(), cache::hash_content(&content)))
-                        })
-                        .collect();
-                    let _ = cache::write_generation_hashes(&lang_str, &hashes);
-                    let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
-                    let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-                }
-            }
-
-            // Hash on-disk stub files.
-            if !stub_paths.is_empty() {
-                let hashes: Vec<(String, String)> = stub_paths
-                    .iter()
-                    .filter_map(|p| {
-                        let content = std::fs::read_to_string(p).ok()?;
-                        Some((p.display().to_string(), cache::hash_content(&content)))
-                    })
-                    .collect();
-                let _ = cache::write_generation_hashes("stubs", &hashes);
-                let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
-                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &stub_paths);
             }
 
             println!("Generated {total_written} files");
@@ -491,66 +451,67 @@ fn main() -> Result<()> {
 
             let mut all_stale: Vec<String> = Vec::new();
 
-            // Verify by comparing on-disk file hashes against hashes recorded
-            // after the last `alef generate`.  Stored hashes are computed from
-            // ACTUAL on-disk content (post-format), so this is a pure staleness
-            // check — immune to codegen non-determinism.
-            for lang in &languages {
+            // Verify by regenerating in-memory and comparing content hashes
+            // against hashes stored during the last `alef generate`.  Both sides
+            // are pure codegen output — on-disk state (formatter modifications,
+            // linter autofixes) is irrelevant.
+            let bindings = pipeline::generate(&api, &config, &languages, true)?;
+            for (lang, lang_files) in &bindings {
                 let lang_str = lang.to_string();
+                let current_hashes: std::collections::HashMap<String, String> = lang_files
+                    .iter()
+                    .map(|f| {
+                        (
+                            base_dir.join(&f.path).display().to_string(),
+                            cache::hash_content(&f.content),
+                        )
+                    })
+                    .collect();
+
                 match cache::read_generation_hashes(&lang_str) {
                     Ok(stored) => {
-                        for (path, expected_hash) in &stored {
-                            let disk_hash = match std::fs::read_to_string(path) {
-                                Ok(content) => cache::hash_content(&content),
-                                Err(_) => {
-                                    all_stale.push(format!("[{lang_str}] {path}"));
-                                    continue;
-                                }
-                            };
-                            if &disk_hash != expected_hash {
-                                all_stale.push(format!("[{lang_str}] {path}"));
+                        for (path, new_hash) in &current_hashes {
+                            match stored.get(path) {
+                                Some(stored_hash) if stored_hash == new_hash => {}
+                                _ => all_stale.push(format!("[{lang_str}] {path}")),
                             }
                         }
                     }
                     Err(_) => {
-                        // No stored hashes — fall back to regenerate-and-check-existence.
-                        let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
-                        for (_, lang_files) in &bindings {
-                            for f in lang_files {
-                                let disk_path = base_dir.join(&f.path);
-                                if !disk_path.exists() {
-                                    all_stale.push(format!("[{lang_str}] {}", disk_path.display()));
-                                }
-                            }
+                        // No stored hashes — everything is stale.
+                        for path in current_hashes.keys() {
+                            all_stale.push(format!("[{lang_str}] {path}"));
                         }
                     }
                 }
             }
 
             // Verify stubs the same way.
+            let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
+            let current_stub_hashes: std::collections::HashMap<String, String> = stubs
+                .iter()
+                .flat_map(|(_, fs)| {
+                    fs.iter().map(|f| {
+                        (
+                            base_dir.join(&f.path).display().to_string(),
+                            cache::hash_content(&f.content),
+                        )
+                    })
+                })
+                .collect();
+
             match cache::read_generation_hashes("stubs") {
                 Ok(stored) => {
-                    for (path, expected_hash) in &stored {
-                        let disk_hash = match std::fs::read_to_string(path) {
-                            Ok(content) => cache::hash_content(&content),
-                            Err(_) => {
-                                all_stale.push(format!("[stubs] {path}"));
-                                continue;
-                            }
-                        };
-                        if &disk_hash != expected_hash {
-                            all_stale.push(format!("[stubs] {path}"));
+                    for (path, new_hash) in &current_stub_hashes {
+                        match stored.get(path) {
+                            Some(stored_hash) if stored_hash == new_hash => {}
+                            _ => all_stale.push(format!("[stubs] {path}")),
                         }
                     }
                 }
                 Err(_) => {
-                    let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
-                    for (_, stub_files) in &stubs {
-                        for f in stub_files {
-                            if !base_dir.join(&f.path).exists() {
-                                all_stale.push(format!("[stubs] {}", base_dir.join(&f.path).display()));
-                            }
-                        }
+                    for path in current_stub_hashes.keys() {
+                        all_stale.push(format!("[stubs] {path}"));
                     }
                 }
             }
