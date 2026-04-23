@@ -527,8 +527,20 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     }
                 }
                 TypeRef::Vec(inner) => {
-                    // Vec<Named>: use let binding that converts each element
-                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuples).
+                    // Let binding created {name}_core via JSON deserialization.
+                    if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
+                        if p.optional && p.is_ref {
+                            format!("{}_core.as_deref()", p.name)
+                        } else if p.optional {
+                            format!("{}_core", p.name)
+                        } else if p.is_ref {
+                            format!("&{}_core", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                        // Vec<Named>: use let binding that converts each element
                         if p.optional && p.is_ref {
                             // Let binding creates Option<Vec<CoreType>>, use as_deref() to get Option<&[CoreType]>
                             format!("{}_core.as_deref()", p.name)
@@ -813,16 +825,19 @@ pub fn gen_serde_let_bindings(
 }
 
 /// Check if params contain any non-opaque Named types that need let bindings.
-/// This includes direct Named types, Vec<Named> types, and Vec<String> params
-/// with is_ref=true (which need a Vec<&str> intermediate to pass as &[&str]).
+/// This includes direct Named types, Vec<Named> types, Vec<String> params
+/// with is_ref=true (which need a Vec<&str> intermediate to pass as &[&str]),
+/// and sanitized Vec<String> params (which are JSON-deserialized to tuples).
 pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
     params.iter().any(|p| match &p.ty {
         TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => true,
         TypeRef::Vec(inner) => {
             // Vec<Named> always needs a conversion let binding.
             // Vec<String> with is_ref=true needs a Vec<&str> intermediate for &[&str] coercion.
+            // Sanitized Vec<String> needs JSON deserialization via let binding.
             matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str()))
                 || (matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref)
+                || (matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some())
         }
         _ => false,
     })
