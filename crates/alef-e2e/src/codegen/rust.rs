@@ -1491,6 +1491,9 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "    assert!({field_access}, \"expected true\");");
         }
+        "is_false" => {
+            let _ = writeln!(out, "    assert!(!{field_access}, \"expected false\");");
+        }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
                 // Build the call expression. When the result is a tree-sitter Tree (an opaque
