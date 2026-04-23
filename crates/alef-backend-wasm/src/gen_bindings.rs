@@ -1411,21 +1411,8 @@ fn gen_function(
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                    // Vec<String> with is_ref=true: core expects &[&str].
-                    // Generate texts_refs: Vec<&str> or Option<Vec<&str>>.
-                    if p.optional {
-                        // Option<Vec<String>> -> unwrap_or_default() -> Vec<&str>
-                        serde_bindings.push_str(&format!(
-                            "let {n}_core: Vec<String> = {n}.clone().unwrap_or_default();\n    \
-                             let {n}_refs: Vec<&str> = {n}_core.iter().map(|s| s.as_str()).collect();\n    ",
-                            n = p.name,
-                        ));
-                    } else {
-                        serde_bindings.push_str(&format!(
-                            "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
-                            n = p.name,
-                        ));
-                    }
+                    // Vec<String> with is_ref=true: core expects &[String].
+                    // Vec<String> coerces directly to &[String] — no intermediate needed.
                 }
                 _ => {}
             }

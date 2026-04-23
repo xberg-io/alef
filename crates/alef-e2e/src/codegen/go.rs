@@ -6,6 +6,7 @@ use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
+use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::fmt::Write as FmtWrite;

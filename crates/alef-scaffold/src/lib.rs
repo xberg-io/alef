@@ -860,6 +860,9 @@ group :development do
   gem 'rb_sys', '~> 0.9'
   gem 'rspec', '~> 3.0'
   gem 'rubocop', '~> 1.0'
+  gem 'rubocop-performance', '~> 1.0'
+  gem 'rubocop-rspec', '~> 3.0'
+  gem 'steep', '~> 1.0'
 end
 "#
             .to_string(),

@@ -26,10 +26,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec![
-            "use magnus::prelude::*;".to_string(),
-            "use magnus::method::Method;".to_string(),
-        ]
+        vec!["use magnus::prelude::*;".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
@@ -53,12 +50,13 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out, "}}").ok();
         writeln!(out).ok();
 
-        // Build the funcall args tuple
+        // Build the funcall args tuple. Use ReprValue::funcall (from prelude::*)
+        // rather than Method trait — Method is not dyn-compatible.
         let ruby_args = self.sync_ruby_args(method);
         let call = if ruby_args.is_empty() {
-            format!("Method::funcall::<(), _>(self.inner, \"{name}\", ())")
+            format!("self.inner.funcall(\"{name}\", ())")
         } else {
-            format!("Method::funcall::<_, _>(self.inner, \"{name}\", ({ruby_args}))")
+            format!("self.inner.funcall(\"{name}\", ({ruby_args}))")
         };
 
         writeln!(out, "let result: Result<magnus::Value, magnus::Error> = {call};").ok();
@@ -138,9 +136,9 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         let ruby_args = self.async_ruby_args(method);
         let call = if ruby_args.is_empty() {
-            format!("Method::funcall::<(), _>(ruby_obj, \"{name}\", ())")
+            format!("ruby_obj.funcall(\"{name}\", ())")
         } else {
-            format!("Method::funcall::<_, _>(ruby_obj, \"{name}\", ({ruby_args}))")
+            format!("ruby_obj.funcall(\"{name}\", ({ruby_args}))")
         };
 
         writeln!(out, "        match {call} {{").ok();
@@ -216,7 +214,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         // Extract and cache name via calling the `name` method
         writeln!(
             out,
-            "        let cached_name: String = match Method::funcall::<String, _>(ruby_obj, \"name\", ()) {{"
+            "        let cached_name: String = match ruby_obj.funcall(\"name\", ()) {{"
         )
         .ok();
         writeln!(out, "            Ok(s) => s,").ok();
@@ -316,13 +314,23 @@ impl MagnusBridgeGenerator {
             .params
             .iter()
             .map(|p| match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => format!("magnus::Value::from({})", p.name),
-                (TypeRef::String, true) => format!("magnus::RString::new({})", p.name),
-                (TypeRef::String, false) => format!("magnus::RString::new({}.as_str())", p.name),
+                (TypeRef::Bytes, true) => {
+                    format!(
+                        "unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(std::str::from_utf8({}).unwrap_or_default())",
+                        p.name
+                    )
+                }
+                (TypeRef::String, true) => {
+                    format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name)
+                }
+                (TypeRef::String, false) => {
+                    format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name)
+                }
                 (TypeRef::Named(_), true) => {
                     format!("serde_json::to_string({}).unwrap_or_default()", p.name)
                 }
-                _ => format!("magnus::Value::from({})", p.name),
+                // Primitives implement IntoValue — pass directly without Value::from().
+                _ => p.name.clone(),
             })
             .collect();
         if args.len() == 1 {
@@ -338,19 +346,29 @@ impl MagnusBridgeGenerator {
             .params
             .iter()
             .map(|p| {
-                // Check optional &str first, before non-optional &str
+                // Check optional &str first, before non-optional &str.
                 if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                     return format!(
-                        "match {} {{ Some(s) => magnus::Value::from(magnus::RString::new(s)), None => magnus::Value::nil() }}",
+                        "match {} {{ Some(s) => unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(s).as_value(), None => unsafe {{ magnus::Ruby::get_unchecked() }}.qnil().as_value() }}",
                         p.name
                     );
                 }
                 match (&p.ty, p.is_ref) {
-                    (TypeRef::Bytes, true) => format!("magnus::Value::from(&{}[..])", p.name),
-                    (TypeRef::String, true) => format!("magnus::RString::new({})", p.name),
-                    (TypeRef::String, false) => format!("magnus::RString::new({}.as_str())", p.name),
+                    (TypeRef::Bytes, true) => {
+                        format!(
+                            "unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(std::str::from_utf8(&{}[..]).unwrap_or_default())",
+                            p.name
+                        )
+                    }
+                    (TypeRef::String, true) => {
+                        format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name)
+                    }
+                    (TypeRef::String, false) => {
+                        format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name)
+                    }
                     (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
-                    _ => format!("magnus::Value::from({})", p.name),
+                    // Primitives implement IntoValue — pass directly without Value::from().
+                    _ => p.name.clone(),
                 }
             })
             .collect();
@@ -469,7 +487,7 @@ fn gen_visitor_bridge(
     writeln!(out, "    h.aset(ruby.to_symbol(\"is_inline\"), ctx.is_inline).ok();").unwrap();
     writeln!(
         out,
-        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| magnus::Value::from(ruby.str_new(s)))).ok();"
+        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| ruby.str_new(s))).ok();"
     )
     .unwrap();
     writeln!(out, "    let attrs = ruby.hash_new();").unwrap();
@@ -570,11 +588,12 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
     writeln!(out, "            return {ret_ty}::Continue;").unwrap();
     writeln!(out, "        }}").unwrap();
 
-    // Build the funcall args tuple
+    // Build the funcall args tuple. Use ReprValue::funcall (from prelude::*)
+    // rather than the Method trait — Method is not dyn-compatible in Rust 2024.
     if method.params.is_empty() {
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", ());"
+            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", ());"
         )
         .unwrap();
     } else {
@@ -587,7 +606,7 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
         };
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", {args_tuple});"
+            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", {args_tuple});"
         )
         .unwrap();
     }
@@ -620,22 +639,28 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
             return format!("nodecontext_to_rb_hash({}{})", if p.is_ref { "" } else { "&" }, p.name);
         }
     }
-    if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("magnus::RString::new({})", p.name);
-    }
-    if matches!(&p.ty, TypeRef::String) {
-        return format!("magnus::RString::new({}.as_str())", p.name);
-    }
+    // Optional &str before non-optional &str to avoid shadowing.
     if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!(
-            "match {} {{ Some(s) => magnus::Value::from(magnus::RString::new(s)), None => magnus::Value::nil() }}",
+            "match {} {{ Some(s) => unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(s).as_value(), None => unsafe {{ magnus::Ruby::get_unchecked() }}.qnil().as_value() }}",
             p.name
         );
     }
-    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-        return format!("magnus::Value::from({})", p.name);
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name);
     }
-    format!("magnus::Value::from({})", p.name)
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name);
+    }
+    // Vec/slice: convert to Ruby Array
+    if matches!(&p.ty, TypeRef::Vec(_)) {
+        return format!(
+            "{{ let __ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; let __arr = __ruby.ary_new_capa({0}.len()); for __item in {0} {{ let _ = __arr.push(__ruby.str_new(__item)); }} __arr }}",
+            p.name
+        );
+    }
+    // Primitives (bool, int, float) and other types implement IntoValue — pass directly.
+    p.name.clone()
 }
 
 /// Map TypeRef to a Rust type string.
