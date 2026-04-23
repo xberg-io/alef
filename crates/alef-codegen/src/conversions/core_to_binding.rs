@@ -193,10 +193,15 @@ pub fn field_conversion_from_core(
         // The binding type matches, so just clone — no debug formatting needed.
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::Primitive(_)) {
-                if optional {
+                return format!("{name}: val.{name}.clone()");
+            }
+        }
+        // Optional(Vec<Primitive>): sanitized from Option<(T, T)> → Option<Vec<T>>.
+        if let TypeRef::Optional(opt_inner) = ty {
+            if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
+                if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
                     return format!("{name}: val.{name}.clone()");
                 }
-                return format!("{name}: val.{name}.clone()");
             }
         }
         if let TypeRef::Optional(opt_inner) = ty {
