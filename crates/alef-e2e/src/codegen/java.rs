@@ -11,7 +11,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
-use heck::ToUpperCamelCase;
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -370,7 +370,7 @@ fn render_test_method(
     let effective_function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
-        .unwrap_or_else(|| call_config.function.clone());
+        .unwrap_or_else(|| call_config.function.to_lower_camel_case());
     let effective_result_var = &call_config.result_var;
     let effective_args = &call_config.args;
     let function_name = effective_function_name.as_str();
@@ -492,7 +492,7 @@ fn build_args_and_setup(
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
-        return (Vec::new(), json_to_java(input));
+        return (Vec::new(), String::new());
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -556,6 +556,12 @@ fn build_args_and_setup(
                 // For json_object args with options_type, use the pre-deserialized variable.
                 if arg.arg_type == "json_object" && options_type.is_some() {
                     parts.push(arg.name.clone());
+                    continue;
+                }
+                // bytes args must be passed as byte[], not String.
+                if arg.arg_type == "bytes" {
+                    let val = json_to_java(v);
+                    parts.push(format!("{val}.getBytes()"));
                     continue;
                 }
                 parts.push(json_to_java(v));
@@ -792,6 +798,9 @@ fn render_assertion(
             if let Some(method_name) = &assertion.method {
                 let call_expr = build_java_method_call(result_var, method_name, assertion.args.as_ref(), class_name);
                 let check = assertion.check.as_deref().unwrap_or("is_true");
+                // Methods that return a collection (List) rather than a scalar.
+                let method_returns_collection =
+                    matches!(method_name.as_str(), "find_nodes_by_type" | "findNodesByType");
                 match check {
                     "equals" => {
                         if let Some(val) = &assertion.value {
@@ -801,6 +810,9 @@ fn render_assertion(
                                 } else {
                                     let _ = writeln!(out, "        assertFalse({call_expr});");
                                 }
+                            } else if method_returns_collection {
+                                let java_val = json_to_java(val);
+                                let _ = writeln!(out, "        assertEquals({java_val}, {call_expr}.size());");
                             } else {
                                 let java_val = json_to_java(val);
                                 let _ = writeln!(out, "        assertEquals({java_val}, {call_expr});");
@@ -903,7 +915,6 @@ fn build_java_method_call(
             format!("{class_name}.runQuery({result_var}, \"{language}\", \"{escaped_query}\", source)")
         }
         _ => {
-            use heck::ToLowerCamelCase;
             format!("{result_var}.{}()", method_name.to_lower_camel_case())
         }
     }
@@ -1016,6 +1027,5 @@ fn emit_java_visitor_method(
 
 /// Convert snake_case method names to Java camelCase.
 fn method_to_camel(snake: &str) -> String {
-    use heck::ToLowerCamelCase;
     snake.to_lower_camel_case()
 }

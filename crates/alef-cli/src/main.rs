@@ -451,68 +451,28 @@ fn main() -> Result<()> {
 
             let mut all_stale: Vec<String> = Vec::new();
 
-            // Verify by regenerating in-memory and comparing content hashes
-            // against hashes stored during the last `alef generate`.  Both sides
-            // are pure codegen output — on-disk state (formatter modifications,
-            // linter autofixes) is irrelevant.
+            // Verify by regenerating in-memory, normalizing (same as write_files),
+            // hashing, then comparing against the hash embedded in the on-disk
+            // file header.  No external cache needed — the file is its own proof.
             let bindings = pipeline::generate(&api, &config, &languages, true)?;
             for (lang, lang_files) in &bindings {
                 let lang_str = lang.to_string();
-                let current_hashes: std::collections::HashMap<String, String> = lang_files
-                    .iter()
-                    .map(|f| {
-                        (
-                            base_dir.join(&f.path).display().to_string(),
-                            cache::hash_content(&f.content),
-                        )
-                    })
-                    .collect();
-
-                match cache::read_generation_hashes(&lang_str) {
-                    Ok(stored) => {
-                        for (path, new_hash) in &current_hashes {
-                            match stored.get(path) {
-                                Some(stored_hash) if stored_hash == new_hash => {}
-                                _ => all_stale.push(format!("[{lang_str}] {path}")),
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // No stored hashes — everything is stale.
-                        for path in current_hashes.keys() {
-                            all_stale.push(format!("[{lang_str}] {path}"));
-                        }
-                    }
+                for f in lang_files {
+                    let full_path = base_dir.join(&f.path);
+                    let normalized = pipeline::normalize_content(&f.path, &f.content);
+                    let expected_hash = alef_core::hash::hash_content(&normalized);
+                    verify_file(&full_path, &expected_hash, &lang_str, &mut all_stale);
                 }
             }
 
             // Verify stubs the same way.
             let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
-            let current_stub_hashes: std::collections::HashMap<String, String> = stubs
-                .iter()
-                .flat_map(|(_, fs)| {
-                    fs.iter().map(|f| {
-                        (
-                            base_dir.join(&f.path).display().to_string(),
-                            cache::hash_content(&f.content),
-                        )
-                    })
-                })
-                .collect();
-
-            match cache::read_generation_hashes("stubs") {
-                Ok(stored) => {
-                    for (path, new_hash) in &current_stub_hashes {
-                        match stored.get(path) {
-                            Some(stored_hash) if stored_hash == new_hash => {}
-                            _ => all_stale.push(format!("[stubs] {path}")),
-                        }
-                    }
-                }
-                Err(_) => {
-                    for path in current_stub_hashes.keys() {
-                        all_stale.push(format!("[stubs] {path}"));
-                    }
+            for (_, stub_files) in &stubs {
+                for f in stub_files {
+                    let full_path = base_dir.join(&f.path);
+                    let normalized = pipeline::normalize_content(&f.path, &f.content);
+                    let expected_hash = alef_core::hash::hash_content(&normalized);
+                    verify_file(&full_path, &expected_hash, "stubs", &mut all_stale);
                 }
             }
 
@@ -888,4 +848,32 @@ fn resolve_languages_inner(
 
 fn format_languages(languages: &[alef_core::config::Language]) -> String {
     languages.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
+}
+
+/// Check a single generated file against its expected content hash.
+///
+/// Reads the on-disk file, extracts the `alef:hash:` line from the header, and
+/// compares against `expected_hash` (computed from freshly generated + normalized
+/// content).  Falls back to content comparison for legacy files without an
+/// embedded hash.
+fn verify_file(path: &std::path::Path, expected_hash: &str, label: &str, stale: &mut Vec<String>) {
+    let disk_content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => {
+            stale.push(format!("[{label}] {} (missing)", path.display()));
+            return;
+        }
+    };
+
+    if let Some(disk_hash) = alef_core::hash::extract_hash(&disk_content) {
+        if disk_hash != expected_hash {
+            stale.push(format!("[{label}] {}", path.display()));
+        }
+    } else {
+        // Legacy file without embedded hash — compare stripped content directly.
+        let stripped = alef_core::hash::strip_hash_line(&disk_content);
+        if alef_core::hash::hash_content(&stripped) != expected_hash {
+            stale.push(format!("[{label}] {}", path.display()));
+        }
+    }
 }

@@ -957,7 +957,8 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
 /// This binary is intended for cross-language e2e suites (WASM, Node) that
 /// spawn it as a child process and read the URL from its stdout.
 fn render_mock_server_binary() -> String {
-    hash::header(CommentStyle::DoubleSlash) + r#"//
+    hash::header(CommentStyle::DoubleSlash)
+        + r#"//
 // Standalone mock HTTP server binary for cross-language e2e tests.
 // Reads fixture JSON files and serves mock responses on /fixtures/{fixture_id}.
 //
@@ -1186,7 +1187,6 @@ async fn main() {
     while lines.next().is_some() {}
 }
 "#
-    .to_string()
 }
 
 // ---------------------------------------------------------------------------

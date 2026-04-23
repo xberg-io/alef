@@ -375,15 +375,17 @@ pub fn field_conversion_from_core_cfg(
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }
 
-    // Vec<T>→String core→binding: binding holds JSON string, core has Vec<T>.
-    // field_type_for_serde collapses any Vec<T> not explicitly handled (including Vec<String>,
-    // Vec<Named>, etc.) to String. Apply serde serialization for all Vec types.
+    // Vec<Named>→String core→binding: binding holds JSON string, core has Vec<Named>.
+    // Only apply serde round-trip for Vec<Named> types (complex structs that can't cross FFI).
+    // Vec<String>, Vec<Primitive>, etc. stay as-is since they map directly.
     if config.vec_named_to_string {
-        if let TypeRef::Vec(_) = ty {
-            if optional {
-                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())");
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                if optional {
+                    return format!("{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())");
+                }
+                return format!("{name}: serde_json::to_string(&val.{name}).unwrap_or_default()");
             }
-            return format!("{name}: serde_json::to_string(&val.{name}).unwrap_or_default()");
         }
     }
 

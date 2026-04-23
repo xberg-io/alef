@@ -1,5 +1,6 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
+use alef_core::hash;
 use alef_core::ir::ApiSurface;
 use anyhow::Context as _;
 use rayon::prelude::*;
@@ -127,12 +128,10 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
 
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
-        let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
-            format_rust_content(&file.content)
-        } else {
-            normalize_whitespace(&file.content)
-        };
-        std::fs::write(&full_path, &content)
+        let normalized = normalize_content(&file.path, &file.content);
+        let content_hash = hash::hash_content(&normalized);
+        let final_content = hash::inject_hash_line(&normalized, &content_hash);
+        std::fs::write(&full_path, &final_content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         debug!("  wrote: {}", full_path.display());
         Ok(())
@@ -177,6 +176,16 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
         .collect();
 
     Ok(diffs)
+}
+
+/// Normalize content the same way `write_files` does before hashing.
+/// Rust files go through rustfmt; everything else gets whitespace normalization.
+pub fn normalize_content(path: &Path, content: &str) -> String {
+    if path.extension().is_some_and(|ext| ext == "rs") {
+        format_rust_content(content)
+    } else {
+        normalize_whitespace(content)
+    }
 }
 
 /// Normalize whitespace for comparison: strip trailing whitespace per line,
@@ -243,7 +252,13 @@ pub fn write_scaffold_files_with_overwrite(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        std::fs::write(&full_path, &file.content)
+        let content = if file.generated_header {
+            let content_hash = hash::hash_content(&file.content);
+            hash::inject_hash_line(&file.content, &content_hash)
+        } else {
+            file.content.clone()
+        };
+        std::fs::write(&full_path, &content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         count += 1;
         debug!("  wrote: {}", full_path.display());

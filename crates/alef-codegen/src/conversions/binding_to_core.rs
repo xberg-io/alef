@@ -183,7 +183,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let is_opaque_arc_field = field.core_wrapper == CoreWrapper::Arc
             && matches!(&field.ty, TypeRef::Named(n) if config
                 .opaque_types
-                .is_some_and(|ot| ot.contains(n.as_str())));
+                .is_some_and(|opaque| opaque.contains(n.as_str())));
         let conversion = if is_opaque_arc_field {
             if field.optional {
                 format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
@@ -508,15 +508,17 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
     }
 
-    // Vec<T>→String binding→core: binding holds JSON string, core expects Vec<T>.
-    // field_type_for_serde collapses any Vec<T> not explicitly handled (including Vec<String>,
-    // Vec<Named>, etc.) to String. Apply serde round-trip for all Vec types.
+    // Vec<Named>→String binding→core: binding holds JSON string, core expects Vec<Named>.
+    // Only apply serde round-trip for Vec<Named> types (complex structs that can't cross FFI).
+    // Vec<String>, Vec<Primitive>, etc. stay as-is since they map directly.
     if config.vec_named_to_string {
-        if let TypeRef::Vec(_) = ty {
-            if optional {
-                return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                if optional {
+                    return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+                }
+                return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
             }
-            return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
         }
     }
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)

@@ -35,14 +35,8 @@ pub enum CommentStyle {
 /// ```
 pub fn header(style: CommentStyle) -> String {
     match style {
-        CommentStyle::DoubleSlash => HEADER_BODY
-            .lines()
-            .map(|l| format!("// {l}\n"))
-            .collect(),
-        CommentStyle::Hash => HEADER_BODY
-            .lines()
-            .map(|l| format!("# {l}\n"))
-            .collect(),
+        CommentStyle::DoubleSlash => HEADER_BODY.lines().map(|l| format!("// {l}\n")).collect(),
+        CommentStyle::Hash => HEADER_BODY.lines().map(|l| format!("# {l}\n")).collect(),
         CommentStyle::Block => {
             let mut out = String::from("/*\n");
             for line in HEADER_BODY.lines() {

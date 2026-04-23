@@ -881,9 +881,32 @@ fn emit_named_param_setup(
                     "{indent}var {handle_var} = Marshal.StringToHGlobalAnsi({json_var});\n"
                 ));
             }
+            TypeRef::Bytes => {
+                // byte[]: pin the managed array and pass pointer to native
+                out.push_str(&format!(
+                    "{indent}var {handle_var} = GCHandle.Alloc({param_name}, GCHandleType.Pinned);\n"
+                ));
+            }
             _ => {}
         }
     }
+}
+
+/// Returns true if the FFI return type is a pointer (IntPtr), as opposed to a numeric value.
+/// Only pointer-returning functions use `IntPtr.Zero` as an error sentinel.
+fn returns_ptr(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::String
+            | TypeRef::Char
+            | TypeRef::Path
+            | TypeRef::Json
+            | TypeRef::Named(_)
+            | TypeRef::Vec(_)
+            | TypeRef::Map(_, _)
+            | TypeRef::Bytes
+            | TypeRef::Optional(_)
+    )
 }
 
 /// Returns the argument expression to pass to the native method for a given parameter.
@@ -900,6 +923,9 @@ fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool, true_opaque_t
         }
         TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             format!("{param_name}Handle")
+        }
+        TypeRef::Bytes => {
+            format!("{param_name}Handle.AddrOfPinnedObject()")
         }
         ty => {
             if optional {
@@ -944,6 +970,9 @@ fn emit_named_param_teardown(
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 out.push_str(&format!("        Marshal.FreeHGlobal({handle_var});\n"));
             }
+            TypeRef::Bytes => {
+                out.push_str(&format!("        {handle_var}.Free();\n"));
+            }
             _ => {}
         }
     }
@@ -970,6 +999,9 @@ fn emit_named_param_teardown_indented(
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 out.push_str(&format!("{indent}Marshal.FreeHGlobal({handle_var});\n"));
+            }
+            TypeRef::Bytes => {
+                out.push_str(&format!("{indent}{handle_var}.Free();\n"));
             }
             _ => {}
         }
@@ -1131,7 +1163,9 @@ fn gen_wrapper_function(
         }
 
         // Check for FFI error (null result means the call failed).
-        if func.return_type != TypeRef::Unit {
+        // Only emit for pointer-returning functions — numeric returns (ulong, uint, bool)
+        // don't use IntPtr.Zero as an error sentinel.
+        if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             out.push_str(
                 "        if (result == IntPtr.Zero)\n        {\n            var err = GetLastError();\n            if (err.Code != 0)\n            {\n                throw err;\n            }\n        }\n",
             );

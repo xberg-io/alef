@@ -225,9 +225,9 @@ export default defineConfig({{
 
 fn render_global_setup() -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    format!(
-        r#"{header}import {{ spawn }} from 'child_process';
-import {{ resolve }} from 'path';
+    header
+        + r#"import { spawn } from 'child_process';
+import { resolve } from 'path';
 
 let serverProcess;
 
@@ -236,7 +236,7 @@ export async function setup() {
   serverProcess = spawn(
     resolve(__dirname, '../rust/target/release/mock-server'),
     [resolve(__dirname, '../../fixtures')],
-    {{ stdio: ['pipe', 'pipe', 'inherit'] }}
+    { stdio: ['pipe', 'pipe', 'inherit'] }
   );
 
   const url = await new Promise((resolve, reject) => {
@@ -257,7 +257,6 @@ export async function teardown() {
   }
 }
 "#
-    )
 }
 
 #[allow(clippy::too_many_arguments)]

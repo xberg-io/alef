@@ -85,7 +85,7 @@ fn gen_visitor_bridge(
     writeln!(out, "    h.aset(ruby.to_symbol(\"is_inline\"), ctx.is_inline).ok();").unwrap();
     writeln!(
         out,
-        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| magnus::Value::from(ruby.str_new(s)))).ok();"
+        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| ruby.str_new(s).as_value())).ok();"
     )
     .unwrap();
     writeln!(out, "    let attrs = ruby.hash_new();").unwrap();
@@ -190,7 +190,7 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
     if method.params.is_empty() {
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", ());"
+            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", ());"
         )
         .unwrap();
     } else {
@@ -203,7 +203,7 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
         };
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", {args_tuple});"
+            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", {args_tuple});"
         )
         .unwrap();
     }
@@ -236,17 +236,17 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
             return format!("nodecontext_to_rb_hash({}{})", if p.is_ref { "" } else { "&" }, p.name);
         }
     }
+    if p.optional && matches!(&p.ty, TypeRef::String) {
+        return format!(
+            "match {} {{ Some(s) => magnus::RString::new(s).as_value(), None => magnus::value::qnil().as_value() }}",
+            p.name
+        );
+    }
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!("magnus::RString::new({})", p.name);
     }
     if matches!(&p.ty, TypeRef::String) {
         return format!("magnus::RString::new({}.as_str())", p.name);
-    }
-    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!(
-            "match {} {{ Some(s) => magnus::Value::from(magnus::RString::new(s)), None => magnus::Value::nil() }}",
-            p.name
-        );
     }
     if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
         return format!("magnus::Value::from({})", p.name);
