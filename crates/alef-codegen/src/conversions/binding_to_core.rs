@@ -127,14 +127,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             continue;
         }
         let conversion = if field.sanitized || references_excluded {
-            // Sanitized Vec<Primitive> fields come from homogeneous numeric tuples (e.g. (u32,u32)→Vec<u32>).
-            // Use serde round-trip instead of Default::default() so the binding value flows through
-            // correctly: Vec<u32> serializes as a JSON array, which tuples also deserialize from.
-            if !references_excluded && is_sanitized_vec_primitive(&field.ty) {
-                gen_sanitized_vec_primitive_to_core(&field.name, &field.ty, field.optional)
-            } else {
-                format!("{}: Default::default()", field.name)
-            }
+            format!("{}: Default::default()", field.name)
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
             // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
@@ -180,14 +173,32 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         } else {
             conversion
         };
-        // CoreWrapper: apply Cow/Arc/Bytes wrapping for binding→core direction
-        let conversion = apply_core_wrapper_to_core(
-            &conversion,
-            &field.name,
-            &field.core_wrapper,
-            &field.vec_inner_core_wrapper,
-            field.optional,
-        );
+        // CoreWrapper: apply Cow/Arc/Bytes wrapping for binding→core direction.
+        //
+        // Special case: opaque Named field with CoreWrapper::Arc.
+        // The binding wrapper already holds `inner: Arc<CoreT>`, so the correct
+        // conversion is to extract `.inner` directly rather than calling `.into()`
+        // (which requires `From<BindingType> for CoreT`, a non-existent impl) and
+        // then wrapping in `Arc::new` (which would double-wrap the Arc).
+        let is_opaque_arc_field = field.core_wrapper == CoreWrapper::Arc
+            && matches!(&field.ty, TypeRef::Named(n) if config
+                .opaque_types
+                .is_some_and(|ot| ot.contains(n.as_str())));
+        let conversion = if is_opaque_arc_field {
+            if field.optional {
+                format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
+            } else {
+                format!("{}: val.{}.inner", field.name, field.name)
+            }
+        } else {
+            apply_core_wrapper_to_core(
+                &conversion,
+                &field.name,
+                &field.core_wrapper,
+                &field.vec_inner_core_wrapper,
+                field.optional,
+            )
+        };
         writeln!(out, "            {conversion},").ok();
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
@@ -289,16 +300,9 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
                 "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (serde_json::from_str(&k).unwrap_or_default(), v)).collect()"
             )
         }
-        TypeRef::Map(k, v) => {
-            // Collect to handle HashMap↔BTreeMap conversion + value type conversion
-            let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
-            if has_named_val {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, v.into())).collect()")
-            } else if matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)) {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()")
-            } else {
-                format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
-            }
+        TypeRef::Map(_, _) => {
+            // Collect to handle HashMap↔BTreeMap conversion
+            format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
         }
         _ => {
             // Simple types (primitives, String, etc): unwrap_or_default()
@@ -310,9 +314,17 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
 /// Determine the field conversion expression for binding -> core.
 pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> String {
     match ty {
-        // Primitives, String, Bytes, Unit -- direct assignment
-        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Unit => {
+        // Primitives, String, Unit -- direct assignment
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit => {
             format!("{name}: val.{name}")
+        }
+        // Bytes: binding uses Vec<u8>, core uses bytes::Bytes — convert via Into
+        TypeRef::Bytes => {
+            if optional {
+                format!("{name}: val.{name}.map(Into::into)")
+            } else {
+                format!("{name}: val.{name}.into()")
+            }
         }
         // Json: binding uses String, core uses serde_json::Value — parse or default
         TypeRef::Json => {
@@ -575,7 +587,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
         // HashMap value type casting: when value type needs i64→core casting
-        TypeRef::Map(_k, v)
+        TypeRef::Map(k, v)
             if config.cast_large_ints_to_i64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = v.as_ref() {
@@ -704,33 +716,4 @@ fn apply_core_wrapper_to_core(
             }
         }
     }
-}
-
-/// Returns true if this is a sanitized tuple-to-vec field: `Vec(Primitive(_))` or
-/// `Optional(Vec(Primitive(_)))`. These come from homogeneous numeric tuples such as
-/// `(u32, u32)` which `sanitize_type_ref` maps to `Vec<u32>`.
-fn is_sanitized_vec_primitive(ty: &TypeRef) -> bool {
-    match ty {
-        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_)),
-        TypeRef::Optional(inner) => {
-            matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(_)))
-        }
-        _ => false,
-    }
-}
-
-/// Generate binding→core conversion for a sanitized Vec<Primitive> field (tuple round-trip).
-/// Uses serde JSON round-trip: Vec<P> serializes as a JSON array, which tuples also parse from.
-fn gen_sanitized_vec_primitive_to_core(name: &str, ty: &TypeRef, optional: bool) -> String {
-    // Optional(Vec(Primitive)): binding holds Option<Vec<P>>, core expects Option<(P, P, ...)>
-    let is_option_vec = matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(_))));
-    if is_option_vec || optional {
-        return format!(
-            "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
-        );
-    }
-    // Non-optional Vec<Primitive>: binding holds Vec<P>, core expects (P, P, ...)
-    format!(
-        "{name}: serde_json::to_value(&val.{name}).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()"
-    )
 }

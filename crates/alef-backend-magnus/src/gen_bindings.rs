@@ -51,7 +51,6 @@ impl Backend for MagnusBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
@@ -140,36 +139,10 @@ impl Backend for MagnusBackend {
             .map(|t| t.name.as_str())
             .collect();
 
-        // Build adapter body map before type iteration so bodies are available for method generation.
-        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
-
-        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
-        for adapter in &config.adapters {
-            match adapter.pattern {
-                alef_core::config::AdapterPattern::Streaming => {
-                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
-                    if let Some(struct_code) = adapter_bodies.get(&key) {
-                        builder.add_item(struct_code);
-                    }
-                }
-                alef_core::config::AdapterPattern::CallbackBridge => {
-                    let struct_key = format!("{}.__bridge_struct__", adapter.name);
-                    let impl_key = format!("{}.__bridge_impl__", adapter.name);
-                    if let Some(struct_code) = adapter_bodies.get(&struct_key) {
-                        builder.add_item(struct_code);
-                    }
-                    if let Some(impl_code) = adapter_bodies.get(&impl_key) {
-                        builder.add_item(impl_code);
-                    }
-                }
-                _ => {}
-            }
-        }
-
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &adapter_bodies));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
@@ -195,11 +168,6 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) {
-                // Skip sanitized functions — they cannot be auto-delegated and emitting a stub
-                // would expose a broken placeholder in the public API.
-                if func.sanitized {
-                    continue;
-                }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
@@ -222,18 +190,8 @@ impl Backend for MagnusBackend {
         // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge = crate::trait_bridge::gen_trait_bridge(
-                    trait_type,
-                    bridge_cfg,
-                    &core_import,
-                    &config.error_type(),
-                    &config.error_constructor(),
-                    api,
-                );
-                for imp in &bridge.imports {
-                    builder.add_import(imp);
-                }
-                builder.add_item(&bridge.code);
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                builder.add_item(&bridge_code);
             }
         }
 
@@ -292,6 +250,9 @@ impl Backend for MagnusBackend {
             ));
         }
 
+        // Build adapter body map (consumed by generators via body substitution)
+        let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
+
         builder.add_item(&gen_module_init(&module_name, api, config));
 
         let content = builder.build();
@@ -315,8 +276,7 @@ impl Backend for MagnusBackend {
             None => return Ok(vec![]),
         };
 
-        let gem_name = config.ruby_gem_name();
-        let content = crate::gen_stubs::gen_stubs(api, &gem_name);
+        let content = crate::gen_stubs::gen_stubs(api);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
@@ -333,15 +293,13 @@ impl Backend for MagnusBackend {
 
     fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let gem_name = config.ruby_gem_name();
-        // File paths must use snake_case (Ruby convention), even if gem_name has hyphens.
-        let gem_name_snake = gem_name.replace('-', "_");
         let module_name = get_module_name(&gem_name);
 
         // Generate the main Ruby wrapper module file
         let mut content = String::from("# This file is auto-generated by alef. DO NOT EDIT.\n");
         content.push_str("# frozen_string_literal: true\n\n");
-        content.push_str(&format!("require_relative '{gem_name_snake}/version'\n"));
-        content.push_str(&format!("require_relative '{gem_name_snake}/native'\n\n"));
+        content.push_str(&format!("require_relative '{gem_name}/version'\n"));
+        content.push_str(&format!("require_relative '{gem_name}/native'\n\n"));
         content.push_str(&format!("module {module_name}\n"));
         content.push_str("  # Re-export all types and functions from native extension\n");
         content.push_str("end\n");
@@ -366,12 +324,12 @@ impl Backend for MagnusBackend {
 
         Ok(vec![
             GeneratedFile {
-                path: PathBuf::from(&output_dir).join(format!("{gem_name_snake}.rb")),
+                path: PathBuf::from(&output_dir).join(format!("{gem_name}.rb")),
                 content,
                 generated_header: false,
             },
             GeneratedFile {
-                path: PathBuf::from(&output_dir).join(format!("{gem_name_snake}/version.rb")),
+                path: PathBuf::from(&output_dir).join(format!("{gem_name}/version.rb")),
                 content: version_content,
                 generated_header: false,
             },
@@ -436,38 +394,20 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> Str
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(
-    typ: &TypeDef,
-    mapper: &MagnusMapper,
-    opaque_types: &AHashSet<String>,
-    adapter_bodies: &alef_adapters::AdapterBodies,
-) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, opaque_types: &AHashSet<String>) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     for method in &typ.methods {
         if !method.is_static {
-            // Skip sanitized methods that have no adapter override — they cannot be delegated
-            // and emitting an unimplemented stub pollutes the public API with dead placeholders.
-            let adapter_key = format!("{}.{}", typ.name, method.name);
-            if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
-                continue;
-            }
             if method.is_async {
                 impl_builder.add_method(&gen_opaque_async_instance_method(
                     method,
                     mapper,
                     &typ.name,
                     opaque_types,
-                    adapter_bodies,
                 ));
             } else {
-                impl_builder.add_method(&gen_opaque_instance_method(
-                    method,
-                    mapper,
-                    &typ.name,
-                    opaque_types,
-                    adapter_bodies,
-                ));
+                impl_builder.add_method(&gen_opaque_instance_method(method, mapper, &typ.name, opaque_types));
             }
         }
     }
@@ -481,7 +421,6 @@ fn gen_opaque_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
-    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -531,12 +470,7 @@ fn gen_opaque_instance_method(
             )
         }
     } else {
-        let adapter_key = format!("{type_name}.{}", method.name);
-        if let Some(body) = adapter_bodies.get(&adapter_key) {
-            body.clone()
-        } else {
-            gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
-        }
+        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n    "
@@ -556,7 +490,6 @@ fn gen_opaque_async_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
-    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -591,16 +524,11 @@ fn gen_opaque_async_instance_method(
             )
         }
     } else {
-        let adapter_key = format!("{type_name}.{}", method.name);
-        if let Some(body) = adapter_bodies.get(&adapter_key) {
-            body.clone()
-        } else {
-            gen_magnus_unimplemented_body(
-                &method.return_type,
-                &format!("{}_async", method.name),
-                method.error_type.is_some(),
-            )
-        }
+        gen_magnus_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
     };
     format!(
         "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \
@@ -704,11 +632,6 @@ fn gen_struct_methods(
 
     for method in &typ.methods {
         if !method.is_static {
-            // Skip sanitized methods — they cannot be delegated and emitting a stub
-            // would expose a broken placeholder in the public API.
-            if method.sanitized {
-                continue;
-            }
             if method.is_async {
                 impl_builder.add_method(&gen_async_instance_method(
                     method,
@@ -772,7 +695,7 @@ fn gen_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types);
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
@@ -818,7 +741,7 @@ fn gen_async_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types);
         let _core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
@@ -1155,95 +1078,6 @@ fn gen_function(
                 false,
             )
         }
-    } else if !func.sanitized && func.error_type.is_some() {
-        // Serde recovery path: the function cannot be auto-delegated (e.g. a Named ref param
-        // has no From impl), but it returns a Result so we can propagate errors.
-        // At this point the deser_preamble has already converted String params to binding types.
-        // We serialize each non-opaque Named binding param to JSON and deserialize directly into
-        // the matching core type. This works because binding structs derive Serialize and core
-        // types derive Deserialize.
-        let mut core_deser_lines: Vec<String> = Vec::new();
-        let call_args: Vec<String> = func
-            .params
-            .iter()
-            .map(|p| {
-                if let TypeRef::Named(name) = &p.ty {
-                    if opaque_types.contains(name.as_str()) {
-                        return format!("&{}.inner", p.name);
-                    }
-                    // Non-opaque Named param: round-trip via serde_json to get the core type.
-                    // The binding var (p.name) already holds the binding struct after deser_preamble.
-                    let core_ty = format!("{core_import}::{name}");
-                    core_deser_lines.push(format!(
-                        "let {0}_json = serde_json::to_string(&{0}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;",
-                        p.name
-                    ));
-                    core_deser_lines.push(format!(
-                        "let {0}_core: {1} = serde_json::from_str(&{0}_json).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;",
-                        p.name, core_ty
-                    ));
-                    return if p.is_ref {
-                        format!("&{}_core", p.name)
-                    } else {
-                        format!("{}_core", p.name)
-                    };
-                }
-                // Non-Named params: same expressions as the delegate path.
-                match &p.ty {
-                    TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
-                        format!("{}.as_deref()", p.name)
-                    }
-                    TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
-                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
-                    TypeRef::String | TypeRef::Char => p.name.clone(),
-                    TypeRef::Path => {
-                        if p.is_ref {
-                            format!("&std::path::PathBuf::from({})", p.name)
-                        } else {
-                            format!("std::path::PathBuf::from({})", p.name)
-                        }
-                    }
-                    TypeRef::Bytes => format!("&{}", p.name),
-                    TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(_) => {
-                        if p.is_ref {
-                            format!("&{}", p.name)
-                        } else {
-                            p.name.to_string()
-                        }
-                    }
-                    _ => p.name.clone(),
-                }
-            })
-            .collect();
-
-        let core_deser_preamble = if core_deser_lines.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n    ", core_deser_lines.join("\n    "))
-        };
-
-        let core_fn_path = {
-            let path = func.rust_path.replace('-', "_");
-            if path.starts_with(core_import) {
-                path
-            } else {
-                format!("{core_import}::{}", func.name)
-            }
-        };
-        let core_call = format!("{core_fn_path}({})", call_args.join(", "));
-        let wrap = generators::wrap_return(
-            "result",
-            &func.return_type,
-            "",
-            opaque_types,
-            false,
-            func.returns_ref,
-            false,
-        );
-        format!(
-            "{core_deser_preamble}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    Ok({wrap})"
-        )
     } else {
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
@@ -1400,8 +1234,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        let class_used =
-            (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static && !m.sanitized);
+        let class_used = (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static);
         let binding = if class_used { "class" } else { "_class" };
         lines.push(format!(
             r#"    let {binding} = module.define_class("{}", ruby.class_object())?;"#,
@@ -1432,10 +1265,6 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
         for method in &typ.methods {
             if !method.is_static {
-                // Sanitized methods are not emitted as Rust functions, so don't register them.
-                if method.sanitized {
-                    continue;
-                }
                 let method_name = if method.is_async {
                     format!("{}_async", method.name)
                 } else {
@@ -1457,10 +1286,6 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
     for func in &api.functions {
         if is_reserved_fn(&func.name) {
-            continue;
-        }
-        // Sanitized functions are not emitted as Rust functions, so don't register them.
-        if func.sanitized {
             continue;
         }
         let param_count = func.params.len();

@@ -273,7 +273,7 @@ def client(http_test_server):  # noqa: ANN001, ANN201
 fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "\"\"\"E2e tests for category: {category}.\"\"\"");;
+    let _ = writeln!(out, "\"\"\"E2e tests for category: {category}.\"\"\"");
 
     let module = resolve_module(e2e_config);
     let function_name = resolve_function_name(e2e_config);

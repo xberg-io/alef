@@ -4,6 +4,7 @@
 pub mod backend;
 pub mod config;
 pub mod error;
+pub mod hash;
 pub mod ir;
 
 pub use backend::{Backend, Capabilities, GeneratedFile};

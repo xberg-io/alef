@@ -315,15 +315,9 @@ pub fn gen_method(
                         ".into()".to_string()
                     }
                 }
-                // Bytes: binding uses Vec<u8>. When core returns &[u8] (returns_ref=true),
-                // use .to_vec() to produce Vec<u8>. When core returns owned Bytes, use .into().
-                TypeRef::Bytes => {
-                    if method.returns_ref {
-                        ".to_vec()".to_string()
-                    } else {
-                        ".into()".to_string()
-                    }
-                }
+                // Bytes: binding uses Vec<u8>. Always use .to_vec() which works for both
+                // &Bytes and owned Bytes (avoids &Bytes→Vec<u8> From trait issues).
+                TypeRef::Bytes => ".to_vec()".to_string(),
                 // Optional<Named>: when core returns Option<&T>, need .map(|v| v.clone().into())
                 TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                     if method.returns_ref {

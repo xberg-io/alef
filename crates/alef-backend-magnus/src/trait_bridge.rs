@@ -3,402 +3,27 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Ruby objects via Magnus `respond_to` checks and `funcall`.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
-use std::collections::HashMap;
 use std::fmt::Write;
-
-/// Magnus-specific trait bridge generator.
-/// Implements code generation for bridging Ruby objects to Rust traits.
-pub struct MagnusBridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
-    pub core_import: String,
-    /// Map of type name → fully-qualified Rust path for type references.
-    pub type_paths: HashMap<String, String>,
-    /// Error type name (e.g., `"KreuzbergError"`).
-    pub error_type: String,
-}
-
-impl TraitBridgeGenerator for MagnusBridgeGenerator {
-    fn foreign_object_type(&self) -> &str {
-        "magnus::Value"
-    }
-
-    fn bridge_imports(&self) -> Vec<String> {
-        vec!["use magnus::prelude::*;".to_string()]
-    }
-
-    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
-        let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
-
-        // Check if Ruby object responds to this method
-        writeln!(
-            out,
-            "let responds = self.inner.respond_to(\"{name}\", false).unwrap_or(false);"
-        )
-        .ok();
-        writeln!(out, "if !responds {{").ok();
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "    return Ok(());").ok();
-        } else {
-            let _ret_ty = self.extract_ty(&method.return_type);
-            writeln!(out, "    return Ok(Default::default());").ok();
-        }
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        // Build the funcall args tuple. Use ReprValue::funcall (from prelude::*)
-        // rather than Method trait — Method is not dyn-compatible.
-        let ruby_args = self.sync_ruby_args(method);
-        let call = if ruby_args.is_empty() {
-            format!("self.inner.funcall(\"{name}\", ())")
-        } else {
-            format!("self.inner.funcall(\"{name}\", ({ruby_args}))")
-        };
-
-        writeln!(out, "let result: Result<magnus::Value, magnus::Error> = {call};").ok();
-        writeln!(out, "match result {{").ok();
-        writeln!(out, "    Err(e) => {{").ok();
-        if has_error {
-            writeln!(
-                out,
-                "        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))"
-            )
-            .ok();
-        } else {
-            writeln!(out, "        Ok(Default::default())").ok();
-        }
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    Ok(val) => {{").ok();
-
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "        Ok(())").ok();
-        } else {
-            let ext = self.extract_ty(&method.return_type);
-            writeln!(out, "        val.try_convert::<{ext}>().map_err(|e| Box::new(e) as _)").ok();
-        }
-
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
-    }
-
-    fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
-        let mut out = String::with_capacity(1024);
-
-        // Ruby lacks native async, so we block on Tokio runtime
-        writeln!(out, "let ruby_obj = self.inner;").ok();
-        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
-
-        // Clone/convert params for the blocking closure
-        for p in &method.params {
-            match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => {
-                    writeln!(out, "let {0} = {0}.to_vec();", p.name).ok();
-                }
-                (TypeRef::String, true) => {
-                    writeln!(out, "let {0} = {0}.to_string();", p.name).ok();
-                }
-                (TypeRef::String, false) => {
-                    writeln!(out, "let {0} = {0}.clone();", p.name).ok();
-                }
-                (TypeRef::Named(_), true) => {
-                    writeln!(
-                        out,
-                        "let {0}_json = serde_json::to_string({0}).unwrap_or_default();",
-                        p.name
-                    )
-                    .ok();
-                }
-                _ => {}
-            }
-        }
-
-        writeln!(out).ok();
-        writeln!(out, "Box::pin(async move {{").ok();
-        writeln!(out, "    tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(
-            out,
-            "        let responds = ruby_obj.respond_to(\"{name}\", false).unwrap_or(false);"
-        )
-        .ok();
-        writeln!(out, "        if !responds {{").ok();
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "            return Ok(());").ok();
-        } else {
-            writeln!(out, "            return Ok(Default::default());").ok();
-        }
-        writeln!(out, "        }}").ok();
-
-        let ruby_args = self.async_ruby_args(method);
-        let call = if ruby_args.is_empty() {
-            format!("ruby_obj.funcall(\"{name}\", ())")
-        } else {
-            format!("ruby_obj.funcall(\"{name}\", ({ruby_args}))")
-        };
-
-        writeln!(out, "        match {call} {{").ok();
-        writeln!(out, "            Err(e) => {{").ok();
-        writeln!(
-            out,
-            "                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as _)"
-        )
-        .ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "            Ok(val) => {{").ok();
-
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "                Ok(())").ok();
-        } else {
-            let ext = self.extract_ty(&method.return_type);
-            writeln!(
-                out,
-                "                val.try_convert::<{ext}>().map_err(|e| Box::new(e) as _)"
-            )
-            .ok();
-        }
-
-        writeln!(out, "            }}").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "    .await").ok();
-        writeln!(
-            out,
-            "    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as _)?"
-        )
-        .ok();
-        writeln!(out, "}})").ok();
-
-        out
-    }
-
-    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
-        let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
-
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping a Ruby object.").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// Validates that the Ruby object provides all required methods."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    pub fn new(ruby_obj: magnus::Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {{"
-        )
-        .ok();
-
-        // Validate all required methods exist
-        for req_method in spec.required_methods() {
-            writeln!(
-                out,
-                "        if !ruby_obj.respond_to(\"{}\", false).unwrap_or(false) {{",
-                req_method.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "            return Err(format!(\"Ruby object missing required method: {}\", \"{}\").into());",
-                req_method.name, req_method.name
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-        }
-
-        // Extract and cache name via calling the `name` method
-        writeln!(
-            out,
-            "        let cached_name: String = match ruby_obj.funcall(\"name\", ()) {{"
-        )
-        .ok();
-        writeln!(out, "            Ok(s) => s,").ok();
-        writeln!(out, "            Err(_) => \"unknown\".to_string(),").ok();
-        writeln!(out, "        }};").ok();
-
-        writeln!(out).ok();
-        writeln!(out, "        Ok(Self {{").ok();
-        writeln!(out, "            inner: ruby_obj,").ok();
-        writeln!(out, "            cached_name,").ok();
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
-    }
-
-    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
-        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
-            return String::new();
-        };
-        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
-            return String::new();
-        };
-        let wrapper = spec.wrapper_name();
-        let trait_path = spec.trait_path();
-
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "#[magnus::init]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(ruby: &magnus::Ruby) -> Result<(), magnus::Error> {{"
-        )
-        .ok();
-
-        // Create and validate the bridge
-        writeln!(out, "    let bridge = {wrapper}::new(ruby.obj_alloc())?;").ok();
-        writeln!(
-            out,
-            "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(bridge);"
-        )
-        .ok();
-
-        // Register in the plugin registry
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write().map_err(|_| magnus::Error::new(magnus::exception::runtime_error(), \"registry lock poisoned\"))?;").ok();
-        writeln!(out, "    registry.register(arc).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))").ok();
-        writeln!(out, "}}").ok();
-        out
-    }
-}
-
-impl MagnusBridgeGenerator {
-    /// Extract the Ruby type that corresponds to a Rust TypeRef.
-    fn extract_ty(&self, ty: &TypeRef) -> String {
-        match ty {
-            TypeRef::Primitive(p) => self.prim(p).to_string(),
-            TypeRef::String | TypeRef::Path | TypeRef::Char => "String".into(),
-            TypeRef::Bytes => "Vec<u8>".into(),
-            TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
-            TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
-            TypeRef::Named(name) => name.clone(),
-            TypeRef::Unit => "()".into(),
-            TypeRef::Map(k, v) => format!(
-                "std::collections::HashMap<{}, {}>",
-                self.extract_ty(k),
-                self.extract_ty(v)
-            ),
-            TypeRef::Json => "serde_json::Value".into(),
-            TypeRef::Duration => "std::time::Duration".into(),
-        }
-    }
-
-    /// Get the Rust string representation of a primitive type.
-    fn prim(&self, p: &alef_core::ir::PrimitiveType) -> &'static str {
-        use alef_core::ir::PrimitiveType::*;
-        match p {
-            Bool => "bool",
-            U8 => "u8",
-            U16 => "u16",
-            U32 => "u32",
-            U64 => "u64",
-            I8 => "i8",
-            I16 => "i16",
-            I32 => "i32",
-            I64 => "i64",
-            F32 => "f32",
-            F64 => "f64",
-            Usize => "usize",
-            Isize => "isize",
-        }
-    }
-
-    /// Build Ruby call argument expressions for a sync method.
-    fn sync_ruby_args(&self, method: &MethodDef) -> String {
-        let args: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => {
-                    format!(
-                        "unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(std::str::from_utf8({}).unwrap_or_default())",
-                        p.name
-                    )
-                }
-                (TypeRef::String, true) => {
-                    format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name)
-                }
-                (TypeRef::String, false) => {
-                    format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name)
-                }
-                (TypeRef::Named(_), true) => {
-                    format!("serde_json::to_string({}).unwrap_or_default()", p.name)
-                }
-                // Primitives implement IntoValue — pass directly without Value::from().
-                _ => p.name.clone(),
-            })
-            .collect();
-        if args.len() == 1 {
-            format!("{},", args[0])
-        } else {
-            args.join(", ")
-        }
-    }
-
-    /// Build Ruby call argument expressions for an async method.
-    fn async_ruby_args(&self, method: &MethodDef) -> String {
-        let args: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| {
-                // Check optional &str first, before non-optional &str.
-                if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-                    return format!(
-                        "match {} {{ Some(s) => unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(s).as_value(), None => unsafe {{ magnus::Ruby::get_unchecked() }}.qnil().as_value() }}",
-                        p.name
-                    );
-                }
-                match (&p.ty, p.is_ref) {
-                    (TypeRef::Bytes, true) => {
-                        format!(
-                            "unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(std::str::from_utf8(&{}[..]).unwrap_or_default())",
-                            p.name
-                        )
-                    }
-                    (TypeRef::String, true) => {
-                        format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name)
-                    }
-                    (TypeRef::String, false) => {
-                        format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name)
-                    }
-                    (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
-                    // Primitives implement IntoValue — pass directly without Value::from().
-                    _ => p.name.clone(),
-                }
-            })
-            .collect();
-        if args.len() == 1 {
-            format!("{},", args[0])
-        } else {
-            args.join(", ")
-        }
-    }
-}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
-    error_type: &str,
-    error_constructor: &str,
     api: &ApiSurface,
-) -> BridgeOutput {
-    // Build type name → rust_path lookup, converting to owned Strings for plugin pattern
-    let type_paths: HashMap<String, String> = api
+) -> String {
+    let mut out = String::with_capacity(8192);
+    let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
+    let trait_path = trait_type.rust_path.replace('-', "_");
+
+    // Build type name → rust_path lookup
+    let type_paths: std::collections::HashMap<&str, &str> = api
         .types
         .iter()
-        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(
-            api.enums
-                .iter()
-                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
-        )
+        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
+        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -408,14 +33,6 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
-        let mut out = String::with_capacity(8192);
-        let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
-        let trait_path = trait_type.rust_path.replace('-', "_");
-
-        // Convert HashMap to &HashMap for visitor bridge
-        let type_paths_ref: std::collections::HashMap<&str, &str> =
-            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
         gen_visitor_bridge(
             &mut out,
             trait_type,
@@ -423,30 +40,11 @@ pub fn gen_trait_bridge(
             &struct_name,
             &trait_path,
             core_import,
-            &type_paths_ref,
+            &type_paths,
         );
-        BridgeOutput {
-            imports: vec![],
-            code: out,
-        }
-    } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure for plugin bridges
-        let generator = MagnusBridgeGenerator {
-            core_import: core_import.to_string(),
-            type_paths: type_paths.clone(),
-            error_type: error_type.to_string(),
-        };
-        let spec = TraitBridgeSpec {
-            trait_def: trait_type,
-            bridge_config: bridge_cfg,
-            core_import,
-            wrapper_prefix: "Rb",
-            type_paths,
-            error_type: error_type.to_string(),
-            error_constructor: error_constructor.to_string(),
-        };
-        gen_bridge_all(&spec, &generator)
     }
+
+    out
 }
 
 /// Generate a visitor-style bridge wrapping a Magnus `magnus::Value`.
@@ -487,7 +85,7 @@ fn gen_visitor_bridge(
     writeln!(out, "    h.aset(ruby.to_symbol(\"is_inline\"), ctx.is_inline).ok();").unwrap();
     writeln!(
         out,
-        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| ruby.str_new(s))).ok();"
+        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| magnus::Value::from(ruby.str_new(s)))).ok();"
     )
     .unwrap();
     writeln!(out, "    let attrs = ruby.hash_new();").unwrap();
@@ -588,12 +186,11 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
     writeln!(out, "            return {ret_ty}::Continue;").unwrap();
     writeln!(out, "        }}").unwrap();
 
-    // Build the funcall args tuple. Use ReprValue::funcall (from prelude::*)
-    // rather than the Method trait — Method is not dyn-compatible in Rust 2024.
+    // Build the funcall args tuple
     if method.params.is_empty() {
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", ());"
+            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", ());"
         )
         .unwrap();
     } else {
@@ -606,7 +203,7 @@ fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &
         };
         writeln!(
             out,
-            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", {args_tuple});"
+            "        let result: Result<magnus::Value, magnus::Error> = magnus::method::Method::funcall(self.rb_obj, \"{name}\", {args_tuple});"
         )
         .unwrap();
     }
@@ -639,28 +236,22 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
             return format!("nodecontext_to_rb_hash({}{})", if p.is_ref { "" } else { "&" }, p.name);
         }
     }
-    // Optional &str before non-optional &str to avoid shadowing.
-    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!(
-            "match {} {{ Some(s) => unsafe {{ magnus::Ruby::get_unchecked() }}.str_new(s).as_value(), None => unsafe {{ magnus::Ruby::get_unchecked() }}.qnil().as_value() }}",
-            p.name
-        );
-    }
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({})", p.name);
+        return format!("magnus::RString::new({})", p.name);
     }
     if matches!(&p.ty, TypeRef::String) {
-        return format!("unsafe {{ magnus::Ruby::get_unchecked() }}.str_new({}.as_str())", p.name);
+        return format!("magnus::RString::new({}.as_str())", p.name);
     }
-    // Vec/slice: convert to Ruby Array
-    if matches!(&p.ty, TypeRef::Vec(_)) {
+    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!(
-            "{{ let __ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; let __arr = __ruby.ary_new_capa({0}.len()); for __item in {0} {{ let _ = __arr.push(__ruby.str_new(__item)); }} __arr }}",
+            "match {} {{ Some(s) => magnus::Value::from(magnus::RString::new(s)), None => magnus::Value::nil() }}",
             p.name
         );
     }
-    // Primitives (bool, int, float) and other types implement IntoValue — pass directly.
-    p.name.clone()
+    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        return format!("magnus::Value::from({})", p.name);
+    }
+    format!("magnus::Value::from({})", p.name)
 }
 
 /// Map TypeRef to a Rust type string.

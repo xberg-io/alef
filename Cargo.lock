@@ -209,6 +209,7 @@ name = "alef-core"
 version = "0.5.9"
 dependencies = [
  "anyhow",
+ "blake3",
  "heck",
  "serde",
  "serde_json",

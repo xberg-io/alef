@@ -222,29 +222,6 @@ pub fn field_conversion_from_core(
                         "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
                     );
                 }
-                // Vec<Primitive>: sanitized from a homogeneous numeric tuple, e.g. (u32, u32) → Vec<u32>.
-                // Use serde round-trip to convert: tuples serialize as JSON arrays and Vec<Primitive>
-                // deserializes from JSON arrays, so the conversion is lossless for any arity.
-                if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
-                    return format!(
-                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
-                    );
-                }
-            }
-        }
-        // Vec<Primitive>: sanitized from a homogeneous numeric tuple, e.g. (u32, u32) → Vec<u32>.
-        // Use serde round-trip to convert: tuples serialize as JSON arrays and Vec<Primitive>
-        // deserializes from JSON arrays, so the conversion is lossless for any arity.
-        if let TypeRef::Vec(inner) = ty {
-            if matches!(inner.as_ref(), TypeRef::Primitive(_)) {
-                if optional {
-                    return format!(
-                        "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok()).and_then(|v| serde_json::from_value(v).ok())"
-                    );
-                }
-                return format!(
-                    "{name}: serde_json::to_value(&val.{name}).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()"
-                );
             }
         }
         // String: sanitized from Box<str>, Cow<str>, (u32, u32), etc.
@@ -255,22 +232,6 @@ pub fn field_conversion_from_core(
                 return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{v:?}}\"))");
             }
             return format!("{name}: format!(\"{{:?}}\", val.{name})");
-        }
-        // Named (optional or non-optional): sanitized from excluded types
-        // (e.g. Optional<Arc<SchemaValidator>> → optional=true, ty=Named("SchemaValidator")).
-        // These types may not implement Debug, so we cannot use format!("{:?}").
-        // Return None for optional, empty String for non-optional.
-        if matches!(ty, TypeRef::Named(_)) {
-            if optional {
-                return format!("{name}: None");
-            }
-            return format!("{name}: String::new()");
-        }
-        // Optional<Named>: double-optional case (Option<Option<Arc<T>>>).
-        if let TypeRef::Optional(inner) = ty {
-            if matches!(inner.as_ref(), TypeRef::Named(_)) {
-                return format!("{name}: None");
-            }
         }
         // Fallback for truly unknown sanitized types — the core type may not implement Display,
         // so use Debug formatting which is always available (required by the sanitized field's derive).
@@ -580,7 +541,7 @@ pub fn field_conversion_from_core_cfg(
             }
         }
         // HashMap value type casting: when value type needs i64 casting
-        TypeRef::Map(_k, v)
+        TypeRef::Map(k, v)
             if config.cast_large_ints_to_i64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = v.as_ref() {
@@ -712,7 +673,20 @@ fn apply_core_wrapper_from_core(
             }
         }
         CoreWrapper::Arc => {
-            // Arc<T> → T: unwrap via clone
+            // Arc<T> → T: unwrap via clone.
+            //
+            // Special case: opaque Named types build the binding wrapper with
+            // `{ inner: Arc::new(v) }` in the base conversion, but when the core
+            // field is `Arc<T>`, `v` IS already the `Arc<T>` — wrapping it again
+            // with `Arc::new` produces `Arc<Arc<T>>`.  Detect this pattern and
+            // replace `Arc::new(v)` with `v`, and `Arc::new(val.{name})` with
+            // `val.{name}`, then return without adding an extra unwrap chain.
+            if conversion.contains("{ inner: Arc::new(") {
+                return conversion.replace("{ inner: Arc::new(v) }", "{ inner: v }").replace(
+                    &format!("{{ inner: Arc::new(val.{name}) }}"),
+                    &format!("{{ inner: val.{name} }}"),
+                );
+            }
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
                     format!("{name}: {expr}.map(|v| (*v).clone().into())")
