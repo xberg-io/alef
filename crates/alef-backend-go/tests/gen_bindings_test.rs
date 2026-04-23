@@ -273,15 +273,24 @@ fn test_type_mapping() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify Go type mappings
-    assert!(content.contains("U32Val uint32"), "U32 should map to uint32");
-    assert!(content.contains("I64Val int64"), "I64 should map to int64");
+    // Verify Go type mappings — gofmt aligns fields with variable whitespace,
+    // so we check for the field name and type without exact spacing.
+    let lines: Vec<&str> = content.lines().collect();
+    let struct_lines: Vec<&&str> = lines.iter().filter(|l| l.contains("Val")).collect();
     assert!(
-        content.contains("StringVal *string"),
+        struct_lines.iter().any(|l| l.contains("U32Val") && l.contains("uint32")),
+        "U32 should map to uint32"
+    );
+    assert!(
+        struct_lines.iter().any(|l| l.contains("I64Val") && l.contains("int64")),
+        "I64 should map to int64"
+    );
+    assert!(
+        struct_lines.iter().any(|l| l.contains("StringVal") && l.contains("*string")),
         "Optional String should be *string"
     );
     assert!(
-        content.contains("VecVal []string"),
+        struct_lines.iter().any(|l| l.contains("VecVal") && l.contains("[]string")),
         "Vec<String> should map to []string"
     );
 }

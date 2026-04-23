@@ -1,5 +1,5 @@
 use crate::type_map::{go_optional_type, go_type};
-use alef_codegen::naming::to_go_name;
+use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
@@ -296,7 +296,14 @@ fn gen_go_file(
     let depth = go_output_dir.trim_end_matches('/').matches('/').count() + 1;
     let to_root = "../".repeat(depth);
 
-    // Package header and cgo directives
+    // Package header and cgo directives.
+    // The package comment must immediately precede the package declaration with no blank line.
+    writeln!(
+        out,
+        "// Package {} provides Go bindings for the liter-llm library.",
+        pkg_name
+    )
+    .ok();
     writeln!(out, "package {}\n", pkg_name).ok();
     writeln!(out, "/*").ok();
     writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
@@ -542,20 +549,47 @@ fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &Enum
 fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
 
-    emit_type_doc(&mut out, &enum_def.name, &enum_def.doc, "is an enumeration type.");
-    writeln!(out, "type {} string", enum_def.name).ok();
+    let go_enum_name = go_type_name(&enum_def.name);
+    emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
+    writeln!(out, "type {} string", go_enum_name).ok();
     writeln!(out).ok();
     writeln!(out, "const (").ok();
 
     for variant in &enum_def.variants {
-        let const_name = format!("{}{}", enum_def.name, variant.name.to_pascal_case());
+        let const_name = format!("{}{}", go_enum_name, variant.name.to_pascal_case());
         let wire_value = enum_variant_wire_value(variant, enum_def);
         if !variant.doc.is_empty() {
-            for line in variant.doc.lines() {
-                writeln!(out, "\t// {}", line.trim()).ok();
+            // revive requires the first comment line to start with the const name.
+            // Prepend the const name if the existing doc doesn't already start with it.
+            let mut lines = variant.doc.lines();
+            if let Some(first) = lines.next() {
+                let trimmed = first.trim();
+                if trimmed.starts_with(&const_name) {
+                    writeln!(out, "\t// {}", trimmed).ok();
+                } else {
+                    // Lowercase first char so the sentence reads naturally after the const name.
+                    let rest = {
+                        let mut chars = trimmed.chars();
+                        match chars.next() {
+                            Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                            None => trimmed.to_string(),
+                        }
+                    };
+                    writeln!(out, "\t// {} {}", const_name, rest).ok();
+                }
+                for line in lines {
+                    writeln!(out, "\t// {}", line.trim()).ok();
+                }
             }
+        } else {
+            writeln!(
+                out,
+                "\t// {} is the {} variant of {}.",
+                const_name, variant.name, enum_def.name
+            )
+            .ok();
         }
-        writeln!(out, "\t{} {} = \"{}\"", const_name, enum_def.name, wire_value).ok();
+        writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
     }
 
     writeln!(out, ")").ok();
@@ -572,15 +606,16 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     // Collect variant names for the doc comment
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
     let total_variants = enum_def.variants.len();
+    let go_enum_name = go_type_name(&enum_def.name);
 
     emit_type_doc(
         &mut out,
-        &enum_def.name,
+        &go_enum_name,
         &enum_def.doc,
         "is a tagged union type (discriminated by JSON tag).",
     );
     writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
-    writeln!(out, "type {} struct {{", enum_def.name).ok();
+    writeln!(out, "type {} struct {{", go_enum_name).ok();
 
     // Emit the serde tag discriminator field first (e.g. `Type string \`json:"type"\``).
     // This ensures round-trip JSON serialization preserves the variant discriminator,
@@ -646,9 +681,10 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     let mut out = String::with_capacity(512);
     let type_snake = typ.name.to_snake_case();
+    let go_name = go_type_name(&typ.name);
 
-    emit_type_doc(&mut out, &typ.name, &typ.doc, "is an opaque handle type.");
-    writeln!(out, "type {} struct {{", typ.name).ok();
+    emit_type_doc(&mut out, &go_name, &typ.doc, "is an opaque handle type.");
+    writeln!(out, "type {} struct {{", go_name).ok();
     writeln!(out, "\tptr unsafe.Pointer").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
@@ -656,7 +692,7 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     // Free method
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
     writeln!(out, "// Free releases the resources held by this handle.").ok();
-    writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
+    writeln!(out, "func (h *{}) Free() {{", go_name).ok();
     writeln!(out, "\tif h.ptr != nil {{").ok();
     writeln!(out, "\t\tC.{}_{}_free((*C.{})(h.ptr))", ffi_prefix, type_snake, c_type).ok();
     writeln!(out, "\t\th.ptr = nil").ok();
@@ -687,8 +723,9 @@ fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> String {
 fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
     let mut out = String::with_capacity(1024);
 
-    emit_type_doc(&mut out, &typ.name, &typ.doc, "is a type.");
-    writeln!(out, "type {} struct {{", typ.name).ok();
+    let go_name = go_type_name(&typ.name);
+    emit_type_doc(&mut out, &go_name, &typ.doc, "is a type.");
+    writeln!(out, "type {} struct {{", go_name).ok();
 
     for field in &typ.fields {
         if is_tuple_field(field) {
@@ -791,13 +828,7 @@ fn gen_function_wrapper(
 
     let func_go_name = to_go_name(&func.name);
 
-    if !func.doc.is_empty() {
-        for line in func.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(out, "// {} calls the FFI function.", func_go_name).ok();
-    }
+    emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
     // A function that marshals parameters to JSON can fail even without a declared error_type.
     // Synthesize an error return in those cases so we never panic on marshal failure.
@@ -850,7 +881,7 @@ fn gen_function_wrapper(
         } else {
             go_type(&p.ty).into_owned()
         };
-        param_strs.push(format!("{} {}", p.name, param_type));
+        param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
     }
     write!(out, "{}", param_strs.join(", ")).ok();
 
@@ -895,11 +926,13 @@ fn gen_function_wrapper(
                 // Sanitized bridge params have been removed from the C function signature;
                 // do not emit a nil slot for them.
                 if p.sanitized { vec![] } else { vec!["nil".to_string()] }
-            } else if matches!(p.ty, TypeRef::Bytes) {
-                let c_name = format!("c{}", p.name.to_pascal_case());
-                vec![c_name.clone(), format!("{}Len", c_name)]
             } else {
-                vec![format!("c{}", p.name.to_pascal_case())]
+                let c_name = to_go_name(&format!("c_{}", p.name));
+                if matches!(p.ty, TypeRef::Bytes) {
+                    vec![c_name.clone(), format!("{}Len", c_name)]
+                } else {
+                    vec![c_name]
+                }
             }
         })
         .collect();
@@ -1005,13 +1038,7 @@ fn gen_method_wrapper(
 
     let method_go_name = to_go_name(&method.name);
 
-    if !method.doc.is_empty() {
-        for line in method.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(out, "// {} is a method.", method_go_name).ok();
-    }
+    emit_type_doc(&mut out, &method_go_name, &method.doc, "is a method.");
 
     // A non-opaque, non-static method marshals its receiver to JSON — that is fallible.
     // Also include params that require marshaling.
@@ -1031,14 +1058,21 @@ fn gen_method_wrapper(
         go_optional_type(&method.return_type).into_owned()
     };
 
-    let receiver_name = "r";
-    let receiver_type = &typ.name;
+    // Opaque types use "h" (for "handle") to match the receiver name in Free().
+    // Non-opaque types use "r" (for "receiver").
+    let receiver_name = if typ.is_opaque { "h" } else { "r" };
+    let go_receiver_type = go_type_name(&typ.name);
 
     // Static methods become package-level functions (no receiver in Go)
     if method.is_static {
-        write!(out, "func {}{}(", receiver_type, method_go_name).ok();
+        write!(out, "func {}{}(", go_receiver_type, method_go_name).ok();
     } else {
-        write!(out, "func ({} *{}) {}(", receiver_name, receiver_type, method_go_name).ok();
+        write!(
+            out,
+            "func ({} *{}) {}(",
+            receiver_name, go_receiver_type, method_go_name
+        )
+        .ok();
     }
 
     let params: Vec<String> = method
@@ -1056,7 +1090,7 @@ fn gen_method_wrapper(
             } else {
                 go_type(&p.ty).into_owned()
             };
-            format!("{} {}", p.name, param_type)
+            format!("{} {}", go_param_name(&p.name), param_type)
         })
         .collect();
     write!(out, "{}", params.join(", ")).ok();
@@ -1091,11 +1125,11 @@ fn gen_method_wrapper(
             .params
             .iter()
             .flat_map(|p| -> Vec<String> {
+                let c_name = to_go_name(&format!("c_{}", p.name));
                 if matches!(p.ty, TypeRef::Bytes) {
-                    let c_name = format!("c{}", p.name.to_pascal_case());
                     vec![c_name.clone(), format!("{}Len", c_name)]
                 } else {
-                    vec![format!("c{}", p.name.to_pascal_case())]
+                    vec![c_name]
                 }
             })
             .collect();
@@ -1298,7 +1332,10 @@ fn gen_param_to_c(
     opaque_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(512);
-    let c_name = format!("c{}", param.name.to_pascal_case());
+    // Go param names must be lowerCamelCase (no underscores), and internal C-side
+    // temporaries use the same stem with acronym uppercasing applied.
+    let go_param = go_param_name(&param.name);
+    let c_name = alef_codegen::naming::to_go_name(&format!("c_{}", param.name));
     let err_return_prefix = if returns_value_and_error { "nil, " } else { "" };
 
     match &param.ty {
@@ -1311,14 +1348,14 @@ fn gen_param_to_c(
                      {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
                      }}",
                     c_name = c_name,
-                    param = param.name,
+                    param = go_param,
                 )
                 .ok();
             } else {
                 writeln!(
                     out,
                     "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
-                    c_name, param.name, c_name
+                    c_name, go_param, c_name
                 )
                 .ok();
             }
@@ -1331,21 +1368,21 @@ fn gen_param_to_c(
                      {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
                      }}",
                     c_name = c_name,
-                    param = param.name,
+                    param = go_param,
                 )
                 .ok();
             } else {
                 writeln!(
                     out,
                     "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
-                    c_name, param.name, c_name
+                    c_name, go_param, c_name
                 )
                 .ok();
             }
         }
         TypeRef::Bytes => {
-            writeln!(out, "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
-            writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, param.name).ok();
+            writeln!(out, "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, go_param).ok();
+            writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, go_param).ok();
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
@@ -1354,7 +1391,7 @@ fn gen_param_to_c(
                 writeln!(
                     out,
                     "\t{c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
-                    param = param.name,
+                    param = go_param,
                 )
                 .ok();
             } else {
@@ -1377,7 +1414,7 @@ fn gen_param_to_c(
                      C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
                      defer C.{ffi_prefix}_{type_snake}_free({c_name})",
                     c_name = c_name,
-                    param = param.name,
+                    param = go_param,
                     err_action = err_action,
                     ffi_prefix = ffi_prefix,
                     type_snake = type_snake,
@@ -1401,7 +1438,7 @@ fn gen_param_to_c(
                  {c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
                  defer C.free(unsafe.Pointer({c_name}))",
                 c_name = c_name,
-                param = param.name,
+                param = go_param,
                 err_action = err_action,
             )
             .ok();
@@ -1414,7 +1451,7 @@ fn gen_param_to_c(
                         "\tvar {} *C.char\n\tif {} != nil {{\n\t\t\
                          {} = C.CString(*{})\n\t\tdefer C.free(unsafe.Pointer({}))\n\t\
                          }}",
-                        c_name, param.name, c_name, param.name, c_name
+                        c_name, go_param, c_name, go_param, c_name
                     )
                     .ok();
                 }
@@ -1428,7 +1465,7 @@ fn gen_param_to_c(
                          }}",
                         c_name = c_name,
                         c_type = c_type,
-                        param = param.name,
+                        param = go_param,
                     )
                     .ok();
                 }
@@ -1440,7 +1477,7 @@ fn gen_param_to_c(
                          {} = C.CString(string(jsonBytes))\n\t\t\
                          defer C.free(unsafe.Pointer({}))\n\t\
                          }}",
-                        c_name, param.name, param.name, c_name, c_name
+                        c_name, go_param, go_param, c_name, c_name
                     )
                     .ok();
                 }
@@ -1461,7 +1498,7 @@ fn gen_param_to_c(
                 c_name = c_name,
                 cgo_ty = cgo_ty,
                 go_ty = go_ty,
-                param = param.name,
+                param = go_param,
             )
             .ok();
         }
@@ -1486,7 +1523,7 @@ fn gen_param_to_c(
                 cgo_ty = cgo_ty,
                 go_ty = go_ty,
                 sentinel = sentinel,
-                param = param.name,
+                param = go_param,
             )
             .ok();
         }
@@ -1691,8 +1728,9 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
     let mut out = String::with_capacity(2048);
 
     // ConfigOption type definition
-    writeln!(out, "// {} option function", typ.name).ok();
-    writeln!(out, "type {}Option func(*{})", typ.name, typ.name).ok();
+    let go_name = go_type_name(&typ.name);
+    writeln!(out, "// {}Option is an option function for {}.", go_name, go_name).ok();
+    writeln!(out, "type {}Option func(*{})", go_name, go_name).ok();
     writeln!(out).ok();
 
     // Generate WithFieldName constructors for each field
@@ -1708,13 +1746,13 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
         writeln!(
             out,
             "// With{}{} sets the {} field.",
-            typ.name, field_go_name, field.name
+            go_name, field_go_name, field.name
         )
         .ok();
         writeln!(
             out,
             "func With{}{}(v {}) {}Option {{",
-            typ.name, field_go_name, param_type, typ.name
+            go_name, field_go_name, param_type, go_name
         )
         .ok();
         // Optional fields and fields that use pointer+omitempty (to preserve Rust defaults) both
@@ -1724,7 +1762,7 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
         writeln!(
             out,
             "\treturn func(c *{}) {{ c.{} = {} }}",
-            typ.name, field_go_name, assign_val
+            go_name, field_go_name, assign_val
         )
         .ok();
         writeln!(out, "}}").ok();
@@ -1732,14 +1770,9 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
     }
 
     // Generate NewConfig constructor
-    writeln!(
-        out,
-        "// New{} creates a {} with optional parameters.",
-        typ.name, typ.name
-    )
-    .ok();
-    writeln!(out, "func New{}(opts ...{}Option) *{} {{", typ.name, typ.name, typ.name).ok();
-    writeln!(out, "\tc := &{} {{", typ.name).ok();
+    writeln!(out, "// New{} creates a {} with optional parameters.", go_name, go_name).ok();
+    writeln!(out, "func New{}(opts ...{}Option) *{} {{", go_name, go_name, go_name).ok();
+    writeln!(out, "\tc := &{} {{", go_name).ok();
 
     // Set default values for fields
     for field in &typ.fields {
@@ -1765,7 +1798,7 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
                         val = "\"\"".to_string();
                     } else {
                         // Struct — zero value is TypeName{}
-                        val = format!("{}{{}}", name);
+                        val = format!("{}{{}}", go_type_name(name));
                     }
                 }
             }

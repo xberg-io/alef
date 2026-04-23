@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use alef_codegen::naming::go_type_name;
 use alef_core::ir::{PrimitiveType, TypeRef};
 
 /// Maps a TypeRef to its Go type representation.
@@ -12,7 +13,7 @@ pub fn go_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Optional(inner) => Cow::Owned(format!("*{}", go_type(inner))),
         TypeRef::Vec(inner) => Cow::Owned(format!("[]{}", go_type(inner))),
         TypeRef::Map(k, v) => Cow::Owned(format!("map[{}]{}", go_type(k), go_type(v))),
-        TypeRef::Named(name) => Cow::Owned(name.clone()),
+        TypeRef::Named(name) => Cow::Owned(go_type_name(name)),
         TypeRef::Path => Cow::Borrowed("string"),
         TypeRef::Json => Cow::Borrowed("json.RawMessage"),
         TypeRef::Unit => Cow::Borrowed(""), // void

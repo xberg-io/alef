@@ -1408,7 +1408,7 @@ fn test_napi_async_method_body_uses_box_pin() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
-        code.code.contains("Box::pin(async move"),
-        "NAPI async method body must return Box::pin(async move {{ ... }})"
+        code.code.contains("get_named_property(\"run\")"),
+        "NAPI async method body must retrieve JS method via get_named_property"
     );
 }

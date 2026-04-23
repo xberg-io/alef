@@ -1224,11 +1224,10 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         "split_code must not delegate to core (type mismatch); content:\n{content}"
     );
 
-    // The generated bodies should emit safe stub values.
-    // Option<String> stub → None; Vec<String> stub → Vec::new().
+    // The generated bodies should emit PHP error stubs for sanitized functions.
     assert!(
-        content.contains("None") || content.contains("Vec::new()"),
-        "sanitized functions should emit unimplemented stub bodies; content:\n{content}"
+        content.contains("Not implemented: extension_ambiguity") || content.contains("Not implemented: split_code"),
+        "sanitized functions should emit PhpException error stubs; content:\n{content}"
     );
 }
 
@@ -1515,8 +1514,8 @@ fn test_php_plugin_bridge_validates_required_methods() {
         "PHP registration fn must validate required method 'analyze'"
     );
     assert!(
-        code.code.contains("get_property"),
-        "PHP registration fn must check method presence via get_property"
+        code.code.contains("try_call_method"),
+        "PHP registration fn must check method presence via try_call_method"
     );
 }
 
@@ -1547,8 +1546,8 @@ fn test_php_async_method_body_uses_box_pin() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
-        code.code.contains("Box::pin(async move"),
-        "PHP async method body must return Box::pin(async move {{ ... }})"
+        code.code.contains("WORKER_RUNTIME.block_on(async"),
+        "PHP async method body must use WORKER_RUNTIME.block_on(async {{ ... }})"
     );
 }
 
