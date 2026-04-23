@@ -198,6 +198,46 @@ pub fn sanitize_filename(s: &str) -> String {
         .to_lowercase()
 }
 
+/// Expand fixture template expressions in a string value.
+///
+/// Supported templates:
+/// - `{{ repeat 'X' N times }}` — expands to the character X repeated N times
+///
+/// If no templates are found, the original string is returned unchanged.
+pub fn expand_fixture_templates(s: &str) -> String {
+    const PREFIX: &str = "{{ repeat '";
+    const SUFFIX: &str = " times }}";
+
+    let mut result = String::with_capacity(s.len());
+    let mut remaining = s;
+
+    while let Some(start) = remaining.find(PREFIX) {
+        result.push_str(&remaining[..start]);
+        let after_prefix = &remaining[start + PREFIX.len()..];
+
+        // Expect character(s) followed by `' N times }}`
+        if let Some(quote_pos) = after_prefix.find("' ") {
+            let ch = &after_prefix[..quote_pos];
+            let after_quote = &after_prefix[quote_pos + 2..];
+
+            if let Some(end) = after_quote.find(SUFFIX) {
+                let count_str = after_quote[..end].trim();
+                if let Ok(count) = count_str.parse::<usize>() {
+                    result.push_str(&ch.repeat(count));
+                    remaining = &after_quote[end + SUFFIX.len()..];
+                    continue;
+                }
+            }
+        }
+
+        // Template didn't match — emit the prefix literally and continue
+        result.push_str(PREFIX);
+        remaining = after_prefix;
+    }
+    result.push_str(remaining);
+    result
+}
+
 /// Escape a string for embedding in a POSIX single-quoted shell string literal.
 ///
 /// Wraps the string in single quotes and escapes embedded single quotes as `'\''`.

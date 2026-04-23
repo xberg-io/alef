@@ -388,14 +388,21 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
             .map(|arg| format!("create_{}", arg.name.to_snake_case()))
             .collect();
 
-        // Collect all unique function names needed across all fixtures in this file.
-        let mut import_names: Vec<String> = vec![function_name.clone()];
+        // Collect all unique function names actually used across all fixtures in this file.
+        // Do not seed with the default function_name — only include it when at least one
+        // fixture resolves to it, to avoid unused-import (F401) warnings from ruff.
+        let mut import_names: Vec<String> = Vec::new();
         for fixture in fixtures.iter() {
             let cc = e2e_config.resolve_call(fixture.call.as_deref());
             let fn_name = resolve_function_name_for_call(cc);
             if !import_names.contains(&fn_name) {
                 import_names.push(fn_name);
             }
+        }
+        // Safety net: should not occur since the group is non-empty, but ensures
+        // import_names is never empty if all fixtures use the default call.
+        if import_names.is_empty() {
+            import_names.push(function_name.clone());
         }
         for ctor in &handle_constructors {
             if !import_names.contains(ctor) {

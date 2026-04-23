@@ -328,6 +328,17 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
 
             for mut fixture in parsed {
                 fixture.source = relative.clone();
+                // Expand template expressions (e.g. `{{ repeat 'x' 10000 times }}`)
+                // in all JSON string values so generators emit the expanded values.
+                expand_json_templates(&mut fixture.input);
+                if let Some(ref mut http) = fixture.http {
+                    for (_, v) in http.request.headers.iter_mut() {
+                        *v = crate::escape::expand_fixture_templates(v);
+                    }
+                    if let Some(ref mut body) = http.request.body {
+                        expand_json_templates(body);
+                    }
+                }
                 fixtures.push(fixture);
             }
         }
@@ -347,6 +358,29 @@ pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
         .collect();
     result.sort_by(|a, b| a.category.cmp(&b.category));
     result
+}
+
+/// Recursively expand fixture template expressions in all string values of a JSON tree.
+fn expand_json_templates(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(s) => {
+            let expanded = crate::escape::expand_fixture_templates(s);
+            if expanded != *s {
+                *s = expanded;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                expand_json_templates(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                expand_json_templates(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
