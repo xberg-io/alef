@@ -48,6 +48,7 @@ impl Backend for RustlerBackend {
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
         builder.add_import("rustler::ResourceArc");
+        builder.add_import("rustler::Encoder");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
@@ -1593,6 +1594,51 @@ fn gen_native_ex(
             .map(|p| format!("_{}", p.name.to_snake_case()))
             .collect();
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
+
+        // For functions that have a visitor bridge, also emit the async visitor variant stub
+        // plus the visitor_reply NIF stub (once, for the first such function).
+        let has_visitor_bridge = config.trait_bridges.iter().any(|b| {
+            func.params.iter().any(|p| {
+                b.param_name.as_deref() == Some(p.name.as_str()) || {
+                    let named = match &p.ty {
+                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                        alef_core::ir::TypeRef::Optional(inner) => {
+                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                }
+            })
+        });
+        if has_visitor_bridge {
+            // Params for convert_with_visitor: same as convert but visitor is required (not optional).
+            let with_visitor_params: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| format!("_{}", p.name.to_snake_case()))
+                .collect();
+            last_was_multiline = write_nif_stub(
+                &mut out,
+                &format!("{fn_name}_with_visitor"),
+                &with_visitor_params,
+                last_was_multiline,
+            );
+        }
+    }
+
+    // visitor_reply stub: emitted once when there are visitor bridges.
+    if !config.trait_bridges.is_empty() {
+        last_was_multiline = write_nif_stub(
+            &mut out,
+            "visitor_reply",
+            &["_ref_id".to_string(), "_result".to_string()],
+            last_was_multiline,
+        );
     }
 
     // Stubs for type methods

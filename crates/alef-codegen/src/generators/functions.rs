@@ -128,7 +128,7 @@ pub fn gen_function(
                     // When wrapped contains type conversions like .into() or ::from(),
                     // bind to a variable to help type inference for the generic future_into_py.
                     // This avoids E0283 "type annotations needed".
-                    if wrapped.contains(".into()") || wrapped.contains("::from(") {
+                    if wrapped.contains(".into()") || wrapped.contains("::from(") || wrapped.contains("Into::into") {
                         // Add explicit type annotation to help type inference
                         format!(
                             "{serde_bindings}let result = {core_await};\n            let wrapped_result: {return_type} = {wrapped};\n            Ok(wrapped_result)"

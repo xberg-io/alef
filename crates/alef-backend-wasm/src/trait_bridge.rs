@@ -148,7 +148,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
-                    spec.make_error("format!(\"Failed to deserialize result: {{}}\", e)")
+                    spec.make_error("format!(\"Failed to deserialize result: {}\", e)")
                 )
                 .ok();
             } else {
@@ -277,7 +277,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
-                    spec.make_error("format!(\"Failed to deserialize result: {{}}\", e)")
+                    spec.make_error("format!(\"Failed to deserialize result: {}\", e)")
                 )
                 .ok();
             } else {

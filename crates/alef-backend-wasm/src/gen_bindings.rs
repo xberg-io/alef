@@ -1385,6 +1385,31 @@ fn gen_function(
                         ));
                     }
                 }
+                TypeRef::Vec(inner)
+                    if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
+                {
+                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
+                    let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n    \
+                             strs.into_iter()\n    \
+                             .map(|s| serde_json::from_str(&s){err_conv})\n    \
+                             .collect::<Result<Vec<_>, _>>()\n    \
+                             }}).transpose()?;\n    ",
+                            n = p.name,
+                            err_conv = err_conv,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Vec<_> = {n}.into_iter()\n    \
+                             .map(|s| serde_json::from_str(&s){err_conv})\n    \
+                             .collect::<Result<Vec<_>, _>>()?;\n    ",
+                            n = p.name,
+                            err_conv = err_conv,
+                        ));
+                    }
+                }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                     // Vec<String> with is_ref=true: core expects &[&str].
                     // Generate texts_refs: Vec<&str> or Option<Vec<&str>>.

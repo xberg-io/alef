@@ -576,27 +576,14 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             .iter()
             .any(|t| t.has_default && t.is_return_type && !t.fields.is_empty() && !t.name.ends_with("Update"));
 
-    // Check whether `Any` is needed: data enum fields use `dict[str, Any]`, and
-    // TypeRef::Json maps to `dict[str, Any]` (or `dict[str, dict[str, Any]]` when nested).
-    let needs_any = api.types.iter().filter(|t| !t.is_trait && t.has_default).any(|t| {
-        t.fields.iter().any(|f| {
-            if type_contains_json(&f.ty) {
-                return true;
-            }
-            let inner_name = match &f.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            inner_name.is_some_and(|n| data_enum_names.contains(n))
-        })
-    });
+    // Check whether `Any` is needed: TypeRef::Json maps to `dict[str, Any]`.
+    // Data enums now use their concrete type names (imported from native module),
+    // so they no longer contribute to the `Any` requirement.
+    let needs_any = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && t.has_default)
+        .any(|t| t.fields.iter().any(|f| type_contains_json(&f.ty)));
 
     // Collect all Named types referenced by has_default types (including inside Vec/Optional).
     let mut referenced_types: AHashSet<String> = AHashSet::new();
@@ -620,6 +607,35 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
     }
 
+    // Transitively expand needed_enums: data enums referenced by other data enum variants
+    // also need to be defined (either as union aliases or str,Enum classes) in options.py.
+    // Example: `ToolChoice` variants reference `ToolChoiceMode` (simple enum) and
+    // `SpecificToolChoice` (struct); `UserContent` variants reference `ContentPart` (data enum).
+    let enum_defs_by_name: AHashMap<&str, &alef_core::ir::EnumDef> =
+        api.enums.iter().map(|e| (e.name.as_str(), e)).collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let current: Vec<String> = needed_enums.iter().cloned().collect();
+        for name in current {
+            if let Some(enum_def) = enum_defs_by_name.get(name.as_str()) {
+                if generators::enum_has_data_variants(enum_def) {
+                    for variant in &enum_def.variants {
+                        for field in &variant.fields {
+                            let mut discovered = AHashSet::new();
+                            collect_named_types_filtered(&field.ty, &enum_names, &mut discovered);
+                            for discovered_name in discovered {
+                                if needed_enums.insert(discovered_name) {
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Compute which Named types are defined locally in options.py and which must be imported
     // from the native extension module under TYPE_CHECKING.
     // Types defined locally: enum classes (needed_enums), has_default dataclasses.
@@ -638,11 +654,12 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
         local
     };
-    // Native types: referenced in has_default fields but not defined in options.py and not
-    // data enums (data enums become dict[str, Any] and don't need an import).
+    // Native types: referenced in has_default fields but not defined locally in options.py.
+    // This includes data enum types, which are imported from the native module and used
+    // with their concrete type names (proper typing instead of dict[str, Any]).
     let mut native_type_imports: Vec<String> = referenced_types
         .iter()
-        .filter(|n| !local_type_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()))
+        .filter(|n| !local_type_names.contains(n.as_str()))
         .cloned()
         .collect();
     native_type_imports.sort();
@@ -656,7 +673,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     out.push_str("from dataclasses import dataclass, field\n");
     out.push_str("from enum import Enum\n");
     // Build typing imports: TYPE_CHECKING is needed for native-module forward refs;
-    // Any is needed for data enum fields; TypedDict is needed when output_style == TypedDict.
+    // Any is needed when TypeRef::Json fields exist; TypedDict is needed when output_style == TypedDict.
     let needs_type_checking = !native_type_imports.is_empty();
     let needs_typing_import = needs_type_checking || needs_any || any_typeddict;
     if needs_typing_import {
@@ -824,6 +841,73 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
     }
 
+    // Emit union type aliases for data enums referenced by has_default types.
+    // These are tagged-union enums whose variants map to Python dataclasses or primitive types.
+    // Example: `Message = SystemMessage | UserMessage | AssistantMessage | ...`
+    let needed_data_enum_aliases: Vec<&alef_core::ir::EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| needed_enums.contains(&e.name) && data_enum_names.contains(e.name.as_str()))
+        .collect();
+    for enum_def in needed_data_enum_aliases {
+        let member_types: Vec<String> = enum_def
+            .variants
+            .iter()
+            .flat_map(|v| {
+                if v.fields.is_empty() {
+                    // Tag-only variant with no payload: represents a string literal on the wire.
+                    vec!["str".to_string()]
+                } else if v.fields.len() == 1 {
+                    // Single-field variant (positional or named): use the Python type of that field.
+                    vec![python_field_type(&v.fields[0].ty, v.fields[0].optional, &enum_names, &data_enum_names)]
+                } else {
+                    // Multi-field variant: emit a Python type per field, joined as a tuple-like union.
+                    v.fields
+                        .iter()
+                        .map(|f| python_field_type(&f.ty, f.optional, &enum_names, &data_enum_names))
+                        .collect()
+                }
+            })
+            // Deduplicate while preserving order (e.g. two tag-only variants both map to `str`).
+            .fold(Vec::<String>::new(), |mut acc, t| {
+                if !acc.contains(&t) {
+                    acc.push(t);
+                }
+                acc
+            });
+
+        if member_types.is_empty() {
+            continue;
+        }
+
+        let doc = if !enum_def.doc.is_empty() {
+            let first = enum_def.doc.lines().next().unwrap_or("").trim();
+            let content = if first.len() > 89 { &first[..89] } else { first };
+            if content.ends_with(['.', '?', '!']) {
+                content.to_string()
+            } else {
+                format!("{}.", content)
+            }
+        } else {
+            class_name_to_docstring(&enum_def.name)
+        };
+        out.push_str(&format!("# {doc}\n"));
+
+        if member_types.len() <= 3 {
+            out.push_str(&format!("{} = {}\n\n", enum_def.name, member_types.join(" | ")));
+        } else {
+            out.push_str(&format!("{} = (\n", enum_def.name));
+            for (i, ty) in member_types.iter().enumerate() {
+                if i < member_types.len() - 1 {
+                    out.push_str(&format!("    {} |\n", ty));
+                } else {
+                    out.push_str(&format!("    {}\n", ty));
+                }
+            }
+            out.push_str(")\n\n");
+        }
+    }
+
     out
 }
 
@@ -911,8 +995,9 @@ fn python_field_type(
             python_field_type(k, false, enum_names, data_enum_names),
             python_field_type(v, false, enum_names, data_enum_names)
         ),
-        // Data enums: users pass a dict with a "type" discriminator and fields.
-        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => "dict[str, Any]".to_string(),
+        // Data enums: use the concrete type name — the type is imported from the native
+        // module under TYPE_CHECKING and has proper TypedDict definitions in the .pyi stubs.
+        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => name.clone(),
         // Plain enums: use `EnumName | str` so string literals like `"atx"` are accepted
         // alongside enum member values without mypy assignment errors.
         TypeRef::Named(name) if enum_names.contains(name.as_str()) => format!("{name} | str"),

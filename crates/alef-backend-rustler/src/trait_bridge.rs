@@ -33,7 +33,7 @@ pub struct RustlerBridgeGenerator {
 
 impl TraitBridgeGenerator for RustlerBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "rustler::SavedTerm"
+        "rustler::env::SavedTerm"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -63,7 +63,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             "    let method_term: rustler::Term = rustler::Term::map_get(elixir_term, key).ok()??;"
         )
         .ok();
-        writeln!(out, "    if method_term.is_nil() {{ return None; }}").ok();
+        writeln!(
+            out,
+            "    if method_term.atom_to_string().ok().as_deref() == Some(\"nil\") {{ return None; }}"
+        )
+        .ok();
 
         // Build args tuple
         if method.params.is_empty() {
@@ -80,7 +84,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         // Call the Elixir function directly with apply/2
         writeln!(
             out,
-            "    let result: rustler::Term = method_term.apply(env, &args).ok()?;"
+            "    let result: rustler::Term = env.call(method_term, &args).ok()?;"
         )
         .ok();
 
@@ -152,7 +156,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             "        let method_term: rustler::Term = rustler::Term::map_get(elixir_term, key).ok()??;"
         )
         .ok();
-        writeln!(out, "        if method_term.is_nil() {{ return None; }}").ok();
+        writeln!(
+            out,
+            "        if method_term.atom_to_string().ok().as_deref() == Some(\"nil\") {{ return None; }}"
+        )
+        .ok();
 
         // Build args
         if method.params.is_empty() {
@@ -216,7 +224,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         )
         .ok();
         writeln!(out, "                .ok()").ok();
-        writeln!(out, "                .and_then(|t| t.atom_to_string(env).ok())").ok();
+        writeln!(out, "                .and_then(|t| t.atom_to_string().ok())").ok();
         writeln!(out, "                .unwrap_or_else(|| \"unknown\".to_string())").ok();
         writeln!(out, "        }});").ok();
 
@@ -432,9 +440,12 @@ fn format_async_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
 
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.
 ///
-/// The Elixir caller passes a map where keys are atom method names and values are
-/// anonymous functions (closures) that accept the NodeContext map and return an atom string.
-/// The bridge looks up each method name in the map and, if found, calls the function.
+/// This generates an async message-passing bridge. When `convert_with_visitor` is called,
+/// it spawns a system thread that runs the conversion. Each visitor callback sends a
+/// `{:visitor_callback, ref_id, callback_name, args_json}` message to the calling Elixir
+/// process and blocks on a channel waiting for the reply from `visitor_reply/2`.
+/// When conversion finishes, the thread sends `{:ok, result_json}` or `{:error, reason}`
+/// to the caller.
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
@@ -512,14 +523,34 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct holds an OwnedEnv (for lifetime extension) and the visitor term
+    // Global channel registry: maps ref_id -> SyncSender so visitor_reply can unblock the bridge.
+    writeln!(
+        out,
+        "static VISITOR_REPLY_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "static VISITOR_CHANNELS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u64, std::sync::mpsc::SyncSender<Option<String>>>>> ="
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));"
+    )
+    .unwrap();
+    writeln!(out).unwrap();
+
+    // Bridge struct: holds the caller PID and the visitor term in its OwnedEnv.
+    // Both OwnedEnv and SavedTerm are Send, so the bridge can be moved to a system thread.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    env: rustler::OwnedEnv,").unwrap();
-    writeln!(out, "    visitor_term: rustler::SavedTerm,").unwrap();
+    writeln!(out, "    caller_pid: rustler::types::LocalPid,").unwrap();
+    writeln!(out, "    visitor_env: rustler::OwnedEnv,").unwrap();
+    writeln!(out, "    visitor_saved: rustler::env::SavedTerm,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Manual Debug impl
+    // Manual Debug impl (required by HtmlVisitor bound: std::fmt::Debug)
     writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
     writeln!(
         out,
@@ -531,30 +562,241 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Constructor
+    // Constructor (called from BEAM thread — saves visitor term into an OwnedEnv)
     writeln!(out, "impl {struct_name} {{").unwrap();
     writeln!(
         out,
-        "    pub fn new(env: rustler::Env<'_>, visitor_term: rustler::Term<'_>) -> Self {{"
+        "    pub fn new(env: rustler::Env<'_>, caller_pid: rustler::types::LocalPid, visitor_term: rustler::Term<'_>) -> Self {{"
     )
     .unwrap();
     writeln!(out, "        let owned = rustler::OwnedEnv::new();").unwrap();
     writeln!(out, "        let saved = owned.save(visitor_term);").unwrap();
-    writeln!(out, "        Self {{ env: owned, visitor_term: saved }}").unwrap();
+    writeln!(
+        out,
+        "        Self {{ caller_pid, visitor_env: owned, visitor_saved: saved }}"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out).unwrap();
+    // Constructor from pre-built OwnedEnv + SavedTerm (called from worker thread where
+    // the OwnedEnv was already populated on the BEAM thread before spawning).
+    writeln!(
+        out,
+        "    pub fn new_from_saved(caller_pid: rustler::types::LocalPid, visitor_env: rustler::OwnedEnv, visitor_saved: rustler::env::SavedTerm) -> Self {{"
+    )
+    .unwrap();
+    writeln!(out, "        Self {{ caller_pid, visitor_env, visitor_saved }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Trait impl
+    // Helper: send a visitor callback message and block waiting for the reply.
+    // Encoded as: {:visitor_callback, ref_id, callback_atom, args_json_string}
+    writeln!(
+        out,
+        "fn visitor_send_and_wait(bridge: &{struct_name}, callback_name: &str, args_json: String) -> Option<String> {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    let ref_id = VISITOR_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
+    )
+    .unwrap();
+    writeln!(out, "    VISITOR_CHANNELS.lock().unwrap().insert(ref_id, tx);").unwrap();
+    writeln!(out, "    let pid = bridge.caller_pid;").unwrap();
+    writeln!(out, "    let cb_name = callback_name.to_string();").unwrap();
+    writeln!(out, "    let mut msg_env = rustler::OwnedEnv::new();").unwrap();
+    writeln!(out, "    let _ = msg_env.send_and_clear(&pid, |env| {{").unwrap();
+    writeln!(
+        out,
+        "        let tag = rustler::types::atom::Atom::from_str(env, \"visitor_callback\").unwrap().to_term(env);"
+    )
+    .unwrap();
+    writeln!(out, "        let ref_term = ref_id.encode(env);").unwrap();
+    writeln!(
+        out,
+        "        let name_term = rustler::types::atom::Atom::from_str(env, &cb_name).unwrap().to_term(env);"
+    )
+    .unwrap();
+    writeln!(out, "        let args_term = args_json.encode(env);").unwrap();
+    writeln!(
+        out,
+        "        rustler::types::tuple::make_tuple(env, &[tag, ref_term, name_term, args_term])"
+    )
+    .unwrap();
+    writeln!(out, "    }});").unwrap();
+    writeln!(out, "    let result = rx.recv().ok().flatten();").unwrap();
+    writeln!(out, "    VISITOR_CHANNELS.lock().unwrap().remove(&ref_id);").unwrap();
+    writeln!(out, "    result").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // visitor_reply NIF: called by Elixir to unblock a waiting visitor callback.
+    // Returns () which Rustler encodes as :ok.
+    writeln!(out, "#[rustler::nif]").unwrap();
+    writeln!(out, "pub fn visitor_reply(ref_id: u64, result: Option<String>) {{").unwrap();
+    writeln!(
+        out,
+        "    if let Some(tx) = VISITOR_CHANNELS.lock().unwrap().get(&ref_id) {{"
+    )
+    .unwrap();
+    writeln!(out, "        let _ = tx.send(result);").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // Trait impl — each method sends callback message and waits for reply.
     writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_rustler(out, method, type_paths);
+        gen_visitor_method_async(out, method, type_paths, struct_name);
     }
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
+}
+
+/// Generate a single async visitor method that sends a callback message to the Elixir
+/// process and blocks on an mpsc channel waiting for the reply from `visitor_reply/2`.
+///
+/// Arguments are serialized to a JSON object string so the Elixir side can decode them
+/// with Jason without depending on Rustler types.
+fn gen_visitor_method_async(
+    out: &mut String,
+    method: &MethodDef,
+    type_paths: &std::collections::HashMap<&str, &str>,
+    _struct_name: &str,
+) {
+    let name = &method.name;
+
+    let mut sig_parts = vec!["&mut self".to_string()];
+    for p in &method.params {
+        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
+        sig_parts.push(format!("{}: {}", p.name, ty_str));
+    }
+    let sig = sig_parts.join(", ");
+
+    let ret_ty = match &method.return_type {
+        TypeRef::Named(n) => type_paths
+            .get(n.as_str())
+            .map(|p| p.replace('-', "_"))
+            .unwrap_or_else(|| n.clone()),
+        other => param_type(other, "", false, type_paths),
+    };
+
+    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
+
+    // Build a JSON object string from the method parameters for Elixir to decode.
+    writeln!(out, "        let mut args_map = serde_json::Map::new();").unwrap();
+    for p in &method.params {
+        let json_expr = build_json_arg(p);
+        writeln!(
+            out,
+            "        args_map.insert(\"{0}\".to_string(), {1});",
+            p.name, json_expr
+        )
+        .unwrap();
+    }
+    writeln!(
+        out,
+        "        let args_json = serde_json::Value::Object(args_map).to_string();"
+    )
+    .unwrap();
+
+    // Send callback and wait for reply.
+    writeln!(
+        out,
+        "        let result = visitor_send_and_wait(self, \"{name}\", args_json);"
+    )
+    .unwrap();
+
+    // Parse the string reply into a VisitResult.
+    writeln!(out, "        match result {{").unwrap();
+    writeln!(out, "            None => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "            Some(s) => match s.to_lowercase().as_str() {{").unwrap();
+    writeln!(out, "                \"continue\" => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "                \"skip\" => {ret_ty}::Skip,").unwrap();
+    writeln!(
+        out,
+        "                \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
+    )
+    .unwrap();
+    writeln!(out, "                other => {ret_ty}::Custom(other.to_string()),").unwrap();
+    writeln!(out, "            }},").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out).unwrap();
+}
+
+/// Build a serde_json::Value expression for a visitor method parameter (for the args JSON object).
+fn build_json_arg(p: &alef_core::ir::ParamDef) -> String {
+    // NodeContext: serialize as a JSON object via serde_json.
+    if let TypeRef::Named(n) = &p.ty {
+        if n == "NodeContext" {
+            let ref_expr = if p.is_ref {
+                p.name.clone()
+            } else {
+                format!("&{}", p.name)
+            };
+            return format!("serde_json::to_value({ref_expr}).unwrap_or(serde_json::Value::Null)");
+        }
+    }
+    // String params
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("serde_json::Value::String({}.to_string())", p.name);
+    }
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("serde_json::Value::String({}.clone())", p.name);
+    }
+    // Optional string params
+    if p.optional && matches!(&p.ty, TypeRef::String) {
+        return format!(
+            "match {0} {{ Some(s) => serde_json::Value::String(s.to_string()), None => serde_json::Value::Null }}",
+            p.name
+        );
+    }
+    // Bool params
+    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
+        return format!("serde_json::Value::Bool({})", p.name);
+    }
+    // Slice params (e.g. &[String])
+    if matches!(&p.ty, TypeRef::Vec(_)) && p.is_ref {
+        return format!("serde_json::to_value({}).unwrap_or(serde_json::Value::Null)", p.name);
+    }
+    // usize / u32 numeric params
+    if matches!(
+        &p.ty,
+        TypeRef::Primitive(
+            alef_core::ir::PrimitiveType::Usize
+                | alef_core::ir::PrimitiveType::U8
+                | alef_core::ir::PrimitiveType::U16
+                | alef_core::ir::PrimitiveType::U32
+                | alef_core::ir::PrimitiveType::U64
+        )
+    ) {
+        return format!("serde_json::Value::Number(serde_json::Number::from({} as u64))", p.name);
+    }
+    // i64 / isize numeric params
+    if matches!(
+        &p.ty,
+        TypeRef::Primitive(
+            alef_core::ir::PrimitiveType::I8
+                | alef_core::ir::PrimitiveType::I16
+                | alef_core::ir::PrimitiveType::I32
+                | alef_core::ir::PrimitiveType::I64
+                | alef_core::ir::PrimitiveType::Isize
+        )
+    ) {
+        return format!("serde_json::Value::Number(serde_json::Number::from({} as i64))", p.name);
+    }
+    // Fallback: debug-print as string
+    format!("serde_json::Value::String(format!(\"{{:?}}\", {}))", p.name)
 }
 
 /// Map a visitor method parameter type to the correct Rust type string.
@@ -615,7 +857,11 @@ fn gen_visitor_method_rustler(
         "            let func_term: rustler::Term<'_> = rustler::Term::map_get(visitor, key).ok()??;"
     )
     .unwrap();
-    writeln!(out, "            if func_term.is_nil() {{ return None; }}").unwrap();
+    writeln!(
+        out,
+        "            if func_term.atom_to_string().ok().as_deref() == Some(\"nil\") {{ return None; }}"
+    )
+    .unwrap();
 
     // Build the args tuple encoding
     if method.params.is_empty() {
@@ -835,7 +1081,7 @@ pub fn gen_bridge_function(
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
-             Some(term) if !term.is_nil() => {{\n            \
+             Some(term) if term.atom_to_string().ok().as_deref() != Some(\"nil\") => {{\n            \
              let bridge = {struct_name}::new(env, term);\n            \
              Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path})\n        \
              }},\n        \
@@ -970,11 +1216,183 @@ pub fn gen_bridge_function(
     };
 
     let func_name = &func.name;
-    let mut out = String::with_capacity(1024);
+    let mut out = String::with_capacity(2048);
     writeln!(out, "#[rustler::nif]").ok();
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
     writeln!(out, "    {body}").ok();
     writeln!(out, "}}").ok();
+
+    // Generate the async visitor NIF only when the bridge parameter is the visitor.
+    // This NIF spawns a system thread, builds the bridge from the caller PID + visitor term,
+    // runs conversion, and sends the result back as a {:ok, result} / {:error, reason} message.
+    if is_optional {
+        // Build the non-bridge params signature for convert_with_visitor
+        // (bridge param replaced by the concrete Elixir term — never nil here).
+        let mut with_sig_parts = vec!["env: rustler::Env<'_>".to_string()];
+        for (idx, p) in func.params.iter().enumerate() {
+            if idx == bridge_param_idx {
+                // visitor is required (not optional) in convert_with_visitor
+                with_sig_parts.push(format!("{}: rustler::Term<'_>", p.name));
+            } else if let TypeRef::Named(n) = &p.ty {
+                if default_types.contains(n) {
+                    with_sig_parts.push(format!("{}: Option<String>", p.name));
+                } else {
+                    let mapped = mapper.map_type(&p.ty);
+                    if p.optional {
+                        with_sig_parts.push(format!("{}: Option<{}>", p.name, mapped));
+                    } else {
+                        with_sig_parts.push(format!("{}: {}", p.name, mapped));
+                    }
+                }
+            } else {
+                let mapped = mapper.map_type(&p.ty);
+                if p.optional {
+                    with_sig_parts.push(format!("{}: Option<{}>", p.name, mapped));
+                } else {
+                    with_sig_parts.push(format!("{}: {}", p.name, mapped));
+                }
+            }
+        }
+        let with_params_str = with_sig_parts.join(", ");
+
+        // Build the deser bindings string for non-bridge, non-opaque named params.
+        let with_deser: String = func
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != bridge_param_idx)
+            .filter_map(|(_, p)| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if default_types.contains(n) {
+                        let core_ty = format!("{core_import}::{n}");
+                        return Some(format!(
+                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s).map_err(|e| e.to_string())).transpose().map_err(|e| e.to_string())?;\n    ",
+                            p.name, core_ty
+                        ));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        // Build the call args, replacing the bridge param with the VisitorHandle.
+        let with_call_args: Vec<String> = func
+            .params
+            .iter()
+            .enumerate()
+            .map(|(idx, p)| {
+                if idx == bridge_param_idx {
+                    // visitor_handle is built inside the thread closure
+                    p.name.clone()
+                } else if let TypeRef::Named(n) = &p.ty {
+                    if default_types.contains(n) {
+                        if p.is_ref {
+                            format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name)
+                        } else {
+                            format!("{}_core.unwrap_or_default()", p.name)
+                        }
+                    } else {
+                        match &p.ty {
+                            TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                            _ => p.name.clone(),
+                        }
+                    }
+                } else {
+                    match &p.ty {
+                        TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                        _ => p.name.clone(),
+                    }
+                }
+            })
+            .collect();
+        let with_call_args_str = with_call_args.join(", ");
+
+        // Clone non-bridge params before moving into the thread.
+        let clone_stmts: String = func
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != bridge_param_idx)
+            .map(|(_, p)| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if default_types.contains(n) {
+                        return format!("let {0}_core = {0}_core;\n    ", p.name);
+                    }
+                }
+                match &p.ty {
+                    TypeRef::String | TypeRef::Char => format!("let {0} = {0}.clone();\n    ", p.name),
+                    _ => String::new(),
+                }
+            })
+            .collect();
+
+        writeln!(out).ok();
+        writeln!(
+            out,
+            "// Async visitor variant: spawns a system thread, sends result as a message."
+        )
+        .ok();
+        writeln!(out, "#[rustler::nif]").ok();
+        writeln!(
+            out,
+            "pub fn {func_name}_with_visitor({with_params_str}) -> Result<(), String> {{"
+        )
+        .ok();
+        writeln!(out, "    let pid = env.pid();").ok();
+        writeln!(out, "    {with_deser}").ok();
+
+        // Save visitor term + build owned env before spawning (must happen on BEAM thread)
+        writeln!(out, "    let visitor_owned_env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "    let visitor_saved = visitor_owned_env.save({param_name});").ok();
+        writeln!(out, "    {clone_stmts}").ok();
+
+        writeln!(out, "    std::thread::spawn(move || {{").ok();
+        writeln!(
+            out,
+            "        let bridge = {struct_name}::new_from_saved(pid, visitor_owned_env, visitor_saved);"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        let {param_name}: Option<{handle_path}> = Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path});"
+        )
+        .ok();
+        writeln!(out, "        let mut result_env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "        let _ = result_env.send_and_clear(&pid, |env| {{").ok();
+        writeln!(out, "            match {core_fn_path}({with_call_args_str}) {{").ok();
+        writeln!(out, "                Ok(val) => {{").ok();
+        writeln!(out, "                    let result: ConversionResult = val.into();").ok();
+        writeln!(
+            out,
+            "                    let ok_atom = rustler::types::atom::Atom::from_str(env, \"ok\").unwrap().to_term(env);"
+        )
+        .ok();
+        writeln!(out, "                    let result_term = result.encode(env);").ok();
+        writeln!(
+            out,
+            "                    rustler::types::tuple::make_tuple(env, &[ok_atom, result_term])"
+        )
+        .ok();
+        writeln!(out, "                }},").ok();
+        writeln!(out, "                Err(e) => {{").ok();
+        writeln!(
+            out,
+            "                    let err_atom = rustler::types::atom::Atom::from_str(env, \"error\").unwrap().to_term(env);"
+        )
+        .ok();
+        writeln!(out, "                    let reason = e.to_string().encode(env);").ok();
+        writeln!(
+            out,
+            "                    rustler::types::tuple::make_tuple(env, &[err_atom, reason])"
+        )
+        .ok();
+        writeln!(out, "                }},").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(out, "        }});").ok();
+        writeln!(out, "    }});").ok();
+        writeln!(out, "    Ok(())").ok();
+        writeln!(out, "}}").ok();
+    }
 
     out
 }
