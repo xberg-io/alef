@@ -1134,11 +1134,25 @@ end
         repository = meta.repository,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("{pkg_dir}/mix.exs")),
-        content,
-        generated_header: true,
-    }])
+    let formatter_content = r#"[
+  import_deps: [:rustler],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
+  line_length: 120
+]
+"#;
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/mix.exs")),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.formatter.exs")),
+            content: formatter_content.to_string(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_go(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {

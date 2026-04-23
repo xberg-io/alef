@@ -476,7 +476,7 @@ impl Backend for RustlerBackend {
 
                 content.push_str(&format!("  @doc \"{doc_line}\"\n"));
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
-                if spec_inline.len() > 98 {
+                if spec_inline.len() > 120 {
                     content.push_str(&format!("  @spec {nif_fn_name}(\n"));
                     let len = arity_types.len();
                     for (i, t) in arity_types.iter().enumerate() {
@@ -658,7 +658,7 @@ impl Backend for RustlerBackend {
                     specs
                 };
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", type_specs.join(", "));
-                if spec_inline.len() > 98 {
+                if spec_inline.len() > 120 {
                     content.push_str(&format!("  @spec {nif_fn_name}(\n"));
                     let len = type_specs.len();
                     for (i, t) in type_specs.iter().enumerate() {
@@ -1829,7 +1829,7 @@ fn gen_native_ex(
     out
 }
 
-/// Write a NIF stub line, splitting onto two lines when the single-line form exceeds 98 chars.
+/// Write a NIF stub line, splitting onto two lines when the single-line form exceeds 120 chars.
 ///
 /// `prev_was_multiline` should be `true` when the previous stub was multi-line. This is used
 /// to insert a single blank separator line around multi-line defs (mix format requirement):
@@ -1857,7 +1857,7 @@ fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_m
     };
     // "  def <sig>, do: :erlang.nif_error(:nif_not_loaded)"
     let single_line_len = 6 + sig.len() + 40;
-    if single_line_len > 98 {
+    if single_line_len > 120 {
         if !prev_was_multiline {
             let _ = writeln!(out);
         }

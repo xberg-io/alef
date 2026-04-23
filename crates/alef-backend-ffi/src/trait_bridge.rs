@@ -935,7 +935,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         let bridge = self.bridge_name(spec);
         let trait_path = spec.trait_path();
         let full_register_name = format!("{prefix}_{register_fn_name}");
-        let full_unregister_name = format!("{prefix}_unregister_{trait_snake}");
+        let _full_unregister_name = format!("{prefix}_unregister_{trait_snake}");
 
         let mut out = String::with_capacity(2048);
 
@@ -1052,50 +1052,6 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         };
 
         writeln!(out, "    if let Err(e) = {register_call} {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    0").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-
-        // --- unregister function ---
-        writeln!(
-            out,
-            "/// Unregister a C plugin previously registered with `{full_register_name}`."
-        )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Safety").ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// `name` must be a valid null-terminated UTF-8 string or null.").ok();
-        writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(out, "pub unsafe extern \"C\" fn {full_unregister_name}(").ok();
-        writeln!(out, "    name: *const std::ffi::c_char,").ok();
-        writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
-        writeln!(out, ") -> i32 {{").ok();
-        writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
-        writeln!(out, "        return 1;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(
-            out,
-            "    let plugin_name = match unsafe {{ std::ffi::CStr::from_ptr(name) }}.to_str() {{"
-        )
-        .ok();
-        writeln!(out, "        Ok(s) => s,").ok();
-        writeln!(out, "        Err(_) => {{").ok();
-        writeln!(
-            out,
-            "            ffi_set_out_error(out_error, \"name is not valid UTF-8\");"
-        )
-        .ok();
-        writeln!(out, "            return 1;").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }};").ok();
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    if let Err(e) = registry.remove(plugin_name) {{").ok();
         writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
