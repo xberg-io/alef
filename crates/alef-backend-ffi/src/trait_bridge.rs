@@ -679,11 +679,11 @@ impl FfiBridgeGenerator {
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
-        // version() — calls vtable.version_fn
-        writeln!(out, "    fn version(&self) -> &str {{").ok();
+        // version() — calls vtable.version_fn, returns String
+        writeln!(out, "    fn version(&self) -> String {{").ok();
         writeln!(
             out,
-            "        let Some(fp) = self.vtable.version_fn else {{ return \"\" }};"
+            "        let Some(fp) = self.vtable.version_fn else {{ return String::new() }};"
         )
         .ok();
         writeln!(
@@ -697,39 +697,19 @@ impl FfiBridgeGenerator {
         )
         .ok();
         writeln!(out, "        unsafe {{ fp(self.user_data, &mut _out) }};").ok();
-        writeln!(out, "        if _out.is_null() {{ return &self.cached_version; }}").ok();
+        writeln!(out, "        if _out.is_null() {{ return self.cached_version.clone(); }}").ok();
         writeln!(
             out,
             "        // SAFETY: _out is a callee-allocated CString; we take ownership."
         )
         .ok();
-        writeln!(
-            out,
-            "        // We write into cached_version and return a reference to it."
-        )
-        .ok();
         writeln!(out, "        let cs = unsafe {{ std::ffi::CString::from_raw(_out) }};").ok();
-        writeln!(
-            out,
-            "        // SAFETY: ptr aliases self; no concurrent mutation of cached_version."
-        )
-        .ok();
-        writeln!(out, "        let ptr = self as *const Self as *mut Self;").ok();
-        writeln!(
-            out,
-            "        unsafe {{ (*ptr).cached_version = cs.to_string_lossy().into_owned(); }}"
-        )
-        .ok();
-        writeln!(out, "        &self.cached_version").ok();
+        writeln!(out, "        cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
         // initialize()
-        writeln!(
-            out,
-            "    fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
-        )
-        .ok();
+        writeln!(out, "    fn initialize(&self) -> Result<()> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
@@ -768,18 +748,18 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(Box::from(msg));").ok();
+        writeln!(
+            out,
+            "            return Err(kreuzberg::KreuzbergError::Plugin(msg));"
+        )
+        .ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
         // shutdown()
-        writeln!(
-            out,
-            "    fn shutdown(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
-        )
-        .ok();
+        writeln!(out, "    fn shutdown(&self) -> Result<()> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
@@ -818,7 +798,11 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(Box::from(msg));").ok();
+        writeln!(
+            out,
+            "            return Err(kreuzberg::KreuzbergError::Plugin(msg));"
+        )
+        .ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();

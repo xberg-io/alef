@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-04-23
+
+### Fixed
+
+- Rustler: replace `Pid::spawn_monitor` with `env.call` for sync NIF dispatch; add `Encoder` import.
+- Rustler: visitor bridge receive loop — emit `_with_visitor` NIF variant and Elixir-side `do_visitor_receive_loop/1` for trait bridge callbacks.
+- Rustler: fix double-optional struct fields — skip outer `Option` wrap when `field.ty` is already `Optional`.
+- Rustler: add explicit type-annotated let bindings for named params in static NIF methods to resolve ambiguous `From` conversions.
+- PyO3: strong typing for data enums in `options.py` — use concrete union type aliases instead of `dict[str, Any]`.
+- PyO3: transitively expand `needed_enums` so nested data enums (e.g. `ContentPart` inside `UserContent`) are defined in `options.py`.
+- PyO3: topological sort of data enum union aliases to ensure dependencies are emitted before dependents.
+- PyO3: `needs_any` check now scans for `TypeRef::Json` instead of data enum fields.
+- PyO3: assert non-optional converters for data enum variant fields.
+- PyO3: escape single quotes in string literals and add `noqa` comments for assertion expressions.
+- Go: remove zero-argument `New{TypeName}()` constructors from opaque types — handles are created by factory functions, not bare allocators.
+- WASM: add `type_contains_json` helper for data enum field scanning.
+- E2E (TypeScript): escape single quotes in string literals, handle large integers with `BigInt()`, add `noqa` assertions.
+- CLI: simplify post-generation hash logic — store generation hashes from in-memory content pre-formatter instead of re-extracting and re-hashing on-disk files.
+- Scaffold: fix Ruby `Rakefile` for Bundler 4 — use `Bundler::GemHelper.install_tasks` instead of `require 'bundler/gem_tasks'`.
+- Core IR: add `TypeRef::references_named` method for recursive named type detection.
+- Codegen: add `type_contains_json` helper to `binding_helpers` for checking `TypeRef::Json` presence in nested types.
+
 ## [0.5.8] - 2026-04-23
 
 ### Added

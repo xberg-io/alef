@@ -770,7 +770,13 @@ fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> Str
     writeln!(out, "pub struct {} {{", typ.name).ok();
 
     for field in &typ.fields {
-        let field_type = if field.optional {
+        // When field.ty is already Optional(T) and field.optional is also true, the type is
+        // a double-optional (Option<Option<T>>) in core — map_type already produces Option<T>,
+        // so wrapping again would give Option<Option<T>> which is correct for the struct but
+        // only when field.optional is acting as the outer wrapper. The shared structs.rs
+        // gen_struct_with_per_field_attrs avoids double-wrapping by checking whether
+        // field.ty is already Optional before applying the outer Option. We match that here.
+        let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
             mapper.map_type(&field.ty)
@@ -1393,8 +1399,44 @@ fn gen_nif_method(
                 struct_name, method.name, call_args
             )
         } else {
-            // Static method on non-opaque: call directly on core type
-            format!("{core_import}::{}::{}({})", struct_name, method.name, call_args)
+            // Static method on non-opaque: call directly on core type.
+            // Named (non-opaque) params use `.into()` which can be ambiguous when multiple
+            // From impls exist. Emit explicit let bindings with annotated core types so
+            // Rust can resolve the conversion without ambiguity.
+            let named_params: Vec<&ParamDef> = method
+                .params
+                .iter()
+                .filter(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+                .collect();
+            if named_params.is_empty() {
+                format!("{core_import}::{}::{}({})", struct_name, method.name, call_args)
+            } else {
+                // Build annotated let-bindings for each Named param and substitute in call_args.
+                let mut preamble = String::new();
+                let mut resolved_args = call_args.clone();
+                for p in named_params {
+                    if let TypeRef::Named(type_name) = &p.ty {
+                        let core_var = format!("{}_core", p.name);
+                        let core_type = format!("{core_import}::{type_name}");
+                        let src = if p.optional {
+                            format!("{}.map(Into::into)", p.name)
+                        } else {
+                            format!("{}.into()", p.name)
+                        };
+                        preamble.push_str(&format!("let {core_var}: {core_type} = {src};\n    "));
+                        // Replace the generated expression in call_args with the variable name.
+                        if p.optional {
+                            resolved_args = resolved_args.replace(&format!("{}.map(Into::into)", p.name), &core_var);
+                        } else {
+                            resolved_args = resolved_args.replace(&format!("{}.into()", p.name), &core_var);
+                        }
+                    }
+                }
+                format!(
+                    "{preamble}{core_import}::{}::{}({})",
+                    struct_name, method.name, resolved_args
+                )
+            }
         };
         if method.error_type.is_some() {
             let wrap = gen_rustler_wrap_return(
