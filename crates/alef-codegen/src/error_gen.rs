@@ -505,16 +505,17 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
         package
     ));
     if !error.doc.is_empty() {
-        base.push_str(&format!("/** {} */\n", error.doc));
+        let doc = error.doc.trim_end_matches('.');
+        base.push_str(&format!("/** {}. */\n", doc));
     }
     base.push_str(&format!("public class {} extends Exception {{\n", base_name));
     base.push_str(&format!(
-        "    public {}(String message) {{\n        super(message);\n    }}\n\n",
-        base_name
+        "    /** Creates a new {} with the given message. */\n    public {}(final String message) {{\n        super(message);\n    }}\n\n",
+        base_name, base_name
     ));
     base.push_str(&format!(
-        "    public {}(String message, Throwable cause) {{\n        super(message, cause);\n    }}\n",
-        base_name
+        "    /** Creates a new {} with the given message and cause. */\n    public {}(final String message, final Throwable cause) {{\n        super(message, cause);\n    }}\n",
+        base_name, base_name
     ));
     base.push_str("}\n");
     files.push((base_name.clone(), base));
@@ -528,16 +529,17 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
             package
         ));
         if !variant.doc.is_empty() {
-            content.push_str(&format!("/** {} */\n", variant.doc));
+            let doc = variant.doc.trim_end_matches('.');
+            content.push_str(&format!("/** {}. */\n", doc));
         }
         content.push_str(&format!("public class {} extends {} {{\n", class_name, base_name));
         content.push_str(&format!(
-            "    public {}(String message) {{\n        super(message);\n    }}\n\n",
-            class_name
+            "    /** Creates a new {} with the given message. */\n    public {}(final String message) {{\n        super(message);\n    }}\n\n",
+            class_name, class_name
         ));
         content.push_str(&format!(
-            "    public {}(String message, Throwable cause) {{\n        super(message, cause);\n    }}\n",
-            class_name
+            "    /** Creates a new {} with the given message and cause. */\n    public {}(final String message, final Throwable cause) {{\n        super(message, cause);\n    }}\n",
+            class_name, class_name
         ));
         content.push_str("}\n");
         files.push((class_name, content));

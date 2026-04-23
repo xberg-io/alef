@@ -1233,12 +1233,12 @@ fn handle_method_name(java_method: &str) -> String {
 }
 
 fn iface_param_str(spec: &CallbackSpec) -> String {
-    let mut params = vec!["NodeContext context".to_string()];
+    let mut params = vec!["final NodeContext context".to_string()];
     for ep in spec.extra {
-        params.push(format!("{} {}", ep.java_type, ep.java_name));
+        params.push(format!("final {} {}", ep.java_type, ep.java_name));
     }
     if spec.has_is_header {
-        params.push("boolean isHeader".to_string());
+        params.push("final boolean isHeader".to_string());
     }
     params.join(", ")
 }
@@ -1300,7 +1300,10 @@ fn layout_to_java_class(layout: &str) -> &'static str {
 /// Generate one `handle_*` instance method inside `VisitorBridge`.
 fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
     // Build method signature matching the MethodType passed to upcallStub.
-    let mut params = vec!["MemorySegment ctx".to_string(), "MemorySegment userData".to_string()];
+    let mut params = vec![
+        "final MemorySegment ctx".to_string(),
+        "final MemorySegment userData".to_string(),
+    ];
     for ep in spec.extra {
         for (c_idx, layout) in ep.c_layouts.iter().enumerate() {
             let java_ptype = match *layout {
@@ -1308,14 +1311,14 @@ fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
                 "ValueLayout.JAVA_LONG" => "long",
                 _ => "MemorySegment",
             };
-            params.push(format!("{java_ptype} {}", raw_var_name(ep.java_name, c_idx)));
+            params.push(format!("final {java_ptype} {}", raw_var_name(ep.java_name, c_idx)));
         }
     }
     if spec.has_is_header {
-        params.push("int isHeader".to_string());
+        params.push("final int isHeader".to_string());
     }
-    params.push("MemorySegment outCustom".to_string());
-    params.push("MemorySegment outLen".to_string());
+    params.push("final MemorySegment outCustom".to_string());
+    params.push("final MemorySegment outLen".to_string());
 
     writeln!(
         out,

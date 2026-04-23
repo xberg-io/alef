@@ -128,7 +128,7 @@ pub fn gen_trait_bridge(
     writeln!(out).ok();
 
     // Constructor
-    writeln!(out, "    {}Bridge({} impl) {{", trait_pascal, trait_pascal).ok();
+    writeln!(out, "    {}Bridge(final {} impl) {{", trait_pascal, trait_pascal).ok();
     writeln!(out, "        this.impl = impl;").ok();
     writeln!(out, "        this.arena = Arena.ofConfined();").ok();
     writeln!(out, "        this.vtable = arena.allocate(VTABLE_SIZE);").ok();
@@ -374,7 +374,7 @@ pub fn gen_trait_bridge(
     .ok();
     writeln!(
         out,
-        "public static void register{}({} impl) throws Exception {{",
+        "public static void register{}(final {} impl) throws Exception {{",
         trait_pascal, trait_pascal
     )
     .ok();

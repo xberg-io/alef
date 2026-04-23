@@ -1141,7 +1141,7 @@ fn gen_sync_function_method(
         .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .map(|p| {
             let ptype = java_type(&p.ty);
-            format!("{} {}", ptype, to_java_name(&p.name))
+            format!("final {} {}", ptype, to_java_name(&p.name))
         })
         .collect();
 
@@ -1411,7 +1411,7 @@ fn gen_async_wrapper_method(
         .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .map(|p| {
             let ptype = java_type(&p.ty);
-            format!("{} {}", ptype, to_java_name(&p.name))
+            format!("final {} {}", ptype, to_java_name(&p.name))
         })
         .collect();
 
@@ -1464,17 +1464,36 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
     writeln!(out, "package {};", package).ok();
     writeln!(out).ok();
 
+    writeln!(out, "/** Exception thrown by {}. */", class_name).ok();
     writeln!(out, "public class {}Exception extends Exception {{", class_name).ok();
+    writeln!(out, "    /** The error code. */").ok();
     writeln!(out, "    private final int code;").ok();
     writeln!(out).ok();
-    writeln!(out, "    public {}Exception(int code, String message) {{", class_name).ok();
+    writeln!(
+        out,
+        "    /** Creates a new {}Exception. */",
+        class_name
+    )
+    .ok();
+    writeln!(
+        out,
+        "    public {}Exception(final int code, final String message) {{",
+        class_name
+    )
+    .ok();
     writeln!(out, "        super(message);").ok();
     writeln!(out, "        this.code = code;").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
     writeln!(
         out,
-        "    public {}Exception(String message, Throwable cause) {{",
+        "    /** Creates a new {}Exception with a cause. */",
+        class_name
+    )
+    .ok();
+    writeln!(
+        out,
+        "    public {}Exception(final String message, final Throwable cause) {{",
         class_name
     )
     .ok();
@@ -1482,6 +1501,7 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
     writeln!(out, "        this.code = -1;").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
+    writeln!(out, "    /** Returns the error code. */").ok();
     writeln!(out, "    public int getCode() {{").ok();
     writeln!(out, "        return code;").ok();
     writeln!(out, "    }}").ok();
@@ -1520,7 +1540,7 @@ fn gen_facade_class(
             .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
             .map(|p| {
                 let ptype = java_type(&p.ty);
-                format!("{} {}", ptype, to_java_name(&p.name))
+                format!("final {} {}", ptype, to_java_name(&p.name))
             })
             .collect();
 
@@ -1603,7 +1623,7 @@ fn gen_facade_class(
                 .filter(|p| !p.optional && !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
                 .map(|p| {
                     let ptype = java_type(&p.ty);
-                    format!("{} {}", ptype, to_java_name(&p.name))
+                    format!("final {} {}", ptype, to_java_name(&p.name))
                 })
                 .collect();
 
@@ -1956,19 +1976,22 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     }
 
     writeln!(out).ok();
+    writeln!(out, "    /** The string value. */").ok();
     writeln!(out, "    private final String value;").ok();
     writeln!(out).ok();
-    writeln!(out, "    {}(String value) {{", enum_def.name).ok();
+    writeln!(out, "    {}(final String value) {{", enum_def.name).ok();
     writeln!(out, "        this.value = value;").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
+    writeln!(out, "    /** Returns the string value. */").ok();
     writeln!(out, "    @JsonValue").ok();
     writeln!(out, "    public String getValue() {{").ok();
     writeln!(out, "        return value;").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
+    writeln!(out, "    /** Creates an instance from a string value. */").ok();
     writeln!(out, "    @JsonCreator").ok();
-    writeln!(out, "    public static {} fromValue(String value) {{", enum_def.name).ok();
+    writeln!(out, "    public static {} fromValue(final String value) {{", enum_def.name).ok();
     writeln!(out, "        for ({} e : values()) {{", enum_def.name).ok();
     writeln!(out, "            if (e.value.equalsIgnoreCase(value)) {{").ok();
     writeln!(out, "                return e;").ok();
@@ -2599,9 +2622,10 @@ fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
             java_type(&field.ty).to_string()
         };
 
+        writeln!(body, "    /** Sets the {} field. */", field_name).ok();
         writeln!(
             body,
-            "    public {}Builder with{}({} value) {{",
+            "    public {}Builder with{}(final {} value) {{",
             typ.name, field_name_pascal, field_type
         )
         .ok();
@@ -2612,6 +2636,7 @@ fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     }
 
     // Generate build() method
+    writeln!(body, "    /** Builds the {} instance. */", typ.name).ok();
     writeln!(body, "    public {} build() {{", typ.name).ok();
     writeln!(body, "        return new {}(", typ.name).ok();
     let non_tuple_fields: Vec<_> = typ

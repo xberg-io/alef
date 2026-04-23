@@ -438,6 +438,22 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
             }
         }
 
+        // Collect method_result helper function imports.
+        for fixture in fixtures.iter() {
+            for assertion in &fixture.assertions {
+                if assertion.assertion_type == "method_result" {
+                    if let Some(method_name) = &assertion.method {
+                        let import = python_method_helper_import(method_name);
+                        if let Some(name) = import {
+                            if !import_names.contains(&name) {
+                                import_names.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if let (true, Some(opts_type)) = (needs_options_type, &options_type) {
             import_names.push(opts_type.clone());
             thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
@@ -1337,6 +1353,21 @@ fn build_python_method_call(result_var: &str, method_name: &str, args: Option<&s
                 format!("{result_var}.{method_name}()")
             }
         }
+    }
+}
+
+/// Returns the Python import name for a method_result method that uses a
+/// module-level helper function (not a method on the result object).
+fn python_method_helper_import(method_name: &str) -> Option<String> {
+    match method_name {
+        "has_error_nodes" => Some("tree_has_error_nodes".to_string()),
+        "error_count" | "tree_error_count" => Some("tree_error_count".to_string()),
+        "tree_to_sexp" => Some("tree_to_sexp".to_string()),
+        "contains_node_type" => Some("tree_contains_node_type".to_string()),
+        "find_nodes_by_type" => Some("find_nodes_by_type".to_string()),
+        "run_query" => Some("run_query".to_string()),
+        // Methods accessed via result_var (e.g. tree.root_node().child_count()) don't need imports.
+        _ => None,
     }
 }
 
