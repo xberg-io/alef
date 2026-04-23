@@ -278,7 +278,9 @@ fn test_type_mapping() {
     let lines: Vec<&str> = content.lines().collect();
     let struct_lines: Vec<&&str> = lines.iter().filter(|l| l.contains("Val")).collect();
     assert!(
-        struct_lines.iter().any(|l| l.contains("U32Val") && l.contains("uint32")),
+        struct_lines
+            .iter()
+            .any(|l| l.contains("U32Val") && l.contains("uint32")),
         "U32 should map to uint32"
     );
     assert!(
@@ -286,11 +288,15 @@ fn test_type_mapping() {
         "I64 should map to int64"
     );
     assert!(
-        struct_lines.iter().any(|l| l.contains("StringVal") && l.contains("*string")),
+        struct_lines
+            .iter()
+            .any(|l| l.contains("StringVal") && l.contains("*string")),
         "Optional String should be *string"
     );
     assert!(
-        struct_lines.iter().any(|l| l.contains("VecVal") && l.contains("[]string")),
+        struct_lines
+            .iter()
+            .any(|l| l.contains("VecVal") && l.contains("[]string")),
         "Vec<String> should map to []string"
     );
 }

@@ -119,8 +119,8 @@ fn test_plugin_bridge_generates_wrapper_struct() {
         "plugin bridge must generate RustlerOcrBackendBridge wrapper struct"
     );
     assert!(
-        code.code.contains("inner: rustler::SavedTerm"),
-        "wrapper struct must hold a rustler::SavedTerm"
+        code.code.contains("inner: rustler::env::SavedTerm"),
+        "wrapper struct must hold a rustler::env::SavedTerm"
     );
     assert!(
         code.code.contains("cached_name: String"),
@@ -316,9 +316,11 @@ fn test_visitor_bridge_does_not_generate_registration_fn() {
     let cfg = make_visitor_bridge_cfg("HtmlVisitor");
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 
+    // Visitor bridges do not generate a register_{trait} function, but may
+    // emit helper NIFs (e.g. visitor_reply). Verify no registration fn exists.
     assert!(
-        !code.code.contains("#[rustler::nif]"),
-        "visitor bridge must not generate a rustler::nif registration function"
+        !code.code.contains("pub fn register_"),
+        "visitor bridge must not generate a register_ registration function"
     );
 }
 
@@ -352,7 +354,7 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
         "visitor bridge struct must hold a rustler::OwnedEnv"
     );
     assert!(
-        code.code.contains("rustler::SavedTerm"),
-        "visitor bridge struct must hold a rustler::SavedTerm"
+        code.code.contains("rustler::env::SavedTerm"),
+        "visitor bridge struct must hold a rustler::env::SavedTerm"
     );
 }

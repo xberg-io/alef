@@ -2950,14 +2950,15 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
         let files = language_files(&all_files);
-        // scaffold_node: pkg package.json + crate package.json + index.d.ts; scaffold_node_cargo: Cargo.toml
-        assert_eq!(files.len(), 4);
+        // scaffold_node: pkg package.json + crate package.json + index.d.ts + tsconfig.json; scaffold_node_cargo: Cargo.toml
+        assert_eq!(files.len(), 5);
         assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
         assert!(files[0].content.contains("napi"));
         assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
         assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
-        assert_eq!(files[3].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-        assert!(files[3].content.contains("napi-derive"));
+        assert_eq!(files[3].path, PathBuf::from("packages/node/tsconfig.json"));
+        assert_eq!(files[4].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+        assert!(files[4].content.contains("napi-derive"));
     }
 
     #[test]
@@ -2966,8 +2967,8 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
         let files = language_files(&all_files);
-        // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 4 files (2 package.json + index.d.ts + Cargo.toml)
-        assert_eq!(files.len(), 7);
+        // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 5 files (2 package.json + index.d.ts + tsconfig.json + Cargo.toml)
+        assert_eq!(files.len(), 8);
     }
 
     #[test]
@@ -2978,8 +2979,8 @@ mod tests {
         let content = &files[0].content;
         assert!(content.contains("[project.urls]"));
         assert!(content.contains("repository ="));
-        // Linter config (ruff, mypy) is NOT generated — consumers configure in root pyproject.toml
-        assert!(!content.contains("[tool.ruff]"));
+        // Linter config (ruff) is included in the generated pyproject.toml
+        assert!(content.contains("[tool.ruff]"));
     }
 
     #[test]
@@ -3020,7 +3021,8 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
         let files = language_files(&all_files);
-        assert_eq!(files.len(), 1);
+        // go.mod + .golangci.yml
+        assert_eq!(files.len(), 2);
         let content = &files[0].content;
         assert!(content.contains("go 1.26"));
         assert!(!content.contains("require ("));
@@ -3032,7 +3034,9 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
         let files = language_files(&all_files);
-        assert_eq!(files.len(), 1);
+        // pom.xml + checkstyle.xml + checkstyle.properties + checkstyle-suppressions.xml
+        // + eclipse-formatter.xml + versions-rules.xml + pmd-ruleset.xml
+        assert_eq!(files.len(), 7);
         let content = &files[0].content;
         assert!(content.contains("<properties>"));
         assert!(content.contains("<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>"));

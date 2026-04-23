@@ -948,13 +948,13 @@ mod tests {
     #[test]
     fn test_format_return_type_with_error() {
         let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new());
-        assert_eq!(result, "Result<String, MyError>");
+        assert_eq!(result, "std::result::Result<String, MyError>");
     }
 
     #[test]
     fn test_format_return_type_unit_with_error() {
         let result = format_return_type(&TypeRef::Unit, Some("Box<dyn std::error::Error>"), &HashMap::new());
-        assert_eq!(result, "Result<(), Box<dyn std::error::Error>>");
+        assert_eq!(result, "std::result::Result<(), Box<dyn std::error::Error>>");
     }
 
     #[test]
@@ -962,7 +962,7 @@ mod tests {
         let mut paths = HashMap::new();
         paths.insert("Output".to_string(), "mylib::Output".to_string());
         let result = format_return_type(&TypeRef::Named("Output".to_string()), Some("mylib::MyError"), &paths);
-        assert_eq!(result, "Result<mylib::Output, mylib::MyError>");
+        assert_eq!(result, "std::result::Result<mylib::Output, mylib::MyError>");
     }
 
     // ---------------------------------------------------------------------------
@@ -1251,8 +1251,8 @@ mod tests {
         let generator = MockBridgeGenerator;
         let result = gen_bridge_trait_impl(&spec, &generator);
         assert!(
-            result.contains("-> Result<String, mylib::MyError>"),
-            "missing Result return type in:\n{result}"
+            result.contains("-> std::result::Result<String, mylib::MyError>"),
+            "missing std::result::Result return type in:\n{result}"
         );
     }
 

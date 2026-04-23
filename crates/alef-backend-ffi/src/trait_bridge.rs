@@ -1060,11 +1060,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out).ok();
 
         // --- unregister function ---
-        writeln!(
-            out,
-            "/// Unregister a previously registered C plugin by name."
-        )
-        .ok();
+        writeln!(out, "/// Unregister a previously registered C plugin by name.").ok();
         writeln!(out, "///").ok();
         writeln!(out, "/// # Parameters").ok();
         writeln!(out, "///").ok();
@@ -1081,26 +1077,14 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "///").ok();
         writeln!(out, "/// # Safety").ok();
         writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// `name` must point to a valid null-terminated C string."
-        )
-        .ok();
+        writeln!(out, "/// `name` must point to a valid null-terminated C string.").ok();
         writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(
-            out,
-            "pub unsafe extern \"C\" fn {full_unregister_name}("
-        )
-        .ok();
+        writeln!(out, "pub unsafe extern \"C\" fn {full_unregister_name}(").ok();
         writeln!(out, "    name: *const std::ffi::c_char,").ok();
         writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
         writeln!(out, ") -> i32 {{").ok();
         writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(
-            out,
-            "        ffi_set_out_error(out_error, \"name must not be null\");"
-        )
-        .ok();
+        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
         writeln!(
