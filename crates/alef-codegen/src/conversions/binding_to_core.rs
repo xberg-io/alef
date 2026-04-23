@@ -300,9 +300,22 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
                 "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (serde_json::from_str(&k).unwrap_or_default(), v)).collect()"
             )
         }
-        TypeRef::Map(_, _) => {
-            // Collect to handle HashMap↔BTreeMap conversion
-            format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
+        TypeRef::Map(k, v) => {
+            // Map with Named values need .into() conversion on each value.
+            let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
+            let val_is_string_enum = matches!(v.as_ref(), TypeRef::Named(n)
+                if config.enum_string_names.as_ref().is_some_and(|names| names.contains(n)));
+            if val_is_string_enum {
+                format!(
+                    "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or_default())).collect()"
+                )
+            } else if has_named_val {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, v.into())).collect()")
+            } else if matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)) {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()")
+            } else {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
+            }
         }
         _ => {
             // Simple types (primitives, String, etc): unwrap_or_default()
