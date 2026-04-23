@@ -1331,6 +1331,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                     <java>
                         <eclipse>
                             <version>4.31</version>
+                            <file>${{project.basedir}}/eclipse-formatter.xml</file>
                         </eclipse>
                     </java>
                 </configuration>
@@ -1458,11 +1459,124 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         repo_path = repo_path,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/java/pom.xml"),
-        content,
-        generated_header: true,
-    }])
+    let checkstyle_xml = r#"<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="SuppressionFilter">
+        <property name="file" value="${checkstyle.suppressions.file}"/>
+        <property name="optional" value="false"/>
+    </module>
+
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^package.*|^import.*|a]href|href|http://|https://|ftp://"/>
+    </module>
+
+    <module name="TreeWalker">
+        <!-- Naming Conventions -->
+        <module name="ConstantName">
+            <property name="format" value="^([A-Z][A-Z0-9]*(_[A-Z0-9]+)*|[a-z_]+)$"/>
+        </module>
+        <module name="LocalFinalVariableName"/>
+        <module name="LocalVariableName"/>
+        <module name="MemberName"/>
+        <module name="MethodName"/>
+        <module name="PackageName"/>
+        <module name="ParameterName"/>
+        <module name="TypeName"/>
+
+        <!-- Imports -->
+        <module name="AvoidStarImport">
+            <property name="allowStaticMemberImports" value="true"/>
+        </module>
+        <module name="RedundantImport"/>
+        <module name="UnusedImports"/>
+
+        <!-- Size Violations -->
+        <module name="MethodLength">
+            <property name="max" value="150"/>
+        </module>
+
+        <!-- Modifier Checks -->
+        <module name="ModifierOrder"/>
+        <module name="RedundantModifier"/>
+
+        <!-- Coding -->
+        <module name="EmptyStatement"/>
+        <module name="EqualsHashCode"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+
+        <!-- Misc -->
+        <module name="ArrayTypeStyle"/>
+        <module name="UpperEll"/>
+    </module>
+</module>
+"#;
+
+    let checkstyle_properties =
+        "checkstyle.suppressions.file=packages/java/checkstyle-suppressions.xml\n";
+
+    let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- Allow star imports in test files -->
+    <suppress checks="AvoidStarImport" files=".*Test\.java"/>
+
+    <!-- Allow magic numbers in tests -->
+    <suppress checks="MagicNumber" files=".*Test\.java"/>
+</suppressions>
+"#;
+
+    let eclipse_formatter_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<profiles version="21">
+    <profile kind="CodeFormatterProfile" name="Kreuzberg" version="21">
+        <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120"/>
+        <setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
+        <setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
+        <setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>
+        <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="120"/>
+    </profile>
+</profiles>
+"#;
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/java/pom.xml"),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/checkstyle.xml"),
+            content: checkstyle_xml.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/checkstyle.properties"),
+            content: checkstyle_properties.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/checkstyle-suppressions.xml"),
+            content: checkstyle_suppressions_xml.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/eclipse-formatter.xml"),
+            content: eclipse_formatter_xml.to_string(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -2072,6 +2186,18 @@ fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Ve
              \x20       entry: bash -c 'cd packages/php && composer install --no-interaction --no-progress && composer run lint:fix'\n\
              \x20       language: system\n\
              \x20       files: ^packages/php/\n\
+             \x20       pass_filenames: false\n"
+                .to_string(),
+        );
+    }
+
+    if has(Language::Java) {
+        local_hooks.push(
+            "      - id: java-verify\n\
+             \x20       name: maven verify (java)\n\
+             \x20       entry: bash -lc 'if [ -f \"$HOME/.sdkman/bin/sdkman-init.sh\" ]; then source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk env; fi; MAVEN_OPTS=\"${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow\" mvn -f packages/java/pom.xml -B -DskipTests -Dgpg.skip=true -Dskip.rust.ffi=true verify'\n\
+             \x20       language: system\n\
+             \x20       files: ^packages/java/\n\
              \x20       pass_filenames: false\n"
                 .to_string(),
         );

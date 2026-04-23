@@ -199,6 +199,12 @@ pub(crate) fn gen_instance_method(
     } else if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
+        // For opaque types, self.inner is Arc<T> or Arc<Mutex<T>>.
+        // Arc implements Deref, so method calls work via coercion.
+        // For Arc<Mutex<T>>, the Deref is to Mutex<T>, which doesn't have methods.
+        // We generate a try-both approach: try direct call, or if needed, lock().unwrap().
+        // To keep it simple, generate code that works for Arc<T> since most types are that.
+        // For Arc<Mutex<T>> types, users should provide adapter bodies via alef.adapters.
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args)
         } else {
@@ -238,10 +244,6 @@ pub(crate) fn gen_instance_method(
         // Not auto-delegatable opaque instance method — use let-binding conversion
         let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types);
-        // For Arc<Mutex<T>> and Arc<T> opaque types, we need to access the inner field properly.
-        // If self.inner is Arc<Mutex<T>>, use self.inner.lock().unwrap() first.
-        // If self.inner is Arc<T>, direct access works. We detect Mutex in the type by checking method receivers.
-        // For simplicity, we generate a let-binding that handles both cases via .as_ref() on the Arc.
         let core_call = format!("self.inner.{}({})", method.name, call_args);
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
@@ -604,9 +606,10 @@ fn gen_function_body(
         gen_stub_return(&func.return_type, true, &func.name)
     } else {
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
-        // serde is available (avoids the missing From<BindingType> for core type compile error),
-        // otherwise fall back to the .clone().into() let-binding path.
-        let let_bindings = if has_serde && has_ref_named_params(&func.params, opaque_types) {
+        // serde is available AND the function returns Result (avoids the missing From<BindingType>
+        // for core type compile error). Functions that don't return Result can't use ? operators,
+        // so we fall back to .clone().into().
+        let let_bindings = if has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types) {
             gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
         } else {
             gen_php_named_let_bindings(&func.params, opaque_types, core_import)

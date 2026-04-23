@@ -236,6 +236,11 @@ pub struct ParamDef {
     /// `my_crate::NodeIndex(param)` instead of just `param`.
     #[serde(default)]
     pub newtype_wrapper: Option<String>,
+    /// Original Rust type before sanitization, stored when param.sanitized=true.
+    /// Allows codegen to reconstruct proper deserialization logic.
+    /// E.g. `"Vec<(PathBuf, Option<FileExtractionConfig>)>"` when sanitized to `Vec<String>`.
+    #[serde(default)]
+    pub original_type: Option<String>,
 }
 
 /// A public enum.

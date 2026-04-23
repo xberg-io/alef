@@ -776,6 +776,34 @@ pub fn gen_serde_let_bindings(
                             .ok();
                         }
                     }
+                } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
+                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
+                    // Deserialize each JSON string as a tuple using serde_json.
+                    if p.optional {
+                        write!(
+                            bindings,
+                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n\
+                             {indent}    strs.into_iter()\n\
+                             {indent}    .map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
+                             {indent}    .collect::<Result<Vec<_>, _>>()\n\
+                             {indent}}}).transpose()?;\n{indent}",
+                            n = p.name,
+                            err_conv = err_conv,
+                            indent = indent,
+                        )
+                        .ok();
+                    } else {
+                        write!(
+                            bindings,
+                            "let {n}_core: Vec<_> = {n}.into_iter()\n\
+                             {indent}.map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
+                             {indent}.collect::<Result<Vec<_>, _>>()?;\n{indent}",
+                            n = p.name,
+                            err_conv = err_conv,
+                            indent = indent,
+                        )
+                        .ok();
+                    }
                 }
             }
             _ => {}

@@ -129,7 +129,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\"")
+                    spec.make_error("\"Expected string return\".to_string()")
                 )
                 .ok();
             } else {
@@ -252,7 +252,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Expected string return\"")
+                    spec.make_error("\"Expected string return\".to_string()")
                 )
                 .ok();
             } else {

@@ -529,6 +529,13 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 // Check if the resolved type (before unwrapping optional) is a tuple type
                 let sanitized = is_tuple_type(&resolved);
 
+                // Capture original type before sanitization for codegen deserialization
+                let original_type = if sanitized {
+                    Some(format!("{:?}", resolved))
+                } else {
+                    None
+                };
+
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
                     name,
@@ -540,6 +547,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     is_ref,
                     is_mut,
                     newtype_wrapper: None,
+                    original_type,
                 })
             } else {
                 None // Skip self receiver

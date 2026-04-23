@@ -625,7 +625,14 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             local.insert(name.as_str());
         }
         for typ in api.types.iter().filter(|t| !t.is_trait) {
-            if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() {
+            // Only count a type as "local" if it will actually be emitted as a dataclass.
+            // Return types are skipped from emission (they live in the native module),
+            // so they must NOT be in local_type_names — otherwise they won't be imported.
+            if typ.has_default
+                && !typ.name.ends_with("Update")
+                && !typ.fields.is_empty()
+                && !typ.is_return_type
+            {
                 local.insert(typ.name.as_str());
             }
         }

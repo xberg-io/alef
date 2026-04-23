@@ -87,20 +87,32 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         // Check if method returns a Result type
         if method.error_type.is_some() {
             writeln!(out, "match result {{").ok();
-            writeln!(
-                out,
-                "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),"
-            )
-            .ok();
-            writeln!(out, "    Err(e) => Err(e.into()),").ok();
+            // Check if return type is unit ()
+            if matches!(method.return_type, TypeRef::Unit) {
+                writeln!(out, "    Ok(_) => Ok(()),").ok();
+            } else {
+                writeln!(
+                    out,
+                    "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),"
+                )
+                .ok();
+            }
+            // Error conversion: ext-php-rs::error::Error → KreuzbergError
+            // Use string conversion since there's no direct From impl
+            writeln!(out, "    Err(e) => Err({}::KreuzbergError::Other(e.to_string())),", self.core_import).ok();
             writeln!(out, "}}").ok();
         } else {
             writeln!(out, "match result {{").ok();
-            writeln!(
-                out,
-                "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
-            )
-            .ok();
+            // Check if return type is unit ()
+            if matches!(method.return_type, TypeRef::Unit) {
+                writeln!(out, "    Ok(_) => (),").ok();
+            } else {
+                writeln!(
+                    out,
+                    "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+                )
+                .ok();
+            }
             writeln!(out, "    Err(_) => Default::default(),").ok();
             writeln!(out, "}}").ok();
         }
@@ -170,7 +182,9 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]"
         };
 
-        writeln!(out, "    match inner_obj.try_call_method(\"{name}\", {args_expr}) {{").ok();
+        // inner_obj is *mut ZendObject, so we need to dereference and call the method.
+        // SAFETY: the raw pointer is valid within the async block.
+        writeln!(out, "    match unsafe {{ (*inner_obj).try_call_method(\"{name}\", {args_expr}) }} {{").ok();
         writeln!(
             out,
             "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
