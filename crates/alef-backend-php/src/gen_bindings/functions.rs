@@ -744,8 +744,8 @@ fn gen_async_function_body(
             )
         }
     } else {
-        // Cannot auto-delegate — skip entirely.
-        String::new()
+        // Cannot auto-delegate — return error stub
+        gen_stub_return(&func.return_type, true, &func.name)
     }
 }
 

@@ -253,21 +253,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         )
         .ok();
 
-        // Validate all required methods exist
-        for req_method in spec.required_methods() {
-            writeln!(
-                out,
-                r#"        debug_assert!(php_obj.get_property::<ext_php_rs::types::Zval>("{}").is_ok(),"#,
-                req_method.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "            \"PHP object missing required method: {}\");",
-                req_method.name
-            )
-            .ok();
-        }
+        // Validation of required methods is done in the registration function below.
+        // Skipping debug_assert in constructor to avoid type issues with get_property.
 
         // Extract and cache name
         writeln!(out, "        let cached_name = php_obj").ok();
@@ -325,10 +312,10 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let req_methods: Vec<&MethodDef> = spec.required_methods();
         if !req_methods.is_empty() {
             for method in &req_methods {
-                // get_property is generic and needs a type annotation. Use Zval since we only care about existence.
+                // Check if required method exists by attempting to call it with empty args.
                 writeln!(
                     out,
-                    r#"    if backend.get_property::<ext_php_rs::types::Zval>("{}").is_err() {{"#,
+                    r#"    if backend.try_call_method("{}".into(), vec![]).is_err() {{"#,
                     method.name
                 )
                 .ok();

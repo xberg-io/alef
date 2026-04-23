@@ -54,7 +54,13 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             let ext = self.extract_ty(&method.return_type);
             writeln!(out, "            {call}").ok();
-            writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").ok();
+            // For Named types, extract as String and deserialize
+            if matches!(method.return_type, TypeRef::Named(_)) {
+                writeln!(out, "                .and_then(|v| v.extract::<String>())").ok();
+                writeln!(out, "                .and_then(|s| serde_json::from_str::<{ext}>(&s).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string())))").ok();
+            } else {
+                writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").ok();
+            }
             if has_error {
                 self.write_error_map(&mut out, name, spec.core_import);
             } else {
@@ -356,7 +362,13 @@ impl Pyo3BridgeGenerator {
             TypeRef::Bytes => "Vec<u8>".into(),
             TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
             TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
-            TypeRef::Named(name) => name.clone(),
+            TypeRef::Named(name) => {
+                // Qualify Named types with core crate path if available in type_paths
+                self.type_paths
+                    .get(name.as_str())
+                    .map(|p| p.replace('-', "_"))
+                    .unwrap_or_else(|| format!("{}::{}", self.core_import, name))
+            }
             TypeRef::Unit => "()".into(),
             TypeRef::Map(k, v) => format!(
                 "std::collections::HashMap<{}, {}>",

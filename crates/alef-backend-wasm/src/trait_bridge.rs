@@ -145,6 +145,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                     spec.make_error("\"Failed to convert result\".to_string()")
                 )
                 .ok();
+                writeln!(
+                    out,
+                    "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
+                    spec.make_error("format!(\"Failed to deserialize result: {{}}\", e)")
+                )
+                .ok();
             } else {
                 writeln!(
                     out,
@@ -259,18 +265,25 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(out, "result.as_string().unwrap_or_default()").ok();
             }
         } else {
+            let ret_ty = self.extract_ty(&method.return_type);
             if has_error {
                 writeln!(out, "result.as_string()").ok();
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\"")
+                    spec.make_error("\"Failed to convert result\".to_string()")
+                )
+                .ok();
+                writeln!(
+                    out,
+                    "    .and_then(|s| serde_json::from_str::<{ret_ty}>(&s).map_err(|e| {}))",
+                    spec.make_error("format!(\"Failed to deserialize result: {{}}\", e)")
                 )
                 .ok();
             } else {
                 writeln!(
                     out,
-                    "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()"
+                    "result.as_string().and_then(|s| serde_json::from_str::<{ret_ty}>(&s).ok()).unwrap_or_default()"
                 )
                 .ok();
             }
@@ -405,7 +418,13 @@ impl WasmBridgeGenerator {
             TypeRef::Bytes => "Vec<u8>".into(),
             TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
             TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
-            TypeRef::Named(name) => name.clone(),
+            TypeRef::Named(name) => {
+                // Qualify Named types with core crate path if available in type_paths
+                self.type_paths
+                    .get(name.as_str())
+                    .map(|p| p.replace('-', "_"))
+                    .unwrap_or_else(|| format!("{}::{}", self.core_import, name))
+            }
             TypeRef::Unit => "()".into(),
             TypeRef::Map(k, v) => format!(
                 "std::collections::HashMap<{}, {}>",

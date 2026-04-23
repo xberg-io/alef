@@ -173,10 +173,10 @@ fn render_cargo_toml(
     features: &[String],
 ) -> String {
     let e2e_name = format!("{dep_name}-e2e-rust");
-    let mut effective_features: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
-    if needs_serde_json && !effective_features.contains(&"serde") {
-        effective_features.push("serde");
-    }
+    // Use only the features explicitly configured in alef.toml.
+    // Do NOT auto-add "serde" — the target crate may not have that feature.
+    // serde_json is added as a separate dependency when needed.
+    let effective_features: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
     let features_str = if effective_features.is_empty() {
         String::new()
     } else {
