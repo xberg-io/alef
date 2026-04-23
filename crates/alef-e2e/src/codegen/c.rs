@@ -1369,6 +1369,41 @@ fn render_method_result_assertion(
                         "        assert(alef_json_array_count(_method_result) > 0 && \"method_result is_true assertion failed\");"
                     );
                 }
+                "is_false" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(alef_json_array_count(_method_result) == 0 && \"method_result is_false assertion failed\");"
+                    );
+                }
+                "equals" => {
+                    if let Some(val) = value {
+                        let n = val.as_u64().unwrap_or(0);
+                        let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
+                        let _ = writeln!(
+                            out,
+                            "        assert(_elem_count == {n} && \"method_result equals assertion failed\");"
+                        );
+                    }
+                }
+                "greater_than_or_equal" => {
+                    if let Some(val) = value {
+                        let n = val.as_u64().unwrap_or(0);
+                        let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
+                        let _ = writeln!(
+                            out,
+                            "        assert(_elem_count >= {n} && \"method_result greater_than_or_equal assertion failed\");"
+                        );
+                    }
+                }
+                "contains" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(strstr(_method_result, {c_val}) != NULL && \"method_result contains assertion failed\");"
+                        );
+                    }
+                }
                 other_check => {
                     panic!("C e2e generator: unsupported method_result check type: {other_check}");
                 }

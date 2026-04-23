@@ -1943,7 +1943,14 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
             .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         if !variant.doc.is_empty() {
             let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-            writeln!(out, "    /** {doc_summary} */").ok();
+            // 4 spaces indent + "/** " + " */" = 11 chars overhead; wrap if total > 80
+            if doc_summary.len() + 11 > 80 {
+                writeln!(out, "    /**").ok();
+                writeln!(out, "     * {doc_summary}").ok();
+                writeln!(out, "     */").ok();
+            } else {
+                writeln!(out, "    /** {doc_summary} */").ok();
+            }
         }
         writeln!(out, "    {}(\"{}\"){}", variant.name, json_name, comma).ok();
     }

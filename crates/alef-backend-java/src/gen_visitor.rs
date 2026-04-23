@@ -992,10 +992,11 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         let method_num = chunk_idx + 1;
         writeln!(
             out,
-            "    private long registerStubs{}(long offset) throws ReflectiveOperationException {{",
+            "    private long registerStubs{}(final long offset) throws ReflectiveOperationException {{",
             method_num
         )
         .ok();
+        writeln!(out, "        long off = offset;").ok();
         for spec in chunk {
             let descriptor = callback_descriptor(spec);
             let method_type = callback_method_type(spec);
@@ -1004,17 +1005,27 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
             writeln!(out, "        var {} = LINKER.upcallStub(", stub_var).ok();
             writeln!(
                 out,
-                "                LOOKUP.bind(this, \"{}\", {}),",
+                "                LOOKUP.bind(",
+            )
+            .ok();
+            writeln!(
+                out,
+                "                    this, \"{}\",",
                 handle_method_name(spec.java_method),
+            )
+            .ok();
+            writeln!(
+                out,
+                "                    {}),",
                 method_type
             )
             .ok();
             writeln!(out, "                {},", descriptor).ok();
             writeln!(out, "                arena);").ok();
-            writeln!(out, "        struct.set(ValueLayout.ADDRESS, offset, {});", stub_var).ok();
-            writeln!(out, "        offset += ValueLayout.ADDRESS.byteSize();").ok();
+            writeln!(out, "        struct.set(ValueLayout.ADDRESS, off, {});", stub_var).ok();
+            writeln!(out, "        off += ValueLayout.ADDRESS.byteSize();").ok();
         }
-        writeln!(out, "        return offset;").ok();
+        writeln!(out, "        return off;").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
     }
@@ -1234,6 +1245,7 @@ fn iface_param_str(spec: &CallbackSpec) -> String {
 
 /// Build the `FunctionDescriptor` for one callback's upcall stub.
 /// All callbacks: (ADDRESS ctx, ADDRESS userData, ..extra.., ADDRESS outCustom, ADDRESS outLen) -> JAVA_INT
+/// Returns a multi-line string with 20-space continuation indent so no line exceeds 80 chars.
 fn callback_descriptor(spec: &CallbackSpec) -> String {
     let mut layouts = vec![
         "ValueLayout.ADDRESS".to_string(), // ctx
@@ -1249,10 +1261,13 @@ fn callback_descriptor(spec: &CallbackSpec) -> String {
     }
     layouts.push("ValueLayout.ADDRESS".to_string()); // out_custom
     layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
-    format!("FunctionDescriptor.of(ValueLayout.JAVA_INT, {})", layouts.join(", "))
+    let indent = "                    ";
+    let args = layouts.join(&format!(",\n{indent}"));
+    format!("FunctionDescriptor.of(\n{indent}ValueLayout.JAVA_INT,\n{indent}{args})")
 }
 
 /// Build the `MethodType` for `LOOKUP.bind(this, name, type)`.
+/// Returns a multi-line string with 20-space continuation indent so no line exceeds 80 chars.
 fn callback_method_type(spec: &CallbackSpec) -> String {
     let mut types = vec![
         "MemorySegment.class".to_string(), // ctx
@@ -1268,7 +1283,9 @@ fn callback_method_type(spec: &CallbackSpec) -> String {
     }
     types.push("MemorySegment.class".to_string()); // out_custom
     types.push("MemorySegment.class".to_string()); // out_len
-    format!("MethodType.methodType(int.class, {})", types.join(", "))
+    let indent = "                    ";
+    let args = types.join(&format!(",\n{indent}"));
+    format!("MethodType.methodType(\n{indent}int.class,\n{indent}{args})")
 }
 
 fn layout_to_java_class(layout: &str) -> &'static str {

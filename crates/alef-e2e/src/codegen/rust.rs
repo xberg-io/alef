@@ -1701,7 +1701,10 @@ fn build_tree_call_expr(
 /// meaning `>= N` comparisons should use direct numeric comparison rather than
 /// `.is_empty()` (which only works for collections).
 fn is_tree_numeric_method(method_name: &str) -> bool {
-    matches!(method_name, "root_child_count" | "named_children_count" | "error_count" | "tree_error_count")
+    matches!(
+        method_name,
+        "root_child_count" | "named_children_count" | "error_count" | "tree_error_count"
+    )
 }
 
 /// Convert a JSON numeric value to a Rust literal suitable for comparisons.
