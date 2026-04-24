@@ -27,9 +27,12 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
         Language::Node | Language::Wasm => UpdateConfig {
             precondition: None,
             before: None,
-            update: Some(StringOrVec::Single("pnpm up -r".to_string())),
-            upgrade: Some(StringOrVec::Multiple(vec![
+            update: Some(StringOrVec::Multiple(vec![
                 "corepack up".to_string(),
+                "pnpm up -r".to_string(),
+            ])),
+            upgrade: Some(StringOrVec::Multiple(vec![
+                "corepack use pnpm@latest".to_string(),
                 "pnpm up --latest -r -w".to_string(),
             ])),
         },
@@ -182,13 +185,24 @@ mod tests {
     }
 
     #[test]
-    fn node_upgrade_includes_corepack() {
+    fn node_update_includes_corepack_up() {
+        let cfg = default_update_config(Language::Node, "packages/node");
+        let update = cfg.update.unwrap();
+        let cmds = update.commands();
+        assert!(
+            cmds.iter().any(|c| c.contains("corepack up")),
+            "Node update should include corepack up"
+        );
+    }
+
+    #[test]
+    fn node_upgrade_includes_corepack_use_latest() {
         let cfg = default_update_config(Language::Node, "packages/node");
         let upgrade = cfg.upgrade.unwrap();
         let cmds = upgrade.commands();
         assert!(
-            cmds.iter().any(|c| c.contains("corepack up")),
-            "Node upgrade should include corepack up"
+            cmds.iter().any(|c| c.contains("corepack use pnpm@latest")),
+            "Node upgrade should include corepack use pnpm@latest"
         );
     }
 
