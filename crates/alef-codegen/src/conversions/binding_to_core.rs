@@ -602,7 +602,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
         // HashMap value type casting: when value type needs i64→core casting
-        TypeRef::Map(k, v)
+        TypeRef::Map(_k, v)
             if config.cast_large_ints_to_i64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = v.as_ref() {
