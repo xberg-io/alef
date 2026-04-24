@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-04-24
+
 ### Added
 
 - **`alef publish` command group** — vendoring, building, and packaging artifacts for distribution across language package registries (issue #9).
@@ -19,38 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vendor::vendor_core_only()` — copies core crate, rewrites Cargo.toml via `toml_edit` to inline workspace inheritance and dependency specs, removes workspace lints, generates vendor workspace manifest.
 - `vendor::vendor_full()` — core-only + `cargo vendor` of all transitive deps with test/bench cleanup.
 - `ffi_stage::stage_ffi()` / `stage_header()` — copies built FFI shared library and C header to language-specific directories.
-- Config: `GOWORK=off` in default Go setup command to avoid workspace interference.
-- Config: Maven version rules file reference in default Java update commands.
-
-### Fixed
-
-- Codegen(Go): removed dead `capitalize` function in `gen_visitor.rs`.
-
-- CLI: `alef build` now respects `[build_commands.<lang>]` overrides for non-Rust languages — previously only Rust used configurable build commands while other languages always used backend-derived defaults.
-- Config: Ruby lint defaults use `cd {output_dir} && bundle exec rubocop` instead of running from project root (fixes Gemfile not found).
-- Config: FFI lint defaults search entire output directory instead of assuming `tests/` subdirectory.
-- Scaffold: pre-commit config now uses `alef-fmt` + `alef-lint` hooks instead of per-language hooks (ruff, mypy, oxlint, rubocop, golangci-lint, etc.).
-- Codegen(Go): Local variable names now use `go_param_name()` (lowerCamelCase) instead of `to_go_name()` (PascalCase) — fixes 50 revive `var-naming` lint violations in generated Go code (e.g. `cHTML` instead of `CHTML`).
-- Codegen(Go): Error strings in `errors.New(...)` now start with lowercase per Go conventions — fixes staticcheck `ST1005` violations.
-- Codegen(Go): Enum constant names now apply Go acronym rules (`NodeTypeHTML` instead of `NodeTypeHtml`, `ImageTypeDataURI` instead of `ImageTypeDataUri`).
-- Codegen(Go): `nodeTypeFromC` switch uses `to_go_name` for consistent acronym handling.
-- Codegen(Go): BaseVisitor methods now have doc comments — fixes revive `exported` lint violations.
-- Codegen(Go): `VisitResultPreserveHTML` (was `VisitResultPreserveHtml`).
-- Scaffold(Go): golangci config raises gocyclo threshold to 50, disables `dupSubExpr` gocritic check, suppresses `unsafeptr` govet for CGo code, disables `exported` and `package-comments` revive rules for generated code.
-
-## [0.7.1] - 2026-04-24
-
-### Added
-
 - Config: `precondition` field on all command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) — a shell command that must exit 0 for the main command to run; skips the language with a warning on failure.
 - Config: `before` field on all command configs — command(s) that run before the main command; aborts on failure. Supports `StringOrVec` (single string or list).
+- Config: `GOWORK=off` in default Go setup command to avoid workspace interference.
+- Config: Maven version rules file reference in default Java update commands.
 - CLI: Rust is now a first-class language in `alef build` — builds via configurable `[build_commands.rust]` instead of panicking on missing backend.
 - FFI: derive `Copy` and `Clone` on generated vtable structs.
 
 ### Fixed
 
+- CLI: `alef build` now respects `[build_commands.<lang>]` overrides for non-Rust languages.
 - CLI: `before` hooks in lint/fmt now fire even when a language has `check`/`typecheck` commands but no `format` commands.
 - CLI: `before` hook output (stdout/stderr) is now logged instead of silently discarded.
+- Config: Ruby lint defaults use `cd {output_dir} && bundle exec rubocop` instead of running from project root.
+- Config: FFI lint defaults search entire output directory instead of assuming `tests/` subdirectory.
+- Scaffold: pre-commit config now uses `alef-fmt` + `alef-lint` hooks instead of per-language hooks.
+- Codegen(Go): removed dead `capitalize` function, local variable naming, error string conventions, enum acronym rules, visitor doc comments, golangci scaffold config.
 
 ## [0.7.0] - 2026-04-24
 
