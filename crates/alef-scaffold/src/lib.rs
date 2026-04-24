@@ -178,6 +178,15 @@ pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -
     }
     // Project-level files that depend on the full set of configured languages
     files.extend(scaffold_pre_commit_config(config, languages));
+
+    // Typos configuration (spell checker)
+    if !std::path::Path::new(".typos.toml").exists() {
+        files.push(GeneratedFile {
+            path: std::path::PathBuf::from(".typos.toml"),
+            content: "[files]\nextend-exclude = [\"target/\", \".alef/\", \"*.lock\", \"*.min.js\"]\n\n[default.extend-words]\n# Add project-specific words here\n# crate_name = \"crate_name\"\n".to_string(),
+            generated_header: false,
+        });
+    }
     Ok(files)
 }
 

@@ -80,7 +80,9 @@ fn test_api() -> ApiSurface {
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
     files
         .iter()
-        .filter(|f| !f.path.ends_with(".pre-commit-config.yaml"))
+        .filter(|f| {
+            !f.path.ends_with(".pre-commit-config.yaml") && !f.path.ends_with(".typos.toml")
+        })
         .collect()
 }
 

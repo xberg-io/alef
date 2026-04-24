@@ -90,12 +90,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20   rev: \"v2.1.3\"\n\
          \x20   hooks:\n\
          \x20     - id: cargo-sort\n\
-         \x20       args: [-w]\n\n\
-         \x20 - repo: https://github.com/ComPWA/taplo-pre-commit\n\
-         \x20   rev: v0.9.3\n\
-         \x20   hooks:\n\
-         \x20     - id: taplo-format\n\
-         \x20       exclude: \"pyproject.toml|Cargo.toml\"\n\n",
+         \x20       args: [-w]\n\n",
     );
 
     // Python: ruff + mypy
@@ -165,12 +160,14 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
              \x20       args: [\"--fix\"]\n\n",
         );
         // oxfmt doesn't have a pre-commit mirror yet — use a local hook
+        // oxfmt also handles TOML, JSON, YAML, and Markdown formatting
         local_hooks.push(
             "      - id: oxfmt\n\
-             \x20       name: oxfmt (format JS/TS)\n\
+             \x20       name: oxfmt (format JS/TS/JSON/TOML)\n\
              \x20       entry: npx oxfmt\n\
              \x20       language: system\n\
-             \x20       files: \\.(js|jsx|ts|tsx|json)$\n\
+             \x20       files: \\.(js|jsx|ts|tsx|json|toml|yaml|yml)$\n\
+             \x20       exclude: Cargo\\.toml|pyproject\\.toml\n\
              \x20       pass_filenames: false\n"
                 .to_string(),
         );
@@ -198,21 +195,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
         ));
     }
 
-    // Shell scripts
-    yaml.push_str(
-        "  # Shell scripts: formatting and linting\n\
-         \x20 - repo: https://github.com/scop/pre-commit-shfmt\n\
-         \x20   rev: v3.13.1-1\n\
-         \x20   hooks:\n\
-         \x20     - id: shfmt\n\
-         \x20       args: [\"-w\", \"-i\", \"2\"]\n\n\
-         \x20 - repo: https://github.com/koalaman/shellcheck-precommit\n\
-         \x20   rev: v0.11.0\n\
-         \x20   hooks:\n\
-         \x20     - id: shellcheck\n\
-         \x20       args: [\"-x\"]\n\n",
-    );
-
     // Markdown
     yaml.push_str(
         "  # Markdown\n\
@@ -230,15 +212,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20   hooks:\n\
          \x20     - id: typos\n\
          \x20       args: [\"--force-exclude\"]\n\n",
-    );
-
-    // GitHub Actions
-    yaml.push_str(
-        "  # GitHub Actions\n\
-         \x20 - repo: https://github.com/rhysd/actionlint\n\
-         \x20   rev: v1.7.12\n\
-         \x20   hooks:\n\
-         \x20     - id: actionlint\n\n",
     );
 
     // Alef: verify bindings are up to date
