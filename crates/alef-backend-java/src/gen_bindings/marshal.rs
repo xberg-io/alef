@@ -1,8 +1,37 @@
 use crate::type_map::java_ffi_type;
 use ahash::AHashSet;
-use alef_core::ir::TypeRef;
+use alef_core::ir::{PrimitiveType, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
+
+/// Check if the return type is a string-like type that requires pointer-based
+/// FFI return handling (allocate + free pattern).
+pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
+    )
+}
+
+/// Return the Java cast expression for a primitive FFI return type.
+pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::Primitive(prim) => match prim {
+            PrimitiveType::Bool => "boolean",
+            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
+            PrimitiveType::U16 | PrimitiveType::I16 => "short",
+            PrimitiveType::U32 | PrimitiveType::I32 => "int",
+            PrimitiveType::U64
+            | PrimitiveType::I64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => "long",
+            PrimitiveType::F32 => "float",
+            PrimitiveType::F64 => "double",
+        },
+        TypeRef::Duration => "long",
+        _ => "MemorySegment",
+    }
+}
 
 pub(crate) fn gen_ffi_layout(ty: &TypeRef) -> String {
     match ty {

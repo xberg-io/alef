@@ -161,7 +161,7 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
 
 /// Maximum line length before splitting record fields across multiple lines.
 /// Checkstyle enforces 120 chars; we split at 100 to leave headroom for indentation.
-const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
+pub(crate) const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
 
 pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
     match rename_all {
