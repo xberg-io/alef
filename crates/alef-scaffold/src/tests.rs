@@ -346,10 +346,15 @@ fn test_pre_commit_config_all_languages() {
     assert!(content.contains("cpd")); // Java
     assert!(content.contains("dotnet-format"));
     assert!(content.contains("mix-credo"));
-    assert!(content.contains("rbs-validate"));
+    assert!(content.contains("rubocop"));
+    assert!(content.contains("steep-check"));
     assert!(content.contains("php-lint"));
     assert!(content.contains("r-lintr"));
     assert!(content.contains("r-styler"));
+    assert!(content.contains("typos"));
+    assert!(content.contains("mypy"));
+    assert!(content.contains("alef-verify"));
+    assert!(content.contains("alef-sync-versions"));
 }
 
 // --- Oxc toolchain tests ---

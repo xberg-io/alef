@@ -21,3 +21,19 @@
   files: 'Cargo\.toml$'
   pass_filenames: false
   description: "Sync version from Cargo.toml to all package manifests (pyproject.toml, package.json, etc.)"
+
+- id: alef-fmt
+  name: alef fmt
+  language: system
+  entry: alef fmt
+  files: '\.(rs|toml|py|ts|tsx|js|jsx|go|java|cs|ex|exs|rb|php|r|c|h)$'
+  pass_filenames: false
+  description: "Format all generated code using per-language formatters (ruff, oxfmt, gofmt, spotless, etc.)"
+
+- id: alef-lint
+  name: alef lint
+  language: system
+  entry: alef lint
+  files: '\.(rs|toml|py|ts|tsx|js|jsx|go|java|cs|ex|exs|rb|php|r|c|h)$'
+  pass_filenames: false
+  description: "Lint all generated code using per-language linters with autofixes (ruff, oxlint, clippy, etc.)"

@@ -11,10 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CLI: `alef fmt` command — run only format commands on generated output.
 - CLI: `alef update` command — orchestrate per-language dependency updates with sensible defaults. `--latest` flag for aggressive upgrades (incompatible/major version bumps).
-- Config: `StringOrVec` type for lint/update commands — supports both `format = "cmd"` and `format = ["cmd1", "cmd2"]` in alef.toml.
+- CLI: `alef setup` command — install dependencies per language using per-language defaults or `[setup.<lang>]` config.
+- CLI: `alef clean` command — clean build artifacts per language using per-language defaults or `[clean.<lang>]` config.
+- CLI: `alef test --coverage` flag — run coverage commands defined in `[test.<lang>].coverage`.
+- Config: `StringOrVec` type for lint/update/test/setup/clean/build commands — supports both `format = "cmd"` and `format = ["cmd1", "cmd2"]` in alef.toml.
 - Config: `[update.<lang>]` sections in alef.toml with `update` (safe) and `upgrade` (latest) commands.
+- Config: `[setup.<lang>]` sections in alef.toml with `install` commands for dependency installation.
+- Config: `[clean.<lang>]` sections in alef.toml with `clean` commands for removing build artifacts.
+- Config: `[build_commands.<lang>]` sections in alef.toml with `build` and `build_release` commands (replaces hard-coded tool invocations).
+- Config: `coverage` field on `[test.<lang>]` — `TestConfig` fields migrated to `StringOrVec`; `command` and `e2e` also accept arrays.
 - Config: default lint commands for all 12 languages with autofixes enabled (ruff --fix, rubocop -A, clippy --fix, oxlint --fix).
 - Config: default update commands for all 12 languages (cargo update, pnpm up, uv sync, bundle update, composer update, go get, mvn versions, dotnet outdated, mix deps.update, etc.).
+- Config: default setup and clean commands for all 12 languages.
 - Scaffold (Node): generate `.oxfmtrc.json` (120 printWidth, tabs, import sorting) and `.oxlintrc.json` (correctness=error, suspicious=warn, style=off, typescript+import plugins).
 
 ### Changed

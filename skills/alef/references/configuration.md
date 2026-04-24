@@ -407,40 +407,165 @@ The `{version}` placeholder in `replace` is substituted with the current version
 
 ---
 
-## `[test.<lang>]` / `[lint.<lang>]` -- Test and Lint Commands
+## `[lint.<lang>]` -- Lint Commands
 
-Define per-language shell commands for testing and linting generated output.
+Define per-language shell commands for linting and formatting generated output. Built-in defaults are provided for all 12 languages (ruff, rubocop, clippy, oxlint, etc.) so this section is optional unless you need to override a default or add extra steps.
 
-### Test commands
-
-```toml
-[test.python]
-command = "pytest packages/python/tests/"
-e2e = "cd e2e/python && pytest"
-
-[test.node]
-command = "npx vitest run"
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `command` | string | Shell command to run unit tests for this language |
-| `e2e` | string | Shell command to run e2e tests (used when `alef test --e2e` is passed) |
-
-### Lint commands
+All fields accept either a single string or an array of strings (`StringOrVec`).
 
 ```toml
 [lint.python]
 format = "ruff format packages/python/"
 check = "ruff check packages/python/"
 typecheck = "mypy packages/python/"
+
+[lint.node]
+format = "oxfmt packages/node/src/"
+check = "oxlint packages/node/src/"
+
+# Array syntax — run multiple commands for one phase
+[lint.go]
+check = ["golangci-lint run ./...", "go vet ./..."]
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `format` | string | Shell command to format generated code |
-| `check` | string | Shell command to run lint checks |
-| `typecheck` | string | Shell command to run type checking |
+| `format` | StringOrVec | Command(s) to format generated code (run by `alef fmt` and `alef lint`) |
+| `check` | StringOrVec | Command(s) to run lint checks (run by `alef lint`) |
+| `typecheck` | StringOrVec | Command(s) to run type checking (run by `alef lint`) |
+
+The Node and WASM built-in defaults use the Oxc toolchain: `oxfmt` for formatting and `oxlint` for linting. Biome is no longer used in generated scaffolding.
+
+---
+
+## `[test.<lang>]` -- Test Commands
+
+Define per-language shell commands for running tests.
+
+All fields accept either a single string or an array of strings (`StringOrVec`).
+
+```toml
+[test.python]
+command = "pytest packages/python/tests/"
+e2e = "cd e2e/python && pytest"
+coverage = "pytest --cov packages/python/tests/"
+
+[test.node]
+command = "npx vitest run"
+coverage = "npx vitest run --coverage"
+
+# Array syntax
+[test.rust]
+command = ["cargo test", "cargo test --doc"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `command` | StringOrVec | Command(s) to run unit tests (used by `alef test`) |
+| `e2e` | StringOrVec | Command(s) to run e2e tests (used when `alef test --e2e` is passed) |
+| `coverage` | StringOrVec | Command(s) to run tests with coverage (used when `alef test --coverage` is passed) |
+
+---
+
+## `[update.<lang>]` -- Dependency Update Commands
+
+Define per-language shell commands for updating dependencies. Built-in defaults are provided for all 12 languages so this section is optional unless you need to override.
+
+All fields accept either a single string or an array of strings (`StringOrVec`).
+
+```toml
+[update.python]
+update = "uv sync --upgrade-package"
+upgrade = "uv sync -U"
+
+[update.node]
+update = "pnpm up"
+upgrade = "pnpm up --latest"
+
+# Array syntax
+[update.rust]
+update = ["cargo update", "cargo deny check advisories"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `update` | StringOrVec | Command(s) for safe, compatible updates (run by `alef update`) |
+| `upgrade` | StringOrVec | Command(s) for aggressive/latest updates (run by `alef update --latest`) |
+
+---
+
+## `[setup.<lang>]` -- Dependency Installation Commands
+
+Define per-language shell commands for installing dependencies. Built-in defaults are provided for all 12 languages.
+
+All fields accept either a single string or an array of strings (`StringOrVec`).
+
+```toml
+[setup.python]
+install = "uv sync"
+
+[setup.node]
+install = "pnpm install"
+
+# Array syntax
+[setup.java]
+install = ["mvn dependency:resolve", "mvn dependency:resolve-sources"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `install` | StringOrVec | Command(s) to install dependencies (run by `alef setup`) |
+
+---
+
+## `[clean.<lang>]` -- Clean Commands
+
+Define per-language shell commands for cleaning build artifacts. Built-in defaults are provided for all 12 languages.
+
+All fields accept either a single string or an array of strings (`StringOrVec`).
+
+```toml
+[clean.rust]
+clean = "cargo clean"
+
+[clean.node]
+clean = "rm -rf node_modules dist"
+
+# Array syntax
+[clean.java]
+clean = ["mvn clean", "rm -rf target"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `clean` | StringOrVec | Command(s) to clean build artifacts (run by `alef clean`) |
+
+---
+
+## `[build_commands.<lang>]` -- Build Command Overrides
+
+Override the default build commands for a language. Built-in defaults call `maturin`, `napi build`, `wasm-pack`, or `cargo build` + `cbindgen` as appropriate; use this section only when your project requires non-standard tooling.
+
+All fields accept either a single string or an array of strings (`StringOrVec`).
+
+```toml
+[build_commands.python]
+build = "maturin develop"
+build_release = "maturin build --release"
+
+[build_commands.node]
+build = "napi build --platform"
+build_release = "napi build --platform --release"
+
+# Array syntax
+[build_commands.wasm]
+build_release = ["wasm-pack build --target web", "wasm-pack build --target nodejs"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `build` | StringOrVec | Command(s) for dev/debug builds (run by `alef build`) |
+| `build_release` | StringOrVec | Command(s) for release builds (run by `alef build --release`) |
 
 ---
 

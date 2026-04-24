@@ -121,14 +121,55 @@ alef test --lang python,go # Specific languages
 | `alef scaffold` | Generate package manifests (`pyproject.toml`, `package.json`, etc.) |
 | `alef readme` | Generate per-language README files |
 | `alef build` | Build bindings with native tools (`maturin`, `napi`, `wasm-pack`, etc.) |
-| `alef test` | Run per-language test suites |
+| `alef test` | Run per-language test suites (`--e2e` for e2e tests, `--coverage` for coverage) |
 | `alef lint` | Run configured linters on generated output |
+| `alef fmt` | Run only the format phase of lint |
+| `alef update` | Update dependencies per language (`--latest` for aggressive upgrades) |
+| `alef setup` | Install dependencies per language |
+| `alef clean` | Clean build artifacts per language |
 | `alef sync-versions` | Sync version from `Cargo.toml` to all manifests (use `--set <version>` to override) |
 | `alef verify` | Check if bindings are up-to-date (CI mode with `--exit-code`) |
 | `alef diff` | Show what would change without writing |
 | `alef all` | Run full pipeline: generate + stubs + scaffold + readme + e2e + docs + sync |
 | `alef e2e` | Generate e2e test projects from JSON fixtures |
 | `alef cache` | Manage build cache |
+
+## Configuration-Driven Defaults
+
+All operational commands (`lint`, `fmt`, `update`, `setup`, `clean`, `build`, `test`) ship with built-in per-language defaults. No configuration is required to use them — run `alef lint` or `alef update` out of the box. Override any default by adding the corresponding section to `alef.toml`:
+
+```toml
+# Override Node lint commands
+[lint.node]
+format = "oxfmt packages/node/src/"
+check = "oxlint packages/node/src/"
+
+# Add coverage support for Python tests
+[test.python]
+command = "pytest packages/python/tests/"
+coverage = "pytest --cov packages/python/tests/ --cov-report=xml"
+
+# Override dependency update commands
+[update.python]
+update = "uv sync"
+upgrade = "uv sync -U"
+
+# Override setup/clean
+[setup.node]
+install = "pnpm install --frozen-lockfile"
+
+[clean.node]
+clean = "rm -rf node_modules dist"
+
+# Override build commands
+[build_commands.python]
+build = "maturin develop"
+build_release = "maturin build --release"
+```
+
+All command fields accept either a single string or an array of strings.
+
+Node and WASM scaffolding uses the [Oxc](https://oxc.rs) toolchain: `oxfmt` for formatting and `oxlint` for linting. Biome is no longer included in generated Node/WASM projects.
 
 ## Configuration Reference
 
@@ -427,12 +468,15 @@ search = 'header = ".*"'
 replace = 'header = "/* v{version} */"'
 ```
 
-### `[test.<lang>]` / `[lint.<lang>]` -- Test and Lint Commands
+### `[test.<lang>]` / `[lint.<lang>]` / `[update.<lang>]` / `[setup.<lang>]` / `[clean.<lang>]` / `[build_commands.<lang>]`
+
+Override per-language commands for any operational task. All fields accept a string or an array of strings.
 
 ```toml
 [test.python]
 command = "pytest packages/python/tests/"
 e2e = "cd e2e/python && pytest"
+coverage = "pytest --cov packages/python/tests/"
 
 [test.node]
 command = "npx vitest run"
@@ -441,6 +485,20 @@ command = "npx vitest run"
 format = "ruff format packages/python/"
 check = "ruff check packages/python/"
 typecheck = "mypy packages/python/"
+
+[update.node]
+update = "pnpm up"
+upgrade = "pnpm up --latest"
+
+[setup.python]
+install = "uv sync"
+
+[clean.rust]
+clean = "cargo clean"
+
+[build_commands.python]
+build = "maturin develop"
+build_release = "maturin build --release"
 ```
 
 ### `[e2e]` -- E2E Test Generation

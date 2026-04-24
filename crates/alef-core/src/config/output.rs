@@ -226,6 +226,144 @@ upgrade = ["cargo upgrade --incompatible", "cargo update"]
     }
 
     #[test]
+    fn string_or_vec_empty_array_from_toml() {
+        let toml_str = "format = []";
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert!(matches!(t.format, StringOrVec::Multiple(_)));
+        assert!(t.format.commands().is_empty());
+    }
+
+    #[test]
+    fn string_or_vec_single_element_array_from_toml() {
+        let toml_str = r#"format = ["cmd"]"#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["cmd"]);
+    }
+
+    #[test]
+    fn setup_config_single_string() {
+        let toml_str = r#"install = "uv sync""#;
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.install.unwrap().commands(), vec!["uv sync"]);
+    }
+
+    #[test]
+    fn setup_config_array_commands() {
+        let toml_str = r#"install = ["step1", "step2"]"#;
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.install.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn setup_config_all_optional() {
+        let toml_str = "";
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.install.is_none());
+    }
+
+    #[test]
+    fn clean_config_single_string() {
+        let toml_str = r#"clean = "rm -rf dist""#;
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.clean.unwrap().commands(), vec!["rm -rf dist"]);
+    }
+
+    #[test]
+    fn clean_config_array_commands() {
+        let toml_str = r#"clean = ["step1", "step2"]"#;
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.clean.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn clean_config_all_optional() {
+        let toml_str = "";
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.clean.is_none());
+    }
+
+    #[test]
+    fn build_command_config_single_strings() {
+        let toml_str = r#"
+build = "cargo build"
+build_release = "cargo build --release"
+"#;
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.build.unwrap().commands(), vec!["cargo build"]);
+        assert_eq!(cfg.build_release.unwrap().commands(), vec!["cargo build --release"]);
+    }
+
+    #[test]
+    fn build_command_config_array_commands() {
+        let toml_str = r#"
+build = ["step1", "step2"]
+build_release = ["step1 --release", "step2 --release"]
+"#;
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.build.unwrap().commands(), vec!["step1", "step2"]);
+        assert_eq!(
+            cfg.build_release.unwrap().commands(),
+            vec!["step1 --release", "step2 --release"]
+        );
+    }
+
+    #[test]
+    fn build_command_config_all_optional() {
+        let toml_str = "";
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.build.is_none());
+        assert!(cfg.build_release.is_none());
+    }
+
+    #[test]
+    fn test_config_backward_compat_string() {
+        let toml_str = r#"command = "pytest""#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["pytest"]);
+        assert!(cfg.e2e.is_none());
+        assert!(cfg.coverage.is_none());
+    }
+
+    #[test]
+    fn test_config_array_command() {
+        let toml_str = r#"command = ["cmd1", "cmd2"]"#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["cmd1", "cmd2"]);
+    }
+
+    #[test]
+    fn test_config_with_coverage() {
+        let toml_str = r#"
+command = "pytest"
+coverage = "pytest --cov=. --cov-report=term-missing"
+"#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["pytest"]);
+        assert_eq!(
+            cfg.coverage.unwrap().commands(),
+            vec!["pytest --cov=. --cov-report=term-missing"]
+        );
+        assert!(cfg.e2e.is_none());
+    }
+
+    #[test]
+    fn test_config_all_optional() {
+        let toml_str = "";
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.command.is_none());
+        assert!(cfg.e2e.is_none());
+        assert!(cfg.coverage.is_none());
+    }
+
+    #[test]
     fn full_alef_toml_with_lint_and_update() {
         let toml_str = r#"
 languages = ["python", "node"]

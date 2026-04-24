@@ -150,11 +150,13 @@ alef build --lang python,wasm --release
 
 The build profile is `dev` by default and `release` when `--release` is passed. Post-processing steps (such as patching `.d.ts` files for `verbatimModuleSyntax` compatibility) run automatically.
 
+Build commands are configurable via `[build_commands.<lang>]` in `alef.toml`. Built-in defaults cover all supported languages; override them when your project uses non-standard tooling.
+
 ---
 
 ## `alef lint`
 
-Run configured lint and format commands on generated output. Commands are defined in `[lint.<lang>]` sections of `alef.toml`.
+Run configured lint and format commands on generated output. Commands are defined in `[lint.<lang>]` sections of `alef.toml`. Built-in defaults are provided for all 12 languages.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -167,6 +169,21 @@ alef lint --lang python
 
 ---
 
+## `alef fmt`
+
+Run only the format phase of lint (the `format` field from `[lint.<lang>]`). A subset of `alef lint` that skips check and typecheck commands.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from config | Languages to format |
+
+```bash
+alef fmt
+alef fmt --lang python,node
+```
+
+---
+
 ## `alef test`
 
 Run configured test suites for each language. Commands are defined in `[test.<lang>]` sections of `alef.toml`.
@@ -175,12 +192,63 @@ Run configured test suites for each language. Commands are defined in `[test.<la
 |------|------|---------|-------------|
 | `--lang` | string (comma-separated) | all from config | Languages to test |
 | `--e2e` | bool | `false` | Also run e2e tests (uses `[test.<lang>].e2e` commands) |
+| `--coverage` | bool | `false` | Run coverage commands (uses `[test.<lang>].coverage` commands) |
 
 ```bash
 alef test
 alef test --lang python,go
 alef test --e2e
 alef test --lang node --e2e
+alef test --coverage
+alef test --lang python --coverage
+```
+
+---
+
+## `alef update`
+
+Update dependencies for each language using per-language defaults or `[update.<lang>]` config. Safe updates (compatible versions) are run by default; `--latest` enables aggressive upgrades including incompatible/major version bumps.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from config | Languages to update |
+| `--latest` | bool | `false` | Use the `upgrade` commands for aggressive/incompatible updates |
+
+```bash
+alef update
+alef update --lang python,node
+alef update --latest
+alef update --lang rust --latest
+```
+
+---
+
+## `alef setup`
+
+Install dependencies for each language using per-language defaults or `[setup.<lang>]` config. Runs before building or testing when dependencies are not yet installed.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from config | Languages to set up |
+
+```bash
+alef setup
+alef setup --lang python,node
+```
+
+---
+
+## `alef clean`
+
+Clean build artifacts for each language using per-language defaults or `[clean.<lang>]` config.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from config | Languages to clean |
+
+```bash
+alef clean
+alef clean --lang rust,node
 ```
 
 ---

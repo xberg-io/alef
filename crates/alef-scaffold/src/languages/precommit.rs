@@ -95,19 +95,23 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20   rev: v0.9.3\n\
          \x20   hooks:\n\
          \x20     - id: taplo-format\n\
-         \x20       exclude: \"Cargo.toml\"\n\n",
+         \x20       exclude: \"pyproject.toml|Cargo.toml\"\n\n",
     );
 
-    // Python: ruff
+    // Python: ruff + mypy
     if has(Language::Python) {
         yaml.push_str(
-            "  # Python: ruff (linting + formatting)\n\
+            "  # Python: ruff (linting + formatting) + mypy (type checking)\n\
              \x20 - repo: https://github.com/astral-sh/ruff-pre-commit\n\
-             \x20   rev: v0.15.10\n\
+             \x20   rev: v0.15.11\n\
              \x20   hooks:\n\
              \x20     - id: ruff\n\
              \x20       args: [\"--fix\"]\n\
-             \x20     - id: ruff-format\n\n",
+             \x20     - id: ruff-format\n\n\
+             \x20 - repo: https://github.com/pre-commit/mirrors-mypy\n\
+             \x20   rev: v1.20.2\n\
+             \x20   hooks:\n\
+             \x20     - id: mypy\n\n",
         );
     }
 
@@ -119,13 +123,15 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20   hooks:\n\
          \x20     - id: cargo-fmt\n\
          \x20       args: [\"--all\"]\n\
+         \x20       types: [rust]\n\
          \x20     - id: cargo-clippy\n\
          \x20       args:\n\
          \x20         [\n\
          \x20           \"--fix\",\n\
          \x20           \"--allow-dirty\",\n\
          \x20           \"--allow-staged\",\n\
-         \x20           \"--workspace\",\n",
+         \x20           \"--workspace\",\n\
+         \x20           \"--all-features\",\n",
     );
     yaml.push_str(&clippy_excludes);
     yaml.push_str(
@@ -203,16 +209,27 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20 - repo: https://github.com/koalaman/shellcheck-precommit\n\
          \x20   rev: v0.11.0\n\
          \x20   hooks:\n\
-         \x20     - id: shellcheck\n\n",
+         \x20     - id: shellcheck\n\
+         \x20       args: [\"-x\"]\n\n",
     );
 
     // Markdown
     yaml.push_str(
         "  # Markdown\n\
          \x20 - repo: https://github.com/rvben/rumdl-pre-commit\n\
-         \x20   rev: \"v0.1.72\"\n\
+         \x20   rev: \"v0.1.80\"\n\
          \x20   hooks:\n\
          \x20     - id: rumdl-fmt\n\n",
+    );
+
+    // Spelling
+    yaml.push_str(
+        "  # Spelling\n\
+         \x20 - repo: https://github.com/crate-ci/typos\n\
+         \x20   rev: v1.45.1\n\
+         \x20   hooks:\n\
+         \x20     - id: typos\n\
+         \x20       args: [\"--force-exclude\"]\n\n",
     );
 
     // GitHub Actions
@@ -222,6 +239,16 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20   rev: v1.7.12\n\
          \x20   hooks:\n\
          \x20     - id: actionlint\n\n",
+    );
+
+    // Alef: verify bindings are up to date
+    yaml.push_str(
+        "  # Alef: verify bindings and sync versions\n\
+         \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
+         \x20   rev: v0.6.1\n\
+         \x20   hooks:\n\
+         \x20     - id: alef-verify\n\
+         \x20     - id: alef-sync-versions\n\n",
     );
 
     // Java: copy-paste detection and style checking
@@ -258,26 +285,24 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     }
 
     if has(Language::Ruby) {
-        local_hooks.push(
-            "      - id: rbs-validate\n\
-             \x20       name: rbs validate\n\
-             \x20       entry: task ruby:rbs-validate\n\
+        let ruby_dir = config.package_dir(Language::Ruby);
+        local_hooks.push(format!(
+            "      - id: rubocop\n\
+             \x20       name: rubocop (ruby)\n\
+             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec rubocop -A'\n\
              \x20       language: system\n\
              \x20       files: \\.(rb|rbs)$\n\
-             \x20       pass_filenames: false\n\
-             \x20       require_serial: true\n"
-                .to_string(),
-        );
-        local_hooks.push(
+             \x20       pass_filenames: false\n",
+        ));
+        local_hooks.push(format!(
             "      - id: steep-check\n\
-             \x20       name: steep check\n\
-             \x20       entry: task ruby:typecheck\n\
+             \x20       name: steep check (ruby)\n\
+             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec steep check'\n\
              \x20       language: system\n\
              \x20       files: \\.(rb|rbs)$\n\
              \x20       pass_filenames: false\n\
-             \x20       require_serial: true\n"
-                .to_string(),
-        );
+             \x20       require_serial: true\n",
+        ));
     }
 
     if has(Language::Php) {
