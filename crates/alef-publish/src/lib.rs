@@ -6,13 +6,14 @@
 //! registry authentication or publishing — those remain in CI actions.
 
 pub mod ffi_stage;
+pub mod package;
 pub mod platform;
 pub mod vendor;
 
 use alef_core::config::AlefConfig;
 use alef_core::config::extras::Language;
 use alef_core::config::publish::{PublishLanguageConfig, VendorMode};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use platform::RustTarget;
 use std::path::Path;
 
@@ -101,13 +102,17 @@ pub fn build(
 
 /// Package built artifacts into distributable archives.
 pub fn package(
-    _config: &AlefConfig,
+    config: &AlefConfig,
     languages: &[Language],
     target: Option<&RustTarget>,
     output_dir: &Path,
-    _version: &str,
+    version: &str,
     dry_run: bool,
 ) -> Result<()> {
+    let workspace_root = resolve_workspace_root(config);
+    let ws_root = Path::new(&workspace_root);
+    std::fs::create_dir_all(output_dir)?;
+
     for &lang in languages {
         let platform = target
             .map(|t| t.platform_for(lang))
@@ -117,10 +122,35 @@ pub fn package(
                 "[dry-run] Would package {lang} for platform {platform} into {}",
                 output_dir.display()
             );
-        } else {
-            eprintln!("Packaging {lang} for platform {platform}...");
-            // TODO: Phase 4 — implement per-language packagers
-            eprintln!("  packaging not yet implemented");
+            continue;
+        }
+
+        eprintln!("Packaging {lang} for platform {platform}...");
+
+        let result = match lang {
+            Language::Ffi => {
+                let t = target.context("--target required for FFI packaging")?;
+                let artifact = package::c_ffi::package_c_ffi(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Php => {
+                let t = target.context("--target required for PHP packaging")?;
+                let artifact = package::php::package_php(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Go => {
+                let t = target.context("--target required for Go packaging")?;
+                let artifact = package::go::package_go_ffi(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            _ => {
+                eprintln!("  packaging not yet implemented for {lang}");
+                None
+            }
+        };
+
+        if let Some(artifact) = result {
+            eprintln!("  produced {}", artifact.name);
         }
     }
     Ok(())

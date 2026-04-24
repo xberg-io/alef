@@ -11,6 +11,7 @@ description = "Publish pipeline for the alef polyglot binding generator"
 [dependencies]
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
 toml_edit = { workspace = true }
 tracing = { workspace = true }

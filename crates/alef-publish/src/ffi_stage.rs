@@ -114,6 +114,11 @@ fn staging_dir(config: &AlefConfig, lang: Language, target: &RustTarget, workspa
     Ok(workspace_root.join(rel))
 }
 
+/// Find the FFI crate directory (for locating the header file). Public alias for use by packagers.
+pub fn find_ffi_crate_dir_pub(config: &AlefConfig, workspace_root: &Path) -> PathBuf {
+    find_ffi_crate_dir(config, workspace_root)
+}
+
 /// Find the FFI crate directory (for locating the header file).
 fn find_ffi_crate_dir(config: &AlefConfig, workspace_root: &Path) -> PathBuf {
     if let Some(ffi_output) = config.output.ffi.as_ref() {

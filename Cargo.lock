@@ -259,6 +259,7 @@ version = "0.7.1"
 dependencies = [
  "alef-core",
  "anyhow",
+ "serde_json",
  "tempfile",
  "toml",
  "toml_edit",
