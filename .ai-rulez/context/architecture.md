@@ -25,6 +25,16 @@ priority: high
 4. Set `depends_on_ffi: true` in `BuildConfig` if binding via C FFI (Go, Java, C#)
 5. Register in `alef-cli`'s backend dispatch table
 
+## Pipeline Hooks
+
+All command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) support:
+- `precondition: Option<String>` — shell command that must exit 0; skip with warning on failure
+- `before: Option<StringOrVec>` — commands run before the main command; abort on failure
+
+Execution order per language: precondition → before → main command(s).
+
+Rust is a first-class language in all pipelines. In `build()`, Rust is handled via configurable `[build_commands.rust]` (not the backend registry, which panics for `Language::Rust`).
+
 ## Generated vs User-Maintained Boundary
 
 - `generated_header: true` — prepended with `// DO NOT EDIT`; overwritten by `alef build`

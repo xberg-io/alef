@@ -8,44 +8,68 @@ use super::output::{CleanConfig, StringOrVec};
 pub(crate) fn default_clean_config(lang: Language, output_dir: &str) -> CleanConfig {
     match lang {
         Language::Rust => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single("cargo clean".to_string())),
         },
         Language::Python => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache dist"
             ))),
         },
         Language::Node | Language::Wasm => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single("rm -rf node_modules dist .turbo".to_string())),
         },
         Language::Go => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!("cd {output_dir} && go clean -cache"))),
         },
         Language::Ruby => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && rm -rf tmp vendor .bundle"
             ))),
         },
         Language::Php => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!("cd {output_dir} && rm -rf vendor var"))),
         },
         Language::Java => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml clean -q"))),
         },
         Language::Csharp => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!("dotnet clean {output_dir}"))),
         },
         Language::Elixir => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && mix clean && rm -rf deps _build"
             ))),
         },
         Language::R => CleanConfig {
+            precondition: None,
+            before: None,
             clean: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && rm -rf src/rust/target"
             ))),
         },
-        Language::Ffi => CleanConfig { clean: None },
+        Language::Ffi => CleanConfig {
+            precondition: None,
+            before: None,
+            clean: None,
+        },
     }
 }
 
@@ -166,5 +190,14 @@ mod tests {
             clean.contains("my/custom/path"),
             "Go clean should contain output dir, got: {clean}"
         );
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_clean_config(lang, "packages/test");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
+        }
     }
 }

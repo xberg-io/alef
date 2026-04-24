@@ -510,6 +510,7 @@ impl FfiBridgeGenerator {
         )
         .ok();
         writeln!(out, "/// when the bridge is dropped.").ok();
+        writeln!(out, "#[derive(Copy, Clone)]").ok();
         writeln!(out, "#[repr(C)]").ok();
         writeln!(out, "pub struct {vtable} {{").ok();
 
@@ -593,7 +594,11 @@ impl FfiBridgeGenerator {
 
         writeln!(out, "}}").ok();
         let vtable = self.vtable_name(spec);
-        writeln!(out, "// SAFETY: all fields are function pointers and free_user_data, which are Send + Sync.").ok();
+        writeln!(
+            out,
+            "// SAFETY: all fields are function pointers and free_user_data, which are Send + Sync."
+        )
+        .ok();
         writeln!(out, "unsafe impl Send for {vtable} {{}}").ok();
         writeln!(out, "unsafe impl Sync for {vtable} {{}}").ok();
         out
@@ -738,7 +743,11 @@ impl FfiBridgeGenerator {
 
         // initialize()
         let error_type = &self.error_type;
-        writeln!(out, "    fn initialize(&self) -> std::result::Result<(), {core_import}::{error_type}> {{").ok();
+        writeln!(
+            out,
+            "    fn initialize(&self) -> std::result::Result<(), {core_import}::{error_type}> {{"
+        )
+        .ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
@@ -788,7 +797,11 @@ impl FfiBridgeGenerator {
         writeln!(out).ok();
 
         // shutdown()
-        writeln!(out, "    fn shutdown(&self) -> std::result::Result<(), {core_import}::{error_type}> {{").ok();
+        writeln!(
+            out,
+            "    fn shutdown(&self) -> std::result::Result<(), {core_import}::{error_type}> {{"
+        )
+        .ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
@@ -878,16 +891,25 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             ""
         };
 
-        let vtable_name = self.vtable_name(spec);
+        let _vtable_name = self.vtable_name(spec);
         let mut out = String::with_capacity(1024);
 
-        // Wrap vtable + user_data in a Send+Sync newtype before the closure so
-        // spawn_blocking can cross thread boundaries even though *const c_void is
-        // not Send on its own.
+        // *const c_void is !Send, but the caller guarantees thread-safety via the vtable
+        // API contract. Wrap the entire closure in a Send newtype to bypass the check.
+        writeln!(out, "struct _SendFn<F>(F);").ok();
+        writeln!(
+            out,
+            "// SAFETY: caller guarantees vtable fn pointers and user_data are valid across threads."
+        )
+        .ok();
+        writeln!(out, "unsafe impl<F> Send for _SendFn<F> {{}}").ok();
+        writeln!(out, "impl<F: FnOnce() -> R, R> _SendFn<F> {{").ok();
+        writeln!(out, "    fn call(self) -> R {{ (self.0)() }}").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
         writeln!(out, "{cached_name_clone}let vtable = self.vtable;").ok();
         writeln!(out, "let user_data = self.user_data;").ok();
         for p in &method.params {
-            // &Path / &[u8] don't Clone into owned types; use explicit conversions.
             let clone_expr = match &p.ty {
                 TypeRef::Path => format!("{}.to_path_buf()", p.name),
                 TypeRef::Bytes => format!("{}.to_vec()", p.name),
@@ -897,24 +919,13 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         }
         writeln!(out).ok();
 
-        // `*const c_void` is not Send, so wrap it in a newtype that is.
-        // SAFETY comment is at the declaration site; the caller guarantees
-        // that user_data is valid for any thread that calls these methods.
-        writeln!(out, "struct _SendPtr(*const std::ffi::c_void);").ok();
-        writeln!(out, "// SAFETY: caller guarantees user_data is valid across threads.").ok();
-        writeln!(out, "unsafe impl Send for _SendPtr {{}}").ok();
-        writeln!(out, "unsafe impl Sync for _SendPtr {{}}").ok();
-        writeln!(out, "let _user_data = _SendPtr(user_data);").ok();
-        writeln!(out).ok();
-
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "    let vtable = vtable;").ok();
-        writeln!(out, "    let user_data = _user_data.0;").ok();
+        writeln!(out, "let _task = _SendFn(move || {{").ok();
         writeln!(out, "    // Inline the sync body:").ok();
         for line in sync_body.lines() {
             writeln!(out, "    {line}").ok();
         }
-        writeln!(out, "}})").ok();
+        writeln!(out, "}});").ok();
+        writeln!(out, "tokio::task::spawn_blocking(move || _task.call())").ok();
         writeln!(out, ".await").ok();
         if has_error {
             let inner_error_constructor = spec.make_error("e.to_string()");

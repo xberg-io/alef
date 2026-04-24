@@ -1170,4 +1170,297 @@ build_release = "my-custom-build --release"
         assert_eq!(config.package_dir(Language::Go), "packages/go");
         assert_eq!(config.package_dir(Language::Java), "packages/java");
     }
+
+    #[test]
+    fn explicit_lint_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["go"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[lint.go]
+precondition = "test -f target/release/libtest_ffi.so"
+before = "cargo build --release -p test-ffi"
+format = "gofmt -w packages/go"
+check = "golangci-lint run ./..."
+"#,
+        )
+        .unwrap();
+
+        let lint = config.lint_config_for_language(Language::Go);
+        assert_eq!(
+            lint.precondition.as_deref(),
+            Some("test -f target/release/libtest_ffi.so"),
+            "precondition should be preserved from explicit config"
+        );
+        assert_eq!(
+            lint.before.unwrap().commands(),
+            vec!["cargo build --release -p test-ffi"],
+            "before should be preserved from explicit config"
+        );
+    }
+
+    #[test]
+    fn explicit_lint_config_with_before_list_preserves_all_commands() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["go"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[lint.go]
+before = ["cargo build --release -p test-ffi", "cp target/release/libtest_ffi.so packages/go/"]
+check = "golangci-lint run ./..."
+"#,
+        )
+        .unwrap();
+
+        let lint = config.lint_config_for_language(Language::Go);
+        assert!(lint.precondition.is_none(), "precondition should be None when not set");
+        assert_eq!(
+            lint.before.unwrap().commands(),
+            vec![
+                "cargo build --release -p test-ffi",
+                "cp target/release/libtest_ffi.so packages/go/"
+            ],
+            "before list should be preserved from explicit config"
+        );
+    }
+
+    #[test]
+    fn default_lint_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let py = config.lint_config_for_language(Language::Python);
+        assert!(
+            py.precondition.is_none(),
+            "default lint config should have no precondition"
+        );
+        assert!(py.before.is_none(), "default lint config should have no before");
+
+        let go = config.lint_config_for_language(Language::Go);
+        assert!(
+            go.precondition.is_none(),
+            "default Go lint config should have no precondition"
+        );
+        assert!(go.before.is_none(), "default Go lint config should have no before");
+    }
+
+    #[test]
+    fn explicit_test_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[test.python]
+precondition = "test -f target/release/libtest.so"
+before = "maturin develop"
+command = "pytest"
+"#,
+        )
+        .unwrap();
+
+        let test = config.test_config_for_language(Language::Python);
+        assert_eq!(
+            test.precondition.as_deref(),
+            Some("test -f target/release/libtest.so"),
+            "test precondition should be preserved"
+        );
+        assert_eq!(
+            test.before.unwrap().commands(),
+            vec!["maturin develop"],
+            "test before should be preserved"
+        );
+    }
+
+    #[test]
+    fn default_test_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let py = config.test_config_for_language(Language::Python);
+        assert!(
+            py.precondition.is_none(),
+            "default test config should have no precondition"
+        );
+        assert!(py.before.is_none(), "default test config should have no before");
+    }
+
+    #[test]
+    fn explicit_setup_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[setup.python]
+precondition = "which uv"
+before = "pip install uv"
+install = "uv sync"
+"#,
+        )
+        .unwrap();
+
+        let setup = config.setup_config_for_language(Language::Python);
+        assert_eq!(
+            setup.precondition.as_deref(),
+            Some("which uv"),
+            "setup precondition should be preserved"
+        );
+        assert_eq!(
+            setup.before.unwrap().commands(),
+            vec!["pip install uv"],
+            "setup before should be preserved"
+        );
+    }
+
+    #[test]
+    fn default_setup_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let py = config.setup_config_for_language(Language::Python);
+        assert!(
+            py.precondition.is_none(),
+            "default setup config should have no precondition"
+        );
+        assert!(py.before.is_none(), "default setup config should have no before");
+    }
+
+    #[test]
+    fn explicit_update_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[update.rust]
+precondition = "test -f Cargo.lock"
+before = "cargo fetch"
+update = "cargo update"
+"#,
+        )
+        .unwrap();
+
+        let update = config.update_config_for_language(Language::Rust);
+        assert_eq!(
+            update.precondition.as_deref(),
+            Some("test -f Cargo.lock"),
+            "update precondition should be preserved"
+        );
+        assert_eq!(
+            update.before.unwrap().commands(),
+            vec!["cargo fetch"],
+            "update before should be preserved"
+        );
+    }
+
+    #[test]
+    fn default_update_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let rust = config.update_config_for_language(Language::Rust);
+        assert!(
+            rust.precondition.is_none(),
+            "default update config should have no precondition"
+        );
+        assert!(rust.before.is_none(), "default update config should have no before");
+    }
+
+    #[test]
+    fn explicit_clean_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[clean.rust]
+precondition = "test -d target"
+before = "echo cleaning"
+clean = "cargo clean"
+"#,
+        )
+        .unwrap();
+
+        let clean = config.clean_config_for_language(Language::Rust);
+        assert_eq!(
+            clean.precondition.as_deref(),
+            Some("test -d target"),
+            "clean precondition should be preserved"
+        );
+        assert_eq!(
+            clean.before.unwrap().commands(),
+            vec!["echo cleaning"],
+            "clean before should be preserved"
+        );
+    }
+
+    #[test]
+    fn default_clean_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let rust = config.clean_config_for_language(Language::Rust);
+        assert!(
+            rust.precondition.is_none(),
+            "default clean config should have no precondition"
+        );
+        assert!(rust.before.is_none(), "default clean config should have no before");
+    }
+
+    #[test]
+    fn explicit_build_command_config_preserves_precondition_and_before() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["go"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[build_commands.go]
+precondition = "which go"
+before = "cargo build --release -p test-ffi"
+build = "cd packages/go && go build ./..."
+build_release = "cd packages/go && go build -ldflags='-s -w' ./..."
+"#,
+        )
+        .unwrap();
+
+        let build = config.build_command_config_for_language(Language::Go);
+        assert_eq!(
+            build.precondition.as_deref(),
+            Some("which go"),
+            "build precondition should be preserved"
+        );
+        assert_eq!(
+            build.before.unwrap().commands(),
+            vec!["cargo build --release -p test-ffi"],
+            "build before should be preserved"
+        );
+    }
+
+    #[test]
+    fn default_build_command_config_has_no_precondition_or_before() {
+        let config = minimal_config();
+        let rust = config.build_command_config_for_language(Language::Rust);
+        assert!(
+            rust.precondition.is_none(),
+            "default build command config should have no precondition"
+        );
+        assert!(
+            rust.before.is_none(),
+            "default build command config should have no before"
+        );
+    }
 }

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-04-24
+
+### Added
+
+- Config: `precondition` field on all command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) — a shell command that must exit 0 for the main command to run; skips the language with a warning on failure.
+- Config: `before` field on all command configs — command(s) that run before the main command; aborts on failure. Supports `StringOrVec` (single string or list).
+- CLI: Rust is now a first-class language in `alef build` — builds via configurable `[build_commands.rust]` instead of panicking on missing backend.
+- FFI: derive `Copy` and `Clone` on generated vtable structs.
+
+### Fixed
+
+- CLI: `before` hooks in lint/fmt now fire even when a language has `check`/`typecheck` commands but no `format` commands.
+- CLI: `before` hook output (stdout/stderr) is now logged instead of silently discarded.
+
 ## [0.7.0] - 2026-04-24
 
 ### Added

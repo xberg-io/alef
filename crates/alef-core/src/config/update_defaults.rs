@@ -8,6 +8,8 @@ use super::output::{StringOrVec, UpdateConfig};
 pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
     match lang {
         Language::Rust => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single("cargo update".to_string())),
             upgrade: Some(StringOrVec::Multiple(vec![
                 "cargo upgrade --incompatible".to_string(),
@@ -15,12 +17,16 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Python => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && uv sync --upgrade"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && uv sync --all-packages --all-extras --upgrade"
             ))),
         },
         Language::Node | Language::Wasm => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single("pnpm up -r".to_string())),
             upgrade: Some(StringOrVec::Multiple(vec![
                 "corepack up".to_string(),
@@ -28,18 +34,24 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Ruby => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && bundle update --all"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && bundle update --all --conservative=false"
             ))),
         },
         Language::Php => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && composer update"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && composer update --with-all-dependencies"
             ))),
         },
         Language::Go => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Multiple(vec![
                 format!("cd {output_dir} && go get -u ./..."),
                 format!("cd {output_dir} && go mod tidy"),
@@ -50,6 +62,8 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Java => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml versions:use-latest-releases -q"
             ))),
@@ -58,16 +72,22 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Csharp => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!("dotnet outdated --upgrade {output_dir}"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "dotnet outdated --upgrade --version-lock major {output_dir}"
             ))),
         },
         Language::Elixir => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
             upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
         },
         Language::R => UpdateConfig {
+            precondition: None,
+            before: None,
             update: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"remotes::update_packages()\""
             ))),
@@ -76,6 +96,8 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Ffi => UpdateConfig {
+            precondition: None,
+            before: None,
             update: None,
             upgrade: None,
         },
@@ -196,5 +218,14 @@ mod tests {
         let node_update = node.update.unwrap().commands().join(" ");
         let wasm_update = wasm.update.unwrap().commands().join(" ");
         assert_eq!(node_update, wasm_update, "WASM and Node should share update commands");
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_update_config(lang, "packages/test");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
+        }
     }
 }

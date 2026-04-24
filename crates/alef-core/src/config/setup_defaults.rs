@@ -8,42 +8,66 @@ use super::output::{SetupConfig, StringOrVec};
 pub(crate) fn default_setup_config(lang: Language, output_dir: &str) -> SetupConfig {
     match lang {
         Language::Rust => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(
                 "rustup update && cargo install cargo-llvm-cov".to_string(),
             )),
         },
         Language::Python => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && uv sync"))),
         },
         Language::Node | Language::Wasm => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single("pnpm install".to_string())),
         },
         Language::Go => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && go mod download"))),
         },
         Language::Ruby => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
         },
         Language::Php => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
         },
         Language::Java => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml dependency:resolve -q"
             ))),
         },
         Language::Csharp => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("dotnet restore {output_dir}"))),
         },
         Language::Elixir => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.get"))),
         },
         Language::R => SetupConfig {
+            precondition: None,
+            before: None,
             install: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"remotes::install_deps()\""
             ))),
         },
-        Language::Ffi => SetupConfig { install: None },
+        Language::Ffi => SetupConfig {
+            precondition: None,
+            before: None,
+            install: None,
+        },
     }
 }
 
@@ -168,5 +192,14 @@ mod tests {
             install.contains("my/custom/path"),
             "Go install should contain output dir, got: {install}"
         );
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_setup_config(lang, "packages/test");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
+        }
     }
 }

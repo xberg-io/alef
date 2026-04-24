@@ -1,5 +1,7 @@
+use alef_core::config::Language;
+use alef_core::config::output::StringOrVec;
 use anyhow::Context as _;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Run a shell command, logging and failing on non-zero exit.
 pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
@@ -27,6 +29,47 @@ pub(crate) fn run_command_captured(cmd: &str) -> anyhow::Result<(String, String)
         anyhow::bail!("Command failed: {cmd}\n{stderr}");
     }
     Ok((stdout, stderr))
+}
+
+/// Check a precondition command. Returns `true` if the command succeeds (or
+/// is absent), `false` if it fails (language should be skipped).
+pub(crate) fn check_precondition(lang: Language, precondition: Option<&str>) -> bool {
+    let Some(cmd) = precondition else {
+        return true;
+    };
+    info!("Checking precondition for {lang}: {cmd}");
+    let status = std::process::Command::new("sh")
+        .args(["-c", cmd])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => true,
+        _ => {
+            warn!("Skipping {lang}: precondition failed ({cmd})");
+            false
+        }
+    }
+}
+
+/// Run before-hook commands. Returns `Ok(())` on success, or an error if any
+/// command fails (which should abort the operation for this language).
+pub(crate) fn run_before(lang: Language, before: Option<&StringOrVec>) -> anyhow::Result<()> {
+    let Some(cmds) = before else {
+        return Ok(());
+    };
+    for cmd in cmds.commands() {
+        info!("Running before hook for {lang}: {cmd}");
+        let (stdout, stderr) =
+            run_command_captured(cmd).with_context(|| format!("before hook failed for {lang}: {cmd}"))?;
+        if !stdout.is_empty() {
+            info!("[{lang} before] {stdout}");
+        }
+        if !stderr.is_empty() {
+            info!("[{lang} before] {stderr}");
+        }
+    }
+    Ok(())
 }
 
 /// Initialize a new alef.toml config file.
@@ -155,4 +198,84 @@ fn to_pascal_case(s: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_precondition_with_none_returns_true() {
+        assert!(
+            check_precondition(Language::Python, None),
+            "None precondition should always pass"
+        );
+    }
+
+    #[test]
+    fn check_precondition_with_true_command_returns_true() {
+        assert!(
+            check_precondition(Language::Python, Some("true")),
+            "Precondition 'true' should succeed"
+        );
+    }
+
+    #[test]
+    fn check_precondition_with_false_command_returns_false() {
+        assert!(
+            !check_precondition(Language::Python, Some("false")),
+            "Precondition 'false' should fail"
+        );
+    }
+
+    #[test]
+    fn run_before_with_none_returns_ok() {
+        run_before(Language::Python, None).expect("run_before with None should return Ok");
+    }
+
+    #[test]
+    fn run_before_with_successful_single_command_returns_ok() {
+        let cmd = StringOrVec::Single("true".to_string());
+        run_before(Language::Python, Some(&cmd)).expect("run_before with 'true' should return Ok");
+    }
+
+    #[test]
+    fn run_before_with_failing_single_command_returns_err() {
+        let cmd = StringOrVec::Single("false".to_string());
+        let result = run_before(Language::Python, Some(&cmd));
+        assert!(result.is_err(), "run_before with 'false' should return Err");
+    }
+
+    #[test]
+    fn run_before_with_multiple_commands_all_succeed_returns_ok() {
+        let cmd = StringOrVec::Multiple(vec!["true".to_string(), "true".to_string()]);
+        run_before(Language::Python, Some(&cmd)).expect("run_before with all-successful commands should return Ok");
+    }
+
+    #[test]
+    fn run_before_aborts_on_first_failing_command() {
+        // Second command would succeed but first fails, so Err is returned.
+        let cmd = StringOrVec::Multiple(vec!["false".to_string(), "true".to_string()]);
+        let result = run_before(Language::Python, Some(&cmd));
+        assert!(
+            result.is_err(),
+            "run_before should abort and return Err when a command fails"
+        );
+    }
+
+    #[test]
+    fn check_precondition_works_for_non_python_language() {
+        assert!(
+            check_precondition(Language::Go, None),
+            "None precondition should pass for Go"
+        );
+        assert!(
+            check_precondition(Language::Go, Some("true")),
+            "Precondition 'true' should pass for Go"
+        );
+        assert!(
+            !check_precondition(Language::Go, Some("false")),
+            "Precondition 'false' should fail for Go"
+        );
+    }
 }

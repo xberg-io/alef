@@ -472,13 +472,27 @@ replace = 'header = "/* v{version} */"'
 
 Override per-language commands for any operational task. All fields accept a string or an array of strings.
 
-```toml
-[test.python]
-command = "pytest packages/python/tests/"
-e2e = "cd e2e/python && pytest"
-coverage = "pytest --cov packages/python/tests/"
+Every command config section supports two hook fields:
 
+- **`precondition`** -- A shell command that must exit 0 for the main command to run. If it fails, the language is skipped with a warning (not an error). Useful for languages that need a shared library or tool to be present.
+- **`before`** -- Command(s) to run before the main command. Unlike `precondition`, failure aborts the command for that language. Accepts a single string or an array. Use this to build prerequisites (e.g., FFI libraries, maturin develop).
+
+```toml
+# Go lint needs the FFI shared library built first
+[lint.go]
+precondition = "test -f target/release/libmy_lib_ffi.dylib"
+format = "gofmt -w packages/go/"
+check = "cd packages/go && golangci-lint run ./..."
+
+# Python test needs maturin develop first
+[test.python]
+before = "cd packages/python && maturin develop --release"
+command = "cd packages/python && uv run pytest tests/ -v"
+coverage = "cd packages/python && uv run pytest --cov=. --cov-report=lcov"
+
+# Node test needs the NAPI binding built first
 [test.node]
+before = "napi build --platform --manifest-path crates/my-lib-node/Cargo.toml"
 command = "npx vitest run"
 
 [lint.python]
@@ -500,6 +514,8 @@ clean = "cargo clean"
 build = "maturin develop"
 build_release = "maturin build --release"
 ```
+
+Rust is a first-class language in all pipelines -- add `"rust"` to your `languages` array to include Rust in `alef build`, `alef test`, `alef lint`, etc. alongside your binding languages.
 
 ### `[e2e]` -- E2E Test Generation
 

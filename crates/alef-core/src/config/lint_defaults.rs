@@ -8,26 +8,38 @@ use super::output::{LintConfig, StringOrVec};
 pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
     match lang {
         Language::Python => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("ruff format {output_dir}"))),
             check: Some(StringOrVec::Single(format!("ruff check --fix {output_dir}"))),
             typecheck: Some(StringOrVec::Single(format!("mypy {output_dir}"))),
         },
         Language::Node | Language::Wasm => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("npx oxfmt {output_dir}"))),
             check: Some(StringOrVec::Single(format!("npx oxlint --fix {output_dir}"))),
             typecheck: None,
         },
         Language::Ruby => LintConfig {
-            format: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rubocop -A ."))),
+            precondition: None,
+            before: None,
+            format: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && bundle exec rubocop -A ."
+            ))),
             check: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rubocop ."))),
             typecheck: None,
         },
         Language::Php => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("cd {output_dir} && composer run format"))),
             check: Some(StringOrVec::Single(format!("cd {output_dir} && composer run lint"))),
             typecheck: None,
         },
         Language::Go => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("gofmt -w {output_dir}"))),
             check: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && golangci-lint run ./..."
@@ -35,6 +47,8 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Java => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml spotless:apply -q"
             ))),
@@ -44,6 +58,8 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Csharp => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("dotnet format {output_dir}"))),
             check: Some(StringOrVec::Single(format!(
                 "dotnet format {output_dir} --verify-no-changes"
@@ -51,11 +67,15 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Elixir => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!("cd {output_dir} && mix format"))),
             check: Some(StringOrVec::Single(format!("cd {output_dir} && mix credo --strict"))),
             typecheck: None,
         },
         Language::R => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"styler::style_pkg()\""
             ))),
@@ -65,6 +85,8 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Ffi => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single(format!(
                 "find {output_dir} -name '*.c' -o -name '*.h' | xargs clang-format -i"
             ))),
@@ -74,6 +96,8 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Rust => LintConfig {
+            precondition: None,
+            before: None,
             format: Some(StringOrVec::Single("cargo fmt".to_string())),
             check: Some(StringOrVec::Single(
                 "cargo clippy --fix --allow-dirty --allow-staged -- -D warnings".to_string(),
@@ -195,6 +219,15 @@ mod tests {
             } else {
                 assert!(cfg.typecheck.is_none(), "{lang} should not have typecheck default");
             }
+        }
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_lint_config(lang, "packages/test");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
         }
     }
 }

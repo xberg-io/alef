@@ -8,6 +8,8 @@ use super::output::{StringOrVec, TestConfig};
 pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfig {
     match lang {
         Language::Python => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && uv run pytest"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -15,6 +17,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Node | Language::Wasm => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && pnpm test"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -22,6 +26,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Go => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && go test ./..."))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -29,6 +35,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Ruby => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rspec"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -36,11 +44,15 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Php => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
         },
         Language::Java => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml test -q"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -48,6 +60,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Csharp => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("dotnet test {output_dir}"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
@@ -55,11 +69,15 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Elixir => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!("cd {output_dir} && mix test"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!("cd {output_dir} && mix test --cover"))),
         },
         Language::R => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"testthat::test_dir('tests')\""
             ))),
@@ -69,6 +87,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Rust => TestConfig {
+            precondition: None,
+            before: None,
             command: Some(StringOrVec::Single("cargo test --workspace".to_string())),
             e2e: None,
             coverage: Some(StringOrVec::Single(
@@ -76,6 +96,8 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             )),
         },
         Language::Ffi => TestConfig {
+            precondition: None,
+            before: None,
             command: None,
             e2e: None,
             coverage: None,
@@ -211,5 +233,14 @@ mod tests {
             cmd.contains("my/custom/dir"),
             "Python test command should contain output dir, got: {cmd}"
         );
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_test_config(lang, "packages/test");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
+        }
     }
 }

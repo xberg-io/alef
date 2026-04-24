@@ -9,10 +9,14 @@ use super::output::{BuildCommandConfig, StringOrVec};
 pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name: &str) -> BuildCommandConfig {
     match lang {
         Language::Rust => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single("cargo build --workspace".to_string())),
             build_release: Some(StringOrVec::Single("cargo build --release --workspace".to_string())),
         },
         Language::Python => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!(
                 "maturin develop --manifest-path crates/{crate_name}-py/Cargo.toml"
             ))),
@@ -21,6 +25,8 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Node => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!(
                 "napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
             ))),
@@ -29,6 +35,8 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Wasm => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!(
                 "wasm-pack build crates/{crate_name}-wasm --dev"
             ))),
@@ -37,26 +45,36 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Go => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
             build_release: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
         },
         Language::Ruby => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-rb"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-rb"))),
         },
         Language::Php => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-php"))),
             build_release: Some(StringOrVec::Single(format!(
                 "cargo build --release -p {crate_name}-php"
             ))),
         },
         Language::Ffi => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-ffi"))),
             build_release: Some(StringOrVec::Single(format!(
                 "cargo build --release -p {crate_name}-ffi"
             ))),
         },
         Language::Java => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml package -DskipTests -q"
             ))),
@@ -65,6 +83,8 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Csharp => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!(
                 "dotnet build {output_dir} --configuration Debug -q"
             ))),
@@ -73,10 +93,14 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Elixir => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
             build_release: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
         },
         Language::R => BuildCommandConfig {
+            precondition: None,
+            before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-r"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-r"))),
         },
@@ -230,5 +254,14 @@ mod tests {
             build.contains("my/custom/path"),
             "Go build should contain output dir, got: {build}"
         );
+    }
+
+    #[test]
+    fn defaults_have_no_precondition_or_before() {
+        for lang in all_languages() {
+            let cfg = default_build_config(lang, "packages/test", "my-lib");
+            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
+            assert!(cfg.before.is_none(), "{lang} default should have no before");
+        }
     }
 }

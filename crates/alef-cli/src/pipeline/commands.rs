@@ -6,7 +6,7 @@ use tracing::{debug, info};
 
 use crate::registry;
 
-use super::helpers::{run_command, run_command_captured};
+use super::helpers::{check_precondition, run_before, run_command, run_command_captured};
 
 /// Which lint phases to execute.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,9 +16,25 @@ enum LintPhase {
     Typecheck,
 }
 
+/// Filter languages through precondition and before hooks for lint/fmt.
+///
+/// Returns the subset of languages whose precondition passed (or was absent).
+/// Runs before hooks for each passing language. Fails if any before hook fails.
+fn prepare_lint_languages(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<Vec<Language>> {
+    let mut ready = Vec::with_capacity(languages.len());
+    for &lang in languages {
+        let lang_lint = config.lint_config_for_language(lang);
+        if !check_precondition(lang, lang_lint.precondition.as_deref()) {
+            continue;
+        }
+        run_before(lang, lang_lint.before.as_ref())?;
+        ready.push(lang);
+    }
+    Ok(ready)
+}
+
 /// Run a single lint phase across all languages in parallel.
 fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> anyhow::Result<()> {
-    // Build flat list of (language, command) tasks for this phase
     let tasks: Vec<(&Language, String)> = languages
         .iter()
         .filter_map(|lang| {
@@ -78,17 +94,19 @@ fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> a
 /// 1. Format (all languages in parallel) — normalizes code first
 /// 2. Check + Typecheck (all languages in parallel) — validates normalized code
 pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+    let ready = prepare_lint_languages(config, languages)?;
     // Wave 1: format all languages in parallel
-    run_phase(config, languages, LintPhase::Format)?;
+    run_phase(config, &ready, LintPhase::Format)?;
     // Wave 2: check + typecheck all languages in parallel
-    run_phase(config, languages, LintPhase::Check)?;
-    run_phase(config, languages, LintPhase::Typecheck)?;
+    run_phase(config, &ready, LintPhase::Check)?;
+    run_phase(config, &ready, LintPhase::Typecheck)?;
     Ok(())
 }
 
 /// Run only format commands on generated output.
 pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    run_phase(config, languages, LintPhase::Format)
+    let ready = prepare_lint_languages(config, languages)?;
+    run_phase(config, &ready, LintPhase::Format)
 }
 
 /// Update dependencies for each language.
@@ -100,6 +118,10 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
         .par_iter()
         .map(|lang| {
             let update_cfg = config.update_config_for_language(*lang);
+            if !check_precondition(*lang, update_cfg.precondition.as_deref()) {
+                return Ok(Vec::new());
+            }
+            run_before(*lang, update_cfg.before.as_ref())?;
             let cmds = if latest {
                 update_cfg.upgrade.as_ref()
             } else {
@@ -152,6 +174,10 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
         .par_iter()
         .map(|lang| {
             let lang_test = config.test_config_for_language(*lang);
+            if !check_precondition(*lang, lang_test.precondition.as_deref()) {
+                return Ok(Vec::new());
+            }
+            run_before(*lang, lang_test.before.as_ref())?;
             let mut outputs = Vec::new();
 
             // Use coverage commands when --coverage flag is set, fall back to regular test
@@ -213,6 +239,10 @@ pub fn setup(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> 
         .par_iter()
         .map(|lang| {
             let setup_cfg = config.setup_config_for_language(*lang);
+            if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
+                return Ok(Vec::new());
+            }
+            run_before(*lang, setup_cfg.before.as_ref())?;
             let mut outputs = Vec::new();
             if let Some(cmd_list) = &setup_cfg.install {
                 for cmd in cmd_list.commands() {
@@ -257,6 +287,10 @@ pub fn clean(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> 
         .par_iter()
         .map(|lang| {
             let clean_cfg = config.clean_config_for_language(*lang);
+            if !check_precondition(*lang, clean_cfg.precondition.as_deref()) {
+                return Ok(Vec::new());
+            }
+            run_before(*lang, clean_cfg.before.as_ref())?;
             let mut outputs = Vec::new();
             if let Some(cmd_list) = &clean_cfg.clean {
                 for cmd in cmd_list.commands() {
@@ -309,7 +343,18 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
     let mut ffi_dependent = Vec::new();
     let mut need_ffi = false;
 
+    // Rust is handled via configurable build commands, not the registry
+    let mut rust_langs: Vec<Language> = Vec::new();
+
     for &lang in languages {
+        let build_cmd_cfg = config.build_command_config_for_language(lang);
+        if !check_precondition(lang, build_cmd_cfg.precondition.as_deref()) {
+            continue;
+        }
+        if lang == Language::Rust {
+            rust_langs.push(lang);
+            continue;
+        }
         let backend = registry::get_backend(lang);
         if let Some(bc) = backend.build_config() {
             if bc.depends_on_ffi {
@@ -320,6 +365,23 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
             }
         } else {
             info!("No build config for {lang}, skipping");
+        }
+    }
+
+    // Build Rust first (other bindings may depend on it)
+    for &lang in &rust_langs {
+        let build_cmd_cfg = config.build_command_config_for_language(lang);
+        run_before(lang, build_cmd_cfg.before.as_ref())?;
+        let cmds = if release {
+            build_cmd_cfg.build_release.as_ref()
+        } else {
+            build_cmd_cfg.build.as_ref()
+        };
+        if let Some(cmd_list) = cmds {
+            for cmd in cmd_list.commands() {
+                info!("Building {lang}: {cmd}");
+                run_command(cmd).with_context(|| format!("failed to build {lang}"))?;
+            }
         }
     }
 
@@ -346,6 +408,12 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         run_command(&cmd).context("failed to build FFI crate")?;
     }
 
+    // Run before hooks for independent languages (sequentially — they may have side effects)
+    for (lang, _) in &independent {
+        let build_cmd_cfg = config.build_command_config_for_language(*lang);
+        run_before(*lang, build_cmd_cfg.before.as_ref())?;
+    }
+
     // Build independent languages in parallel
     let build_results: Vec<anyhow::Result<(String, String)>> = independent
         .par_iter()
@@ -366,6 +434,12 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         }
         run_post_build(*lang, bc, config, &base_dir)
             .with_context(|| format!("failed to run post-build steps for {lang}"))?;
+    }
+
+    // Run before hooks for FFI-dependent languages
+    for (lang, _) in &ffi_dependent {
+        let build_cmd_cfg = config.build_command_config_for_language(*lang);
+        run_before(*lang, build_cmd_cfg.before.as_ref())?;
     }
 
     // Build FFI-dependent languages in parallel
