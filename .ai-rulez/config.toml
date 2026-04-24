@@ -6,7 +6,7 @@ name = 'Alef'
 description = 'Polyglot binding generator that produces type-safe language bindings for Rust libraries (Python/TypeScript/Ruby/Java/Go/Elixir/C#/PHP/R/WASM)'
 gitignore = true
 presets = ['claude', 'codex', 'copilot', 'cursor', 'antigravity']
-builtins = ['rust', 'security', 'git-workflow', 'code-quality', 'testing', 'token-efficiency', 'default-commands']
+builtins = ['rust', 'default-commands']
 
 [[includes]]
 name = 'kreuzberg-core'
