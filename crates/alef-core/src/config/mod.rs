@@ -791,3 +791,154 @@ fn cargo_toml_has_serde(path: &std::path::Path) -> bool {
 
     has_serde_json && has_serde_dep
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_config() -> AlefConfig {
+        toml::from_str(
+            r#"
+languages = ["python", "node", "rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn lint_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.lint.is_none());
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert!(py.format.is_some());
+        assert!(py.check.is_some());
+        assert!(py.typecheck.is_some());
+
+        let node = config.lint_config_for_language(Language::Node);
+        assert!(node.format.is_some());
+        assert!(node.check.is_some());
+    }
+
+    #[test]
+    fn lint_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "custom-formatter"
+check = "custom-checker"
+"#,
+        )
+        .unwrap();
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["custom-formatter"]);
+        assert_eq!(py.check.unwrap().commands(), vec!["custom-checker"]);
+        assert!(py.typecheck.is_none()); // explicit config had no typecheck
+    }
+
+    #[test]
+    fn lint_config_partial_override_does_not_merge() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "only-format"
+"#,
+        )
+        .unwrap();
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["only-format"]);
+        // Explicit config replaces entirely, no fallback for missing fields
+        assert!(py.check.is_none());
+        assert!(py.typecheck.is_none());
+    }
+
+    #[test]
+    fn lint_config_unconfigured_language_uses_defaults() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python", "node"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "custom"
+"#,
+        )
+        .unwrap();
+
+        // Python uses explicit config
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["custom"]);
+
+        // Node falls back to defaults since not in [lint]
+        let node = config.lint_config_for_language(Language::Node);
+        let fmt = node.format.unwrap().commands().join(" ");
+        assert!(fmt.contains("oxfmt"));
+    }
+
+    #[test]
+    fn update_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.update.is_none());
+
+        let py = config.update_config_for_language(Language::Python);
+        assert!(py.update.is_some());
+        assert!(py.upgrade.is_some());
+
+        let rust = config.update_config_for_language(Language::Rust);
+        let update = rust.update.unwrap().commands().join(" ");
+        assert!(update.contains("cargo update"));
+    }
+
+    #[test]
+    fn update_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[update.rust]
+update = "my-custom-update"
+upgrade = ["step1", "step2"]
+"#,
+        )
+        .unwrap();
+
+        let rust = config.update_config_for_language(Language::Rust);
+        assert_eq!(rust.update.unwrap().commands(), vec!["my-custom-update"]);
+        assert_eq!(rust.upgrade.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn package_dir_defaults_are_correct() {
+        let config = minimal_config();
+        assert_eq!(config.package_dir(Language::Python), "packages/python");
+        assert_eq!(config.package_dir(Language::Node), "packages/node");
+        assert_eq!(config.package_dir(Language::Ruby), "packages/ruby");
+        assert_eq!(config.package_dir(Language::Go), "packages/go");
+        assert_eq!(config.package_dir(Language::Java), "packages/java");
+    }
+}

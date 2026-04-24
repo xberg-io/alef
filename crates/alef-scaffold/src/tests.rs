@@ -349,6 +349,140 @@ fn test_pre_commit_config_all_languages() {
     assert!(content.contains("r-styler"));
 }
 
+// --- Oxc toolchain tests ---
+
+#[test]
+fn test_node_scaffold_no_biome_references() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    for f in &files {
+        assert!(
+            !f.content.contains("biome"),
+            "File {} should not reference biome: found in content",
+            f.path.display()
+        );
+        assert!(
+            !f.path.to_string_lossy().contains("biome"),
+            "File path should not contain biome: {}",
+            f.path.display()
+        );
+    }
+}
+
+#[test]
+fn test_node_scaffold_oxfmt_config_content() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let oxfmtrc = files.iter().find(|f| f.path.ends_with(".oxfmtrc.json")).unwrap();
+    assert!(oxfmtrc.content.contains("\"printWidth\": 120"));
+    assert!(oxfmtrc.content.contains("\"useTabs\": true"));
+    assert!(oxfmtrc.content.contains("\"tabWidth\": 4"));
+    assert!(oxfmtrc.content.contains("\"singleQuote\": false"));
+    assert!(oxfmtrc.content.contains("\"trailingComma\": \"all\""));
+    assert!(oxfmtrc.content.contains("\"sortImports\": true"));
+}
+
+#[test]
+fn test_node_scaffold_oxlint_config_content() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let oxlintrc = files.iter().find(|f| f.path.ends_with(".oxlintrc.json")).unwrap();
+    assert!(oxlintrc.content.contains("\"correctness\": \"error\""));
+    assert!(oxlintrc.content.contains("\"suspicious\": \"warn\""));
+    assert!(oxlintrc.content.contains("\"style\": \"off\""));
+    assert!(oxlintrc.content.contains("\"typescript\""));
+    assert!(oxlintrc.content.contains("overrides"));
+    assert!(oxlintrc.content.contains("**/*.test.ts"));
+}
+
+#[test]
+fn test_node_package_json_uses_oxc() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let pkg = &files[0];
+    assert!(pkg.content.contains("\"oxfmt\""));
+    assert!(pkg.content.contains("\"oxlint\""));
+    assert!(pkg.content.contains("\"format\": \"oxfmt\""));
+    assert!(pkg.content.contains("\"lint\": \"oxlint\""));
+    assert!(pkg.content.contains("\"lint:fix\": \"oxlint --fix\""));
+    assert!(!pkg.content.contains("biome"));
+}
+
+#[test]
+fn test_precommit_no_biome_with_node() {
+    let config = test_config();
+    let files = generate_pre_commit_config(&config, &[Language::Node]);
+    let content = &files[0].content;
+    assert!(!content.contains("biome-format"));
+    assert!(!content.contains("biome-lint"));
+    assert!(!content.contains("biomejs"));
+    assert!(content.contains("oxlint"));
+    assert!(content.contains("oxfmt"));
+}
+
+// --- Java checkstyle tests ---
+
+#[test]
+fn test_java_checkstyle_no_cosmetic_checks() {
+    let mut config = test_config();
+    config.languages = vec![Language::Java];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
+    let files = language_files(&all_files);
+    let checkstyle = files
+        .iter()
+        .find(|f| f.path.ends_with("checkstyle.xml"))
+        .unwrap();
+    // Should NOT have cosmetic whitespace checks (Spotless handles formatting)
+    assert!(!checkstyle.content.contains("WhitespaceAfter"));
+    assert!(!checkstyle.content.contains("WhitespaceAround"));
+    assert!(!checkstyle.content.contains("GenericWhitespace"));
+    assert!(!checkstyle.content.contains("EmptyBlock"));
+    assert!(!checkstyle.content.contains("NeedBraces"));
+    assert!(!checkstyle.content.contains("MagicNumber"));
+    assert!(!checkstyle.content.contains("JavadocPackage"));
+    // Should still have correctness checks
+    assert!(checkstyle.content.contains("EqualsHashCode"));
+    assert!(checkstyle.content.contains("UnusedImports"));
+    assert!(checkstyle.content.contains("MethodLength"));
+    assert!(checkstyle.content.contains("LineLength"));
+    assert!(checkstyle.content.contains("\"120\""));
+}
+
+// --- Go golangci v2 format tests ---
+
+#[test]
+fn test_go_golangci_v2_format() {
+    let mut config = test_config();
+    config.languages = vec![Language::Go];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
+    let files = language_files(&all_files);
+    let golangci = files
+        .iter()
+        .find(|f| f.path.ends_with(".golangci.yml"))
+        .unwrap();
+    assert!(golangci.content.contains("version: \"2\""));
+    assert!(golangci.content.contains("default: none"));
+    assert!(golangci.content.contains("settings:"));
+    // Should NOT use old v1 format
+    assert!(!golangci.content.contains("linters-settings:"));
+    // Should have detailed config
+    assert!(golangci.content.contains("errcheck"));
+    assert!(golangci.content.contains("govet"));
+    assert!(golangci.content.contains("misspell"));
+    assert!(golangci.content.contains("locale: US"));
+    assert!(golangci.content.contains("exclusions:"));
+}
+
 fn config_with_extra_deps() -> AlefConfig {
     let mut config = test_config();
     config

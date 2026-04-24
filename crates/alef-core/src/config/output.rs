@@ -121,6 +121,139 @@ pub struct TextReplacement {
     pub replace: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_or_vec_single_from_toml() {
+        let toml_str = r#"format = "ruff format""#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["ruff format"]);
+    }
+
+    #[test]
+    fn string_or_vec_multiple_from_toml() {
+        let toml_str = r#"format = ["cmd1", "cmd2", "cmd3"]"#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["cmd1", "cmd2", "cmd3"]);
+    }
+
+    #[test]
+    fn lint_config_backward_compat_string() {
+        let toml_str = r#"
+format = "ruff format ."
+check = "ruff check ."
+typecheck = "mypy ."
+"#;
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.format.unwrap().commands(), vec!["ruff format ."]);
+        assert_eq!(cfg.check.unwrap().commands(), vec!["ruff check ."]);
+        assert_eq!(cfg.typecheck.unwrap().commands(), vec!["mypy ."]);
+    }
+
+    #[test]
+    fn lint_config_array_commands() {
+        let toml_str = r#"
+format = ["cmd1", "cmd2"]
+check = "single-check"
+"#;
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.format.unwrap().commands(), vec!["cmd1", "cmd2"]);
+        assert_eq!(cfg.check.unwrap().commands(), vec!["single-check"]);
+        assert!(cfg.typecheck.is_none());
+    }
+
+    #[test]
+    fn lint_config_all_optional() {
+        let toml_str = "";
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.format.is_none());
+        assert!(cfg.check.is_none());
+        assert!(cfg.typecheck.is_none());
+    }
+
+    #[test]
+    fn update_config_from_toml() {
+        let toml_str = r#"
+update = "cargo update"
+upgrade = ["cargo upgrade --incompatible", "cargo update"]
+"#;
+        let cfg: UpdateConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.update.unwrap().commands(), vec!["cargo update"]);
+        assert_eq!(
+            cfg.upgrade.unwrap().commands(),
+            vec!["cargo upgrade --incompatible", "cargo update"]
+        );
+    }
+
+    #[test]
+    fn update_config_all_optional() {
+        let toml_str = "";
+        let cfg: UpdateConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.update.is_none());
+        assert!(cfg.upgrade.is_none());
+    }
+
+    #[test]
+    fn full_alef_toml_with_lint_and_update() {
+        let toml_str = r#"
+languages = ["python", "node"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "ruff format ."
+check = "ruff check --fix ."
+
+[lint.node]
+format = ["npx oxfmt", "npx oxlint --fix"]
+
+[update.python]
+update = "uv sync --upgrade"
+upgrade = "uv sync --all-packages --all-extras --upgrade"
+
+[update.node]
+update = "pnpm up -r"
+upgrade = ["corepack up", "pnpm up --latest -r -w"]
+"#;
+        let cfg: super::super::AlefConfig = toml::from_str(toml_str).unwrap();
+        let lint_map = cfg.lint.as_ref().unwrap();
+        assert!(lint_map.contains_key("python"));
+        assert!(lint_map.contains_key("node"));
+
+        let py_lint = lint_map.get("python").unwrap();
+        assert_eq!(py_lint.format.as_ref().unwrap().commands(), vec!["ruff format ."]);
+
+        let node_lint = lint_map.get("node").unwrap();
+        assert_eq!(
+            node_lint.format.as_ref().unwrap().commands(),
+            vec!["npx oxfmt", "npx oxlint --fix"]
+        );
+
+        let update_map = cfg.update.as_ref().unwrap();
+        assert!(update_map.contains_key("python"));
+        assert!(update_map.contains_key("node"));
+
+        let node_update = update_map.get("node").unwrap();
+        assert_eq!(node_update.update.as_ref().unwrap().commands(), vec!["pnpm up -r"]);
+        assert_eq!(
+            node_update.upgrade.as_ref().unwrap().commands(),
+            vec!["corepack up", "pnpm up --latest -r -w"]
+        );
+    }
+}
+
 /// Configuration for the `sync-versions` command.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncConfig {
