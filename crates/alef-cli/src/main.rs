@@ -91,6 +91,21 @@ enum Commands {
         /// Also run e2e tests.
         #[arg(long)]
         e2e: bool,
+        /// Run with coverage collection.
+        #[arg(long)]
+        coverage: bool,
+    },
+    /// Install dependencies for each language.
+    Setup {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+    },
+    /// Clean build artifacts for each language.
+    Clean {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
     },
     /// Update dependencies for each language.
     Update {
@@ -435,15 +450,38 @@ fn main() -> Result<()> {
             println!("Lint complete");
             Ok(())
         }
-        Commands::Test { lang, e2e } => {
+        Commands::Test {
+            lang,
+            e2e,
+            coverage,
+        } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Running tests for: {}", format_languages(&languages));
             if e2e {
                 eprintln!("  (with e2e tests)");
             }
-            pipeline::test(&config, &languages, e2e)?;
+            if coverage {
+                eprintln!("  (with coverage)");
+            }
+            pipeline::test(&config, &languages, e2e, coverage)?;
             println!("Tests complete");
+            Ok(())
+        }
+        Commands::Setup { lang } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            eprintln!("Setting up dependencies for: {}", format_languages(&languages));
+            pipeline::setup(&config, &languages)?;
+            println!("Setup complete");
+            Ok(())
+        }
+        Commands::Clean { lang } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            eprintln!("Cleaning build artifacts for: {}", format_languages(&languages));
+            pipeline::clean(&config, &languages)?;
+            println!("Clean complete");
             Ok(())
         }
         Commands::Update { lang, latest } => {

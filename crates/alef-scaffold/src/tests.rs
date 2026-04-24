@@ -46,6 +46,10 @@ fn test_config() -> AlefConfig {
         readme: None,
         lint: None,
         update: None,
+        test: None,
+        setup: None,
+        clean: None,
+        build_commands: None,
         custom_files: None,
         adapters: vec![],
         custom_modules: CustomModulesConfig::default(),
@@ -55,7 +59,6 @@ fn test_config() -> AlefConfig {
         generate_overrides: std::collections::HashMap::new(),
         dto: Default::default(),
         sync: None,
-        test: None,
         e2e: None,
         trait_bridges: vec![],
     }

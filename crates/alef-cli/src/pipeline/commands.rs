@@ -136,26 +136,85 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
 }
 
 /// Run configured test commands for each language.
-pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool) -> anyhow::Result<()> {
-    let test_config = config.test.as_ref();
-
+///
+/// When `coverage` is true, runs coverage commands instead of regular test commands.
+/// When `e2e` is true, also runs e2e test commands.
+pub fn test(
+    config: &AlefConfig,
+    languages: &[Language],
+    e2e: bool,
+    coverage: bool,
+) -> anyhow::Result<()> {
     let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
         .par_iter()
         .map(|lang| {
-            let lang_str = lang.to_string();
+            let lang_test = config.test_config_for_language(*lang);
             let mut outputs = Vec::new();
-            if let Some(test_map) = test_config {
-                if let Some(lang_test) = test_map.get(&lang_str) {
-                    if let Some(cmd) = &lang_test.command {
+
+            // Use coverage commands when --coverage flag is set, fall back to regular test
+            let test_cmds = if coverage {
+                lang_test.coverage.as_ref().or(lang_test.command.as_ref())
+            } else {
+                lang_test.command.as_ref()
+            };
+
+            if let Some(cmd_list) = test_cmds {
+                for cmd in cmd_list.commands() {
+                    let (stdout, stderr) = run_command_captured(cmd)?;
+                    outputs.push((cmd.to_string(), stdout, stderr));
+                }
+            }
+            if e2e {
+                if let Some(e2e_cmd_list) = &lang_test.e2e {
+                    for cmd in e2e_cmd_list.commands() {
                         let (stdout, stderr) = run_command_captured(cmd)?;
-                        outputs.push((cmd.clone(), stdout, stderr));
+                        outputs.push((cmd.to_string(), stdout, stderr));
                     }
-                    if e2e {
-                        if let Some(e2e_cmd) = &lang_test.e2e {
-                            let (stdout, stderr) = run_command_captured(e2e_cmd)?;
-                            outputs.push((e2e_cmd.clone(), stdout, stderr));
-                        }
+                }
+            }
+
+            Ok(outputs)
+        })
+        .collect();
+
+    let mut first_error: Option<anyhow::Error> = None;
+    for result in results {
+        match result {
+            Ok(outputs) => {
+                for (cmd, stdout, stderr) in outputs {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
                     }
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
+                    }
+                }
+            }
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// Install dependencies for each language.
+pub fn setup(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+        .par_iter()
+        .map(|lang| {
+            let setup_cfg = config.setup_config_for_language(*lang);
+            let mut outputs = Vec::new();
+            if let Some(cmd_list) = &setup_cfg.install {
+                for cmd in cmd_list.commands() {
+                    let (stdout, stderr) = run_command_captured(cmd)?;
+                    outputs.push((cmd.to_string(), stdout, stderr));
                 }
             }
             Ok(outputs)
@@ -189,10 +248,55 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool) -> anyhow::R
     Ok(())
 }
 
-/// Build language bindings using native build tools.
+/// Clean build artifacts for each language.
+pub fn clean(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+        .par_iter()
+        .map(|lang| {
+            let clean_cfg = config.clean_config_for_language(*lang);
+            let mut outputs = Vec::new();
+            if let Some(cmd_list) = &clean_cfg.clean {
+                for cmd in cmd_list.commands() {
+                    let (stdout, stderr) = run_command_captured(cmd)?;
+                    outputs.push((cmd.to_string(), stdout, stderr));
+                }
+            }
+            Ok(outputs)
+        })
+        .collect();
+
+    let mut first_error: Option<anyhow::Error> = None;
+    for result in results {
+        match result {
+            Ok(outputs) => {
+                for (cmd, stdout, stderr) in outputs {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
+                    }
+                }
+            }
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// Build language bindings using configured build commands.
 ///
-/// Resolves build order (FFI-dependent languages build after FFI), then invokes
-/// each language's build tool with the appropriate flags.
+/// Uses configurable per-language build commands from `[build_commands.<lang>]`
+/// in alef.toml, falling back to sensible defaults. Resolves build order
+/// (FFI-dependent languages build after FFI).
 pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyhow::Result<()> {
     let crate_name = &config.crate_config.name;
     let base_dir = std::env::current_dir()?;

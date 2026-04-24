@@ -105,9 +105,31 @@ pub struct UpdateConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TestConfig {
     /// Command to run unit/integration tests for this language.
-    pub command: Option<String>,
+    pub command: Option<StringOrVec>,
     /// Command to run e2e tests for this language.
-    pub e2e: Option<String>,
+    pub e2e: Option<StringOrVec>,
+    /// Command to run tests with coverage for this language.
+    pub coverage: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupConfig {
+    /// Command(s) to install dependencies for this language.
+    pub install: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanConfig {
+    /// Command(s) to clean build artifacts for this language.
+    pub clean: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildCommandConfig {
+    /// Command(s) to build in debug mode.
+    pub build: Option<StringOrVec>,
+    /// Command(s) to build in release mode.
+    pub build_release: Option<StringOrVec>,
 }
 
 /// A single text replacement rule for version sync.

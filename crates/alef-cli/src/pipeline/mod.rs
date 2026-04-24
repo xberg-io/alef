@@ -4,7 +4,7 @@ mod generate;
 mod helpers;
 mod version;
 
-pub use commands::{build, fmt, lint, test, update};
+pub use commands::{build, clean, fmt, lint, setup, test, update};
 pub use extract::extract;
 pub use generate::{
     diff_files, generate, generate_public_api, generate_stubs, normalize_content, readme, scaffold, write_files,
