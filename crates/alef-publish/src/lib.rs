@@ -85,17 +85,89 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
 }
 
 /// Build release artifacts for a specific platform.
-pub fn build(
-    _config: &AlefConfig,
-    languages: &[Language],
-    target: Option<&RustTarget>,
-    _use_cross: bool,
-) -> Result<()> {
+pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTarget>, use_cross: bool) -> Result<()> {
+    let crate_name = &config.crate_config.name;
+
+    // For FFI-dependent languages, build the FFI crate first.
+    let needs_ffi = languages.iter().any(|l| is_ffi_dependent(*l));
+    let ffi_in_list = languages.contains(&Language::Ffi);
+    if needs_ffi && !ffi_in_list {
+        let cmd = build_command_for_lang(Language::Ffi, crate_name, target, use_cross);
+        eprintln!("Building FFI crate (dependency)...");
+        run_shell_command(&cmd)?;
+    }
+
     for &lang in languages {
+        let lang_config = publish_config_for_language(config, lang);
+
+        // Use custom build command if configured.
+        let cmd = if let Some(custom) = &lang_config.build_command {
+            custom.commands().join(" && ")
+        } else {
+            build_command_for_lang(lang, crate_name, target, use_cross)
+        };
+
         let target_str = target.map(|t| t.triple.as_str()).unwrap_or("host");
         eprintln!("Building {lang} for target {target_str}...");
-        // TODO: Phase 5 — implement build logic
-        eprintln!("  build not yet implemented");
+        run_shell_command(&cmd)?;
+        eprintln!("  build complete for {lang}");
+    }
+    Ok(())
+}
+
+/// Generate the build command for a language, with optional cross-compilation target.
+fn build_command_for_lang(lang: Language, crate_name: &str, target: Option<&RustTarget>, use_cross: bool) -> String {
+    let cargo = if use_cross { "cross" } else { "cargo" };
+    let target_flag = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
+
+    match lang {
+        Language::Python => {
+            format!("maturin build --release --manifest-path crates/{crate_name}-py/Cargo.toml{target_flag}")
+        }
+        Language::Node => {
+            let napi_target = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
+            format!(
+                "napi build --manifest-path crates/{crate_name}-node/Cargo.toml \
+                 -o crates/{crate_name}-node --platform --release{napi_target}"
+            )
+        }
+        Language::Wasm => "wasm-pack build crates/{crate_name}-wasm --release".replace("{crate_name}", crate_name),
+        Language::Ruby => {
+            format!("{cargo} build --release -p {crate_name}-rb{target_flag}")
+        }
+        Language::Php => {
+            format!("{cargo} build --release -p {crate_name}-php{target_flag}")
+        }
+        Language::Ffi => {
+            format!("{cargo} build --release -p {crate_name}-ffi{target_flag}")
+        }
+        Language::Go | Language::Java | Language::Csharp => {
+            // FFI-dependent languages: build the FFI crate.
+            format!("{cargo} build --release -p {crate_name}-ffi{target_flag}")
+        }
+        Language::Elixir => {
+            format!("{cargo} build --release{target_flag}")
+        }
+        Language::R => {
+            format!("{cargo} build --release -p {crate_name}-r{target_flag}")
+        }
+        Language::Rust => {
+            format!("{cargo} build --release --workspace{target_flag}")
+        }
+    }
+}
+
+/// Run a shell command and return an error if it fails.
+fn run_shell_command(cmd: &str) -> Result<()> {
+    eprintln!("  $ {cmd}");
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .status()
+        .with_context(|| format!("running: {cmd}"))?;
+
+    if !status.success() {
+        anyhow::bail!("command failed with exit code {}: {cmd}", status.code().unwrap_or(-1));
     }
     Ok(())
 }
@@ -157,9 +229,57 @@ pub fn package(
 }
 
 /// Validate that all package manifests are ready for publishing.
-pub fn validate(_config: &AlefConfig) -> Result<Vec<String>> {
-    // TODO: Phase 6 — extend verify_versions with file presence checks
-    Ok(vec![])
+///
+/// Checks:
+/// - All required package directories exist
+/// - Key manifest files are present (pyproject.toml, package.json, gemspec, etc.)
+/// - Cargo.toml version can be read
+pub fn validate(config: &AlefConfig) -> Result<Vec<String>> {
+    let mut issues = Vec::new();
+
+    // Check version is readable.
+    if config.resolved_version().is_none() {
+        issues.push(format!("cannot read version from {}", config.crate_config.version_from));
+    }
+
+    // Check package directories and key manifest files exist.
+    for &lang in &config.languages {
+        let pkg_dir = config.package_dir(lang);
+        let pkg_path = std::path::Path::new(&pkg_dir);
+
+        // Skip languages that don't have package dirs (Rust, FFI).
+        if matches!(lang, Language::Rust | Language::Ffi) {
+            continue;
+        }
+
+        if !pkg_path.exists() {
+            issues.push(format!("{lang}: package directory {pkg_dir} does not exist"));
+            continue;
+        }
+
+        // Check for key manifest files per language.
+        let expected_files: Vec<&str> = match lang {
+            Language::Python => vec!["pyproject.toml"],
+            Language::Node => vec!["package.json"],
+            Language::Ruby => vec![], // gemspec name varies
+            Language::Php => vec!["composer.json"],
+            Language::Elixir => vec!["mix.exs"],
+            Language::Go => vec!["go.mod"],
+            Language::Java => vec!["pom.xml"],
+            Language::Csharp => vec![], // .csproj name varies
+            Language::Wasm => vec![],
+            Language::R => vec!["DESCRIPTION"],
+            _ => vec![],
+        };
+
+        for file in expected_files {
+            if !pkg_path.join(file).exists() {
+                issues.push(format!("{lang}: missing {pkg_dir}/{file}"));
+            }
+        }
+    }
+
+    Ok(issues)
 }
 
 /// Get the publish configuration for a language, falling back to defaults.
