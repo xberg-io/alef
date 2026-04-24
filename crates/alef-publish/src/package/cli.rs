@@ -3,7 +3,7 @@
 use super::PackageArtifact;
 use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -51,12 +51,11 @@ pub fn package_cli(
     }
 
     // Create archive.
-    let ext = target.archive_ext();
-    let archive_name = format!("{pkg_name}.{ext}");
+    let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    fs::remove_dir_all(&staging).ok();
+    let _ = fs::remove_dir_all(&staging);
 
     Ok(PackageArtifact {
         path: archive_path,
@@ -66,17 +65,6 @@ pub fn package_cli(
 }
 
 fn find_binary(workspace_root: &Path, target: &RustTarget, binary_name: &str) -> Result<PathBuf> {
-    let cross = workspace_root
-        .join("target")
-        .join(&target.triple)
-        .join("release")
-        .join(binary_name);
-    if cross.exists() {
-        return Ok(cross);
-    }
-    let native = workspace_root.join("target/release").join(binary_name);
-    if native.exists() {
-        return Ok(native);
-    }
-    anyhow::bail!("CLI binary {binary_name} not found")
+    super::find_built_artifact(workspace_root, target, binary_name)
+        .with_context(|| format!("CLI binary {binary_name} not found"))
 }

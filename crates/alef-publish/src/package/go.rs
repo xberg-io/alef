@@ -5,7 +5,7 @@ use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Package Go FFI artifacts into a distributable tarball.
 ///
@@ -37,12 +37,12 @@ pub fn package_go_ffi(
 
     // Copy shared library.
     let shared_lib = target.shared_lib_name(&lib_name);
-    let shared_src = find_lib(workspace_root, target, &shared_lib)?;
+    let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)?;
     fs::copy(&shared_src, lib_dir.join(&shared_lib))?;
 
     // Copy static library (optional).
     let static_lib = target.static_lib_name(&lib_name);
-    if let Ok(static_src) = find_lib(workspace_root, target, &static_lib) {
+    if let Ok(static_src) = super::find_built_artifact(workspace_root, target, &static_lib) {
         fs::copy(&static_src, lib_dir.join(&static_lib))?;
     }
 
@@ -54,32 +54,15 @@ pub fn package_go_ffi(
     }
 
     // Create tarball.
-    let ext = target.archive_ext();
-    let archive_name = format!("{pkg_name}.{ext}");
+    let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    fs::remove_dir_all(&staging).ok();
+    let _ = fs::remove_dir_all(&staging);
 
     Ok(PackageArtifact {
         path: archive_path,
         name: archive_name,
         checksum: None,
     })
-}
-
-fn find_lib(workspace_root: &Path, target: &RustTarget, lib_file: &str) -> Result<PathBuf> {
-    let cross = workspace_root
-        .join("target")
-        .join(&target.triple)
-        .join("release")
-        .join(lib_file);
-    if cross.exists() {
-        return Ok(cross);
-    }
-    let native = workspace_root.join("target/release").join(lib_file);
-    if native.exists() {
-        return Ok(native);
-    }
-    anyhow::bail!("{lib_file} not found")
 }

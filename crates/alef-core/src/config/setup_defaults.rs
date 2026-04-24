@@ -27,7 +27,9 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str) -> SetupCon
         Language::Go => SetupConfig {
             precondition: None,
             before: None,
-            install: Some(StringOrVec::Single(format!("cd {output_dir} && go mod download"))),
+            install: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && GOWORK=off go mod download"
+            ))),
         },
         Language::Ruby => SetupConfig {
             precondition: None,

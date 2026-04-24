@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`alef publish` command group** — vendoring, building, and packaging artifacts for distribution across language package registries (issue #9).
+  - `alef publish prepare` — vendors core crate (Ruby, Elixir, R) and stages FFI artifacts (Go, Java, C#).
+  - `alef publish build` — cross-compilation-aware build with `--target` support, auto-selects cargo/cross/maturin/napi/wasm-pack per language.
+  - `alef publish package` — creates distributable archives (C FFI tarball with pkg-config/CMake, PHP PIE archive, Go FFI tarball).
+  - `alef publish validate` — checks version readability, package directory existence, and manifest file presence.
+- New `alef-publish` crate with `platform::RustTarget` for parsing Rust target triples and mapping to per-language platform conventions (Go, Java, C#, Node, Ruby, Elixir).
+- `[publish]` config section in `alef.toml` with per-language `vendor_mode`, `nif_versions`, `build_command`, `package_command`, `precondition`, `before` hooks, `pkg_config`, `cmake_config`.
+- `vendor::vendor_core_only()` — copies core crate, rewrites Cargo.toml via `toml_edit` to inline workspace inheritance and dependency specs, removes workspace lints, generates vendor workspace manifest.
+- `vendor::vendor_full()` — core-only + `cargo vendor` of all transitive deps with test/bench cleanup.
+- `ffi_stage::stage_ffi()` / `stage_header()` — copies built FFI shared library and C header to language-specific directories.
+- Config: `GOWORK=off` in default Go setup command to avoid workspace interference.
+- Config: Maven version rules file reference in default Java update commands.
+
 ### Fixed
+
+- Codegen(Go): removed dead `capitalize` function in `gen_visitor.rs`.
 
 - CLI: `alef build` now respects `[build_commands.<lang>]` overrides for non-Rust languages — previously only Rust used configurable build commands while other languages always used backend-derived defaults.
 - Config: Ruby lint defaults use `cd {output_dir} && bundle exec rubocop` instead of running from project root (fixes Gemfile not found).

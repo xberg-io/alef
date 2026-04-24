@@ -21,11 +21,20 @@ use std::path::Path;
 pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&RustTarget>, dry_run: bool) -> Result<()> {
     for &lang in languages {
         let lang_config = publish_config_for_language(config, lang);
+
+        if !dry_run && !run_publish_hooks(lang, &lang_config)? {
+            continue;
+        }
+
         let vendor_mode = lang_config.vendor_mode.unwrap_or_else(|| default_vendor_mode(lang));
 
         match vendor_mode {
             VendorMode::CoreOnly => {
                 let core_crate_dir = resolve_core_crate_dir(config);
+                let core_path = Path::new(&core_crate_dir);
+                if !core_path.exists() {
+                    anyhow::bail!("core crate directory does not exist: {core_crate_dir}");
+                }
                 let workspace_root = resolve_workspace_root(config);
                 let dest_dir = resolve_vendor_dest(config, lang);
                 if dry_run {
@@ -35,7 +44,7 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
                     let generate_ws = matches!(lang, Language::Ruby);
                     let result = vendor::vendor_core_only(
                         Path::new(&workspace_root),
-                        Path::new(&core_crate_dir),
+                        core_path,
                         Path::new(&dest_dir),
                         generate_ws,
                     )?;
@@ -84,9 +93,26 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
     Ok(())
 }
 
+/// Validate an identifier against shell-safe character set.
+fn validate_identifier(s: &str, label: &str) -> Result<()> {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+    {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "{label} contains invalid characters: {s}. Only alphanumeric, underscore, dash, and period allowed."
+        )
+    }
+}
+
 /// Build release artifacts for a specific platform.
 pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTarget>, use_cross: bool) -> Result<()> {
     let crate_name = &config.crate_config.name;
+    validate_identifier(crate_name, "crate_name")?;
+    if let Some(t) = target {
+        validate_identifier(&t.triple, "target.triple")?;
+    }
 
     // For FFI-dependent languages, build the FFI crate first.
     let needs_ffi = languages.iter().any(|l| is_ffi_dependent(*l));
@@ -99,6 +125,15 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
 
     for &lang in languages {
         let lang_config = publish_config_for_language(config, lang);
+        if !run_publish_hooks(lang, &lang_config)? {
+            continue;
+        }
+
+        // Skip FFI-dependent languages if FFI was already built.
+        if matches!(lang, Language::Go | Language::Java | Language::Csharp) && needs_ffi && !ffi_in_list {
+            eprintln!("Skipping {lang}: FFI already built as dependency");
+            continue;
+        }
 
         // Use custom build command if configured.
         let cmd = if let Some(custom) = &lang_config.build_command {
@@ -186,6 +221,7 @@ pub fn package(
     std::fs::create_dir_all(output_dir)?;
 
     for &lang in languages {
+        let lang_config = publish_config_for_language(config, lang);
         let platform = target
             .map(|t| t.platform_for(lang))
             .unwrap_or_else(|| "host".to_string());
@@ -194,6 +230,10 @@ pub fn package(
                 "[dry-run] Would package {lang} for platform {platform} into {}",
                 output_dir.display()
             );
+            continue;
+        }
+
+        if !run_publish_hooks(lang, &lang_config)? {
             continue;
         }
 
@@ -215,6 +255,11 @@ pub fn package(
                 let artifact = package::go::package_go_ffi(config, t, ws_root, output_dir, version)?;
                 Some(artifact)
             }
+            Language::Rust => {
+                // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
+                eprintln!("  CLI (Rust) packaging handled separately");
+                None
+            }
             _ => {
                 eprintln!("  packaging not yet implemented for {lang}");
                 None
@@ -234,7 +279,7 @@ pub fn package(
 /// - All required package directories exist
 /// - Key manifest files are present (pyproject.toml, package.json, gemspec, etc.)
 /// - Cargo.toml version can be read
-pub fn validate(config: &AlefConfig) -> Result<Vec<String>> {
+pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<String>> {
     let mut issues = Vec::new();
 
     // Check version is readable.
@@ -243,7 +288,7 @@ pub fn validate(config: &AlefConfig) -> Result<Vec<String>> {
     }
 
     // Check package directories and key manifest files exist.
-    for &lang in &config.languages {
+    for &lang in languages {
         let pkg_dir = config.package_dir(lang);
         let pkg_path = std::path::Path::new(&pkg_dir);
 
@@ -347,4 +392,32 @@ fn default_vendor_mode(lang: Language) -> VendorMode {
 /// Whether a language depends on the C FFI crate for its bindings.
 fn is_ffi_dependent(lang: Language) -> bool {
     matches!(lang, Language::Go | Language::Java | Language::Csharp)
+}
+
+/// Run precondition check and before hooks for a language.
+///
+/// Returns `true` if the main command should proceed, `false` if the
+/// precondition failed (skip with warning).
+fn run_publish_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Result<bool> {
+    // Check precondition.
+    if let Some(precondition) = &lang_config.precondition {
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(precondition)
+            .status()
+            .with_context(|| format!("running precondition for {lang}: {precondition}"))?;
+        if !status.success() {
+            eprintln!("Skipping {lang}: precondition failed ({precondition})");
+            return Ok(false);
+        }
+    }
+
+    // Run before hooks.
+    if let Some(before) = &lang_config.before {
+        for cmd in before.commands() {
+            run_shell_command(cmd)?;
+        }
+    }
+
+    Ok(true)
 }

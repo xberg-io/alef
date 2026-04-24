@@ -13,6 +13,17 @@ pub enum Arch {
     Wasm32,
 }
 
+impl fmt::Display for Arch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Arch::X86_64 => write!(f, "x86_64"),
+            Arch::Aarch64 => write!(f, "aarch64"),
+            Arch::Arm => write!(f, "arm"),
+            Arch::Wasm32 => write!(f, "wasm32"),
+        }
+    }
+}
+
 /// Operating system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Os {
@@ -20,6 +31,17 @@ pub enum Os {
     MacOs,
     Windows,
     Unknown,
+}
+
+impl fmt::Display for Os {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Os::Linux => write!(f, "linux"),
+            Os::MacOs => write!(f, "macos"),
+            Os::Windows => write!(f, "windows"),
+            Os::Unknown => write!(f, "unknown"),
+        }
+    }
 }
 
 /// C runtime / ABI environment.
@@ -116,11 +138,13 @@ impl RustTarget {
             Os::Windows => "windows",
             Os::Unknown => "unknown",
         };
-        let arch = match self.arch {
-            Arch::X86_64 => "x86_64",
-            Arch::Aarch64 => "aarch64",
-            Arch::Arm => "arm",
-            Arch::Wasm32 => "wasm32",
+        // Go uses arm64, not aarch64 for macOS ARM
+        let arch = match (self.os, self.arch) {
+            (Os::MacOs, Arch::Aarch64) => "arm64",
+            (_, Arch::X86_64) => "x86_64",
+            (_, Arch::Aarch64) => "aarch64",
+            (_, Arch::Arm) => "arm",
+            (_, Arch::Wasm32) => "wasm32",
         };
         let suffix = match self.env {
             Env::Musl => "-musl",
@@ -315,8 +339,8 @@ mod tests {
     #[test]
     fn go_java_platform_macos_arm64() {
         let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
-        assert_eq!(t.platform_for(Language::Go), "macos-aarch64");
-        assert_eq!(t.platform_for(Language::Java), "macos-aarch64");
+        assert_eq!(t.platform_for(Language::Go), "macos-arm64");
+        assert_eq!(t.platform_for(Language::Java), "macos-arm64");
     }
 
     #[test]

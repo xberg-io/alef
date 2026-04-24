@@ -1245,15 +1245,6 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     writeln!(out).ok();
 }
 
-/// Capitalize the first character of a string.
-fn capitalize(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-    }
-}
-
 /// Generate the `ConvertWithVisitor` function.
 fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
     writeln!(

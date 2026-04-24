@@ -65,10 +65,10 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             precondition: None,
             before: None,
             update: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml -q"
             ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true -Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml -q"
             ))),
         },
         Language::Csharp => UpdateConfig {

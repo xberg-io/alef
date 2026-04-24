@@ -66,16 +66,18 @@ pub fn package_php(
     }
 
     // Generate pie.json manifest.
-    let (os, arch) = parse_platform(&platform);
     let pie_json = serde_json::json!({
         "name": crate_name,
         "version": version,
         "platform": platform,
-        "os": os,
-        "arch": arch,
+        "os": target.os.to_string(),
+        "arch": target.arch.to_string(),
         "php_version": ">=8.1",
         "extension_file": lib_file,
-        "built_at": chrono_now_stub(),
+        "built_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
     });
     fs::write(staging.join("pie.json"), serde_json::to_string_pretty(&pie_json)?)?;
 
@@ -119,24 +121,4 @@ fn find_php_ext(workspace_root: &Path, target: &RustTarget, lib_file: &str) -> R
         return Ok(native);
     }
     anyhow::bail!("PHP extension {lib_file} not found")
-}
-
-fn parse_platform(platform: &str) -> (&str, &str) {
-    if let Some((os, arch)) = platform.split_once('-') {
-        (os, arch)
-    } else {
-        (platform, "unknown")
-    }
-}
-
-fn chrono_now_stub() -> String {
-    // Simple UTC timestamp without pulling in chrono.
-    let output = std::process::Command::new("date")
-        .arg("-u")
-        .arg("+%Y-%m-%dT%H:%M:%SZ")
-        .output();
-    match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        _ => "unknown".to_string(),
-    }
 }

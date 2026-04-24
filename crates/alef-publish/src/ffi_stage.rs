@@ -67,27 +67,7 @@ pub fn stage_header(
 
 /// Find the built shared library in the target directory.
 fn find_built_library(workspace_root: &Path, target: &RustTarget, shared_lib: &str) -> Result<PathBuf> {
-    // Try target/{triple}/release/ first (cross-compilation).
-    let cross_path = workspace_root
-        .join("target")
-        .join(&target.triple)
-        .join("release")
-        .join(shared_lib);
-    if cross_path.exists() {
-        return Ok(cross_path);
-    }
-
-    // Fall back to target/release/ (native build).
-    let native_path = workspace_root.join("target").join("release").join(shared_lib);
-    if native_path.exists() {
-        return Ok(native_path);
-    }
-
-    bail!(
-        "FFI library {shared_lib} not found at {} or {}",
-        cross_path.display(),
-        native_path.display()
-    );
+    crate::package::find_built_artifact(workspace_root, target, shared_lib)
 }
 
 /// Determine the staging directory for a language + target combination.

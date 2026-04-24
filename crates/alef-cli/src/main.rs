@@ -979,8 +979,8 @@ fn main() -> Result<()> {
                     Ok(())
                 }
                 PublishAction::Validate => {
-                    let config = load_config(config_path)?;
-                    let issues = alef_publish::validate(&config)?;
+                    let languages = resolve_languages(&config, None)?;
+                    let issues = alef_publish::validate(&config, &languages)?;
                     if issues.is_empty() {
                         println!("All package manifests are consistent");
                     } else {
