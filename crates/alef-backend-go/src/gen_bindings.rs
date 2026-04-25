@@ -148,6 +148,14 @@ impl Backend for GoBackend {
             .map(|a| a.name.clone())
             .collect();
 
+        // Collect functions excluded from FFI generation. Go bindings call C symbols directly
+        // via cgo, so any function excluded from the FFI header must also be excluded here.
+        let ffi_exclude_functions: HashSet<String> = config
+            .ffi
+            .as_ref()
+            .map(|f| f.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+
         let content = format_go_code(&strip_trailing_whitespace(&gen_go_file(
             api,
             &ffi_prefix,
@@ -159,6 +167,7 @@ impl Backend for GoBackend {
             &bridge_param_names,
             &bridge_type_aliases,
             &streaming_methods,
+            &ffi_exclude_functions,
         )));
 
         // Build adapter body map (consumed by generators via body substitution)
@@ -272,6 +281,40 @@ fn format_go_code(code: &str) -> String {
     }
 }
 
+/// Returns true if a `TypeRef::Named` type comes from `api.enums` (either unit or data enum)
+/// and therefore does not have `_from_json`/`_to_json`/`_free` FFI helpers.
+///
+/// Only types in `api.types` (non-opaque struct types) have these helpers in the C header.
+fn is_ffi_enum_type(name: &str, ffi_enum_names: &HashSet<String>) -> bool {
+    ffi_enum_names.contains(name)
+}
+
+/// Returns true if a function references an enum type (from `api.enums`) as a parameter type
+/// or return type, for which the FFI header lacks `_from_json`/`_to_json`/`_free` helpers.
+///
+/// Such functions cannot be generated correctly and must be skipped.
+fn uses_ffi_enum_type(
+    func_params: &[alef_core::ir::ParamDef],
+    return_type: &TypeRef,
+    ffi_enum_names: &HashSet<String>,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> bool {
+    let named_is_problem = |n: &str| is_ffi_enum_type(n, ffi_enum_names) && !opaque_names.contains(n);
+    let return_uses = match return_type {
+        TypeRef::Named(n) => named_is_problem(n),
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if named_is_problem(n)),
+        _ => false,
+    };
+    if return_uses {
+        return true;
+    }
+    func_params.iter().any(|p| match &p.ty {
+        TypeRef::Named(n) => named_is_problem(n),
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if named_is_problem(n)),
+        _ => false,
+    })
+}
+
 /// Generate the complete Go binding file wrapping the C FFI layer.
 #[allow(clippy::too_many_arguments)]
 fn gen_go_file(
@@ -285,6 +328,7 @@ fn gen_go_file(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     streaming_methods: &HashSet<String>,
+    ffi_exclude_functions: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -394,6 +438,13 @@ fn gen_go_file(
         .map(|t| t.name.as_str())
         .collect();
 
+    // Collect all enum type names (both unit and data enums from api.enums).
+    // These types do NOT have _from_json/_to_json/_free helpers in the FFI header —
+    // only non-opaque api.types have those helpers. Functions that use an enum type
+    // as a parameter or return value (via TypeRef::Named) cannot be correctly generated
+    // (unless the type also appears as an opaque type in api.types) and are excluded.
+    let ffi_enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
     // Generate struct types
     for typ in api
         .types
@@ -423,7 +474,12 @@ fn gen_go_file(
 
     // Generate free function wrappers.
     // Async functions are included — the underlying FFI uses block_on() for synchronous C calls.
-    for func in &api.functions {
+    // Skip functions excluded from FFI generation (their C symbols don't exist in the header)
+    // and functions whose parameter or return types are enum types without FFI JSON helpers.
+    for func in api.functions.iter().filter(|f| {
+        !ffi_exclude_functions.contains(&f.name)
+            && !uses_ffi_enum_type(&f.params, &f.return_type, &ffi_enum_names, &opaque_names)
+    }) {
         writeln!(
             out,
             "{}\n",
@@ -438,12 +494,19 @@ fn gen_go_file(
     // and the opaque handle conversion pipeline is not yet implemented.
     // Streaming adapter methods use a callback-based C signature that CGO can't call directly —
     // they are skipped here and must be implemented via a separate Go-native streaming API.
+    // Also skip methods excluded from FFI or using enum types without FFI JSON helpers.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
             }
             if streaming_methods.contains(&method.name) {
+                continue;
+            }
+            if ffi_exclude_functions.contains(&method.name) {
+                continue;
+            }
+            if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
                 continue;
             }
             writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix, &opaque_names)).ok();

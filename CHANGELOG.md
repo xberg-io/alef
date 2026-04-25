@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.8] - Unreleased
+## [0.7.8] - 2026-04-25
 
 ### Changed
 
@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codegen**: avoid redundant `.into()` on owned String/Bytes return values in generated bindings.
 - **Codegen**: use `to_string_lossy()` for Path return values in generated method wrappers.
 - **Codegen**: optimize generated `.map(|val| val.into())` to `.map(Into::into)` in function/method wrappers.
+- **Go**: skip functions/methods that use enum types lacking FFI JSON helpers (`_from_json`/`_to_json`/`_free`).
+- **Go**: respect `exclude_functions` from FFI config when generating Go bindings.
+- **Go**: fix `visitor_callbacks` in trait bridge test config.
 
 ## [0.7.7] - 2026-04-25
 
