@@ -22,6 +22,7 @@ pub fn gen_from_core_to_binding_cfg(
     let core_path = core_type_path(typ, core_import);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
     let mut out = String::with_capacity(256);
+    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
     writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
 

@@ -30,6 +30,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     if uses_builder_pattern {
         writeln!(out, "#[allow(clippy::field_reassign_with_default)]").ok();
     }
+    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
     writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
 

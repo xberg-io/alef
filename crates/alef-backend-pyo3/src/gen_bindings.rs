@@ -750,7 +750,10 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         if any_typeddict {
             typing_names.push("TypedDict");
         }
-        out.push_str(&format!("from typing import {}\n", typing_names.join(", ")));
+        out.push_str(&format!(
+            "from typing import {}  # noqa: F401\n",
+            typing_names.join(", ")
+        ));
     }
     out.push('\n');
     // Import native-module types for static analysis only (TYPE_CHECKING guard).
