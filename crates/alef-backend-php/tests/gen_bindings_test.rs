@@ -7,6 +7,7 @@ use alef_core::ir::*;
 #[allow(dead_code)]
 fn make_config_with_extension(extension_name: &str) -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],
@@ -91,6 +92,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 
 fn make_config() -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],

@@ -34,9 +34,21 @@ pub use output::{
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use trait_bridge::TraitBridgeConfig;
 
+/// Alef tool metadata section (`[alef]` in alef.toml).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AlefMetaConfig {
+    /// Pinned alef CLI version (e.g. "0.7.5"). Used by install-alef to install
+    /// the exact version this project expects.
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
 /// Root configuration from alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlefConfig {
+    /// Alef tool metadata — pinned version, etc.
+    #[serde(default)]
+    pub alef: AlefMetaConfig,
     #[serde(rename = "crate")]
     pub crate_config: CrateConfig,
     pub languages: Vec<Language>,
@@ -1513,5 +1525,46 @@ build_release = "cd packages/go && go build -ldflags='-s -w' ./..."
             rust.before.is_none(),
             "default build command config should have no before"
         );
+    }
+
+    #[test]
+    fn alef_meta_defaults_when_omitted() {
+        let config = minimal_config();
+        assert!(config.alef.version.is_none());
+    }
+
+    #[test]
+    fn alef_meta_parses_version() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[alef]
+version = "0.7.5"
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.alef.version.as_deref(), Some("0.7.5"));
+    }
+
+    #[test]
+    fn alef_meta_empty_section_defaults_version_to_none() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[alef]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        assert!(config.alef.version.is_none());
     }
 }

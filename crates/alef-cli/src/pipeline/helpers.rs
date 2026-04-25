@@ -133,7 +133,9 @@ fn read_crate_metadata() -> anyhow::Result<(String, String)> {
 fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[String]) -> String {
     let source_path = format!("crates/{}/src/lib.rs", crate_name);
 
-    let mut config = String::from("languages = [");
+    let mut config = format!("[alef]\nversion = \"{}\"\n\n", env!("CARGO_PKG_VERSION"));
+
+    config.push_str("languages = [");
 
     for (i, lang) in languages.iter().enumerate() {
         if i > 0 {
@@ -277,5 +279,28 @@ mod tests {
             !check_precondition(Language::Go, Some("false")),
             "Precondition 'false' should fail for Go"
         );
+    }
+
+    #[test]
+    fn generate_init_config_includes_alef_version() {
+        let config = generate_init_config("my-lib", "1.0.0", &["python".to_string()]);
+        assert!(
+            config.starts_with("[alef]\n"),
+            "config should start with [alef] section"
+        );
+        let expected_version = format!("version = \"{}\"", env!("CARGO_PKG_VERSION"));
+        assert!(
+            config.contains(&expected_version),
+            "config should contain alef version from CARGO_PKG_VERSION"
+        );
+    }
+
+    #[test]
+    fn generate_init_config_parses_as_valid_alef_config() {
+        let config_str = generate_init_config("my-lib", "1.0.0", &["python".to_string()]);
+        let config: alef_core::config::AlefConfig =
+            toml::from_str(&config_str).expect("generated config should parse as valid AlefConfig");
+        assert_eq!(config.alef.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(config.crate_config.name, "my-lib");
     }
 }

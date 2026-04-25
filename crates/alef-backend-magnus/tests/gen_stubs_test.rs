@@ -42,6 +42,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 /// Helper to create a basic AlefConfig with Ruby and stubs enabled.
 fn make_config_with_stubs() -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test_lib".to_string(),
             sources: vec![],
@@ -585,6 +586,7 @@ fn test_rbs_stubs_without_config() {
 
     // Create config WITHOUT stubs enabled
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test_lib".to_string(),
             sources: vec![],
@@ -890,6 +892,7 @@ fn test_module_naming_from_crate_name() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "my_awesome_lib".to_string(),
             sources: vec![],

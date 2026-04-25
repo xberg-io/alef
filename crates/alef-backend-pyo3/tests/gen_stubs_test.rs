@@ -24,6 +24,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 
 fn make_config_with_stubs() -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],

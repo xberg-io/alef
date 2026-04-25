@@ -706,6 +706,7 @@ mod tests {
         };
         use alef_core::config::*;
         let config = AlefConfig {
+            alef: Default::default(),
             crate_config: CrateConfig {
                 name: "test".to_string(),
                 sources: vec![],

@@ -640,6 +640,7 @@ mod tests {
 
     fn test_config() -> AlefConfig {
         AlefConfig {
+            alef: Default::default(),
             crate_config: CrateConfig {
                 name: "my-lib".to_string(),
                 sources: vec![],

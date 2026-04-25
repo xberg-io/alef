@@ -28,6 +28,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 /// Helper to create minimal AlefConfig with WASM enabled
 fn make_config() -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],

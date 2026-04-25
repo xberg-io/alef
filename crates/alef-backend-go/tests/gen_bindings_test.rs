@@ -26,6 +26,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 /// Helper to create a full AlefConfig with both FFI and Go configs
 fn make_config() -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],
@@ -994,6 +995,7 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
 
 fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],

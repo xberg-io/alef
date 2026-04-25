@@ -10,6 +10,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
     use std::path::PathBuf;
 
     AlefConfig {
+        alef: Default::default(),
         crate_config: alef_core::config::CrateConfig {
             name: "test_crate".to_string(),
             sources: vec![PathBuf::from("src")],

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-04-25
+
+### Added
+
+- **Config**: `[alef]` section in `alef.toml` with `version` field to pin the alef CLI version per project. `alef init` now emits this field automatically.
+- **Install action**: `install-alef` reads the pinned version from `alef.toml` when input is `"latest"`, falling back to the latest GitHub release if not specified.
+
+### Fixed
+
+- **Python bindings**: sanitize doc strings with `sanitize_python_doc()` consistently across all generated code (options enums, dataclasses, TypedDict, API functions, exceptions) to prevent ruff RUF001/RUF002 lint errors.
+
 ## [0.7.5] - 2026-04-25
 
 ### Fixed

@@ -132,6 +132,7 @@ fn test_basic_generation() {
 
     // Create test config
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "kreuzberg".to_string(),
             sources: vec![],
@@ -294,6 +295,7 @@ fn test_namespace_resolution() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "my-lib".to_string(),
             sources: vec![],
@@ -379,6 +381,7 @@ fn test_generated_header() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test".to_string(),
             sources: vec![],
@@ -541,6 +544,7 @@ fn test_type_mapping() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test".to_string(),
             sources: vec![],
@@ -678,6 +682,7 @@ fn test_tuple_struct_fields_skipped() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test".to_string(),
             sources: vec![],
@@ -808,6 +813,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
     };
 
     let config = AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "test".to_string(),
             sources: vec![],

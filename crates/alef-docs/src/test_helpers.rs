@@ -99,6 +99,7 @@ pub(crate) fn empty_api() -> ApiSurface {
 pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
     use alef_core::config::*;
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: "mylib".to_string(),
             sources: vec![],

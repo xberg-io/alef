@@ -788,10 +788,15 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
         let enum_doc = if !enum_def.doc.is_empty() {
-            let first = enum_def.doc.lines().next().unwrap_or("").trim();
-            let content = if first.len() > 89 { &first[..89] } else { first };
+            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let first = sanitize_python_doc(&raw);
+            let content = if first.len() > 89 {
+                first[..89].to_string()
+            } else {
+                first
+            };
             if content.ends_with(['.', '?', '!']) {
-                content.to_string()
+                content
             } else {
                 format!("{}.", content)
             }
@@ -838,10 +843,15 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
             let class_doc = if !typ.doc.is_empty() {
-                let first = typ.doc.lines().next().unwrap_or("").trim();
-                let content = if first.len() > 89 { &first[..89] } else { first };
+                let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+                let first = sanitize_python_doc(&raw);
+                let content = if first.len() > 89 {
+                    first[..89].to_string()
+                } else {
+                    first
+                };
                 if content.ends_with(['.', '?', '!']) {
-                    content.to_string()
+                    content
                 } else {
                     format!("{}.", content)
                 }
@@ -897,7 +907,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
                     out.push_str(&format!(
                         "    \"\"\"{}\"\"\"\n\n",
-                        field.doc.lines().next().unwrap_or("")
+                        sanitize_python_doc(field.doc.lines().next().unwrap_or(""))
                     ));
                 } else {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
@@ -980,10 +990,15 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
 
         let doc = if !enum_def.doc.is_empty() {
-            let first = enum_def.doc.lines().next().unwrap_or("").trim();
-            let content = if first.len() > 89 { &first[..89] } else { first };
+            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let first = sanitize_python_doc(&raw);
+            let content = if first.len() > 89 {
+                first[..89].to_string()
+            } else {
+                first
+            };
             if content.ends_with(['.', '?', '!']) {
-                content.to_string()
+                content
             } else {
                 format!("{}.", content)
             }
@@ -1031,10 +1046,15 @@ fn gen_typeddict(
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
     let typeddict_doc = if !typ.doc.is_empty() {
-        let first = typ.doc.lines().next().unwrap_or("").trim();
-        let content = if first.len() > 89 { &first[..89] } else { first };
+        let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+        let first = sanitize_python_doc(&raw);
+        let content = if first.len() > 89 {
+            first[..89].to_string()
+        } else {
+            first
+        };
         if content.ends_with(['.', '?', '!']) {
-            content.to_string()
+            content
         } else {
             format!("{}.", content)
         }
@@ -1059,7 +1079,7 @@ fn gen_typeddict(
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
             out.push_str(&format!(
                 "    \"\"\"{}\"\"\"\n\n",
-                field.doc.lines().next().unwrap_or("")
+                sanitize_python_doc(field.doc.lines().next().unwrap_or(""))
             ));
         } else {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
@@ -1609,16 +1629,16 @@ fn gen_api_py(
         {
             let doc_with_period = if !func.doc.is_empty() {
                 let doc_first_line = func.doc.lines().next().unwrap_or("");
-                let doc_trimmed = doc_first_line.trim();
+                let doc_sanitized = sanitize_python_doc(doc_first_line.trim());
                 // `    """..."""` is 10 chars of overhead; period may add 1 more char.
                 // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
-                let doc_content = if doc_trimmed.len() > 89 {
-                    &doc_trimmed[..89]
+                let doc_content = if doc_sanitized.len() > 89 {
+                    doc_sanitized[..89].to_string()
                 } else {
-                    doc_trimmed
+                    doc_sanitized
                 };
                 if doc_content.ends_with('.') {
-                    doc_content.to_string()
+                    doc_content
                 } else {
                     format!("{}.", doc_content)
                 }
@@ -1679,6 +1699,19 @@ fn gen_api_py(
     out
 }
 
+/// Sanitize a Rust doc comment string for use in Python docstrings.
+///
+/// Replaces Unicode characters that trigger ruff RUF001/RUF002 lint errors with
+/// their closest ASCII equivalents. Must be applied to every doc string before
+/// it is emitted into a Python source file or stub.
+fn sanitize_python_doc(s: &str) -> String {
+    s.replace('\u{2013}', "-")   // EN DASH → HYPHEN-MINUS
+        .replace('\u{2014}', "--") // EM DASH → double hyphen
+        .replace('\u{00D7}', "x")  // MULTIPLICATION SIGN → x
+        .replace(['\u{2019}', '\u{2018}'], "'")  // LEFT SINGLE QUOTATION MARK → apostrophe
+        .replace(['\u{201C}', '\u{201D}'], "\"") // RIGHT DOUBLE QUOTATION MARK → straight quote
+}
+
 /// Convert a CamelCase class name to a human-readable docstring sentence.
 ///
 /// Examples: `AuthenticationError` → `"Authentication error."`,
@@ -1711,9 +1744,9 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
         }
         out.push_str(&format!("class {}(Exception):\n", error.name));
         let doc = if !error.doc.is_empty() {
-            let first_line = error.doc.lines().next().unwrap_or("").trim();
+            let first_line = sanitize_python_doc(error.doc.lines().next().unwrap_or("").trim());
             if first_line.ends_with('.') {
-                first_line.to_string()
+                first_line
             } else {
                 format!("{}.", first_line)
             }
@@ -1731,9 +1764,9 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
             }
             out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             let doc = if !variant.doc.is_empty() {
-                let first_line = variant.doc.lines().next().unwrap_or("").trim();
+                let first_line = sanitize_python_doc(variant.doc.lines().next().unwrap_or("").trim());
                 if first_line.ends_with('.') {
-                    first_line.to_string()
+                    first_line
                 } else {
                     format!("{}.", first_line)
                 }

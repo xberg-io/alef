@@ -9,6 +9,7 @@ use alef_core::ir::{
 /// Build a minimal AlefConfig for elixir tests.
 fn make_config(app_name: &str) -> AlefConfig {
     AlefConfig {
+        alef: Default::default(),
         crate_config: CrateConfig {
             name: app_name.replace('_', "-"),
             sources: vec![],

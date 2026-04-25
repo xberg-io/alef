@@ -50,7 +50,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # Commit message linting\n\
          \x20 - repo: https://github.com/Goldziher/gitfluff\n\
-         \x20   rev: v0.7.5\n\
+         \x20   rev: v0.7.6\n\
          \x20   hooks:\n\
          \x20     - id: gitfluff-lint\n\
          \x20       args: [\"--write\"]\n\
@@ -61,7 +61,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # General file checks\n\
          \x20 - repo: https://github.com/pre-commit/pre-commit-hooks\n\
-         \x20   rev: v0.7.5\n\
+         \x20   rev: v0.7.6\n\
          \x20   hooks:\n\
          \x20     - id: trailing-whitespace\n\
          \x20     - id: end-of-file-fixer\n\
@@ -122,7 +122,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
 
     yaml.push_str(
         "  - repo: https://github.com/bnjbvr/cargo-machete\n\
-         \x20   rev: v0.7.5\n\
+         \x20   rev: v0.7.6\n\
          \x20   hooks:\n\
          \x20     - id: cargo-machete\n\n\
          \x20 - repo: https://github.com/EmbarkStudios/cargo-deny\n\
@@ -145,7 +145,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # Alef: format and lint all binding languages, verify bindings, sync versions\n\
          \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
-         \x20   rev: v0.7.5\n\
+         \x20   rev: v0.7.6\n\
          \x20   hooks:\n\
          \x20     - id: alef-fmt\n\
          \x20     - id: alef-lint\n\
@@ -157,7 +157,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # Spelling\n\
          \x20 - repo: https://github.com/crate-ci/typos\n\
-         \x20   rev: v0.7.5\n\
+         \x20   rev: v0.7.6\n\
          \x20   hooks:\n\
          \x20     - id: typos\n\
          \x20       args: [\"--force-exclude\"]\n\n",
