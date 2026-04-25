@@ -5,24 +5,28 @@ vars:
 
 tasks:
   setup:
-    desc: "Install development tools"
+    desc: "Set up the development environment"
     cmds:
       - rustup update stable
       - cargo install prek || true
-      - cargo install taplo-cli || true
       - cargo install cargo-deny || true
       - cargo install cargo-machete || true
       - cargo install cargo-sort || true
       - cargo install cargo-edit || true
       - prek install
-      - echo "Setup complete"
+      - prek install --hook-type commit-msg
 
   update:
-    desc: "Update dependencies and tools"
+    desc: "Update dependencies and pre-commit hooks"
     cmds:
-      - cargo upgrade --incompatible
       - prek autoupdate
       - cargo update
+
+  upgrade:
+    desc: "Upgrade dependencies to latest (including incompatible) then update"
+    cmds:
+      - cargo upgrade --incompatible
+      - task: update
 
   build:
     desc: "Build all crates"
@@ -53,6 +57,18 @@ tasks:
     desc: "Run all linters via prek"
     cmds:
       - prek run --all-files
+
+  set-version:
+    desc: "Set workspace version (usage: task set-version -- 0.8.0)"
+    requires:
+      vars: [CLI_ARGS]
+    vars:
+      VERSION: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        sed -i '' "s/^version = \".*\"/version = \"{{.VERSION}}\"/" Cargo.toml
+        sed -i '' "s/rev: v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/rev: v{{.VERSION}}/" crates/alef-scaffold/src/languages/precommit.rs
+      - cargo update --workspace
 
   clean:
     desc: "Clean build artifacts"
