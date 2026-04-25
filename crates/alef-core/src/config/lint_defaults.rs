@@ -205,17 +205,31 @@ mod tests {
             node_package_manager: Some(pm.to_string()),
             ..Default::default()
         };
-        let pnpm = default_lint_config(Language::Node, "packages/node", &mk("pnpm"));
-        assert_eq!(pnpm.precondition.as_deref(), Some("command -v pnpm >/dev/null 2>&1"));
-        assert!(pnpm.format.unwrap().commands().join(" ").contains("pnpm exec oxfmt"));
 
-        let yarn = default_lint_config(Language::Node, "packages/node", &mk("yarn"));
-        assert_eq!(yarn.precondition.as_deref(), Some("command -v yarn >/dev/null 2>&1"));
-        assert!(yarn.format.unwrap().commands().join(" ").contains("yarn dlx oxfmt"));
+        let cases = [
+            ("pnpm", "command -v pnpm >/dev/null 2>&1", "pnpm exec"),
+            ("yarn", "command -v yarn >/dev/null 2>&1", "yarn dlx"),
+            ("npm", "command -v npm >/dev/null 2>&1", "npx"),
+        ];
 
-        let npm = default_lint_config(Language::Node, "packages/node", &mk("npm"));
-        assert_eq!(npm.precondition.as_deref(), Some("command -v npm >/dev/null 2>&1"));
-        assert!(npm.format.unwrap().commands().join(" ").contains("npx oxfmt"));
+        for (pm, expected_pre, expected_runner) in cases {
+            let c = default_lint_config(Language::Node, "packages/node", &mk(pm));
+            assert_eq!(
+                c.precondition.as_deref(),
+                Some(expected_pre),
+                "{pm}: precondition mismatch"
+            );
+            let fmt = c.format.unwrap().commands().join(" ");
+            let check = c.check.unwrap().commands().join(" ");
+            assert!(
+                fmt.contains(&format!("{expected_runner} oxfmt")),
+                "{pm}: format should use `{expected_runner} oxfmt`, got: {fmt}"
+            );
+            assert!(
+                check.contains(&format!("{expected_runner} oxlint")),
+                "{pm}: check should use `{expected_runner} oxlint`, got: {check}"
+            );
+        }
     }
 
     #[test]

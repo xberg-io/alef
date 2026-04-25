@@ -22,13 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Pipelines**: `default_*_config` functions now take a `&ToolsConfig` argument so per-language defaults can dispatch on the project's chosen package manager.
-- **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that logs per-language failures as warnings and continues — formatters are *expected* to modify generated files and a non-zero exit (or a missing tool) must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
+- **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that swallows three classes of post-gen formatter trouble — a missing tool (precondition miss → "Skipping" warning, language skipped), a failing `before` hook (warning, language skipped), and a non-zero formatter exit (warning, formatter loop continues). Formatters are *expected* to modify generated files, so non-zero exits there must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
 
 ### Fixed
 
 - **Python**: classify enum imports correctly in generated `api.py` — data enums (tagged unions) and enums not referenced by `has_default` config structs now import from the native module instead of `options.py`, fixing missing-attribute errors at runtime.
 - **Python**: emit converter locals in required-first, optional-last order so positional calls to the native function match the pyo3 signature.
-- **Python**: generate runtime conversion for data-enum parameters in `api.py` wrappers so users can pass the union type and it is coerced to the native variant.
+- **Python**: generate runtime conversion for data-enum and `has_default` parameters in `api.py` wrappers, including `Vec<…>` and `Optional<Vec<…>>` shapes — list comprehensions are emitted to coerce each element. Previously only scalar (`Named` / `Optional<Named>`) parameters were converted, leaving collection parameters silently un-coerced.
+- **Performance (pyo3)**: maintain a parallel `AHashSet` for the opaque-types transitive-closure dedupe check, restoring O(1) membership testing in the hot loop.
 
 ## [0.7.8] - 2026-04-25
 

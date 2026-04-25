@@ -152,13 +152,19 @@ impl Backend for Pyo3Backend {
             .collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         opaque_names_vec.extend(data_enum_names);
+        // Mirror the Vec in a HashSet so the transitive-closure loop's
+        // membership check is O(1) instead of O(n) per type per iteration.
+        // `field_references_opaque_type` still takes a slice (its public
+        // signature is fixed by other callers), but that is bounded by a
+        // single type's field count and not the per-iteration hot path.
+        let mut opaque_names_set: AHashSet<String> = opaque_names_vec.iter().cloned().collect();
         // Transitively close: any non-opaque type whose fields reference an opaque/data-enum
         // type also can't derive Default/Serialize/Deserialize.
         let mut changed = true;
         while changed {
             changed = false;
             for typ in api.types.iter().filter(|t| !t.is_opaque) {
-                if opaque_names_vec.contains(&typ.name) {
+                if opaque_names_set.contains(&typ.name) {
                     continue;
                 }
                 let has_opaque = typ
@@ -167,6 +173,7 @@ impl Backend for Pyo3Backend {
                     .any(|f| generators::structs::field_references_opaque_type(&f.ty, &opaque_names_vec));
                 if has_opaque {
                     opaque_names_vec.push(typ.name.clone());
+                    opaque_names_set.insert(typ.name.clone());
                     changed = true;
                 }
             }
@@ -1322,20 +1329,11 @@ fn gen_api_py(
             return;
         }
         if let Some(typ) = default_types.get(type_name) {
-            // First collect nested types so they appear before the parent converter
+            // First collect nested types so they appear before the parent converter.
+            // `classify_param_type` recursively unwraps Optional/Vec layers so a
+            // `Vec<HasDefault>` field still discovers the leaf converter.
             for field in &typ.fields {
-                let inner_name = match &field.ty {
-                    TypeRef::Named(n) => Some(n.as_str()),
-                    TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() {
-                            Some(n.as_str())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(name) = inner_name {
+                if let Some((name, _)) = classify_param_type(&field.ty) {
                     if default_types.contains_key(name) {
                         collect_needed(name, default_types, needed, visited);
                     }
@@ -1347,18 +1345,10 @@ fn gen_api_py(
 
     for func in &api.functions {
         for param in &func.params {
-            let type_name = match &param.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            if let Some(name) = type_name {
+            // `classify_param_type` unwraps Optional/Vec/Optional<Vec> layers
+            // so a `Vec<HasDefault>` parameter still triggers converter emission
+            // for the leaf type.
+            if let Some((name, _)) = classify_param_type(&param.ty) {
                 collect_needed(name, &default_types, &mut needed_converters, &mut visited);
             }
         }
@@ -1692,50 +1682,52 @@ fn gen_api_py(
         // For each param that has a converter, emit a local conversion variable.
         // Use the same required-first, optional-last order as the Python signature so that
         // positional calls to the native function match the pyo3 signature declaration.
+        //
+        // We classify the param's type by unwrapping `Optional`/`Vec` layers down to the
+        // leaf `Named` type. The classification determines whether a scalar conversion or
+        // a list-comprehension conversion is generated.
         let mut call_args = Vec::new();
         let (req_params, opt_params): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
         for param in req_params.iter().chain(opt_params.iter()) {
-            let type_name = match &param.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
+            let class = classify_param_type(&param.ty);
 
-            if let Some(name) = type_name {
+            if let Some((name, wrapping)) = class {
+                let pname = &param.name;
+                let var = format!("_rust_{pname}");
+                let optional = matches!(wrapping, Wrapping::Optional | Wrapping::OptionalVec) || param.optional;
+                let is_collection = matches!(wrapping, Wrapping::Vec | Wrapping::OptionalVec);
+
+                // has_default struct: Python-side conversion via _to_rust_<snake>().
                 if default_types.contains_key(name) {
                     let snake = name.to_snake_case();
-                    let var = format!("_rust_{}", param.name);
-                    out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
-                    if !param.optional {
-                        out.push_str(&format!(
-                            "    if {var} is None:\n        msg = \"{name} conversion returned None\"\n        raise ValueError(msg)\n",
-                            name = param.name
-                        ));
+                    let scalar_expr = format!("_to_rust_{snake}({pname})");
+                    if is_collection {
+                        let element_expr = format!("_to_rust_{snake}(__item)");
+                        let body = format!("[{element_expr} for __item in {pname}]");
+                        emit_param_conversion(&mut out, &var, pname, &body, optional);
+                    } else {
+                        emit_param_conversion(&mut out, &var, pname, &scalar_expr, optional);
+                        // Required scalar: failed converter returns None → raise.
+                        if !param.optional && !is_collection {
+                            out.push_str(&format!(
+                                "    if {var} is None:\n        msg = \"{pname} conversion returned None\"\n        raise ValueError(msg)\n"
+                            ));
+                        }
                     }
                     call_args.push(var);
                     continue;
                 }
-                // Data enum (tagged union): convert from user-facing union type to native variant.
+                // Data enum (tagged union): wrap with `_rust.<EnumName>(value)` if not already.
                 if data_enum_names.contains(name) {
-                    let var = format!("_rust_{}", param.name);
-                    if param.optional {
-                        out.push_str(&format!(
-                            "    {var} = (_rust.{name}({pname}) if not isinstance({pname}, _rust.{name}) else {pname}) if {pname} is not None else None\n",
-                            name = name,
-                            pname = param.name,
-                        ));
+                    let scalar_expr =
+                        format!("(_rust.{name}({pname}) if not isinstance({pname}, _rust.{name}) else {pname})");
+                    if is_collection {
+                        let element_expr =
+                            format!("(_rust.{name}(__item) if not isinstance(__item, _rust.{name}) else __item)");
+                        let body = format!("[{element_expr} for __item in {pname}]");
+                        emit_param_conversion(&mut out, &var, pname, &body, optional);
                     } else {
-                        out.push_str(&format!(
-                            "    {var} = _rust.{name}({pname}) if not isinstance({pname}, _rust.{name}) else {pname}\n",
-                            name = name,
-                            pname = param.name,
-                        ));
+                        emit_param_conversion(&mut out, &var, pname, &scalar_expr, optional);
                     }
                     call_args.push(var);
                     continue;
@@ -1752,6 +1744,52 @@ fn gen_api_py(
     }
 
     out
+}
+
+/// Wrapping shape of a parameter type whose leaf is a named type.
+#[derive(Debug, Clone, Copy)]
+enum Wrapping {
+    /// `T`
+    Plain,
+    /// `Option<T>`
+    Optional,
+    /// `Vec<T>`
+    Vec,
+    /// `Option<Vec<T>>`
+    OptionalVec,
+}
+
+/// Recursively unwrap `Optional`/`Vec` layers around a `Named` type and return
+/// the leaf name plus the wrapping shape. Returns `None` for types whose leaf
+/// isn't `Named` (e.g. `Map`, primitives).
+fn classify_param_type(ty: &alef_core::ir::TypeRef) -> Option<(&str, Wrapping)> {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(n) => Some((n.as_str(), Wrapping::Plain)),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some((n.as_str(), Wrapping::Optional)),
+            TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                TypeRef::Named(n) => Some((n.as_str(), Wrapping::OptionalVec)),
+                _ => None,
+            },
+            _ => None,
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some((n.as_str(), Wrapping::Vec)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Emit a `{var} = {body}` line, guarded by `if {pname} is not None else None`
+/// when the parameter is optional.
+fn emit_param_conversion(out: &mut String, var: &str, pname: &str, body: &str, optional: bool) {
+    if optional {
+        out.push_str(&format!("    {var} = {body} if {pname} is not None else None\n"));
+    } else {
+        out.push_str(&format!("    {var} = {body}\n"));
+    }
 }
 
 /// Sanitize a Rust doc comment string for use in Python docstrings.

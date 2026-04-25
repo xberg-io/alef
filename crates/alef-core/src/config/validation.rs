@@ -145,39 +145,46 @@ fn clean_main_fields(c: &CleanConfig) -> Vec<&'static str> {
 }
 
 // ---------------------------------------------------------------------------
-// Tool-name sanitization.
+// Tool-name well-formedness.
 //
-// Tool names from `[tools]` are interpolated into shell preconditions
-// (e.g. `command -v {pm} >/dev/null 2>&1`) executed via `sh -c`, so we
-// reject any character that would let a malicious config break out of the
-// `command -v` argument and run arbitrary shell. Allowed: alphanumerics,
-// dot, dash, underscore.
+// `alef.toml` is trusted configuration: every shell-bound field
+// (`precondition`, `before`, the main command fields) is passed verbatim
+// to `sh -c`, by design — users author these commands and need full shell
+// power (pipes, redirects, `&&`, etc.) to express real-world tooling.
+//
+// `[tools]` values are different. They name a single executable that is
+// interpolated into a `command -v <tool>` precondition, so they should be
+// short identifier-shaped strings — never multi-word commands or shell
+// expressions. Rejecting non-identifier characters here catches typos
+// (trailing space, accidental quote) up-front with a useful error, instead
+// of failing later with a cryptic shell message. It is a well-formedness
+// check, not a security boundary.
 // ---------------------------------------------------------------------------
 
 fn validate_tools(tools: &super::tools::ToolsConfig) -> Result<(), AlefError> {
     if let Some(pm) = tools.python_package_manager.as_deref() {
-        ensure_safe_tool_name("tools.python_package_manager", pm)?;
+        ensure_well_formed_tool_name("tools.python_package_manager", pm)?;
     }
     if let Some(pm) = tools.node_package_manager.as_deref() {
-        ensure_safe_tool_name("tools.node_package_manager", pm)?;
+        ensure_well_formed_tool_name("tools.node_package_manager", pm)?;
     }
     if let Some(list) = tools.rust_dev_tools.as_deref() {
         for tool in list {
-            ensure_safe_tool_name("tools.rust_dev_tools[]", tool)?;
+            ensure_well_formed_tool_name("tools.rust_dev_tools[]", tool)?;
         }
     }
     Ok(())
 }
 
-fn is_safe_tool_char(c: char) -> bool {
+fn is_well_formed_tool_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')
 }
 
-fn ensure_safe_tool_name(field: &str, value: &str) -> Result<(), AlefError> {
-    if value.is_empty() || !value.chars().all(is_safe_tool_char) {
+fn ensure_well_formed_tool_name(field: &str, value: &str) -> Result<(), AlefError> {
+    if value.is_empty() || !value.chars().all(is_well_formed_tool_char) {
         return Err(AlefError::Config(format!(
-            "{field} = {value:?} contains characters that are unsafe to interpolate into a shell precondition. \
-             Tool names must match `[A-Za-z0-9._-]+`."
+            "{field} = {value:?} is not a well-formed tool name. \
+             Tool names must match `[A-Za-z0-9._-]+` (single executable, no spaces or shell metacharacters)."
         )));
     }
     Ok(())
@@ -320,31 +327,41 @@ sources = ["src/lib.rs"]
     }
 
     #[test]
-    fn unsafe_python_package_manager_value_is_rejected() {
+    fn malformed_python_package_manager_value_is_rejected() {
         let config = parse(&format!(
             "{base}\n\n[tools]\npython_package_manager = \"uv; rm -rf /\"\n",
             base = base_config()
         ));
-        let err = validate(&config).expect_err("shell metacharacters must be rejected");
-        assert!(format!("{err}").contains("unsafe"));
+        let err = validate(&config).expect_err("non-identifier tool name must be rejected");
+        assert!(format!("{err}").contains("well-formed"));
     }
 
     #[test]
-    fn unsafe_node_package_manager_value_is_rejected() {
+    fn malformed_node_package_manager_value_is_rejected() {
         let config = parse(&format!(
             "{base}\n\n[tools]\nnode_package_manager = \"pnpm$(echo bad)\"\n",
             base = base_config()
         ));
-        validate(&config).expect_err("command-substitution must be rejected");
+        validate(&config).expect_err("non-identifier tool name must be rejected");
     }
 
     #[test]
-    fn unsafe_rust_dev_tool_entry_is_rejected() {
+    fn malformed_rust_dev_tool_entry_is_rejected() {
         let config = parse(&format!(
             "{base}\n\n[tools]\nrust_dev_tools = [\"cargo-edit\", \"cargo`evil`\"]\n",
             base = base_config()
         ));
-        validate(&config).expect_err("backtick command-substitution must be rejected");
+        validate(&config).expect_err("non-identifier tool name must be rejected");
+    }
+
+    #[test]
+    fn whitespace_in_tool_name_is_rejected() {
+        // Catches the common typo of a trailing space (`"uv "`).
+        let config = parse(&format!(
+            "{base}\n\n[tools]\npython_package_manager = \"uv \"\n",
+            base = base_config()
+        ));
+        validate(&config).expect_err("trailing whitespace must be rejected");
     }
 
     #[test]

@@ -741,8 +741,13 @@ fn run_post_build(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod fmt_post_generate_tests {
+    // Tests in this module rely on `sh -c` and the POSIX `true`/`false`
+    // builtins. They are skipped on Windows where `sh` is not on PATH and
+    // a missing-program error is indistinguishable from a precondition
+    // miss (both cause `check_precondition` to return false), which would
+    // make every test trivially pass for the wrong reason.
     use super::*;
     use alef_core::config::output::{LintConfig, StringOrVec};
     use std::collections::HashMap;
