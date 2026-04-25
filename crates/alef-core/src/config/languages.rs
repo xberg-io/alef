@@ -48,6 +48,16 @@ pub struct PythonConfig {
     /// automatic keyword escaping, so an explicit entry takes priority.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    /// E.g., `run_wrapper = "uv run --no-sync"` turns `ruff format packages/python` into
+    /// `uv run --no-sync ruff format packages/python`.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    /// Space-separated paths are appended to the command.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +96,13 @@ pub struct NodeConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +133,13 @@ pub struct RubyConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +174,13 @@ pub struct PhpConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +208,13 @@ pub struct ElixirConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +249,13 @@ pub struct WasmConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +308,13 @@ pub struct GoConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,6 +332,18 @@ pub struct JavaConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    /// Ignored when project_file is set.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+    /// Project file for Maven/Gradle (e.g., "pom.xml", "build.gradle"). When set, default
+    /// lint/build/test commands target this file instead of the output directory.
+    #[serde(default)]
+    pub project_file: Option<String>,
 }
 
 fn default_java_ffi_style() -> String {
@@ -300,6 +364,18 @@ pub struct CSharpConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    /// Ignored when project_file is set.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+    /// Project file for C# (e.g., "MyProject.csproj", "MySolution.sln"). When set, default
+    /// lint/build/test commands target this file instead of the output directory.
+    #[serde(default)]
+    pub project_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +391,13 @@ pub struct RConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 /// Custom modules that alef should declare (mod X;) but not generate.

@@ -41,6 +41,66 @@ pub struct ToolsConfig {
     pub rust_dev_tools: Option<Vec<String>>,
 }
 
+/// Per-language context passed to every `default_*_config` function.
+///
+/// Bundles the global `[tools]` selection plus three optional knobs that
+/// reduce override boilerplate in consumer `alef.toml` files:
+///
+/// - `run_wrapper` — prefix every default tool invocation, e.g. wrap
+///   `ruff format …` with `uv run --no-sync` so the lint step inherits the
+///   project's package-manager environment without a full override.
+/// - `extra_lint_paths` — append additional paths to the default lint
+///   commands (`format`, `check`, `typecheck`).
+/// - `project_file` — for languages whose tools target a project descriptor
+///   (Java's `pom.xml`, C#'s `.csproj`/`.slnx`), use this file instead of
+///   the package directory.
+#[derive(Debug, Clone)]
+pub struct LangContext<'a> {
+    pub tools: &'a ToolsConfig,
+    pub run_wrapper: Option<&'a str>,
+    pub extra_lint_paths: &'a [String],
+    pub project_file: Option<&'a str>,
+}
+
+impl<'a> LangContext<'a> {
+    /// Create a context with all knobs unset (no wrapper, no extra paths,
+    /// no project file). Useful in tests and call sites that only need the
+    /// global tools selection.
+    pub fn default(tools: &'a ToolsConfig) -> Self {
+        Self {
+            tools,
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: None,
+        }
+    }
+}
+
+/// Wrap `cmd` with `wrapper` (e.g. `uv run --no-sync`) when set.
+///
+/// Used by per-language defaults so a single project-level knob can prefix
+/// every default tool invocation without forcing a full command override.
+pub fn wrap_command(cmd: String, wrapper: Option<&str>) -> String {
+    match wrapper {
+        Some(w) => format!("{w} {cmd}"),
+        None => cmd,
+    }
+}
+
+/// Append space-separated `paths` to `cmd`. No-op when `paths` is empty.
+///
+/// Path entries are inserted verbatim — they must be shell-safe identifiers
+/// or quoted by the caller. The parser-level validation in
+/// `super::validation` rejects whitespace and shell metacharacters, so
+/// real-world `extra_lint_paths` values reach here pre-sanitised.
+pub fn append_paths(cmd: String, paths: &[String]) -> String {
+    if paths.is_empty() {
+        cmd
+    } else {
+        format!("{} {}", cmd, paths.join(" "))
+    }
+}
+
 /// Build a POSIX precondition that checks whether `tool` is on `PATH`.
 ///
 /// The resulting command exits 0 when the tool is available and non-zero

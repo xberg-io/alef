@@ -706,6 +706,8 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         extra_dependencies: python_extra,
         scaffold_output: None,
         rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
     });
     let rendered = render_extra_deps(&config, Language::Python);
     // Python-level "2.0" should win over crate-level "1.0"

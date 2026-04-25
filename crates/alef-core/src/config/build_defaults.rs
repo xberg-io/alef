@@ -1,19 +1,18 @@
 use super::extras::Language;
 use super::output::{BuildCommandConfig, StringOrVec};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, require_tool, wrap_command as wrap};
 
 /// Return the default build configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). The `crate_name` is the name of the core crate
-/// (e.g. `my-lib`). Both are substituted into command templates. `tools`
-/// is currently informational; build commands themselves don't dispatch on
-/// the chosen package manager.
+/// (e.g. `my-lib`). Both are substituted into command templates. `ctx`
+/// provides tool selection and run_wrapper.
 pub(crate) fn default_build_config(
     lang: Language,
     output_dir: &str,
     crate_name: &str,
-    _tools: &ToolsConfig,
+    ctx: &LangContext,
 ) -> BuildCommandConfig {
     match lang {
         Language::Rust => BuildCommandConfig {
@@ -52,12 +51,15 @@ pub(crate) fn default_build_config(
                 "wasm-pack build crates/{crate_name}-wasm --release"
             ))),
         },
-        Language::Go => BuildCommandConfig {
-            precondition: Some(require_tool("go")),
-            before: None,
-            build: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
-            build_release: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
-        },
+        Language::Go => {
+            let cmd = format!("cd {output_dir} && go build ./...");
+            BuildCommandConfig {
+                precondition: Some(require_tool("go")),
+                before: None,
+                build: Some(StringOrVec::Single(wrap(cmd.clone(), ctx.run_wrapper))),
+                build_release: Some(StringOrVec::Single(wrap(cmd, ctx.run_wrapper))),
+            }
+        }
         Language::Ruby => BuildCommandConfig {
             precondition: Some(require_tool("cargo")),
             before: None,
@@ -80,26 +82,44 @@ pub(crate) fn default_build_config(
                 "cargo build --release -p {crate_name}-ffi"
             ))),
         },
-        Language::Java => BuildCommandConfig {
-            precondition: Some(require_tool("mvn")),
-            before: None,
-            build: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml package -DskipTests -q"
-            ))),
-            build_release: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml package -DskipTests -q"
-            ))),
-        },
-        Language::Csharp => BuildCommandConfig {
-            precondition: Some(require_tool("dotnet")),
-            before: None,
-            build: Some(StringOrVec::Single(format!(
-                "dotnet build {output_dir} --configuration Debug -q"
-            ))),
-            build_release: Some(StringOrVec::Single(format!(
-                "dotnet build {output_dir} --configuration Release -q"
-            ))),
-        },
+        Language::Java => {
+            let (build_path, release_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("mvn -f {proj} package -DskipTests -q"),
+                    format!("mvn -f {proj} package -DskipTests -q"),
+                )
+            } else {
+                (
+                    format!("mvn -f {output_dir}/pom.xml package -DskipTests -q"),
+                    format!("mvn -f {output_dir}/pom.xml package -DskipTests -q"),
+                )
+            };
+            BuildCommandConfig {
+                precondition: Some(require_tool("mvn")),
+                before: None,
+                build: Some(StringOrVec::Single(wrap(build_path, ctx.run_wrapper))),
+                build_release: Some(StringOrVec::Single(wrap(release_path, ctx.run_wrapper))),
+            }
+        }
+        Language::Csharp => {
+            let (build_path, release_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("dotnet build {proj} --configuration Debug -q"),
+                    format!("dotnet build {proj} --configuration Release -q"),
+                )
+            } else {
+                (
+                    format!("dotnet build {output_dir} --configuration Debug -q"),
+                    format!("dotnet build {output_dir} --configuration Release -q"),
+                )
+            };
+            BuildCommandConfig {
+                precondition: Some(require_tool("dotnet")),
+                before: None,
+                build: Some(StringOrVec::Single(wrap(build_path, ctx.run_wrapper))),
+                build_release: Some(StringOrVec::Single(wrap(release_path, ctx.run_wrapper))),
+            }
+        }
         Language::Elixir => BuildCommandConfig {
             precondition: Some(require_tool("mix")),
             before: None,
@@ -117,6 +137,7 @@ pub(crate) fn default_build_config(
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -137,7 +158,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str, crate_name: &str) -> BuildCommandConfig {
-        default_build_config(lang, dir, crate_name, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_build_config(lang, dir, crate_name, &ctx)
     }
 
     #[test]

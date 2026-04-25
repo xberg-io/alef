@@ -1,104 +1,198 @@
 use super::extras::Language;
 use super::output::{LintConfig, StringOrVec};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, append_paths, require_tool, wrap_command as wrap};
 
 /// Return the default lint configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` selects per-language tool variants — used for Node, where the
-/// chosen package manager (`pnpm`/`npm`/`yarn`) determines the precondition
-/// and the binary that fronts oxfmt/oxlint.
-pub fn default_lint_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> LintConfig {
+/// `ctx` provides tool selection, run_wrapper, and extra_lint_paths.
+pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) -> LintConfig {
     match lang {
-        Language::Python => LintConfig {
-            precondition: Some(require_tool("ruff")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("ruff format {output_dir}"))),
-            check: Some(StringOrVec::Single(format!("ruff check --fix {output_dir}"))),
-            typecheck: Some(StringOrVec::Single(format!("mypy {output_dir}"))),
-        },
+        Language::Python => {
+            let format_cmd = wrap(
+                append_paths(format!("ruff format {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(format!("ruff check --fix {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let typecheck_cmd = wrap(
+                append_paths(format!("mypy {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("ruff")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: Some(StringOrVec::Single(typecheck_cmd)),
+            }
+        }
         Language::Node | Language::Wasm => {
-            // oxfmt and oxlint are npm-distributed; invoke them through the
-            // project's package manager. `npx`/`pnpm exec`/`yarn dlx` are the
-            // canonical ways to run a `node_modules/.bin` binary.
-            let pm = tools.node_pm();
+            let pm = ctx.tools.node_pm();
             let runner: &str = match pm {
                 "pnpm" => "pnpm exec",
                 "yarn" => "yarn dlx",
                 _ => "npx",
             };
+            let format_cmd = wrap(
+                append_paths(format!("{runner} oxfmt {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(format!("{runner} oxlint --fix {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
             LintConfig {
                 precondition: Some(require_tool(pm)),
                 before: None,
-                format: Some(StringOrVec::Single(format!("{runner} oxfmt {output_dir}"))),
-                check: Some(StringOrVec::Single(format!("{runner} oxlint --fix {output_dir}"))),
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
                 typecheck: None,
             }
         }
-        Language::Ruby => LintConfig {
-            precondition: Some(require_tool("bundle")),
-            before: None,
-            format: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle exec rubocop -A ."
-            ))),
-            check: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rubocop ."))),
-            typecheck: None,
-        },
-        Language::Php => LintConfig {
-            precondition: Some(require_tool("composer")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("cd {output_dir} && composer run format"))),
-            check: Some(StringOrVec::Single(format!("cd {output_dir} && composer run lint"))),
-            typecheck: None,
-        },
-        Language::Go => LintConfig {
-            precondition: Some(require_tool("gofmt")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("gofmt -w {output_dir}"))),
-            check: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && golangci-lint run ./..."
-            ))),
-            typecheck: None,
-        },
-        Language::Java => LintConfig {
-            precondition: Some(require_tool("mvn")),
-            before: None,
-            format: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml spotless:apply -q"
-            ))),
-            check: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml spotless:check checkstyle:check -q"
-            ))),
-            typecheck: None,
-        },
-        Language::Csharp => LintConfig {
-            precondition: Some(require_tool("dotnet")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("dotnet format {output_dir}"))),
-            check: Some(StringOrVec::Single(format!(
-                "dotnet format {output_dir} --verify-no-changes"
-            ))),
-            typecheck: None,
-        },
-        Language::Elixir => LintConfig {
-            precondition: Some(require_tool("mix")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("cd {output_dir} && mix format"))),
-            check: Some(StringOrVec::Single(format!("cd {output_dir} && mix credo --strict"))),
-            typecheck: None,
-        },
-        Language::R => LintConfig {
-            precondition: Some(require_tool("Rscript")),
-            before: None,
-            format: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"styler::style_pkg()\""
-            ))),
-            check: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"lintr::lint_package()\""
-            ))),
-            typecheck: None,
-        },
+        Language::Ruby => {
+            let format_cmd = wrap(
+                append_paths(
+                    format!("cd {output_dir} && bundle exec rubocop -A ."),
+                    ctx.extra_lint_paths,
+                ),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(
+                    format!("cd {output_dir} && bundle exec rubocop ."),
+                    ctx.extra_lint_paths,
+                ),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("bundle")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Php => {
+            let format_cmd = wrap(
+                append_paths(format!("cd {output_dir} && composer run format"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(format!("cd {output_dir} && composer run lint"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("composer")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Go => {
+            let format_cmd = wrap(
+                append_paths(format!("gofmt -w {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(
+                    format!("cd {output_dir} && golangci-lint run ./..."),
+                    ctx.extra_lint_paths,
+                ),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("gofmt")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Java => {
+            let (format_path, check_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("mvn -f {proj} spotless:apply -q"),
+                    format!("mvn -f {proj} spotless:check checkstyle:check -q"),
+                )
+            } else {
+                (
+                    format!("mvn -f {output_dir}/pom.xml spotless:apply -q"),
+                    format!("mvn -f {output_dir}/pom.xml spotless:check checkstyle:check -q"),
+                )
+            };
+            LintConfig {
+                precondition: Some(require_tool("mvn")),
+                before: None,
+                format: Some(StringOrVec::Single(wrap(format_path, ctx.run_wrapper))),
+                check: Some(StringOrVec::Single(wrap(check_path, ctx.run_wrapper))),
+                typecheck: None,
+            }
+        }
+        Language::Csharp => {
+            let (format_path, check_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("dotnet format {proj}"),
+                    format!("dotnet format {proj} --verify-no-changes"),
+                )
+            } else {
+                (
+                    format!("dotnet format {output_dir}"),
+                    format!("dotnet format {output_dir} --verify-no-changes"),
+                )
+            };
+            LintConfig {
+                precondition: Some(require_tool("dotnet")),
+                before: None,
+                format: Some(StringOrVec::Single(wrap(format_path, ctx.run_wrapper))),
+                check: Some(StringOrVec::Single(wrap(check_path, ctx.run_wrapper))),
+                typecheck: None,
+            }
+        }
+        Language::Elixir => {
+            let format_cmd = wrap(
+                append_paths(format!("cd {output_dir} && mix format"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(format!("cd {output_dir} && mix credo --strict"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("mix")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::R => {
+            let format_cmd = wrap(
+                append_paths(
+                    format!("cd {output_dir} && Rscript -e \"styler::style_pkg()\""),
+                    ctx.extra_lint_paths,
+                ),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(
+                    format!("cd {output_dir} && Rscript -e \"lintr::lint_package()\""),
+                    ctx.extra_lint_paths,
+                ),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("Rscript")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
         Language::Ffi => LintConfig {
             precondition: Some(require_tool("clang-format")),
             before: None,
@@ -124,6 +218,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str, tools: &ToolsConfig
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -144,7 +239,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str) -> LintConfig {
-        default_lint_config(lang, dir, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_lint_config(lang, dir, &ctx)
     }
 
     #[test]
@@ -213,7 +310,9 @@ mod tests {
         ];
 
         for (pm, expected_pre, expected_runner) in cases {
-            let c = default_lint_config(Language::Node, "packages/node", &mk(pm));
+            let tools = mk(pm);
+            let ctx = LangContext::default(&tools);
+            let c = default_lint_config(Language::Node, "packages/node", &ctx);
             assert_eq!(
                 c.precondition.as_deref(),
                 Some(expected_pre),
@@ -280,5 +379,102 @@ mod tests {
                 assert!(c.typecheck.is_none(), "{lang} should not have typecheck default");
             }
         }
+    }
+
+    #[test]
+    fn python_run_wrapper_prefixes_all_commands() {
+        let ctx = LangContext {
+            tools: &ToolsConfig::default(),
+            run_wrapper: Some("uv run --no-sync"),
+            extra_lint_paths: &[],
+            project_file: None,
+        };
+        let c = default_lint_config(Language::Python, "packages/python", &ctx);
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        let tc = c.typecheck.unwrap().commands().join(" ");
+        assert!(fmt.starts_with("uv run --no-sync"), "format should be wrapped: {fmt}");
+        assert!(
+            check.starts_with("uv run --no-sync"),
+            "check should be wrapped: {check}"
+        );
+        assert!(tc.starts_with("uv run --no-sync"), "typecheck should be wrapped: {tc}");
+    }
+
+    #[test]
+    fn python_extra_lint_paths_appended() {
+        let ctx = LangContext {
+            tools: &ToolsConfig::default(),
+            run_wrapper: None,
+            extra_lint_paths: &["scripts".to_string()],
+            project_file: None,
+        };
+        let c = default_lint_config(Language::Python, "packages/python", &ctx);
+        let fmt = c.format.unwrap().commands().join(" ");
+        assert!(
+            fmt.contains("packages/python scripts"),
+            "format should include both paths: {fmt}"
+        );
+    }
+
+    #[test]
+    fn java_project_file_replaces_output_dir() {
+        let ctx = LangContext {
+            tools: &ToolsConfig::default(),
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: Some("pom.xml"),
+        };
+        let c = default_lint_config(Language::Java, "packages/java", &ctx);
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("-f pom.xml"), "format should use project_file: {fmt}");
+        assert!(
+            !fmt.contains("packages/java/pom.xml"),
+            "format should not use output_dir path"
+        );
+        assert!(check.contains("-f pom.xml"), "check should use project_file: {check}");
+    }
+
+    #[test]
+    fn csharp_project_file_replaces_output_dir() {
+        let ctx = LangContext {
+            tools: &ToolsConfig::default(),
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: Some("MyProject.csproj"),
+        };
+        let c = default_lint_config(Language::Csharp, "packages/csharp", &ctx);
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(
+            fmt.contains("MyProject.csproj"),
+            "format should use project_file: {fmt}"
+        );
+        assert!(!fmt.contains("packages/csharp"), "format should not use output_dir");
+        assert!(
+            check.contains("MyProject.csproj"),
+            "check should use project_file: {check}"
+        );
+    }
+
+    #[test]
+    fn go_run_wrapper_and_extra_paths() {
+        let ctx = LangContext {
+            tools: &ToolsConfig::default(),
+            run_wrapper: Some("time"),
+            extra_lint_paths: &["vendor".to_string()],
+            project_file: None,
+        };
+        let c = default_lint_config(Language::Go, "packages/go", &ctx);
+        let fmt = c.format.unwrap().commands().join(" ");
+        assert!(
+            fmt.starts_with("time gofmt"),
+            "format should be wrapped with time: {fmt}"
+        );
+        assert!(
+            fmt.contains("packages/go vendor"),
+            "format should include extra paths: {fmt}"
+        );
     }
 }

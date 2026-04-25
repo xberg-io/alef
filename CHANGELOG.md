@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.9] - 2026-04-25
 
 ### Added
 
@@ -18,10 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Init**: `alef init` emits a commented `[tools]` block in the generated `alef.toml` with all alternatives documented.
 - **Validation**: `alef.toml` is validated at load time. Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables that override a main command field must declare a `precondition` so the warn-and-skip behavior is preserved on user systems.
 - **Scaffold**: FFI Cargo.toml gains a `[dev-dependencies]` block with `tempfile`. Dependency pins audited and policy documented.
+- **Config**: per-language `run_wrapper`, `extra_lint_paths`, and `project_file` knobs reduce override boilerplate. `[python] run_wrapper = "uv run --no-sync"` prefixes default tool invocations across lint and test; `[python] extra_lint_paths = ["scripts"]` appends paths to default lint commands; `[csharp] project_file = "Foo.csproj"` (and `[java] project_file = "pom.xml"`) makes default lint/test/build commands target the file instead of the package directory. Each absorbs a common override pattern observed in consumer repos without forcing a full `[lint.<lang>]` redefinition.
+- **Validation**: `alef.toml` is now scanned for redundant defaults at load time. When a user-supplied `[lint|test|build_commands|setup|update|clean].<lang>` field equals the built-in default verbatim, alef emits a `tracing::warn!` naming the section and field so users can keep the file minimal.
 
 ### Changed
 
-- **Pipelines**: `default_*_config` functions now take a `&ToolsConfig` argument so per-language defaults can dispatch on the project's chosen package manager.
+- **Pipelines**: `default_*_config` functions now take a `&LangContext` argument bundling `&ToolsConfig`, `run_wrapper`, `extra_lint_paths`, and `project_file` — replacing the prior `&ToolsConfig`-only signature so per-language defaults can dispatch on every relevant knob.
 - **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that swallows three classes of post-gen formatter trouble — a missing tool (precondition miss → "Skipping" warning, language skipped), a failing `before` hook (warning, language skipped), and a non-zero formatter exit (warning, formatter loop continues). Formatters are *expected* to modify generated files, so non-zero exits there must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
 
 ### Fixed

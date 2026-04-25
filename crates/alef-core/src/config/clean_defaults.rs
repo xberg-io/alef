@@ -1,18 +1,18 @@
 use super::extras::Language;
 use super::output::{CleanConfig, StringOrVec};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, require_tool};
 
 /// Return the default clean configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` is currently informational; clean commands don't depend on the
+/// `ctx` is provided but not used; clean commands don't depend on the
 /// chosen package manager.
 ///
 /// Languages whose clean command relies only on POSIX shell builtins
 /// (e.g. plain `rm -rf`) leave `precondition` as `None` since `rm` is
 /// effectively always present on supported platforms.
-pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _tools: &ToolsConfig) -> CleanConfig {
+pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &LangContext) -> CleanConfig {
     match lang {
         Language::Rust => CleanConfig {
             precondition: Some(require_tool("cargo")),
@@ -87,6 +87,7 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _tools: &To
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -107,7 +108,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str) -> CleanConfig {
-        default_clean_config(lang, dir, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_clean_config(lang, dir, &ctx)
     }
 
     #[test]

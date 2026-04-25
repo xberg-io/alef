@@ -58,6 +58,8 @@ fn make_config() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
         }),
         php: None,
         elixir: None,

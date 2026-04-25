@@ -42,6 +42,8 @@ fn make_config(app_name: &str) -> AlefConfig {
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
             rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
         }),
         wasm: None,
         ffi: None,

@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.8"
+version = "0.7.9"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -75,3 +75,4 @@ toml = "1.1"
 toml_edit = "0.25"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-test = "0.2"

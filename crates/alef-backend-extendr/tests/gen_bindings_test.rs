@@ -58,6 +58,8 @@ fn make_config() -> AlefConfig {
             features: None,
             serde_rename_all: None,
             rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
         }),
         scaffold: None,
         readme: None,

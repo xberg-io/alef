@@ -1,17 +1,22 @@
 use super::extras::Language;
 use super::output::{SetupConfig, StringOrVec};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, require_tool};
 
 /// Return the default setup configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` selects the package manager (and Rust dev-tool list).
-pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> SetupConfig {
+/// `ctx` provides the package manager selection.
+pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangContext) -> SetupConfig {
     match lang {
         Language::Rust => {
             let mut commands: Vec<String> = vec!["rustup update stable".to_string()];
-            commands.extend(tools.rust_tools().iter().map(|t| format!("cargo install {t} --locked")));
+            commands.extend(
+                ctx.tools
+                    .rust_tools()
+                    .iter()
+                    .map(|t| format!("cargo install {t} --locked")),
+            );
             commands.push("rustup component add rustfmt clippy".to_string());
             SetupConfig {
                 precondition: Some(require_tool("cargo")),
@@ -20,7 +25,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &Too
             }
         }
         Language::Python => {
-            let pm = tools.python_pm();
+            let pm = ctx.tools.python_pm();
             let install_cmd = match pm {
                 "pip" => format!("cd {output_dir} && pip install -e ."),
                 "poetry" => format!("cd {output_dir} && poetry install"),
@@ -33,7 +38,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &Too
             }
         }
         Language::Node | Language::Wasm => {
-            let pm = tools.node_pm();
+            let pm = ctx.tools.node_pm();
             let install_cmd = match pm {
                 "npm" => format!("cd {output_dir} && npm install"),
                 "yarn" => format!("cd {output_dir} && yarn install"),
@@ -98,6 +103,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &Too
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -118,7 +124,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str) -> SetupConfig {
-        default_setup_config(lang, dir, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_setup_config(lang, dir, &ctx)
     }
 
     #[test]
@@ -174,7 +182,8 @@ mod tests {
             rust_dev_tools: Some(vec!["cargo-edit".to_string(), "cargo-foo".to_string()]),
             ..Default::default()
         };
-        let c = default_setup_config(Language::Rust, "packages/rust", &tools);
+        let ctx = LangContext::default(&tools);
+        let c = default_setup_config(Language::Rust, "packages/rust", &ctx);
         let cmds = c.install.unwrap().commands().join(" || ");
         assert!(cmds.contains("cargo install cargo-edit --locked"));
         assert!(cmds.contains("cargo install cargo-foo --locked"));
@@ -182,42 +191,47 @@ mod tests {
         assert!(!cmds.contains("cargo install cargo-deny"));
     }
 
-    #[test]
-    fn python_setup_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
+    fn python_tools(pm: &str) -> ToolsConfig {
+        ToolsConfig {
             python_package_manager: Some(pm.to_string()),
             ..Default::default()
-        };
-        let uv = default_setup_config(Language::Python, "packages/python", &mk("uv"));
-        assert!(uv.install.unwrap().commands().join(" ").contains("uv sync"));
-        assert_eq!(uv.precondition.as_deref(), Some("command -v uv >/dev/null 2>&1"));
+        }
+    }
 
-        let pip = default_setup_config(Language::Python, "packages/python", &mk("pip"));
-        assert!(pip.install.unwrap().commands().join(" ").contains("pip install -e"));
-        assert_eq!(pip.precondition.as_deref(), Some("command -v pip >/dev/null 2>&1"));
+    fn node_tools(pm: &str) -> ToolsConfig {
+        ToolsConfig {
+            node_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        }
+    }
 
-        let poetry = default_setup_config(Language::Python, "packages/python", &mk("poetry"));
-        assert!(poetry.install.unwrap().commands().join(" ").contains("poetry install"));
-        assert_eq!(
-            poetry.precondition.as_deref(),
-            Some("command -v poetry >/dev/null 2>&1")
-        );
+    #[test]
+    fn python_setup_dispatches_on_package_manager() {
+        for (pm, expected_install, expected_pre) in [
+            ("uv", "uv sync", "command -v uv >/dev/null 2>&1"),
+            ("pip", "pip install -e", "command -v pip >/dev/null 2>&1"),
+            ("poetry", "poetry install", "command -v poetry >/dev/null 2>&1"),
+        ] {
+            let tools = python_tools(pm);
+            let ctx = LangContext::default(&tools);
+            let c = default_setup_config(Language::Python, "packages/python", &ctx);
+            assert!(c.install.unwrap().commands().join(" ").contains(expected_install));
+            assert_eq!(c.precondition.as_deref(), Some(expected_pre));
+        }
     }
 
     #[test]
     fn node_setup_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
-            node_package_manager: Some(pm.to_string()),
-            ..Default::default()
-        };
-        let pnpm = default_setup_config(Language::Node, "packages/node", &mk("pnpm"));
-        assert!(pnpm.install.unwrap().commands().join(" ").contains("pnpm install"));
-
-        let npm = default_setup_config(Language::Node, "packages/node", &mk("npm"));
-        assert!(npm.install.unwrap().commands().join(" ").contains("npm install"));
-
-        let yarn = default_setup_config(Language::Node, "packages/node", &mk("yarn"));
-        assert!(yarn.install.unwrap().commands().join(" ").contains("yarn install"));
+        for (pm, expected_install) in [
+            ("pnpm", "pnpm install"),
+            ("npm", "npm install"),
+            ("yarn", "yarn install"),
+        ] {
+            let tools = node_tools(pm);
+            let ctx = LangContext::default(&tools);
+            let c = default_setup_config(Language::Node, "packages/node", &ctx);
+            assert!(c.install.unwrap().commands().join(" ").contains(expected_install));
+        }
     }
 
     #[test]

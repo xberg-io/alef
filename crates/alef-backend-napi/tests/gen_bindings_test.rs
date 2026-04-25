@@ -54,6 +54,8 @@ fn make_config() -> AlefConfig {
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
             rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
         }),
         ruby: None,
         php: None,

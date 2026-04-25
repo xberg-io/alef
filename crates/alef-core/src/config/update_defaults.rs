@@ -1,14 +1,13 @@
 use super::extras::Language;
 use super::output::{StringOrVec, UpdateConfig};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, require_tool};
 
 /// Return the default update configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` selects the package manager for languages that drive updates
-/// through one (Python, Node).
-pub fn default_update_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> UpdateConfig {
+/// `ctx` provides the package manager selection.
+pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext) -> UpdateConfig {
     match lang {
         Language::Rust => UpdateConfig {
             precondition: Some(require_tool("cargo")),
@@ -20,7 +19,7 @@ pub fn default_update_config(lang: Language, output_dir: &str, tools: &ToolsConf
             ])),
         },
         Language::Python => {
-            let pm = tools.python_pm();
+            let pm = ctx.tools.python_pm();
             let (update_cmd, upgrade_cmd) = match pm {
                 "pip" => (
                     format!("cd {output_dir} && pip install -U -e ."),
@@ -43,7 +42,7 @@ pub fn default_update_config(lang: Language, output_dir: &str, tools: &ToolsConf
             }
         }
         Language::Node | Language::Wasm => {
-            let pm = tools.node_pm();
+            let pm = ctx.tools.node_pm();
             let (update_cmds, upgrade_cmds) = match pm {
                 "npm" => (
                     vec![format!("cd {output_dir} && npm update")],
@@ -143,6 +142,7 @@ pub fn default_update_config(lang: Language, output_dir: &str, tools: &ToolsConf
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -163,7 +163,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str) -> UpdateConfig {
-        default_update_config(lang, dir, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_update_config(lang, dir, &ctx)
     }
 
     #[test]
@@ -228,14 +230,18 @@ mod tests {
 
     #[test]
     fn python_update_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
-            python_package_manager: Some(pm.to_string()),
-            ..Default::default()
-        };
-        let pip = default_update_config(Language::Python, "packages/python", &mk("pip"));
-        assert!(pip.update.unwrap().commands().join(" ").contains("pip install -U"));
-        let poetry = default_update_config(Language::Python, "packages/python", &mk("poetry"));
-        assert!(poetry.update.unwrap().commands().join(" ").contains("poetry update"));
+        for (pm, expected) in [("pip", "pip install -U"), ("poetry", "poetry update")] {
+            let tools = ToolsConfig {
+                python_package_manager: Some(pm.to_string()),
+                ..Default::default()
+            };
+            let ctx = LangContext::default(&tools);
+            let c = default_update_config(Language::Python, "packages/python", &ctx);
+            assert!(
+                c.update.unwrap().commands().join(" ").contains(expected),
+                "{pm}: expected {expected}"
+            );
+        }
     }
 
     #[test]
@@ -249,14 +255,18 @@ mod tests {
 
     #[test]
     fn node_update_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
-            node_package_manager: Some(pm.to_string()),
-            ..Default::default()
-        };
-        let npm = default_update_config(Language::Node, "packages/node", &mk("npm"));
-        assert!(npm.update.unwrap().commands().join(" ").contains("npm update"));
-        let yarn = default_update_config(Language::Node, "packages/node", &mk("yarn"));
-        assert!(yarn.update.unwrap().commands().join(" ").contains("yarn upgrade"));
+        for (pm, expected) in [("npm", "npm update"), ("yarn", "yarn upgrade")] {
+            let tools = ToolsConfig {
+                node_package_manager: Some(pm.to_string()),
+                ..Default::default()
+            };
+            let ctx = LangContext::default(&tools);
+            let c = default_update_config(Language::Node, "packages/node", &ctx);
+            assert!(
+                c.update.unwrap().commands().join(" ").contains(expected),
+                "{pm}: expected {expected}"
+            );
+        }
     }
 
     #[test]

@@ -70,7 +70,7 @@ pub struct ReadmeConfig {
 /// A value that can be either a single string or a list of strings.
 ///
 /// Deserializes from both `"cmd"` and `["cmd1", "cmd2"]` in TOML/JSON.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum StringOrVec {
     Single(String),
@@ -87,7 +87,7 @@ impl StringOrVec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LintConfig {
     /// Shell command that must exit 0 for lint to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -98,7 +98,7 @@ pub struct LintConfig {
     pub typecheck: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateConfig {
     /// Shell command that must exit 0 for update to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -110,7 +110,7 @@ pub struct UpdateConfig {
     pub upgrade: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct TestConfig {
     /// Shell command that must exit 0 for test to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -124,7 +124,7 @@ pub struct TestConfig {
     pub coverage: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SetupConfig {
     /// Shell command that must exit 0 for setup to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -134,7 +134,7 @@ pub struct SetupConfig {
     pub install: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CleanConfig {
     /// Shell command that must exit 0 for clean to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -144,7 +144,7 @@ pub struct CleanConfig {
     pub clean: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BuildCommandConfig {
     /// Shell command that must exit 0 for build to run; skip with warning on failure.
     pub precondition: Option<String>,

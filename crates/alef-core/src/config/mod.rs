@@ -34,7 +34,7 @@ pub use output::{
     ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
 };
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
-pub use tools::{DEFAULT_RUST_DEV_TOOLS, ToolsConfig, require_tool, require_tools};
+pub use tools::{DEFAULT_RUST_DEV_TOOLS, LangContext, ToolsConfig, require_tool, require_tools};
 pub use trait_bridge::TraitBridgeConfig;
 
 /// Root configuration from alef.toml.
@@ -388,7 +388,16 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        lint_defaults::default_lint_config(lang, &output_dir, &self.tools)
+        let run_wrapper = self.run_wrapper_for_language(lang);
+        let extra_lint_paths = self.extra_lint_paths_for_language(lang);
+        let project_file = self.project_file_for_language(lang);
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper,
+            extra_lint_paths,
+            project_file,
+        };
+        lint_defaults::default_lint_config(lang, &output_dir, &ctx)
     }
 
     /// Get the effective update configuration for a language.
@@ -403,7 +412,13 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        update_defaults::default_update_config(lang, &output_dir, &self.tools)
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: None,
+        };
+        update_defaults::default_update_config(lang, &output_dir, &ctx)
     }
 
     /// Get the effective test configuration for a language.
@@ -418,7 +433,15 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        test_defaults::default_test_config(lang, &output_dir, &self.tools)
+        let run_wrapper = self.run_wrapper_for_language(lang);
+        let project_file = self.project_file_for_language(lang);
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper,
+            extra_lint_paths: &[],
+            project_file,
+        };
+        test_defaults::default_test_config(lang, &output_dir, &ctx)
     }
 
     /// Get the effective setup configuration for a language.
@@ -433,7 +456,13 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        setup_defaults::default_setup_config(lang, &output_dir, &self.tools)
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: None,
+        };
+        setup_defaults::default_setup_config(lang, &output_dir, &ctx)
     }
 
     /// Get the effective clean configuration for a language.
@@ -448,7 +477,13 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        clean_defaults::default_clean_config(lang, &output_dir, &self.tools)
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: None,
+        };
+        clean_defaults::default_clean_config(lang, &output_dir, &ctx)
     }
 
     /// Get the effective build command configuration for a language.
@@ -464,7 +499,15 @@ impl AlefConfig {
         }
         let output_dir = self.package_dir(lang);
         let crate_name = &self.crate_config.name;
-        build_defaults::default_build_config(lang, &output_dir, crate_name, &self.tools)
+        let run_wrapper = self.run_wrapper_for_language(lang);
+        let project_file = self.project_file_for_language(lang);
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper,
+            extra_lint_paths: &[],
+            project_file,
+        };
+        build_defaults::default_build_config(lang, &output_dir, crate_name, &ctx)
     }
 
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.
@@ -490,6 +533,64 @@ impl AlefConfig {
             .error_constructor
             .clone()
             .unwrap_or_else(|| format!("{}::{}::from({{msg}})", self.core_import(), self.error_type()))
+    }
+
+    /// Get the run_wrapper for a language, if set.
+    /// Returns the wrapper string that prefixes default tool invocations.
+    pub fn run_wrapper_for_language(&self, lang: extras::Language) -> Option<&str> {
+        match lang {
+            extras::Language::Python => self.python.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Node => self.node.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Ruby => self.ruby.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Php => self.php.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Go => self.go.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Java => self.java.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::R => self.r.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            _ => None,
+        }
+    }
+
+    /// Get the extra_lint_paths for a language.
+    /// Returns a slice of paths to append to default lint commands.
+    pub fn extra_lint_paths_for_language(&self, lang: extras::Language) -> &[String] {
+        match lang {
+            extras::Language::Python => self
+                .python
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Node => self.node.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Ruby => self.ruby.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Php => self.php.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Elixir => self
+                .elixir
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Wasm => self.wasm.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Go => self.go.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Java => self.java.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Csharp => self
+                .csharp
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::R => self.r.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            _ => &[],
+        }
+    }
+
+    /// Get the project_file for a language (Java or C# only).
+    /// Returns the project file path that defaults use instead of output directory.
+    pub fn project_file_for_language(&self, lang: extras::Language) -> Option<&str> {
+        match lang {
+            extras::Language::Java => self.java.as_ref().and_then(|c| c.project_file.as_deref()),
+            extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.project_file.as_deref()),
+            _ => None,
+        }
     }
 
     /// Get the FFI prefix (e.g., "kreuzberg"). Used by FFI, Go, Java, C# backends.

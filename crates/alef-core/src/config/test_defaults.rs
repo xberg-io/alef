@@ -1,33 +1,41 @@
 use super::extras::Language;
 use super::output::{StringOrVec, TestConfig};
-use super::tools::{ToolsConfig, require_tool};
+use super::tools::{LangContext, require_tool, wrap_command as wrap};
 
 /// Return the default test configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` selects the package manager for languages that drive tests
-/// through one (Python, Node).
-pub(crate) fn default_test_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> TestConfig {
+/// `ctx` provides tool selection and run_wrapper.
+pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangContext) -> TestConfig {
     match lang {
         Language::Python => {
-            let pm = tools.python_pm();
+            let pm = ctx.tools.python_pm();
             // pytest is invoked via the package manager when one is present;
             // for `pip` we just call pytest directly.
             let (cmd, cov, pre_tool) = match pm {
                 "pip" => (
-                    format!("cd {output_dir} && pytest"),
-                    format!("cd {output_dir} && pytest --cov=. --cov-report=lcov"),
+                    wrap(format!("cd {output_dir} && pytest"), ctx.run_wrapper),
+                    wrap(
+                        format!("cd {output_dir} && pytest --cov=. --cov-report=lcov"),
+                        ctx.run_wrapper,
+                    ),
                     "pytest",
                 ),
                 "poetry" => (
-                    format!("cd {output_dir} && poetry run pytest"),
-                    format!("cd {output_dir} && poetry run pytest --cov=. --cov-report=lcov"),
+                    wrap(format!("cd {output_dir} && poetry run pytest"), ctx.run_wrapper),
+                    wrap(
+                        format!("cd {output_dir} && poetry run pytest --cov=. --cov-report=lcov"),
+                        ctx.run_wrapper,
+                    ),
                     "poetry",
                 ),
                 _ => (
-                    format!("cd {output_dir} && uv run pytest"),
-                    format!("cd {output_dir} && uv run pytest --cov=. --cov-report=lcov"),
+                    wrap(format!("cd {output_dir} && uv run pytest"), ctx.run_wrapper),
+                    wrap(
+                        format!("cd {output_dir} && uv run pytest --cov=. --cov-report=lcov"),
+                        ctx.run_wrapper,
+                    ),
                     "uv",
                 ),
             };
@@ -40,19 +48,19 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, tools: &Tool
             }
         }
         Language::Node | Language::Wasm => {
-            let pm = tools.node_pm();
+            let pm = ctx.tools.node_pm();
             let (cmd, cov) = match pm {
                 "npm" => (
-                    format!("cd {output_dir} && npm test"),
-                    format!("cd {output_dir} && npm test -- --coverage"),
+                    wrap(format!("cd {output_dir} && npm test"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && npm test -- --coverage"), ctx.run_wrapper),
                 ),
                 "yarn" => (
-                    format!("cd {output_dir} && yarn test"),
-                    format!("cd {output_dir} && yarn test --coverage"),
+                    wrap(format!("cd {output_dir} && yarn test"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && yarn test --coverage"), ctx.run_wrapper),
                 ),
                 _ => (
-                    format!("cd {output_dir} && pnpm test"),
-                    format!("cd {output_dir} && pnpm test -- --coverage"),
+                    wrap(format!("cd {output_dir} && pnpm test"), ctx.run_wrapper),
+                    wrap(format!("cd {output_dir} && pnpm test -- --coverage"), ctx.run_wrapper),
                 ),
             };
             TestConfig {
@@ -63,67 +71,113 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, tools: &Tool
                 coverage: Some(StringOrVec::Single(cov)),
             }
         }
-        Language::Go => TestConfig {
-            precondition: Some(require_tool("go")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("cd {output_dir} && go test ./..."))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go test -coverprofile=coverage.out ./..."
-            ))),
-        },
-        Language::Ruby => TestConfig {
-            precondition: Some(require_tool("bundle")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rspec"))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle exec rspec --format documentation"
-            ))),
-        },
-        Language::Php => TestConfig {
-            precondition: Some(require_tool("composer")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
-        },
-        Language::Java => TestConfig {
-            precondition: Some(require_tool("mvn")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml test -q"))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml test jacoco:report -q"
-            ))),
-        },
-        Language::Csharp => TestConfig {
-            precondition: Some(require_tool("dotnet")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("dotnet test {output_dir}"))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "dotnet test {output_dir} --collect:\"XPlat Code Coverage\""
-            ))),
-        },
-        Language::Elixir => TestConfig {
-            precondition: Some(require_tool("mix")),
-            before: None,
-            command: Some(StringOrVec::Single(format!("cd {output_dir} && mix test"))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!("cd {output_dir} && mix test --cover"))),
-        },
-        Language::R => TestConfig {
-            precondition: Some(require_tool("Rscript")),
-            before: None,
-            command: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"testthat::test_dir('tests')\""
-            ))),
-            e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"testthat::test_dir('tests')\""
-            ))),
-        },
+        Language::Go => {
+            let cmd = wrap(format!("cd {output_dir} && go test ./..."), ctx.run_wrapper);
+            let cov = wrap(
+                format!("cd {output_dir} && go test -coverprofile=coverage.out ./..."),
+                ctx.run_wrapper,
+            );
+            TestConfig {
+                precondition: Some(require_tool("go")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd)),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cov)),
+            }
+        }
+        Language::Ruby => {
+            let cmd = wrap(format!("cd {output_dir} && bundle exec rspec"), ctx.run_wrapper);
+            let cov = wrap(
+                format!("cd {output_dir} && bundle exec rspec --format documentation"),
+                ctx.run_wrapper,
+            );
+            TestConfig {
+                precondition: Some(require_tool("bundle")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd)),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cov)),
+            }
+        }
+        Language::Php => {
+            let cmd = wrap(format!("cd {output_dir} && composer test"), ctx.run_wrapper);
+            let cov = wrap(format!("cd {output_dir} && composer test"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("composer")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd)),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cov)),
+            }
+        }
+        Language::Java => {
+            let (cmd_path, cov_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("mvn -f {proj} test -q"),
+                    format!("mvn -f {proj} test jacoco:report -q"),
+                )
+            } else {
+                (
+                    format!("mvn -f {output_dir}/pom.xml test -q"),
+                    format!("mvn -f {output_dir}/pom.xml test jacoco:report -q"),
+                )
+            };
+            TestConfig {
+                precondition: Some(require_tool("mvn")),
+                before: None,
+                command: Some(StringOrVec::Single(wrap(cmd_path, ctx.run_wrapper))),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(wrap(cov_path, ctx.run_wrapper))),
+            }
+        }
+        Language::Csharp => {
+            let (cmd_path, cov_path) = if let Some(proj) = ctx.project_file {
+                (
+                    format!("dotnet test {proj}"),
+                    format!("dotnet test {proj} --collect:\"XPlat Code Coverage\""),
+                )
+            } else {
+                (
+                    format!("dotnet test {output_dir}"),
+                    format!("dotnet test {output_dir} --collect:\"XPlat Code Coverage\""),
+                )
+            };
+            TestConfig {
+                precondition: Some(require_tool("dotnet")),
+                before: None,
+                command: Some(StringOrVec::Single(wrap(cmd_path, ctx.run_wrapper))),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(wrap(cov_path, ctx.run_wrapper))),
+            }
+        }
+        Language::Elixir => {
+            let cmd = wrap(format!("cd {output_dir} && mix test"), ctx.run_wrapper);
+            let cov = wrap(format!("cd {output_dir} && mix test --cover"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("mix")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd)),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cov)),
+            }
+        }
+        Language::R => {
+            let cmd = wrap(
+                format!("cd {output_dir} && Rscript -e \"testthat::test_dir('tests')\""),
+                ctx.run_wrapper,
+            );
+            let cov = wrap(
+                format!("cd {output_dir} && Rscript -e \"testthat::test_dir('tests')\""),
+                ctx.run_wrapper,
+            );
+            TestConfig {
+                precondition: Some(require_tool("Rscript")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd)),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cov)),
+            }
+        }
         Language::Rust => TestConfig {
             precondition: Some(require_tool("cargo")),
             before: None,
@@ -145,6 +199,7 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, tools: &Tool
 
 #[cfg(test)]
 mod tests {
+    use super::super::tools::ToolsConfig;
     use super::*;
 
     fn all_languages() -> Vec<Language> {
@@ -165,7 +220,9 @@ mod tests {
     }
 
     fn cfg(lang: Language, dir: &str) -> TestConfig {
-        default_test_config(lang, dir, &ToolsConfig::default())
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        default_test_config(lang, dir, &ctx)
     }
 
     #[test]
@@ -219,21 +276,18 @@ mod tests {
 
     #[test]
     fn python_test_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
-            python_package_manager: Some(pm.to_string()),
-            ..Default::default()
-        };
-        let pip = default_test_config(Language::Python, "packages/python", &mk("pip"));
-        assert!(pip.command.unwrap().commands().join(" ").contains("&& pytest"));
-        let poetry = default_test_config(Language::Python, "packages/python", &mk("poetry"));
-        assert!(
-            poetry
-                .command
-                .unwrap()
-                .commands()
-                .join(" ")
-                .contains("poetry run pytest")
-        );
+        for (pm, expected) in [("pip", "&& pytest"), ("poetry", "poetry run pytest")] {
+            let tools = ToolsConfig {
+                python_package_manager: Some(pm.to_string()),
+                ..Default::default()
+            };
+            let ctx = LangContext::default(&tools);
+            let c = default_test_config(Language::Python, "packages/python", &ctx);
+            assert!(
+                c.command.unwrap().commands().join(" ").contains(expected),
+                "{pm}: expected {expected}"
+            );
+        }
     }
 
     #[test]
@@ -245,14 +299,18 @@ mod tests {
 
     #[test]
     fn node_test_dispatches_on_package_manager() {
-        let mk = |pm: &str| ToolsConfig {
-            node_package_manager: Some(pm.to_string()),
-            ..Default::default()
-        };
-        let npm = default_test_config(Language::Node, "packages/node", &mk("npm"));
-        assert!(npm.command.unwrap().commands().join(" ").contains("npm test"));
-        let yarn = default_test_config(Language::Node, "packages/node", &mk("yarn"));
-        assert!(yarn.command.unwrap().commands().join(" ").contains("yarn test"));
+        for (pm, expected) in [("npm", "npm test"), ("yarn", "yarn test")] {
+            let tools = ToolsConfig {
+                node_package_manager: Some(pm.to_string()),
+                ..Default::default()
+            };
+            let ctx = LangContext::default(&tools);
+            let c = default_test_config(Language::Node, "packages/node", &ctx);
+            assert!(
+                c.command.unwrap().commands().join(" ").contains(expected),
+                "{pm}: expected {expected}"
+            );
+        }
     }
 
     #[test]

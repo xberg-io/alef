@@ -64,6 +64,8 @@ fn make_config() -> AlefConfig {
             type_prefix: None,
             extra_dependencies: std::collections::HashMap::new(),
             rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
         }),
         ffi: None,
         go: None,
