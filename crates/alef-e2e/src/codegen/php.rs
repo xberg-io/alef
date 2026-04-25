@@ -981,6 +981,15 @@ fn render_assertion(
                 panic!("PHP e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertMatchesRegularExpression({php_val}, {field_expr});"
+                );
+            }
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }

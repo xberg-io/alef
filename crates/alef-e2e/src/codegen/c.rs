@@ -1164,6 +1164,23 @@ fn render_assertion(
                 panic!("C e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let c_val = json_to_c(expected);
+                let _ = writeln!(out, "    {{");
+                let _ = writeln!(out, "        regex_t _re;");
+                let _ = writeln!(
+                    out,
+                    "        assert(regcomp(&_re, {c_val}, REG_EXTENDED) == 0 && \"regex compile failed\");"
+                );
+                let _ = writeln!(
+                    out,
+                    "        assert(regexec(&_re, {field_expr}, 0, NULL, 0) == 0 && \"expected value to match regex\");"
+                );
+                let _ = writeln!(out, "        regfree(&_re);");
+                let _ = writeln!(out, "    }}");
+            }
+        }
         "not_error" => {
             // Already handled — the NULL check above covers this.
         }

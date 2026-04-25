@@ -185,7 +185,7 @@ fn render_test_file(
             } else {
                 matches!(
                     a.assertion_type.as_str(),
-                    "contains" | "contains_all" | "not_contains" | "starts_with"
+                    "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with"
                 )
             };
             let field_valid = a
@@ -208,7 +208,14 @@ fn render_test_file(
                 .unwrap_or(true);
             let type_needs_assert = matches!(
                 a.assertion_type.as_str(),
-                "count_min" | "count_max" | "is_true" | "is_false" | "method_result"
+                "count_min"
+                    | "count_max"
+                    | "is_true"
+                    | "is_false"
+                    | "method_result"
+                    | "min_length"
+                    | "max_length"
+                    | "matches_regex"
             );
             type_needs_assert && field_valid
         })
@@ -974,6 +981,78 @@ fn render_assertion(
                 }
             } else {
                 panic!("Go e2e generator: method_result assertion missing 'method' field");
+            }
+        }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    if is_optional {
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(
+                            out_ref,
+                            "\t\tassert.GreaterOrEqual(t, len(*{field_expr}), {n}, \"expected length >= {n}\")"
+                        );
+                        let _ = writeln!(out_ref, "\t}}");
+                    } else {
+                        let _ = writeln!(
+                            out_ref,
+                            "\tassert.GreaterOrEqual(t, len({field_expr}), {n}, \"expected length >= {n}\")"
+                        );
+                    }
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    if is_optional {
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(
+                            out_ref,
+                            "\t\tassert.LessOrEqual(t, len(*{field_expr}), {n}, \"expected length <= {n}\")"
+                        );
+                        let _ = writeln!(out_ref, "\t}}");
+                    } else {
+                        let _ = writeln!(
+                            out_ref,
+                            "\tassert.LessOrEqual(t, len({field_expr}), {n}, \"expected length <= {n}\")"
+                        );
+                    }
+                }
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                let go_val = json_to_go(expected);
+                let field_for_suffix = if is_optional
+                    && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
+                {
+                    format!("string(*{field_expr})")
+                } else {
+                    format!("string({field_expr})")
+                };
+                let _ = writeln!(out_ref, "\tif !strings.HasSuffix({field_for_suffix}, {go_val}) {{");
+                let _ = writeln!(
+                    out_ref,
+                    "\t\tt.Errorf(\"expected to end with %s, got %v\", {go_val}, {field_expr})"
+                );
+                let _ = writeln!(out_ref, "\t}}");
+            }
+        }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let go_val = json_to_go(expected);
+                let field_for_regex = if is_optional
+                    && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
+                {
+                    format!("*{field_expr}")
+                } else {
+                    field_expr.clone()
+                };
+                let _ = writeln!(
+                    out_ref,
+                    "\tassert.Regexp(t, {go_val}, {field_for_regex}, \"expected value to match regex\")"
+                );
             }
         }
         "not_error" => {

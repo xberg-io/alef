@@ -874,6 +874,12 @@ fn render_assertion(
                 panic!("Elixir e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let elixir_val = json_to_elixir(expected);
+                let _ = writeln!(out, "      assert Regex.match?(~r/{elixir_val}/, {field_expr})");
+            }
+        }
         "not_error" => {
             // Already handled — the call would fail if it returned {:error, _}.
         }

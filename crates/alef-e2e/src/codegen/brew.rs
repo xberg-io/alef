@@ -831,6 +831,73 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                 panic!("method_result assertion missing 'method' field");
             }
         }
+        "min_length" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    if let Some(n) = val.as_u64() {
+                        let resolved = field_resolver.resolve(field);
+                        let jq_path = field_to_jq_path(resolved);
+                        let safe_field = sanitize_ident(field);
+                        let _ = writeln!(out, "    local val_{safe_field}");
+                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(
+                            out,
+                            "    [ \"${{#val_{safe_field}}}\" -ge {n} ] || {{ echo \"FAIL [{field}]: expected length >= {n}\" >&2; return 1; }}"
+                        );
+                    }
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    if let Some(n) = val.as_u64() {
+                        let resolved = field_resolver.resolve(field);
+                        let jq_path = field_to_jq_path(resolved);
+                        let safe_field = sanitize_ident(field);
+                        let _ = writeln!(out, "    local val_{safe_field}");
+                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(
+                            out,
+                            "    [ \"${{#val_{safe_field}}}\" -le {n} ] || {{ echo \"FAIL [{field}]: expected length <= {n}\" >&2; return 1; }}"
+                        );
+                    }
+                }
+            }
+        }
+        "ends_with" => {
+            if let Some(field) = &assertion.field {
+                if let Some(expected) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let expected_str = json_value_to_shell_string(expected);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(
+                        out,
+                        "    [[ \"$val_{safe_field}\" == *'{expected_str}' ]] || {{ echo \"FAIL [{field}]: expected to end with '{expected_str}'\" >&2; return 1; }}"
+                    );
+                }
+            }
+        }
+        "matches_regex" => {
+            if let Some(field) = &assertion.field {
+                if let Some(expected) = &assertion.value {
+                    if let Some(pattern) = expected.as_str() {
+                        let resolved = field_resolver.resolve(field);
+                        let jq_path = field_to_jq_path(resolved);
+                        let safe_field = sanitize_ident(field);
+                        let _ = writeln!(out, "    local val_{safe_field}");
+                        let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                        let _ = writeln!(
+                            out,
+                            "    [[ \"$val_{safe_field}\" =~ {pattern} ]] || {{ echo \"FAIL [{field}]: expected to match /{pattern}/\" >&2; return 1; }}"
+                        );
+                    }
+                }
+            }
+        }
         "not_error" => {
             // No-op: reaching this point means the call succeeded.
         }

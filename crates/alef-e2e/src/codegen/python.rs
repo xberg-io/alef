@@ -1319,6 +1319,16 @@ fn render_assertion(
                 panic!("method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let _ = writeln!(out, "    import re  # noqa: PLC0415");
+                let _ = writeln!(
+                    out,
+                    "    assert re.search({expected}, {field_access}) is not None  # noqa: S101"
+                );
+            }
+        }
         other => {
             panic!("unsupported assertion type: {other}");
         }

@@ -860,6 +860,15 @@ fn render_assertion(
                 panic!("Java e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let java_val = json_to_java(expected);
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({string_expr}.matches({java_val}), \"expected value to match regex: \" + {java_val});"
+                );
+            }
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **E2E assertions**: `min_length`, `max_length`, `ends_with`, and `matches_regex` assertion types across all language codegen backends (Bash/Brew, C, C#, Elixir, Go, Java, PHP, Python, R, Ruby, WASM).
+
 ### Fixed
 
 - **Python bindings**: prevent duplicate `| None` annotation on optional parameters whose base type already contains `| None` (e.g. `Option<Option<T>>`).

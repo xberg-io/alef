@@ -727,6 +727,12 @@ fn render_assertion(
                 panic!("C# e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let cs_val = json_to_csharp(expected);
+                let _ = writeln!(out, "        Assert.Matches({cs_val}, {field_expr});");
+            }
+        }
         other => {
             panic!("C# e2e generator: unsupported assertion type: {other}");
         }

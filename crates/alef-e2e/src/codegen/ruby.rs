@@ -902,6 +902,12 @@ fn render_assertion(
                 panic!("Ruby e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                let rb_val = json_to_ruby(expected);
+                let _ = writeln!(out, "    expect({field_expr}).to match({rb_val})");
+            }
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }
