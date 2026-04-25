@@ -601,6 +601,15 @@ fn main() -> Result<()> {
                 }
             }
 
+            // Verify READMEs the same way.
+            let readmes = pipeline::readme(&api, &config, &languages)?;
+            for f in &readmes {
+                let full_path = base_dir.join(&f.path);
+                let normalized = pipeline::normalize_content(&f.path, &f.content);
+                let expected_hash = alef_core::hash::hash_content(&normalized);
+                verify_file(&full_path, &expected_hash, "readme", &mut all_stale);
+            }
+
             // Also verify version consistency across all package manifests
             let version_mismatches = pipeline::verify_versions(&config)?;
             let has_version_issues = !version_mismatches.is_empty();

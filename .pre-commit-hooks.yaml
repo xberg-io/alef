@@ -37,3 +37,11 @@
   files: '\.(rs|toml|py|ts|tsx|js|jsx|go|java|cs|ex|exs|rb|php|r|c|h)$'
   pass_filenames: false
   description: "Lint all generated code using per-language linters with autofixes (ruff, oxlint, clippy, etc.)"
+
+- id: alef-readme
+  name: alef readme
+  language: system
+  entry: alef readme
+  files: '\.(rs|toml)$'
+  pass_filenames: false
+  description: "Regenerate README files for all configured languages"
