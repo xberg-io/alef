@@ -135,7 +135,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # Markdown\n\
          \x20 - repo: https://github.com/rvben/rumdl-pre-commit\n\
-         \x20   rev: \"v0.1.80\"\n\
+         \x20   rev: \"v0.1.81\"\n\
          \x20   hooks:\n\
          \x20     - id: rumdl-fmt\n\n",
     );
@@ -144,7 +144,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     yaml.push_str(
         "  # Alef: format and lint all binding languages, verify bindings, sync versions\n\
          \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
-         \x20   rev: v0.7.0\n\
+         \x20   rev: v0.7.2\n\
          \x20   hooks:\n\
          \x20     - id: alef-fmt\n\
          \x20     - id: alef-lint\n\
