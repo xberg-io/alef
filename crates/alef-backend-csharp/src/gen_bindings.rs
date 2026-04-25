@@ -1641,7 +1641,15 @@ fn gen_record_type(
                     let s = f.to_string();
                     if s.contains('.') { s } else { format!("{s}.0") }
                 }
-                Some(DefaultValue::StringLiteral(s)) => format!("\"{}\"", s.replace('"', "\\\"")),
+                Some(DefaultValue::StringLiteral(s)) => {
+                    let escaped = s
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace('\n', "\\n")
+                        .replace('\r', "\\r")
+                        .replace('\t', "\\t");
+                    format!("\"{}\"", escaped)
+                }
                 Some(DefaultValue::EnumVariant(v)) => format!("{}.{}", field_type, v.to_pascal_case()),
                 Some(DefaultValue::None) => "null".to_string(),
                 Some(DefaultValue::Empty) | None => match &field.ty {
