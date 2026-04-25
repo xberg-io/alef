@@ -256,7 +256,7 @@ fn test_scaffold_ruby_production_features() {
     assert!(
         files[7]
             .content
-            .contains("path = \"../../../../../crates/my-lib-rb/src/lib.rs\""),
+            .contains("path = \"../src/lib.rs\""),
         "Ruby Cargo.toml [lib] must set path to the binding source crate"
     );
 }
@@ -316,7 +316,8 @@ fn test_pre_commit_config_clippy_excludes() {
     assert!(content.contains("--exclude=my-lib-py"));
     assert!(content.contains("--exclude=my-lib-node"));
     assert!(content.contains("--exclude=my-lib-php"));
-    assert!(content.contains("--exclude=my-lib-wasm"));
+    // Wasm is NOT excluded — rust-toolchain.toml provides the target
+    assert!(!content.contains("--exclude=my-lib-wasm"));
     // Ruby not in languages, should not be excluded
     assert!(!content.contains("--exclude=my-lib-rb"));
 }
@@ -678,6 +679,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         exclude_types: vec![],
         extra_dependencies: python_extra,
         scaffold_output: None,
+        rename_fields: Default::default(),
     });
     let rendered = render_extra_deps(&config, Language::Python);
     // Python-level "2.0" should win over crate-level "1.0"

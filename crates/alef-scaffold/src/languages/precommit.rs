@@ -16,13 +16,14 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     let has = |lang: Language| languages.contains(&lang);
     let crate_dir = config.core_crate_dir();
 
-    // Build clippy --exclude args for binding crates that use incompatible compilation targets
+    // Build clippy --exclude args for binding crates that need special compilation
+    // (native extensions with host-incompatible link flags). Wasm is NOT excluded
+    // because rust-toolchain.toml includes the wasm32 target.
     let clippy_excludes = {
         let suffixes: &[(&str, Language)] = &[
             ("-py", Language::Python),
             ("-node", Language::Node),
             ("-php", Language::Php),
-            ("-wasm", Language::Wasm),
             ("-rb", Language::Ruby),
             ("-r", Language::R),
         ];

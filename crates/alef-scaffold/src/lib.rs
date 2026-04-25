@@ -179,6 +179,15 @@ pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -
     // Project-level files that depend on the full set of configured languages
     files.extend(scaffold_pre_commit_config(config, languages));
 
+    // rust-toolchain.toml — include wasm32 target when wasm is configured
+    if languages.contains(&Language::Wasm) && !std::path::Path::new("rust-toolchain.toml").exists() {
+        files.push(GeneratedFile {
+            path: std::path::PathBuf::from("rust-toolchain.toml"),
+            content: "[toolchain]\nchannel = \"stable\"\ncomponents = [\"rust-src\"]\ntargets = [\"wasm32-unknown-unknown\"]\n".to_string(),
+            generated_header: false,
+        });
+    }
+
     // Typos configuration (spell checker)
     if !std::path::Path::new(".typos.toml").exists() {
         files.push(GeneratedFile {
