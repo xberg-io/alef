@@ -252,7 +252,7 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> S
 
     params.extend(optional.iter().map(|f| {
         let type_str = constructor_param_type(&f.ty, api);
-        let param_type = if !type_str.contains("| None") {
+        let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
             type_str
@@ -306,7 +306,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 
     params.extend(optional.iter().map(|p| {
         let type_str = python_type(&p.ty);
-        let param_type = if !type_str.contains("| None") {
+        let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
             type_str
@@ -526,7 +526,7 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
         } else {
             python_type(&p.ty)
         };
-        let param_type = if !type_str.contains("| None") {
+        let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
             type_str

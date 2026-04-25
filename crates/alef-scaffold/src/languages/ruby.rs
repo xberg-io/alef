@@ -78,7 +78,7 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     let authors_ruby = if meta.authors.is_empty() {
         "[]".to_string()
     } else {
-        let entries: Vec<String> = meta.authors.iter().map(|a| format!("'{}'", a)).collect();
+        let entries: Vec<String> = meta.authors.iter().map(|a| format!("\"{}\"", a)).collect();
         format!("[{}]", entries.join(", "))
     };
 

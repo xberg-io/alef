@@ -235,11 +235,33 @@ pub(crate) fn scaffold_meta(config: &AlefConfig) -> ScaffoldMeta {
             .unwrap_or_else(|| "MIT".to_string()),
         repository: scaffold
             .and_then(|s| s.repository.clone())
-            .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{}", config.crate_config.name)),
+            .unwrap_or_else(|| format!("https://github.com/example/{}", config.crate_config.name)),
         homepage: scaffold.and_then(|s| s.homepage.clone()).unwrap_or_default(),
         authors: scaffold.map(|s| s.authors.clone()).unwrap_or_default(),
         keywords: scaffold.map(|s| s.keywords.clone()).unwrap_or_default(),
     }
+}
+
+/// Escape special characters for XML text content.
+pub(crate) fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// Parse an author string like `"Name <email>"` into `(name, email)`.
+/// If no angle brackets are found, returns `(input, "")`.
+pub(crate) fn parse_author(s: &str) -> (&str, &str) {
+    if let Some(start) = s.find('<') {
+        if let Some(end) = s.find('>') {
+            let name = s[..start].trim();
+            let email = &s[start + 1..end];
+            return (name, email);
+        }
+    }
+    (s.trim(), "")
 }
 
 pub(crate) fn capitalize_first(s: &str) -> String {

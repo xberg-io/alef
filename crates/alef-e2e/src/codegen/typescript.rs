@@ -953,6 +953,33 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
                 panic!("TypeScript e2e generator: method_result assertion missing 'method' field");
             }
         }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeLessThanOrEqual({n});");
+                }
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                let js_val = json_to_js(expected);
+                let _ = writeln!(out, "    expect({field_expr}.endsWith({js_val})).toBe(true);");
+            }
+        }
+        "matches_regex" => {
+            if let Some(expected) = &assertion.value {
+                if let Some(pattern) = expected.as_str() {
+                    let _ = writeln!(out, "    expect({field_expr}).toMatch(/{pattern}/);");
+                }
+            }
+        }
         "not_error" => {
             // No-op — if we got here, the call succeeded (it would have thrown).
         }

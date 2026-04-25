@@ -1573,7 +1573,11 @@ fn gen_api_py(
                 crate::type_map::python_type(&param.ty)
             };
             let py_type = if param.optional {
-                format!("{} | None = None", base_type)
+                if base_type.ends_with("| None") {
+                    format!("{} = None", base_type)
+                } else {
+                    format!("{} | None = None", base_type)
+                }
             } else {
                 base_type
             };

@@ -1,4 +1,4 @@
-use crate::scaffold_meta;
+use crate::{scaffold_meta, xml_escape};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
@@ -18,7 +18,8 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
     let authors_csproj = if meta.authors.is_empty() {
         String::new()
     } else {
-        format!("    <Authors>{}</Authors>\n", meta.authors.join(";"))
+        let escaped: Vec<String> = meta.authors.iter().map(|a| xml_escape(a)).collect();
+        format!("    <Authors>{}</Authors>\n", escaped.join(";"))
     };
 
     let content = format!(

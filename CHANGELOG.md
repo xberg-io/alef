@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Python bindings**: prevent duplicate `| None` annotation on optional parameters whose base type already contains `| None` (e.g. `Option<Option<T>>`).
+- **Python stubs**: use `ends_with("| None")` instead of `contains("| None")` for the same check in type-init, method, and function stubs.
+- **Scaffold(C#)**: XML-escape author names in `.csproj` to avoid malformed XML.
+- **Scaffold(Java)**: parse `"Name <email>"` author strings into separate `<name>` and `<email>` elements; XML-escape both; omit placeholder email when not provided.
+- **Scaffold(PHP)**: derive Composer vendor from GitHub repository URL instead of hardcoding `kreuzberg-dev`.
+- **Scaffold(Ruby)**: use double-quoted strings for gemspec authors array.
+- **Scaffold**: default repository URL uses `example` org instead of `kreuzberg-dev`.
+
 ## [0.7.3] - 2026-04-25
 
 ### Added

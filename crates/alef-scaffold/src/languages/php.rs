@@ -74,9 +74,20 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
         format!(",\n  \"keywords\": [{}]", entries.join(", "))
     };
 
+    // Derive vendor from the GitHub owner in the repository URL.
+    // e.g. "https://github.com/acme/my-lib" -> "acme"
+    // Falls back to the crate name when the URL is absent or unparsable.
+    let vendor = meta
+        .repository
+        .strip_prefix("https://github.com/")
+        .or_else(|| meta.repository.strip_prefix("http://github.com/"))
+        .and_then(|rest| rest.split('/').next())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(name.as_str());
+
     let content = format!(
         r#"{{
-  "name": "kreuzberg-dev/{name}",
+  "name": "{vendor}/{name}",
   "description": "{description}",
   "license": "{license}",
   "type": "php-ext",

@@ -1,4 +1,4 @@
-use crate::scaffold_meta;
+use crate::{parse_author, scaffold_meta, xml_escape};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
@@ -26,8 +26,15 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
             .authors
             .iter()
             .map(|a| {
+                let (name, email) = parse_author(a);
+                let name_escaped = xml_escape(name);
+                let email_line = if email.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n            <email>{}</email>", xml_escape(email))
+                };
                 format!(
-                    "        <developer>\n            <name>{a}</name>\n            <email>noreply@kreuzberg.dev</email>\n        </developer>"
+                    "        <developer>\n            <name>{name_escaped}</name>{email_line}\n        </developer>"
                 )
             })
             .collect();
