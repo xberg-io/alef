@@ -6,9 +6,10 @@ use super::tools::{ToolsConfig, require_tool};
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-/// `tools` selects per-language tool variants (currently informational; lint
-/// commands themselves don't depend on the chosen package manager).
-pub fn default_lint_config(lang: Language, output_dir: &str, _tools: &ToolsConfig) -> LintConfig {
+/// `tools` selects per-language tool variants — used for Node, where the
+/// chosen package manager (`pnpm`/`npm`/`yarn`) determines the precondition
+/// and the binary that fronts oxfmt/oxlint.
+pub fn default_lint_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> LintConfig {
     match lang {
         Language::Python => LintConfig {
             precondition: Some(require_tool("ruff")),
@@ -17,13 +18,24 @@ pub fn default_lint_config(lang: Language, output_dir: &str, _tools: &ToolsConfi
             check: Some(StringOrVec::Single(format!("ruff check --fix {output_dir}"))),
             typecheck: Some(StringOrVec::Single(format!("mypy {output_dir}"))),
         },
-        Language::Node | Language::Wasm => LintConfig {
-            precondition: Some(require_tool("npx")),
-            before: None,
-            format: Some(StringOrVec::Single(format!("npx oxfmt {output_dir}"))),
-            check: Some(StringOrVec::Single(format!("npx oxlint --fix {output_dir}"))),
-            typecheck: None,
-        },
+        Language::Node | Language::Wasm => {
+            // oxfmt and oxlint are npm-distributed; invoke them through the
+            // project's package manager. `npx`/`pnpm exec`/`yarn dlx` are the
+            // canonical ways to run a `node_modules/.bin` binary.
+            let pm = tools.node_pm();
+            let runner: &str = match pm {
+                "pnpm" => "pnpm exec",
+                "yarn" => "yarn dlx",
+                _ => "npx",
+            };
+            LintConfig {
+                precondition: Some(require_tool(pm)),
+                before: None,
+                format: Some(StringOrVec::Single(format!("{runner} oxfmt {output_dir}"))),
+                check: Some(StringOrVec::Single(format!("{runner} oxlint --fix {output_dir}"))),
+                typecheck: None,
+            }
+        }
         Language::Ruby => LintConfig {
             precondition: Some(require_tool("bundle")),
             before: None,
@@ -185,6 +197,25 @@ mod tests {
         assert!(fmt.contains("oxfmt"), "Node format should use oxfmt, got: {fmt}");
         assert!(check.contains("oxlint"), "Node check should use oxlint, got: {check}");
         assert!(!fmt.contains("biome"), "Node should not reference biome");
+    }
+
+    #[test]
+    fn node_lint_dispatches_on_package_manager() {
+        let mk = |pm: &str| ToolsConfig {
+            node_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        };
+        let pnpm = default_lint_config(Language::Node, "packages/node", &mk("pnpm"));
+        assert_eq!(pnpm.precondition.as_deref(), Some("command -v pnpm >/dev/null 2>&1"));
+        assert!(pnpm.format.unwrap().commands().join(" ").contains("pnpm exec oxfmt"));
+
+        let yarn = default_lint_config(Language::Node, "packages/node", &mk("yarn"));
+        assert_eq!(yarn.precondition.as_deref(), Some("command -v yarn >/dev/null 2>&1"));
+        assert!(yarn.format.unwrap().commands().join(" ").contains("yarn dlx oxfmt"));
+
+        let npm = default_lint_config(Language::Node, "packages/node", &mk("npm"));
+        assert_eq!(npm.precondition.as_deref(), Some("command -v npm >/dev/null 2>&1"));
+        assert!(npm.format.unwrap().commands().join(" ").contains("npx oxfmt"));
     }
 
     #[test]

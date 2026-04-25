@@ -2,7 +2,7 @@ use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
 use rayon::prelude::*;
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::registry;
 
@@ -107,6 +107,45 @@ pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
 pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
     let ready = prepare_lint_languages(config, languages)?;
     run_phase(config, &ready, LintPhase::Format)
+}
+
+/// Run format commands as part of post-generation, never propagating failure.
+///
+/// Formatting after `alef generate` is best-effort: formatters are *expected*
+/// to modify generated files (that's their purpose), and a missing formatter,
+/// a config issue, or a non-zero exit must not abort the generate run. Each
+/// per-language failure is logged as a warning and processing continues with
+/// the next language.
+pub fn fmt_post_generate(config: &AlefConfig, languages: &[Language]) {
+    for &lang in languages {
+        let lang_lint = config.lint_config_for_language(lang);
+        if !check_precondition(lang, lang_lint.precondition.as_deref()) {
+            // `check_precondition` already warns and returns false on miss.
+            continue;
+        }
+        if let Err(e) = run_before(lang, lang_lint.before.as_ref()) {
+            warn!("[{lang}] post-generation `before` hook failed: {e:#}");
+            continue;
+        }
+        let Some(cmd_list) = lang_lint.format else {
+            continue;
+        };
+        for cmd in cmd_list.commands() {
+            match run_command_captured(cmd) {
+                Ok((stdout, stderr)) => {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
+                    }
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
+                    }
+                }
+                Err(e) => {
+                    warn!("[{lang}] post-generation format command failed (continuing): {e:#}");
+                }
+            }
+        }
+    }
 }
 
 /// Update dependencies for each language.
@@ -700,4 +739,71 @@ fn run_post_build(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod fmt_post_generate_tests {
+    use super::*;
+    use alef_core::config::output::{LintConfig, StringOrVec};
+    use std::collections::HashMap;
+
+    fn config_with_lint(lang: Language, cfg: LintConfig) -> AlefConfig {
+        let mut c: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        let mut map = HashMap::new();
+        map.insert(lang.to_string(), cfg);
+        c.lint = Some(map);
+        c
+    }
+
+    #[test]
+    fn fmt_post_generate_swallows_failing_format_command() {
+        // A format command that exits non-zero must not panic or propagate;
+        // fmt_post_generate has no return value, so reaching the end is the
+        // contract.
+        let lint = LintConfig {
+            precondition: Some("true".to_string()),
+            before: None,
+            format: Some(StringOrVec::Single("false".to_string())),
+            check: None,
+            typecheck: None,
+        };
+        let cfg = config_with_lint(Language::Python, lint);
+        fmt_post_generate(&cfg, &[Language::Python]);
+    }
+
+    #[test]
+    fn fmt_post_generate_swallows_failing_before_hook() {
+        let lint = LintConfig {
+            precondition: Some("true".to_string()),
+            before: Some(StringOrVec::Single("false".to_string())),
+            format: Some(StringOrVec::Single("true".to_string())),
+            check: None,
+            typecheck: None,
+        };
+        let cfg = config_with_lint(Language::Python, lint);
+        fmt_post_generate(&cfg, &[Language::Python]);
+    }
+
+    #[test]
+    fn fmt_post_generate_skips_when_precondition_fails() {
+        let lint = LintConfig {
+            precondition: Some("false".to_string()),
+            before: None,
+            format: Some(StringOrVec::Single("false".to_string())),
+            check: None,
+            typecheck: None,
+        };
+        let cfg = config_with_lint(Language::Python, lint);
+        // Precondition is `false` → format step never runs, so the (otherwise
+        // failing) `false` command isn't invoked. No panic, no propagation.
+        fmt_post_generate(&cfg, &[Language::Python]);
+    }
 }

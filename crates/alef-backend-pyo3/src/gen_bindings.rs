@@ -1451,15 +1451,48 @@ fn gen_api_py(
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    let enum_type_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    // Enums that options.py actually exports: plain (non-data) unit enums referenced by
+    // has_default struct fields. Data enums and enums not referenced by config structs live
+    // in the native module, not options.py — so they must be imported from the native module.
+    let options_enum_names: AHashSet<String> = {
+        let mut set = AHashSet::new();
+        for typ in api
+            .types
+            .iter()
+            .filter(|t| t.has_default && !t.name.ends_with("Update"))
+        {
+            for field in &typ.fields {
+                let inner_name = match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = inner_name {
+                    if enum_names.contains(name) && !data_enum_names.contains(name) {
+                        set.insert(name.to_string());
+                    }
+                }
+            }
+        }
+        set
+    };
 
+    let all_enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     let mut options_imports: Vec<&str> = Vec::new();
     let mut native_imports: Vec<&str> = Vec::new();
     for name in &all_type_imports {
-        let is_options = options_type_names.contains(name) || enum_type_names.contains(name);
+        let is_options = options_type_names.contains(name) || options_enum_names.contains(name);
         let is_native = opaque_names.contains(name)
             || error_names.contains(name)
-            || (all_ir_type_names.contains(name) && !is_options);
+            || (all_ir_type_names.contains(name) && !is_options)
+            // Enums not in options_enum_names live in the native module.
+            || (all_enum_names.contains(name) && !options_enum_names.contains(name));
         if is_native {
             native_imports.push(name.as_str());
         } else {
@@ -1656,9 +1689,12 @@ fn gen_api_py(
             out.push_str(&format!("    \"\"\"{doc_with_period}\"\"\"\n"));
         }
 
-        // For each param that has a converter, emit a local conversion variable
+        // For each param that has a converter, emit a local conversion variable.
+        // Use the same required-first, optional-last order as the Python signature so that
+        // positional calls to the native function match the pyo3 signature declaration.
         let mut call_args = Vec::new();
-        for param in &func.params {
+        let (req_params, opt_params): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
+        for param in req_params.iter().chain(opt_params.iter()) {
             let type_name = match &param.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
@@ -1680,6 +1716,25 @@ fn gen_api_py(
                         out.push_str(&format!(
                             "    if {var} is None:\n        msg = \"{name} conversion returned None\"\n        raise ValueError(msg)\n",
                             name = param.name
+                        ));
+                    }
+                    call_args.push(var);
+                    continue;
+                }
+                // Data enum (tagged union): convert from user-facing union type to native variant.
+                if data_enum_names.contains(name) {
+                    let var = format!("_rust_{}", param.name);
+                    if param.optional {
+                        out.push_str(&format!(
+                            "    {var} = (_rust.{name}({pname}) if not isinstance({pname}, _rust.{name}) else {pname}) if {pname} is not None else None\n",
+                            name = name,
+                            pname = param.name,
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "    {var} = _rust.{name}({pname}) if not isinstance({pname}, _rust.{name}) else {pname}\n",
+                            name = name,
+                            pname = param.name,
                         ));
                     }
                     call_args.push(var);

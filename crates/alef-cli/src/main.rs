@@ -377,7 +377,12 @@ fn main() -> Result<()> {
                 // (pre-formatter), so formatter modifications don't affect
                 // staleness detection. `alef verify` compares generation-to-
                 // generation, never consulting on-disk state.
-                pipeline::fmt(&config, &languages)?;
+                //
+                // Post-generation formatting is best-effort: formatters are
+                // expected to modify files, and a missing tool / non-zero
+                // exit must not abort the generate run. Failures are logged
+                // and skipped per-language.
+                pipeline::fmt_post_generate(&config, &languages);
             }
 
             println!("Generated {total_written} files");
@@ -760,8 +765,10 @@ fn main() -> Result<()> {
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
 
             // Format all generated files using configured formatters.
+            // Best-effort: a missing formatter or non-zero exit must not
+            // abort the orchestrated pipeline.
             eprintln!("Running formatters...");
-            pipeline::fmt(&config, &languages)?;
+            pipeline::fmt_post_generate(&config, &languages);
 
             // Update input hashes AFTER formatting. Formatters may have modified files
             // so the input hash recorded during generation is stale. Re-load config
@@ -819,9 +826,9 @@ fn main() -> Result<()> {
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
 
-            // Format generated code
+            // Format generated code (best-effort).
             eprintln!("  Formatting...");
-            let _ = pipeline::fmt(&config, &languages);
+            pipeline::fmt_post_generate(&config, &languages);
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(())

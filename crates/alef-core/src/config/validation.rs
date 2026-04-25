@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use super::AlefConfig;
-use super::output::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, StringOrVec, TestConfig, UpdateConfig};
+use super::output::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, TestConfig, UpdateConfig};
 use crate::error::AlefError;
 
 /// Validate user-supplied pipeline overrides.
@@ -26,6 +26,7 @@ use crate::error::AlefError;
 /// Returns the first error encountered (or `Ok(())` when every user-supplied
 /// table either declares a precondition or only sets non-main fields).
 pub fn validate(config: &AlefConfig) -> Result<(), AlefError> {
+    validate_tools(&config.tools)?;
     if let Some(map) = &config.lint {
         validate_section("lint", map, lint_main_fields, |c| c.precondition.as_deref())?;
     }
@@ -54,7 +55,7 @@ fn validate_section<C, F, P>(
     precondition: P,
 ) -> Result<(), AlefError>
 where
-    F: Fn(&C) -> &'static [&'static str],
+    F: Fn(&C) -> Vec<&'static str>,
     P: Fn(&C) -> Option<&str>,
 {
     for (lang, cfg) in table {
@@ -73,54 +74,114 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Per-config "is a main command set?" helpers.
+// Per-config "which main fields are set?" helpers.
 //
-// Each helper returns a slice listing the names of the main fields that are
-// currently set; emptiness means the user table only customizes ancillary
-// fields (typically `before`), which doesn't require a precondition.
+// Each helper returns the names of the main fields that are actually `Some`
+// on the user's override. Emptiness means the table only customizes
+// ancillary fields (typically `before`), which doesn't require a
+// precondition.
 // ---------------------------------------------------------------------------
 
-fn lint_main_fields(c: &LintConfig) -> &'static [&'static str] {
-    match (c.format.is_some(), c.check.is_some(), c.typecheck.is_some()) {
-        (false, false, false) => &[],
-        _ => &["format", "check", "typecheck"],
+fn lint_main_fields(c: &LintConfig) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if c.format.is_some() {
+        v.push("format");
+    }
+    if c.check.is_some() {
+        v.push("check");
+    }
+    if c.typecheck.is_some() {
+        v.push("typecheck");
+    }
+    v
+}
+
+fn test_main_fields(c: &TestConfig) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if c.command.is_some() {
+        v.push("command");
+    }
+    if c.e2e.is_some() {
+        v.push("e2e");
+    }
+    if c.coverage.is_some() {
+        v.push("coverage");
+    }
+    v
+}
+
+fn build_main_fields(c: &BuildCommandConfig) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if c.build.is_some() {
+        v.push("build");
+    }
+    if c.build_release.is_some() {
+        v.push("build_release");
+    }
+    v
+}
+
+fn setup_main_fields(c: &SetupConfig) -> Vec<&'static str> {
+    if c.install.is_some() {
+        vec!["install"]
+    } else {
+        Vec::new()
     }
 }
 
-fn test_main_fields(c: &TestConfig) -> &'static [&'static str] {
-    match (c.command.is_some(), c.e2e.is_some(), c.coverage.is_some()) {
-        (false, false, false) => &[],
-        _ => &["command", "e2e", "coverage"],
+fn update_main_fields(c: &UpdateConfig) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if c.update.is_some() {
+        v.push("update");
     }
-}
-
-fn build_main_fields(c: &BuildCommandConfig) -> &'static [&'static str] {
-    match (c.build.is_some(), c.build_release.is_some()) {
-        (false, false) => &[],
-        _ => &["build", "build_release"],
+    if c.upgrade.is_some() {
+        v.push("upgrade");
     }
+    v
 }
 
-fn setup_main_fields(c: &SetupConfig) -> &'static [&'static str] {
-    if c.install.is_some() { &["install"] } else { &[] }
+fn clean_main_fields(c: &CleanConfig) -> Vec<&'static str> {
+    if c.clean.is_some() { vec!["clean"] } else { Vec::new() }
 }
 
-fn update_main_fields(c: &UpdateConfig) -> &'static [&'static str] {
-    match (c.update.is_some(), c.upgrade.is_some()) {
-        (false, false) => &[],
-        _ => &["update", "upgrade"],
+// ---------------------------------------------------------------------------
+// Tool-name sanitization.
+//
+// Tool names from `[tools]` are interpolated into shell preconditions
+// (e.g. `command -v {pm} >/dev/null 2>&1`) executed via `sh -c`, so we
+// reject any character that would let a malicious config break out of the
+// `command -v` argument and run arbitrary shell. Allowed: alphanumerics,
+// dot, dash, underscore.
+// ---------------------------------------------------------------------------
+
+fn validate_tools(tools: &super::tools::ToolsConfig) -> Result<(), AlefError> {
+    if let Some(pm) = tools.python_package_manager.as_deref() {
+        ensure_safe_tool_name("tools.python_package_manager", pm)?;
     }
+    if let Some(pm) = tools.node_package_manager.as_deref() {
+        ensure_safe_tool_name("tools.node_package_manager", pm)?;
+    }
+    if let Some(list) = tools.rust_dev_tools.as_deref() {
+        for tool in list {
+            ensure_safe_tool_name("tools.rust_dev_tools[]", tool)?;
+        }
+    }
+    Ok(())
 }
 
-fn clean_main_fields(c: &CleanConfig) -> &'static [&'static str] {
-    if c.clean.is_some() { &["clean"] } else { &[] }
+fn is_safe_tool_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')
 }
 
-// `StringOrVec` is referenced indirectly through the config types; ensure the
-// import is used so the compiler doesn't warn on unused imports for non-test
-// consumers of this module.
-#[allow(dead_code)]
-fn _string_or_vec_marker(_: &StringOrVec) {}
+fn ensure_safe_tool_name(field: &str, value: &str) -> Result<(), AlefError> {
+    if value.is_empty() || !value.chars().all(is_safe_tool_char) {
+        return Err(AlefError::Config(format!(
+            "{field} = {value:?} contains characters that are unsafe to interpolate into a shell precondition. \
+             Tool names must match `[A-Za-z0-9._-]+`."
+        )));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -230,6 +291,81 @@ sources = ["src/lib.rs"]
             base = base_config()
         ));
         validate(&config).expect_err("clean without precondition should error");
+    }
+
+    #[test]
+    fn error_message_lists_only_actually_set_main_fields() {
+        // User sets only `format` — error should name `format`, not the full triple.
+        let config = parse(&format!(
+            "{base}\n\n[lint.python]\nformat = \"black .\"\n",
+            base = base_config()
+        ));
+        let msg = format!("{}", validate(&config).unwrap_err());
+        assert!(msg.contains("`format`"), "expected `format`, got: {msg}");
+        assert!(!msg.contains("`check`"), "should not mention unset `check`: {msg}");
+        assert!(
+            !msg.contains("`typecheck`"),
+            "should not mention unset `typecheck`: {msg}"
+        );
+    }
+
+    #[test]
+    fn before_plus_main_cmd_without_precondition_still_errors() {
+        // The "only-before" exemption must not leak into mixed cases.
+        let config = parse(&format!(
+            "{base}\n\n[lint.python]\nbefore = \"echo hi\"\nformat = \"black .\"\n",
+            base = base_config()
+        ));
+        validate(&config).expect_err("before + main without precondition must error");
+    }
+
+    #[test]
+    fn unsafe_python_package_manager_value_is_rejected() {
+        let config = parse(&format!(
+            "{base}\n\n[tools]\npython_package_manager = \"uv; rm -rf /\"\n",
+            base = base_config()
+        ));
+        let err = validate(&config).expect_err("shell metacharacters must be rejected");
+        assert!(format!("{err}").contains("unsafe"));
+    }
+
+    #[test]
+    fn unsafe_node_package_manager_value_is_rejected() {
+        let config = parse(&format!(
+            "{base}\n\n[tools]\nnode_package_manager = \"pnpm$(echo bad)\"\n",
+            base = base_config()
+        ));
+        validate(&config).expect_err("command-substitution must be rejected");
+    }
+
+    #[test]
+    fn unsafe_rust_dev_tool_entry_is_rejected() {
+        let config = parse(&format!(
+            "{base}\n\n[tools]\nrust_dev_tools = [\"cargo-edit\", \"cargo`evil`\"]\n",
+            base = base_config()
+        ));
+        validate(&config).expect_err("backtick command-substitution must be rejected");
+    }
+
+    #[test]
+    fn empty_tool_name_is_rejected() {
+        let config = parse(&format!(
+            "{base}\n\n[tools]\npython_package_manager = \"\"\n",
+            base = base_config()
+        ));
+        validate(&config).expect_err("empty tool name must be rejected");
+    }
+
+    #[test]
+    fn safe_tool_names_are_accepted() {
+        // Dot, hyphen, underscore, alphanumerics are all valid.
+        let config = parse(&format!(
+            "{base}\n\n[tools]\npython_package_manager = \"uv\"\n\
+             node_package_manager = \"pnpm\"\n\
+             rust_dev_tools = [\"cargo-edit\", \"cargo_sort\", \"tool.v2\"]\n",
+            base = base_config()
+        ));
+        validate(&config).expect("normal tool names should validate");
     }
 
     #[test]

@@ -87,6 +87,8 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &Too
             ))),
         },
         Language::Ffi => SetupConfig {
+            // FFI shares cargo with the parent Rust crate; there is no
+            // separate install step and therefore nothing to precondition.
             precondition: None,
             before: None,
             install: None,

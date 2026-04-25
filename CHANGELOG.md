@@ -22,7 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Pipelines**: `default_*_config` functions now take a `&ToolsConfig` argument so per-language defaults can dispatch on the project's chosen package manager.
-- **Generate**: `alef generate`'s post-generation format step (already wired in 0.7.x) now degrades to a per-language warning when the formatter binary is missing, instead of aborting the entire run, thanks to the new default preconditions.
+- **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that logs per-language failures as warnings and continues — formatters are *expected* to modify generated files and a non-zero exit (or a missing tool) must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
+
+### Fixed
+
+- **Python**: classify enum imports correctly in generated `api.py` — data enums (tagged unions) and enums not referenced by `has_default` config structs now import from the native module instead of `options.py`, fixing missing-attribute errors at runtime.
+- **Python**: emit converter locals in required-first, optional-last order so positional calls to the native function match the pyo3 signature.
+- **Python**: generate runtime conversion for data-enum parameters in `api.py` wrappers so users can pass the union type and it is coerced to the native variant.
 
 ## [0.7.8] - 2026-04-25
 
