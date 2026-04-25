@@ -259,7 +259,7 @@ fn print_generated_java_code() {
     };
 
     let config = AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "kreuzberg".to_string(),
             sources: vec![],

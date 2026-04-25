@@ -7,7 +7,7 @@ use alef_core::ir::{
 
 fn make_test_config(package: &str) -> AlefConfig {
     AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "test_lib".to_string(),
             sources: vec![],
@@ -192,7 +192,7 @@ fn test_basic_generation() {
 
     // Create test config
     let config = AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "test_lib".to_string(),
             sources: vec![],
@@ -345,7 +345,7 @@ fn test_package_default() {
     };
 
     let config = AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "my_lib".to_string(),
             sources: vec![],
@@ -516,7 +516,7 @@ fn test_optional_field_defaults_in_builder() {
 
     // Create test config
     let config = AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "test_lib".to_string(),
             sources: vec![],

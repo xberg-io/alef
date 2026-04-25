@@ -128,7 +128,7 @@ fn test_generated_code_example() {
     };
 
     let config = AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "kreuzberg".to_string(),
             sources: vec![],

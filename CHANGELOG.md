@@ -5,16 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.6] - 2026-04-25
+## [0.7.7] - 2026-04-25
 
 ### Added
 
-- **Config**: `[alef]` section in `alef.toml` with `version` field to pin the alef CLI version per project. `alef init` now emits this field automatically.
+- **Config**: top-level `version` field in `alef.toml` to pin the alef CLI version per project. `alef init` now emits this field automatically.
 - **Install action**: `install-alef` reads the pinned version from `alef.toml` when input is `"latest"`, falling back to the latest GitHub release if not specified.
 
 ### Fixed
 
+- **Config**: use top-level `version` key instead of `[alef]` section to avoid TOML scoping issues where subsequent keys were captured inside the section.
 - **Python bindings**: sanitize doc strings with `sanitize_python_doc()` consistently across all generated code (options enums, dataclasses, TypedDict, API functions, exceptions) to prevent ruff RUF001/RUF002 lint errors.
+- **Python stubs**: fix test assertions for builtin-shadowing parameter names (`input`, `id`) that now generate multi-line signatures with `# noqa: A002`.
+
+## [0.7.6] - 2026-04-25
+
+### Added
+
+- **Config**: `[alef]` section in `alef.toml` with `version` field to pin the alef CLI version per project (superseded by top-level `version` in 0.7.7).
+
+### Fixed
+
+- **Python bindings**: sanitize doc strings with `sanitize_python_doc()` consistently across all generated code.
 
 ## [0.7.5] - 2026-04-25
 

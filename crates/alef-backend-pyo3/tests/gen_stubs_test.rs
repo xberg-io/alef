@@ -24,7 +24,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 
 fn make_config_with_stubs() -> AlefConfig {
     AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],
@@ -209,10 +209,10 @@ fn test_basic_stubs() {
     assert!(content.contains("name: str"), "Should have name field with str type");
     assert!(content.contains("def __init__(self"), "Should have __init__ signature");
 
-    // Assert function stub
+    // Assert function stub — `input` shadows a builtin, so signature is multi-line with noqa
     assert!(
-        content.contains("def process(input: str) -> str:"),
-        "Should have process function stub with type annotations"
+        content.contains("def process(\n    input: str,  # noqa: A002\n) -> str:"),
+        "Should have process function stub with multi-line signature (input is a builtin)"
     );
 
     // Assert enum stub
@@ -987,9 +987,10 @@ fn test_multiple_types_and_functions() {
     assert!(content.contains("class Post:"), "Should define Post class");
 
     // Assert both functions are defined
+    // `id` shadows a builtin, so signature is multi-line with noqa
     assert!(
-        content.contains("def get_user(id: int) -> User:"),
-        "Should define get_user function"
+        content.contains("def get_user(\n    id: int,  # noqa: A002\n) -> User:"),
+        "Should define get_user function (multi-line, id is a builtin)"
     );
     assert!(
         content.contains("def create_post(title: str, user_id: int) -> Post:"),

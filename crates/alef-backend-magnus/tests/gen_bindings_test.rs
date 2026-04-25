@@ -26,7 +26,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 /// Helper to create a basic AlefConfig with Ruby enabled.
 fn make_config() -> AlefConfig {
     AlefConfig {
-        alef: Default::default(),
+        version: None,
         crate_config: CrateConfig {
             name: "test-lib".to_string(),
             sources: vec![],
