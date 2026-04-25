@@ -188,7 +188,9 @@ pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -
         };
         files.push(GeneratedFile {
             path: std::path::PathBuf::from("rust-toolchain.toml"),
-            content: format!("[toolchain]\nchannel = \"1.95\"\ncomponents = [\"rust-src\", \"rustfmt\", \"clippy\"]\n{targets}"),
+            content: format!(
+                "[toolchain]\nchannel = \"1.95\"\ncomponents = [\"rust-src\", \"rustfmt\", \"clippy\"]\n{targets}"
+            ),
             generated_header: false,
         });
     }

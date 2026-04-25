@@ -7,9 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.2] - 2026-04-24
+### Added
 
-## [0.7.1] - 2026-04-24
+- **Keyword-aware field renaming for Python bindings** — struct fields whose names collide with Python reserved keywords (e.g. `class`, `from`, `type`) are automatically escaped in the generated binding struct (`class_`) while preserving the original name via `#[pyo3(get, name = "class")]` and `#[serde(rename = "class")]` attributes. Configurable per-field via `rename_fields` in language configs.
+- Shared keyword list in `alef-core::keywords` with `python_ident()` helper — single source of truth for Python reserved words, replacing duplicated lists in `gen_bindings.rs` and `gen_stubs.rs`.
+- `ConversionConfig::binding_field_renames` for keyword-escaped field name substitution in `From`/`Into` conversion impls.
+- `gen_struct_with_rename` and `gen_impl_block_with_renames` codegen generators for per-field attribute customization.
+- `AlefConfig::resolve_field_name()` for config-driven field name resolution per language and type.
+- Scaffold: emit `rust-toolchain.toml` (Rust 1.95) and `.cargo/config.toml` with `wasm32-unknown-unknown` target for WASM projects.
+- Scaffold: include WASM target in clippy pre-commit hook instead of excluding it.
+- Config: `corepack up` added to Node.js update defaults; `corepack use pnpm@latest` for pnpm upgrade.
+
+### Fixed
+
+- Publish: derive PHP extension name from output path instead of hardcoding.
+- Publish: derive crate names from output paths instead of hardcoding.
+- FFI: replace deprecated `clippy::drop_ref` lint with `dropping_references`.
+- Scaffold: Ruby `Rakefile` template uses correct Bundler 4 API.
+
+## [0.7.2] - 2026-04-24
 
 ### Added
 
@@ -23,12 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vendor::vendor_core_only()` — copies core crate, rewrites Cargo.toml via `toml_edit` to inline workspace inheritance and dependency specs, removes workspace lints, generates vendor workspace manifest.
 - `vendor::vendor_full()` — core-only + `cargo vendor` of all transitive deps with test/bench cleanup.
 - `ffi_stage::stage_ffi()` / `stage_header()` — copies built FFI shared library and C header to language-specific directories.
-- Config: `precondition` field on all command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) — a shell command that must exit 0 for the main command to run; skips the language with a warning on failure.
-- Config: `before` field on all command configs — command(s) that run before the main command; aborts on failure. Supports `StringOrVec` (single string or list).
-- Config: `GOWORK=off` in default Go setup command to avoid workspace interference.
-- Config: Maven version rules file reference in default Java update commands.
-- CLI: Rust is now a first-class language in `alef build` — builds via configurable `[build_commands.rust]` instead of panicking on missing backend.
-- FFI: derive `Copy` and `Clone` on generated vtable structs.
 
 ### Fixed
 
@@ -38,7 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config: Ruby lint defaults use `cd {output_dir} && bundle exec rubocop` instead of running from project root.
 - Config: FFI lint defaults search entire output directory instead of assuming `tests/` subdirectory.
 - Scaffold: pre-commit config now uses `alef-fmt` + `alef-lint` hooks instead of per-language hooks.
-- Codegen(Go): removed dead `capitalize` function, local variable naming, error string conventions, enum acronym rules, visitor doc comments, golangci scaffold config.
+- Codegen(Go): local variable naming, error string conventions, enum acronym rules, `nodeTypeFromC` acronym naming, visitor doc comments, golangci scaffold config.
+
+## [0.7.1] - 2026-04-24
+
+### Added
+
+- Config: `precondition` field on all command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) — a shell command that must exit 0 for the main command to run; skips the language with a warning on failure.
+- Config: `before` field on all command configs — command(s) that run before the main command; aborts on failure. Supports `StringOrVec` (single string or list).
+- Config: `GOWORK=off` in default Go setup command to avoid workspace interference.
+- Config: Maven version rules file reference in default Java update commands.
+- CLI: Rust is now a first-class language in `alef build` — builds via configurable `[build_commands.rust]` instead of panicking on missing backend.
+- FFI: derive `Copy` and `Clone` on generated vtable structs.
+
+### Fixed
+
+- FFI: trait bridge generation fixes for kreuzberg integration.
+- Scaffold: pre-commit config simplification — removed per-language hooks.
 
 ## [0.7.0] - 2026-04-24
 
