@@ -28,6 +28,7 @@ priority: high
 ## Pipeline Hooks
 
 All command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) support:
+
 - `precondition: Option<String>` — shell command that must exit 0; skip with warning on failure
 - `before: Option<StringOrVec>` — commands run before the main command; abort on failure
 
