@@ -71,6 +71,7 @@ blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 heck = "0.5"
+insta = { version = "1.41", features = ["redactions"] }
 jsonschema = { version = "0.46", default-features = false, features = ["resolve-file"] }
 minijinja = "2"
 quote = "1"
