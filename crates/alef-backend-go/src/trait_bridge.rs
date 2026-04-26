@@ -176,7 +176,12 @@ fn gen_trait_bridge(
     writeln!(out, "\thandle := cgo.NewHandle(impl)").ok();
     writeln!(out).ok();
 
-    writeln!(out, "\t// Build the C vtable  DEBUG:c_vtable_struct={}",  c_vtable_struct).ok();
+    writeln!(
+        out,
+        "\t// Build the C vtable  DEBUG:c_vtable_struct={}",
+        c_vtable_struct
+    )
+    .ok();
     writeln!(out, "\tvtable := C.{}{{", c_vtable_struct).ok();
 
     // Set up vtable function pointers (via //export trampolines)

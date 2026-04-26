@@ -108,7 +108,10 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             let err_deser = spec
                 .error_constructor
                 .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-            let line = format!("    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),", err_deser);
+            let line = format!(
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
+                err_deser
+            );
             out.push_str(&line);
             out.push('\n');
             let err_msg = spec.error_constructor.replace("{msg}", "msg");
@@ -194,7 +197,10 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             let err_deser = spec
                 .error_constructor
                 .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-            let line = format!("    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),", err_deser);
+            let line = format!(
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
+                err_deser
+            );
             out.push_str(&line);
             out.push('\n');
             let err_msg = spec.error_constructor.replace("{msg}", "msg");
