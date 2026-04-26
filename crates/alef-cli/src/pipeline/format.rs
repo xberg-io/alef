@@ -3,71 +3,121 @@ use std::path::Path;
 use std::process::Command;
 use tracing::{debug, warn};
 
-/// Post-generation formatter configuration and execution commands.
-/// Maps each language to its default formatter and working directory (relative to project root).
-struct FormatterSpec {
+/// One formatter invocation (command + args).
+struct FormatterCommand {
     command: &'static str,
     args: &'static [&'static str],
+}
+
+/// Post-generation formatter configuration.
+/// Each language may run a sequence of formatter commands in a working directory.
+struct FormatterSpec {
+    /// Commands to run in sequence; on first failure the rest are skipped (warning logged).
+    commands: &'static [FormatterCommand],
+    /// Working directory relative to project root; empty string = project root.
     work_dir: &'static str,
 }
 
 /// Get the default formatter spec for a language.
+///
+/// Notes on Rust formatting: backends that emit Rust code (FFI, PyO3, NAPI, Magnus,
+/// ext-php-rs, Rustler, wasm-bindgen) all live inside the consumer workspace, so a
+/// single `cargo fmt --all` from the project root covers every generated `.rs` file.
+/// We attach this to `Language::Ffi` because FFI is always present when any of the
+/// C-FFI-bridged languages (Go/Java/C#) are enabled, and harmless when only WASM
+/// or pure-Rust bindings are used.
 fn get_default_formatter(lang: Language) -> Option<FormatterSpec> {
     match lang {
+        // ruff check --fix runs lint autofixes (unused imports, missing TypeAlias
+        // annotations, import sorting); ruff format applies whitespace formatting.
+        // Both must run — `format` alone leaves I001/F401/TC008 issues that fail CI.
         Language::Python => Some(FormatterSpec {
-            command: "ruff",
-            args: &["format"],
+            commands: &[
+                FormatterCommand {
+                    command: "ruff",
+                    args: &["check", "--fix", "."],
+                },
+                FormatterCommand {
+                    command: "ruff",
+                    args: &["format", "."],
+                },
+            ],
             work_dir: "packages/python/",
         }),
         Language::Node => Some(FormatterSpec {
-            command: "biome",
-            args: &["format", "--write", "."],
+            commands: &[FormatterCommand {
+                command: "biome",
+                args: &["format", "--write", "."],
+            }],
             work_dir: "packages/typescript/",
         }),
         Language::Ruby => Some(FormatterSpec {
-            command: "cargo",
-            args: &["fmt"],
+            commands: &[FormatterCommand {
+                command: "rubocop",
+                args: &["-A", "--no-server"],
+            }],
             work_dir: "packages/ruby/",
         }),
         Language::Php => Some(FormatterSpec {
-            command: "php-cs-fixer",
-            args: &["fix"],
+            commands: &[FormatterCommand {
+                command: "php-cs-fixer",
+                args: &["fix"],
+            }],
             work_dir: "packages/php/",
         }),
         Language::Elixir => Some(FormatterSpec {
-            command: "mix",
-            args: &["format"],
+            commands: &[FormatterCommand {
+                command: "mix",
+                args: &["format"],
+            }],
             work_dir: "packages/elixir/",
         }),
         Language::Go => Some(FormatterSpec {
-            command: "gofmt",
-            args: &["-w", "."],
+            commands: &[FormatterCommand {
+                command: "gofmt",
+                args: &["-w", "."],
+            }],
             work_dir: "packages/go/",
         }),
         Language::Java => Some(FormatterSpec {
-            command: "google-java-format",
-            args: &["-i"],
+            commands: &[FormatterCommand {
+                command: "google-java-format",
+                args: &["-i"],
+            }],
             work_dir: "packages/java/src/",
         }),
         Language::Csharp => Some(FormatterSpec {
-            command: "dotnet",
-            args: &["format"],
+            commands: &[FormatterCommand {
+                command: "dotnet",
+                args: &["format"],
+            }],
             work_dir: "packages/csharp/",
         }),
         Language::Wasm => Some(FormatterSpec {
-            command: "cargo",
-            args: &["fmt"],
+            commands: &[FormatterCommand {
+                command: "cargo",
+                args: &["fmt", "-p", "wasm"],
+            }],
             work_dir: "packages/wasm/",
         }),
+        // FFI runs `cargo fmt --all` from project root: this formats every generated
+        // Rust crate in the consumer workspace (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs,
+        // Rustler, wasm-bindgen). Was previously `cargo fmt` in `packages/ffi/` —
+        // which has no Cargo.toml, so it silently no-op'd and CI's `cargo fmt --check`
+        // would fail on the unformatted FFI lib.rs.
         Language::Ffi => Some(FormatterSpec {
-            command: "cargo",
-            args: &["fmt"],
-            work_dir: "packages/ffi/",
+            commands: &[FormatterCommand {
+                command: "cargo",
+                args: &["fmt", "--all"],
+            }],
+            work_dir: "",
         }),
         Language::R => Some(FormatterSpec {
-            command: "cargo",
-            args: &["fmt"],
-            work_dir: "packages/r/",
+            commands: &[FormatterCommand {
+                command: "Rscript",
+                args: &["-e", "styler::style_pkg('packages/r')"],
+            }],
+            work_dir: "",
         }),
         Language::Rust => None,
     }
@@ -119,17 +169,12 @@ pub fn format_generated(
             continue;
         };
 
-        // Check if formatter binary is available
-        if !is_tool_available(formatter_cmd.command) {
-            warn!(
-                "[{lang_str}] formatter not found: {} (skipping format)",
-                formatter_cmd.command
-            );
-            continue;
-        }
-
-        // Run the formatter
-        let work_dir = base_dir.join(formatter_cmd.work_dir);
+        // Resolve work dir (empty string = project root)
+        let work_dir = if formatter_cmd.work_dir.is_empty() {
+            base_dir.to_path_buf()
+        } else {
+            base_dir.join(formatter_cmd.work_dir)
+        };
         if !work_dir.exists() {
             debug!(
                 "  [{lang_str}] package directory does not exist: {}, skipping",
@@ -138,12 +183,20 @@ pub fn format_generated(
             continue;
         }
 
-        match run_formatter(formatter_cmd.command, formatter_cmd.args, &work_dir) {
-            Ok(()) => {
-                debug!("  [{lang_str}] formatted successfully");
+        // Run each command in sequence; stop on first failure (warning logged)
+        for step in formatter_cmd.commands {
+            if !is_tool_available(step.command) {
+                warn!("[{lang_str}] formatter not found: {} (skipping format)", step.command);
+                break;
             }
-            Err(e) => {
-                warn!("[{lang_str}] formatter error: {}", e);
+            match run_formatter(step.command, step.args, &work_dir) {
+                Ok(()) => {
+                    debug!("  [{lang_str}] {} {:?} ok", step.command, step.args);
+                }
+                Err(e) => {
+                    warn!("[{lang_str}] {} {:?} failed: {}", step.command, step.args, e);
+                    break;
+                }
             }
         }
 

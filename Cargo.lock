@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "alef-adapters"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-core",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-csharp"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-adapters",
  "alef-codegen",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-extendr"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-ffi"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-go"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-adapters",
  "alef-codegen",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-java"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-magnus"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-napi"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-php"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-pyo3"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-rustler"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-wasm"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "alef-cli"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-backend-csharp",
@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "alef-codegen"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-core",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "alef-core"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "blake3",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "alef-docs"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "alef-e2e"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "alef-extract"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "ahash",
  "alef-core",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "alef-publish"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "alef-readme"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "alef-scaffold"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alef-core",
  "anyhow",

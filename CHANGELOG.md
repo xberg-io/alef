@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-04-26
+
+A follow-up release to v0.8.1 fixing post-generation formatter invocation. Generated bindings now reliably pass `cargo fmt --check` and `ruff check` in CI.
+
+### Fixed
+
+- **FFI cargo fmt silently no-op'd**: `format_generated` ran `cargo fmt` in `packages/ffi/`, which has no `Cargo.toml`. Generated `crates/{lib}-ffi/src/lib.rs` was therefore never formatted, and CI's `cargo fmt --all -- --check` failed on diffs like `use std::ffi::{CStr, CString, c_char};` vs the rustfmt-canonical `use std::ffi::{c_char, CStr, CString};`. Now runs `cargo fmt --all` from the project root, which formats every generated Rust crate (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs, Rustler, wasm-bindgen) in the consumer workspace.
+- **Python ruff missed lint autofixes**: only `ruff format` was run, so generated stubs/wrappers retained `I001` unsorted imports, `F401` unused imports (e.g. `Any`), stale `# noqa: F401` comments on used imports, and `TC008` missing `TypeAlias` annotations on union aliases. `format_generated` now runs `ruff check --fix .` before `ruff format .` in `packages/python/`.
+- **Ruby formatter wrong tool**: ran `cargo fmt` in `packages/ruby/`, which has no `Cargo.toml` (the Magnus crate lives under `packages/ruby/ext/{lib}_rb/native/` and is covered by the FFI-driven `cargo fmt --all`). Now runs `rubocop -A --no-server` in `packages/ruby/` to auto-correct generated `.rb` and `.gemspec` files.
+- **R formatter wrong tool**: ran `cargo fmt` in `packages/r/`. Now runs `Rscript -e "styler::style_pkg('packages/r')"`.
+- **WASM formatter scope tightened**: was `cargo fmt` in `packages/wasm/` (works because the wasm-bindgen crate lives there). Now uses `cargo fmt -p wasm` so the explicit package selection survives if package layout changes.
+
+### Changed
+
+- `FormatterSpec` now holds a `&'static [FormatterCommand]` instead of a single command, so a language can run multiple formatter steps in sequence (used by Python's `ruff check --fix` → `ruff format`). On first failure within a sequence the remaining steps are skipped (warning logged) — formatter errors never fail `alef generate`.
+- `work_dir: ""` is now treated as the project root (no path join), so language-agnostic invocations like `cargo fmt --all` can run from the consumer's workspace root.
+
 ## [0.8.1] - 2026-04-26
 
 A follow-up release to v0.8.0 focused on closing remaining clippy/build-correctness gaps surfaced by Kreuzberg's full workspace build. All alef-generated bindings (Python, Node, Ruby, PHP, FFI, WASM, Elixir, R, Go, Java, C#) now compile cleanly with `-D warnings` against the kreuzberg verification worktree. Adds an `is_copy` IR flag so the FFI backend can correctly distinguish Copy enums from Clone-but-not-Copy data-bearing enums.
