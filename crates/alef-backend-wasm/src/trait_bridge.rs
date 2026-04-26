@@ -961,6 +961,9 @@ pub fn gen_bridge_function(
     if func.error_type.is_some() {
         writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
     }
+    // Bridge type is gated to wasm32 (see gen_trait_bridge); functions that
+    // construct it must be too, otherwise host builds fail to resolve the type.
+    writeln!(out, "#[cfg(target_arch = \"wasm32\")]").ok();
     writeln!(out, "#[wasm_bindgen{js_name_attr}]").ok();
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
     writeln!(out, "    {body}").ok();
