@@ -1,10 +1,35 @@
 use crate::type_map::is_void_return;
+use ahash::AHashSet;
 use alef_core::ir::TypeRef;
 use std::fmt::Write;
 
+/// Render an expression that produces a Copy-typed value, avoiding clippy::clone_on_copy.
+///
+/// `expr` is either a place expression (e.g., `obj.field`, `(*obj.field)`) or a binding
+/// to a reference (e.g., `val`). For places, auto-copy applies. For refs, we deref.
+fn copy_expr(expr: &str) -> String {
+    if expr.starts_with("obj.") || expr.starts_with("(*") {
+        expr.to_string()
+    } else {
+        format!("*{expr}")
+    }
+}
+
 /// Generate code to convert a Rust value reference to a C return value.
-/// `expr` is the Rust expression to read from (must be borrowable).
-pub(super) fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
+///
+/// `expr` is the Rust expression to read from (a borrowed place or ref binding).
+/// `enum_names` is the set of IR enum type names — Copy in our codegen, so we use
+/// the copy path instead of `.clone()` (avoids `clippy::clone_on_copy`).
+/// `clone_names` is the set of IR named-type names that implement `Clone`.
+/// For `Named` types **not** in `clone_names` (non-Clone opaques), a raw pointer
+/// cast is emitted so the accessor compiles without requiring `Clone`.
+pub(super) fn gen_value_to_c(
+    expr: &str,
+    ty: &TypeRef,
+    indent: &str,
+    enum_names: &AHashSet<String>,
+    clone_names: &AHashSet<String>,
+) -> String {
     let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(p) => {
@@ -40,8 +65,19 @@ pub(super) fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
             writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
             writeln!(out, "{indent}}}").ok();
         }
-        TypeRef::Named(_) => {
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
+        TypeRef::Named(name) => {
+            if enum_names.contains(name.as_str()) {
+                // Copy-typed enums: clippy::clone_on_copy fires on .clone(). Use auto-copy/deref.
+                let copy = copy_expr(expr);
+                writeln!(out, "{indent}Box::into_raw(Box::new({copy}))").ok();
+            } else if clone_names.contains(name.as_str()) {
+                // Clone-capable struct: clone the borrowed reference into an owned box.
+                writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
+            } else {
+                // Non-Clone opaque type: the caller holds a borrow from the parent struct.
+                // Return a raw pointer alias — the C caller must not outlive the parent handle.
+                writeln!(out, "{indent}{expr} as *const _ as *mut _").ok();
+            }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Serialize as JSON
@@ -66,7 +102,12 @@ pub(super) fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
         TypeRef::Optional(inner) => {
             writeln!(out, "{indent}match &{expr} {{").ok();
             writeln!(out, "{indent}    Some(val) => {{").ok();
-            write!(out, "{}", gen_value_to_c("val", inner, &format!("{indent}        "))).ok();
+            write!(
+                out,
+                "{}",
+                gen_value_to_c("val", inner, &format!("{indent}        "), enum_names, clone_names)
+            )
+            .ok();
             writeln!(out, "{indent}    }}").ok();
             writeln!(
                 out,
@@ -134,7 +175,7 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
 // Convert owned Rust value to C return (non-Result path)
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
+pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum_names: &AHashSet<String>) -> String {
     let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(prim) => match prim {
@@ -175,7 +216,9 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
             writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Named(_) => {
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
+            // For owned values, .clone() is wasteful. Just box the value directly.
+            // (Copy enums auto-copy; non-Copy types move into Box::new.)
+            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").ok();
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
@@ -196,7 +239,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
             write!(
                 out,
                 "{}",
-                gen_owned_value_to_c("val", inner, &format!("{indent}        "))
+                gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names)
             )
             .ok();
             writeln!(out, "{indent}    }}").ok();

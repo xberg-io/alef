@@ -1,4 +1,5 @@
 use crate::type_map::c_return_type;
+use ahash::AHashSet;
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -160,7 +161,14 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
 // Field accessors
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import: &str) -> String {
+pub(super) fn gen_field_accessor(
+    typ: &TypeDef,
+    field: &FieldDef,
+    prefix: &str,
+    core_import: &str,
+    enum_names: &AHashSet<String>,
+    clone_names: &AHashSet<String>,
+) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
@@ -238,14 +246,24 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
     writeln!(out, "    let obj = unsafe {{ &*ptr }};").ok();
 
     // Generate the accessor body based on field type
-    write!(out, "{}", gen_field_access_body(field, needs_len_out)).ok();
+    write!(
+        out,
+        "{}",
+        gen_field_access_body(field, needs_len_out, enum_names, clone_names)
+    )
+    .ok();
 
     write!(out, "}}").ok();
     out
 }
 
 /// Generate the body of a field accessor that reads from `obj.{field_name}`.
-fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
+fn gen_field_access_body(
+    field: &FieldDef,
+    needs_len_out: bool,
+    enum_names: &AHashSet<String>,
+    clone_names: &AHashSet<String>,
+) -> String {
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
 
@@ -267,7 +285,12 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
             };
             writeln!(out, "    match &obj.{field_name} {{").ok();
             writeln!(out, "        Some(Some(inner_val)) => {{").ok();
-            write!(out, "{}", gen_value_to_c(inner_val_expr, inner, "            ")).ok();
+            write!(
+                out,
+                "{}",
+                gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names)
+            )
+            .ok();
             writeln!(out, "        }}").ok();
             writeln!(out, "        Some(None) => {inner_null},").ok();
             writeln!(
@@ -289,7 +312,12 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
             };
             writeln!(out, "    match &obj.{field_name} {{").ok();
             writeln!(out, "        Some(val) => {{").ok();
-            write!(out, "{}", gen_value_to_c(val_expr, &field.ty, "            ")).ok();
+            write!(
+                out,
+                "{}",
+                gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names)
+            )
+            .ok();
             writeln!(out, "        }}").ok();
             writeln!(
                 out,
@@ -322,7 +350,12 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         } else {
             format!("obj.{field_name}")
         };
-        write!(out, "{}", gen_value_to_c(&access_expr, &field.ty, "    ")).ok();
+        write!(
+            out,
+            "{}",
+            gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names)
+        )
+        .ok();
     }
 
     out

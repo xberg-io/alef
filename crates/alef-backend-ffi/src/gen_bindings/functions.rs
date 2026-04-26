@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -66,6 +66,7 @@ pub(super) fn gen_method_wrapper(
     prefix: &str,
     core_import: &str,
     path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
@@ -425,7 +426,7 @@ pub(super) fn gen_method_wrapper(
             write!(
                 out,
                 "{}",
-                gen_owned_value_to_c(val_expr, &method.return_type, "            ")
+                gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names)
             )
             .ok();
             writeln!(out, "        }}").ok();
@@ -447,7 +448,7 @@ pub(super) fn gen_method_wrapper(
         write!(
             out,
             "{}",
-            gen_owned_value_to_c(result_expr, &method.return_type, "    ")
+            gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names)
         )
         .ok();
     }
@@ -465,6 +466,7 @@ pub(super) fn gen_free_function(
     prefix: &str,
     core_import: &str,
     path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}");
@@ -736,7 +738,7 @@ pub(super) fn gen_free_function(
             write!(
                 out,
                 "{}",
-                gen_owned_value_to_c(val_expr, &func.return_type, "            ")
+                gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
             )
             .ok();
             writeln!(out, "        }}").ok();
@@ -755,7 +757,7 @@ pub(super) fn gen_free_function(
     } else if can_inline_fn {
         // Passthrough primitive: call was already emitted as tail expression
     } else {
-        write!(out, "{}", gen_owned_value_to_c(result_expr, &func.return_type, "    ")).ok();
+        write!(out, "{}", gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)).ok();
     }
 
     write!(out, "}}").ok();

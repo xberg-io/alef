@@ -116,6 +116,17 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         path_map.insert(err.name.clone(), err.rust_path.replace('-', "_"));
     }
 
+    // Set of enum type names. In our codegen, all enums are #[repr(C)] (Copy), so callers
+    // use this set to avoid emitting clippy::clone_on_copy-triggering .clone().
+    let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    // Set of named (struct) types that derive Clone — callers can emit .clone() on these.
+    let clone_names: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && t.is_clone)
+        .map(|t| t.name.clone())
+        .collect();
+
     // Import traits needed for trait method dispatch
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
@@ -202,7 +213,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         // Field accessors — skip sanitized fields (binding type differs from core)
         for field in &typ.fields {
             if !field.sanitized {
-                builder.add_item(&gen_field_accessor(typ, field, prefix, &core_import));
+                builder.add_item(&gen_field_accessor(
+                    typ,
+                    field,
+                    prefix,
+                    &core_import,
+                    &enum_names,
+                    &clone_names,
+                ));
             }
         }
 
@@ -220,7 +238,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
                     continue;
                 }
             }
-            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import, &path_map));
+            builder.add_item(&gen_method_wrapper(
+                typ,
+                method,
+                prefix,
+                &core_import,
+                &path_map,
+                &enum_names,
+            ));
         }
     }
 
@@ -259,7 +284,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
             continue;
         }
-        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map));
+        builder.add_item(&gen_free_function(
+            func,
+            prefix,
+            &core_import,
+            &path_map,
+            &enum_names,
+        ));
     }
 
     // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
@@ -995,6 +1026,108 @@ mod tests {
         assert!(
             lib.content.contains("*inner_val"),
             "expected `*inner_val` deref for inner primitive in generated getter"
+        );
+    }
+
+    /// Build a minimal `ApiSurface` with one struct that has a Named field,
+    /// controlling `is_clone` on the field's referenced type.
+    fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
+        // The struct that holds the Named field
+        let holder = TypeDef {
+            name: "Holder".to_string(),
+            rust_path: "my_lib::Holder".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "inner".to_string(),
+                ty: TypeRef::Named(field_type.to_string()),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+        // The type referenced by the Named field
+        let named_type = TypeDef {
+            name: field_type.to_string(),
+            rust_path: format!("my_lib::{field_type}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![holder, named_type],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        }
+    }
+
+    /// Non-Clone opaque Named-type fields must not emit `.clone()` in the
+    /// generated field accessor — the accessor should use a raw pointer cast instead.
+    #[test]
+    fn test_named_field_non_clone_no_clone_call() {
+        let api = api_with_named_field("LanguageRegistry", false);
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The field accessor for `inner` (a non-Clone opaque type) must not call .clone()
+        assert!(
+            !lib.content.contains(".clone()"),
+            "non-Clone opaque Named field must not emit .clone() in accessor:\n{}",
+            lib.content
+        );
+    }
+
+    /// Clone-capable Named-type fields must still emit `.clone()` in the accessor.
+    #[test]
+    fn test_named_field_clone_capable_emits_clone() {
+        let api = api_with_named_field("ConversionOptions", true);
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The field accessor for `inner` (a Clone type) must clone the value
+        assert!(
+            lib.content.contains(".clone()"),
+            "Clone-capable Named field must emit .clone() in accessor:\n{}",
+            lib.content
         );
     }
 }
