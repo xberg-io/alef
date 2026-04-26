@@ -329,12 +329,8 @@ fn main() -> Result<()> {
                     .iter()
                     .map(|f| {
                         let normalized = pipeline::normalize_content(&f.path, &f.content);
-                        let final_content = if f.generated_header {
-                            let content_hash = hash::hash_content(&normalized);
-                            hash::inject_hash_line(&normalized, &content_hash)
-                        } else {
-                            normalized
-                        };
+                        let content_hash = hash::hash_content(&normalized);
+                        let final_content = hash::inject_hash_line(&normalized, &content_hash);
                         (
                             base_dir.join(&f.path).display().to_string(),
                             cache::hash_content(&final_content),
@@ -439,6 +435,16 @@ fn main() -> Result<()> {
                 // exit must not abort the generate run. Failures are logged
                 // and skipped per-language.
                 pipeline::fmt_post_generate(&config, &languages);
+            }
+
+            // Always re-sync versions across user-owned manifests (gemspec,
+            // composer.json, package.json, *.csproj, mix.exs, ...). These are
+            // scaffold-once files alef can't safely overwrite, but their version
+            // strings must track Cargo.toml or `alef verify` flags them as stale.
+            // Running sync after every generate makes verify a true successor of
+            // generate without the consumer needing a second `alef sync-versions`.
+            if let Err(e) = pipeline::sync_versions(&config, config_path, None) {
+                tracing::warn!("version sync failed: {e}");
             }
 
             println!("Generated {total_written} files");
@@ -1187,10 +1193,17 @@ fn format_languages(languages: &[alef_core::config::Language]) -> String {
 
 /// Check a single generated file against its expected content hash.
 ///
-/// Reads the on-disk file, extracts the `alef:hash:` line from the header, and
-/// compares against `expected_hash` (computed from freshly generated + normalized
-/// content).  Falls back to content comparison for legacy files without an
-/// embedded hash.
+/// Reads the on-disk file and compares its embedded `alef:hash:` line against
+/// `expected_hash` (computed from freshly generated + normalized content).
+///
+/// alef writes the hash into the header at generation time, so verification is
+/// purely a hash comparison — `alef verify` never inspects the file body.  This
+/// makes it formatting-agnostic: any external formatter (cargo fmt, php-cs-fixer,
+/// rubocop, ruff, biome, etc.) can rewrite the body without breaking verify, as
+/// long as the hash header line survives.
+///
+/// A file without an embedded hash is treated as user-owned (scaffold-once) and
+/// is skipped — alef never claims ownership of files it didn't tag.
 fn verify_file(path: &std::path::Path, expected_hash: &str, label: &str, stale: &mut Vec<String>) {
     let disk_content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -1200,18 +1213,13 @@ fn verify_file(path: &std::path::Path, expected_hash: &str, label: &str, stale: 
         }
     };
 
-    if let Some(disk_hash) = alef_core::hash::extract_hash(&disk_content) {
-        if disk_hash != expected_hash {
-            stale.push(format!("[{label}] {}", path.display()));
-        }
-    } else {
-        // Legacy file without embedded hash — normalize before comparing so
-        // that whitespace-only differences (e.g. trailing spaces, blank-line
-        // runs) don't produce false positives.
-        let stripped = alef_core::hash::strip_hash_line(&disk_content);
-        let normalized = pipeline::normalize_content(path, &stripped);
-        if alef_core::hash::hash_content(&normalized) != expected_hash {
-            stale.push(format!("[{label}] {}", path.display()));
-        }
+    let Some(disk_hash) = alef_core::hash::extract_hash(&disk_content) else {
+        // No alef hash on disk — file is either user-owned scaffold or was
+        // hand-edited to remove the marker. Either way, alef has no claim.
+        return;
+    };
+
+    if disk_hash != expected_hash {
+        stale.push(format!("[{label}] {}", path.display()));
     }
 }

@@ -129,12 +129,15 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
         let normalized = normalize_content(&file.path, &file.content);
-        let final_content = if file.generated_header {
-            let content_hash = hash::hash_content(&normalized);
-            hash::inject_hash_line(&normalized, &content_hash)
-        } else {
-            normalized
-        };
+        // Always attempt to inject the hash line. `inject_hash_line` is a no-op
+        // when the alef header marker isn't present (e.g. scaffold-once Cargo.toml,
+        // composer.json), so files without an alef header pass through unchanged.
+        // For any file the backend tagged with the alef header, this gives us a
+        // single ground-truth hash on disk that `alef verify` can compare against
+        // — independent of whatever external formatter (cargo fmt, php-cs-fixer,
+        // ruff, rubocop, biome) reformats the body afterward.
+        let content_hash = hash::hash_content(&normalized);
+        let final_content = hash::inject_hash_line(&normalized, &content_hash);
         std::fs::write(&full_path, &final_content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         debug!("  wrote: {}", full_path.display());
@@ -162,12 +165,8 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
             let existing = std::fs::read_to_string(&full_path).unwrap_or_default();
             let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
             let normalized = normalize_content(&file.path, &file.content);
-            let generated = if file.generated_header {
-                let content_hash = hash::hash_content(&normalized);
-                hash::inject_hash_line(&normalized, &content_hash)
-            } else {
-                normalized
-            };
+            let content_hash = hash::hash_content(&normalized);
+            let generated = hash::inject_hash_line(&normalized, &content_hash);
             let on_disk = if is_rust {
                 format_rust_content(&existing)
             } else {
@@ -258,12 +257,8 @@ pub fn write_scaffold_files_with_overwrite(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        let content = if file.generated_header {
-            let content_hash = hash::hash_content(&file.content);
-            hash::inject_hash_line(&file.content, &content_hash)
-        } else {
-            file.content.clone()
-        };
+        let content_hash = hash::hash_content(&file.content);
+        let content = hash::inject_hash_line(&file.content, &content_hash);
         std::fs::write(&full_path, &content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         count += 1;

@@ -111,18 +111,7 @@ fn to_pep440(version: &str) -> String {
     }
 }
 
-/// Convert a semver pre-release version to RubyGems canonical prerelease format.
-/// e.g., "0.1.0-rc.2" → "0.1.0.pre.rc.2", "0.1.0-alpha.2" → "0.1.0.pre.alpha.2"
-/// Non-pre-release versions are returned unchanged.
-fn to_rubygems_prerelease(version: &str) -> String {
-    if let Some((base, pre)) = version.split_once('-') {
-        // Replace dashes and underscores with dots in prerelease part, then prepend "pre."
-        let normalized_pre = pre.replace(['-', '_'], ".");
-        format!("{base}.pre.{normalized_pre}")
-    } else {
-        version.to_string()
-    }
-}
+use alef_core::version::to_rubygems_prerelease;
 
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
 /// Returns a list of mismatches (empty = all consistent).
@@ -445,8 +434,9 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
                         match entry {
                             Ok(path) => {
                                 if let Ok(content) = std::fs::read_to_string(&path) {
-                                    let is_package_json = path.file_name().is_some_and(|f| f == "package.json");
-                                    if is_package_json {
+                                    let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+                                    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                                    if file_name == "package.json" {
                                         // For package.json files, only update the top-level
                                         // "version" field to avoid clobbering dependency versions.
                                         if let Some(new_content) =
@@ -458,16 +448,14 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
                                                 updated.push(path.to_string_lossy().to_string());
                                             }
                                         }
-                                    } else if path.file_name().is_some_and(|f| f == "Cargo.toml") {
+                                    } else if file_name == "Cargo.toml" {
                                         // Cargo.toml: only update [package] version (line-anchored).
                                         // Never use replace_all — it corrupts dependency version specs.
                                         let path_str = path.to_string_lossy().to_string();
                                         if write_version_to_cargo_toml(&path_str, &version).is_ok() {
                                             updated.push(path_str);
                                         }
-                                    } else if path.extension().is_some_and(|e| e == "toml")
-                                        && path.file_name().is_some_and(|f| f == "pyproject.toml")
-                                    {
+                                    } else if file_name == "pyproject.toml" {
                                         // pyproject.toml: only update the `version = "..."` field.
                                         // Never do blanket regex replace — it corrupts requires-python
                                         // and dependency version specifiers.
@@ -475,6 +463,36 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
                                         if let Some(new_content) =
                                             replace_version_pattern(&content, r#"version = "[^"]*""#, &py_ver)
                                         {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    } else if file_name == "version.rb" {
+                                        // Ruby version.rb: gem-formatted, replace VERSION constant only.
+                                        // Never use SEMVER_RE — `0.3.0` in `0.3.0.pre.rc.2` would re-acquire
+                                        // a dash-form prerelease, corrupting the gem version.
+                                        let rb_ver = to_rubygems_prerelease(&version);
+                                        if let Some(new_content) = replace_version_pattern(
+                                            &content,
+                                            r#"VERSION\s*=\s*['"][^'"]*['"]"#,
+                                            &rb_ver,
+                                        ) {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    } else if extension == "gemspec" {
+                                        // gemspec: gem-formatted, replace spec.version only.
+                                        let rb_ver = to_rubygems_prerelease(&version);
+                                        if let Some(new_content) = replace_version_pattern(
+                                            &content,
+                                            r#"spec\.version\s*=\s*['"][^'"]*['"]"#,
+                                            &rb_ver,
+                                        ) {
                                             if let Err(e) = std::fs::write(&path, &new_content) {
                                                 debug!("Could not write {}: {e}", path.display());
                                             } else {
@@ -629,27 +647,6 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_to_rubygems_prerelease_rc() {
-        assert_eq!(to_rubygems_prerelease("1.8.0"), "1.8.0");
-        assert_eq!(to_rubygems_prerelease("1.8.0-rc.2"), "1.8.0.pre.rc.2");
-    }
-
-    #[test]
-    fn test_to_rubygems_prerelease_alpha() {
-        assert_eq!(to_rubygems_prerelease("0.1.0-alpha.2"), "0.1.0.pre.alpha.2");
-    }
-
-    #[test]
-    fn test_to_rubygems_prerelease_beta() {
-        assert_eq!(to_rubygems_prerelease("0.1.0-beta.3"), "0.1.0.pre.beta.3");
-    }
-
-    #[test]
-    fn test_to_rubygems_prerelease_no_prerelease() {
-        assert_eq!(to_rubygems_prerelease("0.1.0"), "0.1.0");
-    }
 
     #[test]
     fn test_replace_version_pattern_ruby_version() {

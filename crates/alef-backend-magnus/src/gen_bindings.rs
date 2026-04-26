@@ -387,12 +387,16 @@ impl Backend for MagnusBackend {
         content.push_str("  # Re-export all types and functions from native extension\n");
         content.push_str("end\n");
 
-        // Generate the version file
-        let version = if api.version.is_empty() {
+        // Generate the version file. RubyGems rejects cargo's dash-form prerelease
+        // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the
+        // canonical `.pre.` form here. `alef verify` performs the same conversion
+        // when comparing on-disk content.
+        let cargo_version = if api.version.is_empty() {
             "0.0.0".to_string()
         } else {
             api.version.clone()
         };
+        let version = alef_core::version::to_rubygems_prerelease(&cargo_version);
         let mut version_content = hash::header(CommentStyle::Hash);
         version_content.push_str("# frozen_string_literal: true\n\n");
         version_content.push_str(&format!("module {module_name}\n"));

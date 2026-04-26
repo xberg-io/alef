@@ -530,8 +530,10 @@ mod tests {
         let marker_str = marker.to_str().unwrap();
 
         // Config with before hook only.
-        let mut config = PublishLanguageConfig::default();
-        config.before = Some(StringOrVec::Single(format!("echo 'before' > {marker_str}")));
+        let config = PublishLanguageConfig {
+            before: Some(StringOrVec::Single(format!("echo 'before' > {marker_str}"))),
+            ..Default::default()
+        };
 
         let result = run_publish_hooks(Language::Python, &config);
         assert!(result.is_ok());
@@ -543,9 +545,11 @@ mod tests {
         let (_temp_dir, marker) = make_temp_marker_file();
         let marker_str = marker.to_str().unwrap();
 
-        let mut config = PublishLanguageConfig::default();
-        config.precondition = Some("false".to_string()); // Always fails
-        config.before = Some(StringOrVec::Single(format!("echo 'before' > {marker_str}")));
+        let config = PublishLanguageConfig {
+            precondition: Some("false".to_string()), // Always fails
+            before: Some(StringOrVec::Single(format!("echo 'before' > {marker_str}"))),
+            ..Default::default()
+        };
 
         let result = run_publish_hooks(Language::Python, &config);
         assert!(result.is_ok());
@@ -558,8 +562,10 @@ mod tests {
         let (_temp_dir, marker) = make_temp_marker_file();
         let marker_str = marker.to_str().unwrap();
 
-        let mut config = PublishLanguageConfig::default();
-        config.after = Some(StringOrVec::Single(format!("echo 'after' > {marker_str}")));
+        let config = PublishLanguageConfig {
+            after: Some(StringOrVec::Single(format!("echo 'after' > {marker_str}"))),
+            ..Default::default()
+        };
 
         let result = run_publish_after_hooks(Language::Python, &config);
         assert!(result.is_ok());
@@ -586,11 +592,13 @@ mod tests {
         let marker1_str = marker1.to_str().unwrap();
         let marker2_str = marker2.to_str().unwrap();
 
-        let mut config = PublishLanguageConfig::default();
-        config.after = Some(StringOrVec::Multiple(vec![
-            format!("echo 'after1' > {marker1_str}"),
-            format!("echo 'after2' > {marker2_str}"),
-        ]));
+        let config = PublishLanguageConfig {
+            after: Some(StringOrVec::Multiple(vec![
+                format!("echo 'after1' > {marker1_str}"),
+                format!("echo 'after2' > {marker2_str}"),
+            ])),
+            ..Default::default()
+        };
 
         let result = run_publish_after_hooks(Language::Python, &config);
         assert!(result.is_ok());
@@ -600,8 +608,10 @@ mod tests {
 
     #[test]
     fn test_run_publish_after_hooks_failure_propagates_error() {
-        let mut config = PublishLanguageConfig::default();
-        config.after = Some(StringOrVec::Single("false".to_string())); // Command fails
+        let config = PublishLanguageConfig {
+            after: Some(StringOrVec::Single("false".to_string())), // Command fails
+            ..Default::default()
+        };
 
         let result = run_publish_after_hooks(Language::Python, &config);
         assert!(result.is_err(), "after hook failure should propagate error");
@@ -616,9 +626,11 @@ mod tests {
         let before_str = before_marker.to_str().unwrap();
         let after_str = after_marker.to_str().unwrap();
 
-        let mut config = PublishLanguageConfig::default();
-        config.before = Some(StringOrVec::Single(format!("echo 'before' > {before_str}")));
-        config.after = Some(StringOrVec::Single(format!("echo 'after' > {after_str}")));
+        let config = PublishLanguageConfig {
+            before: Some(StringOrVec::Single(format!("echo 'before' > {before_str}"))),
+            after: Some(StringOrVec::Single(format!("echo 'after' > {after_str}"))),
+            ..Default::default()
+        };
 
         // Simulate before hook
         let before_result = run_publish_hooks(Language::Python, &config);

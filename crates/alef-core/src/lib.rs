@@ -8,6 +8,7 @@ pub mod hash;
 pub mod ir;
 pub mod keywords;
 pub mod template_versions;
+pub mod version;
 
 pub use backend::{Backend, Capabilities, GeneratedFile};
 pub use config::{AlefConfig, resolve_output_dir};

@@ -594,7 +594,11 @@ impl Backend for PhpBackend {
             class_name.clone()
         };
 
-        let mut content = String::from("<?php\n");
+        // PSR-12 requires a blank line after the opening `<?php` tag.
+        // php-cs-fixer enforces this and would insert it post-write,
+        // making `alef verify` see content that differs from what was
+        // freshly generated. Emit it here so generated == on-disk.
+        let mut content = String::from("<?php\n\n");
         content.push_str(&hash::header(CommentStyle::DoubleSlash));
         content.push_str("// Type stubs for the native PHP extension — declares classes\n");
         content.push_str("// provided at runtime by the compiled Rust extension (.so/.dll).\n");

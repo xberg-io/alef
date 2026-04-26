@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-04-26
+
+A follow-up to v0.8.2 making `alef verify` formatter-agnostic and fixing the Ruby version-sync footgun. Verify is now a pure hash comparison: alef computes the canonical hash at generation time, embeds it in the file header, and on `alef verify` only compares the embedded hash against a freshly-computed hash of the canonicalised generated content. External formatters (php-cs-fixer, rubocop, ruff, biome, …) can reformat the body freely without ever causing a verify diff.
+
+### Changed
+
+- **`alef verify` is now hash-only.** The legacy "diff against on-disk content" path is removed. Generated files carry an `alef:hash:<blake3>` header line; verify reads that hash and compares against the hash of the freshly-generated canonical content. No file body inspection, no normalization-against-disk, no formatter sensitivity. Files without an alef hash header (user-owned scaffolds like `Cargo.toml`, `composer.json`) are skipped — alef has no claim over them.
+- **`alef generate` auto-runs `sync_versions`** at the end of every run, so user-owned manifests (gemspec, composer.json, package.json, etc.) track `Cargo.toml` automatically without a separate `alef sync-versions` invocation.
+
+### Fixed
+
+- **Ruby version.rb double-conversion via `[sync].extra_paths`**: when consumers listed `version.rb` in `[sync].extra_paths` (a common pattern for non-default extension layouts), the generic `SEMVER_RE.replace_all` matched the `0.3.0` prefix of the gem-formatted `0.3.0.pre.rc.2` and replaced it with the cargo dash-form `0.3.0-rc.2`, producing the corrupted `VERSION = "0.3.0-rc.2.pre.rc.2"`. The extra-paths handler now recognises `version.rb` and `*.gemspec` filenames and applies the gem-aware replacer (`to_rubygems_prerelease` + targeted regex) instead of the generic semver regex.
+- **Ruby gemspec/version.rb gem format**: scaffold (`alef-scaffold`) and binding writer (`alef-backend-magnus`) now both call `alef_core::version::to_rubygems_prerelease` so cargo prereleases like `0.3.0-rc.2` are emitted as RubyGems-canonical `0.3.0.pre.rc.2`. RubyGems rejects the dash form (`gem build` raises `Gem::Version "0.3.0-rc.2" is not a valid version`).
+- **PHP stub PSR-12 blank line**: generated `.phpstub` files now emit `<?php\n\n` so php-cs-fixer doesn't reformat the file on every commit.
+
+### Added
+
+- **`alef_core::version` module**: `to_rubygems_prerelease(version: &str) -> String` extracted from the CLI's `pipeline::version` so backends and scaffolds can reuse it without duplicating the conversion logic.
+
 ## [0.8.2] - 2026-04-26
 
 A follow-up release to v0.8.1 fixing post-generation formatter invocation. Generated bindings now reliably pass `cargo fmt --check` and `ruff check` in CI.
