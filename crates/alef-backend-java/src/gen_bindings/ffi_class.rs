@@ -1,4 +1,4 @@
-use crate::type_map::{java_boxed_type, java_type};
+use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_java_name;
 use alef_core::config::AlefConfig;
@@ -146,7 +146,7 @@ pub(crate) fn gen_sync_function_method(
         })
         .collect();
 
-    let return_type = java_type(&func.return_type);
+    let return_type = java_return_type(&func.return_type);
 
     writeln!(
         out,
@@ -391,11 +391,7 @@ pub(crate) fn gen_sync_function_method(
         writeln!(out, "                checkLastError();").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
-        writeln!(
-            out,
-            "            long byteLen = resultPtr.byteSize();"
-        )
-        .ok();
+        writeln!(out, "            long byteLen = resultPtr.byteSize();").ok();
         writeln!(
             out,
             "            byte[] result = resultPtr.reinterpret(byteLen).toArray(ValueLayout.JAVA_BYTE);"
@@ -476,13 +472,7 @@ pub(crate) fn gen_async_wrapper_method(
     writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
     writeln!(out, "            try {{").ok();
     if matches!(func.return_type, TypeRef::Unit) {
-        writeln!(
-            out,
-            "                {}({});",
-            sync_method_name,
-            param_names.join(", ")
-        )
-        .ok();
+        writeln!(out, "                {}({});", sync_method_name, param_names.join(", ")).ok();
         writeln!(out, "                return null;").ok();
     } else {
         writeln!(
