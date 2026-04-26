@@ -105,22 +105,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.blocking_recv() {{").ok();
         if has_error {
-            let err_deser = spec.error_constructor.replace("{msg}", "format!(\"Failed to deserialize response: {{}}\", _e)");
-            writeln!(
-                out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
-                err_deser
-            )
-            .ok();
+            let err_deser = spec
+                .error_constructor
+                .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
+            let line = format!("    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),", err_deser);
+            out.push_str(&line);
+            out.push('\n');
             let err_msg = spec.error_constructor.replace("{msg}", "msg");
-            writeln!(
-                out,
-                "    Ok(Err(msg)) => Err({}),",
-                err_msg
-            )
-            .ok();
-            let err_closed = spec.error_constructor.replace("{msg}", "\"Channel closed before reply received\".to_string()");
-            writeln!(out, "    Err(_) => Err({})", err_closed).ok();
+            let line = format!("    Ok(Err(msg)) => Err({}),", err_msg);
+            out.push_str(&line);
+            out.push('\n');
+            let err_closed = spec
+                .error_constructor
+                .replace("{msg}", "\"Channel closed before reply received\".to_string()");
+            let line = format!("    Err(_) => Err({})", err_closed);
+            out.push_str(&line);
+            out.push('\n');
         } else {
             writeln!(
                 out,
@@ -191,22 +191,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.await {{").ok();
         if has_error {
-            let err_deser = spec.error_constructor.replace("{msg}", "format!(\"Failed to deserialize response: {{}}\", _e)");
-            writeln!(
-                out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
-                err_deser
-            )
-            .ok();
+            let err_deser = spec
+                .error_constructor
+                .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
+            let line = format!("    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),", err_deser);
+            out.push_str(&line);
+            out.push('\n');
             let err_msg = spec.error_constructor.replace("{msg}", "msg");
-            writeln!(
-                out,
-                "    Ok(Err(msg)) => Err({}),",
-                err_msg
-            )
-            .ok();
-            let err_closed = spec.error_constructor.replace("{msg}", "\"Channel closed before reply received\".to_string()");
-            writeln!(out, "    Err(_) => Err({})", err_closed).ok();
+            let line = format!("    Ok(Err(msg)) => Err({}),", err_msg);
+            out.push_str(&line);
+            out.push('\n');
+            let err_closed = spec
+                .error_constructor
+                .replace("{msg}", "\"Channel closed before reply received\".to_string()");
+            let line = format!("    Err(_) => Err({})", err_closed);
+            out.push_str(&line);
+            out.push('\n');
         } else {
             writeln!(
                 out,
@@ -326,11 +326,7 @@ impl RustlerBridgeGenerator {
         .ok();
         writeln!(out, "        let _ = tx.send(Ok(result_json));").ok();
         writeln!(out, "    }}").ok();
-        writeln!(
-            out,
-            "    rustler::types::atom::ok()"
-        )
-        .ok();
+        writeln!(out, "    rustler::types::atom::ok()").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
 
@@ -349,11 +345,7 @@ impl RustlerBridgeGenerator {
         .ok();
         writeln!(out, "        let _ = tx.send(Err(error_message));").ok();
         writeln!(out, "    }}").ok();
-        writeln!(
-            out,
-            "    rustler::types::atom::ok()"
-        )
-        .ok();
+        writeln!(out, "    rustler::types::atom::ok()").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
 

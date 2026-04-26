@@ -139,6 +139,10 @@ impl Backend for GoBackend {
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
         let has_visitor_bridge = !config.trait_bridges.is_empty() && visitor_callbacks_enabled;
 
+        // Determine if any plugin-style bridges (with register_fn) are configured.
+        // These are independent of visitor_callbacks and generate trait_bridges.go.
+        let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
+
         // Collect streaming adapter method names — their FFI signature uses callbacks
         // which Go's CGO wrappers can't call directly.
         let streaming_methods: HashSet<String> = config
@@ -158,6 +162,7 @@ impl Backend for GoBackend {
 
         let content = format_go_code(&strip_trailing_whitespace(&gen_go_file(
             api,
+            config,
             &ffi_prefix,
             &pkg_name,
             &ffi_lib_name,
@@ -197,28 +202,28 @@ impl Backend for GoBackend {
                 content: visitor_content,
                 generated_header: true,
             });
+        }
 
-            // Generate trait_bridges.go only for plugin-style bridges that have a register_fn.
-            // Per-call bridges (no register_fn) use visitor.go callbacks via convert() instead.
-            let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
-            if has_plugin_bridges {
-                let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
-                    api,
-                    config,
-                    &pkg_name,
-                    &ffi_prefix,
-                    &ffi_header,
-                    &ffi_crate_dir,
-                    &to_root,
-                    &config.crate_config.name,
-                ));
-                if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
-                    files.push(GeneratedFile {
-                        path: PathBuf::from(&output_dir).join("trait_bridges.go"),
-                        content: trait_bridges_content,
-                        generated_header: true,
-                    });
-                }
+        // Generate trait_bridges.go for plugin-style bridges (with register_fn).
+        // Per-call bridges (no register_fn) use visitor.go callbacks via convert() instead.
+        // This is independent of visitor_callbacks, which only affects per-call bridges.
+        if has_plugin_bridges {
+            let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
+                api,
+                config,
+                &pkg_name,
+                &ffi_prefix,
+                &ffi_header,
+                &ffi_crate_dir,
+                &to_root,
+                &config.crate_config.name,
+            ));
+            if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
+                files.push(GeneratedFile {
+                    path: PathBuf::from(&output_dir).join("trait_bridges.go"),
+                    content: trait_bridges_content,
+                    generated_header: true,
+                });
             }
         }
 
@@ -320,6 +325,7 @@ fn uses_ffi_enum_type(
 #[allow(clippy::too_many_arguments)]
 fn gen_go_file(
     api: &ApiSurface,
+    config: &AlefConfig,
     ffi_prefix: &str,
     pkg_name: &str,
     ffi_lib_name: &str,
@@ -394,6 +400,29 @@ fn gen_go_file(
 
     // Error helper functions
     writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
+
+    // Generate trait bridge exports (//export trampolines called by C)
+    let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
+    if has_plugin_bridges {
+        writeln!(out, "// Trait bridge trampolines (exported to C)\n").ok();
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
+                let pascal = trait_def.name.to_pascal_case();
+                // Trait method trampolines
+                for method in &trait_def.methods {
+                    let export_name = format!("go{}{}", pascal, method.name.to_pascal_case());
+                    writeln!(out, "//export {}", export_name).ok();
+                }
+                // Plugin lifecycle trampolines
+                writeln!(out, "//export go{}Name", pascal).ok();
+                writeln!(out, "//export go{}Version", pascal).ok();
+                writeln!(out, "//export go{}Initialize", pascal).ok();
+                writeln!(out, "//export go{}Shutdown", pascal).ok();
+                writeln!(out, "//export go{}FreeUserData", pascal).ok();
+            }
+        }
+        writeln!(out).ok();
+    }
 
     // Generate error types (sentinel errors + structured error type)
     for error in &api.errors {

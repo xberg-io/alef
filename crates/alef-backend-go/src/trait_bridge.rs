@@ -290,11 +290,11 @@ fn gen_interface_method(out: &mut String, method: &MethodDef) {
     writeln!(out).ok();
 }
 
-/// Generate one `//export go{Trait}{Method}` trampoline.
+/// Generate one trampoline function (implementation without //export).
+/// The //export declaration is in binding.go to avoid duplicate definitions.
 fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method: &MethodDef) {
     let export_name = format!("go{}{}", trait_pascal, method.name.to_pascal_case());
 
-    writeln!(out, "//export {}", export_name).ok();
     writeln!(out, "func {}(", export_name).ok();
     writeln!(out, "\tuserData unsafe.Pointer,").ok();
 
@@ -303,7 +303,8 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
         writeln!(out, "\t{} {},", p.name, c_type).ok();
     }
 
-    if method.error_type.is_some() {
+    // Add outResult if method returns a value (non-unit return type)
+    if !matches!(method.return_type, TypeRef::Unit) {
         writeln!(out, "\toutResult **C.char,").ok();
     }
     writeln!(out, "\toutError **C.char,").ok();
@@ -377,7 +378,6 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
 /// Generate trampolines for plugin methods: Name, Version, Initialize, Shutdown.
 fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str) {
     // Name trampoline
-    writeln!(out, "//export go{}Name", trait_pascal).ok();
     writeln!(
         out,
         "func go{}Name(userData unsafe.Pointer, outResult **C.char, outError **C.char) C.int32_t {{",
@@ -397,7 +397,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out).ok();
 
     // Version trampoline
-    writeln!(out, "//export go{}Version", trait_pascal).ok();
     writeln!(
         out,
         "func go{}Version(userData unsafe.Pointer, outResult **C.char, outError **C.char) C.int32_t {{",
@@ -417,7 +416,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out).ok();
 
     // Initialize trampoline
-    writeln!(out, "//export go{}Initialize", trait_pascal).ok();
     writeln!(
         out,
         "func go{}Initialize(userData unsafe.Pointer, outError **C.char) C.int32_t {{",
@@ -440,7 +438,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out).ok();
 
     // Shutdown trampoline
-    writeln!(out, "//export go{}Shutdown", trait_pascal).ok();
     writeln!(
         out,
         "func go{}Shutdown(userData unsafe.Pointer, outError **C.char) C.int32_t {{",
@@ -463,7 +460,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     writeln!(out).ok();
 
     // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
-    writeln!(out, "//export go{}FreeUserData", trait_pascal).ok();
     writeln!(out, "func go{}FreeUserData(userData unsafe.Pointer) {{", trait_pascal).ok();
     writeln!(out, "\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()").ok();
     writeln!(out, "}}").ok();
