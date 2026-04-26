@@ -720,6 +720,13 @@ pub fn gen_visitor_file(
     writeln!(out, "package {pkg_name}").ok();
     writeln!(out).ok();
 
+    // Construct C type names from the FFI prefix.
+    // E.g., ffi_prefix="htm" → "HTMNodeContext", "HTMVisitorCallbacks"
+    let prefix_upper = ffi_prefix.to_uppercase();
+    let node_context_type = format!("{}NodeContext", prefix_upper);
+    let visitor_callbacks_type = format!("{}VisitorCallbacks", prefix_upper);
+    let conversion_options_type = format!("{}ConversionOptions", prefix_upper);
+
     // -------------------------------------------------------------------------
     // CGo preamble
     // -------------------------------------------------------------------------
@@ -741,19 +748,19 @@ pub fn gen_visitor_file(
     // Forward-declare all exported Go trampolines so the static helper below can
     // reference them.  CGo will resolve these at link time.
     for spec in CALLBACKS {
-        let c_sig = c_signature(spec, ffi_prefix);
+        let c_sig = c_signature(spec, ffi_prefix, &node_context_type);
         writeln!(out, "extern int32_t {}({});", spec.export_name, c_sig).ok();
     }
 
     writeln!(out).ok();
 
-    // Static C helper that constructs HTMHtmVisitorCallbacks with all Go trampolines.
+    // Static C helper that constructs VisitorCallbacks with all Go trampolines.
     writeln!(
         out,
-        "static HTMHtmVisitorCallbacks makeVisitorCallbacks(void* user_data) {{"
+        "static {visitor_callbacks_type} makeVisitorCallbacks(void* user_data) {{"
     )
     .ok();
-    writeln!(out, "    HTMHtmVisitorCallbacks cbs;").ok();
+    writeln!(out, "    {visitor_callbacks_type} cbs;").ok();
     writeln!(out, "    memset(&cbs, 0, sizeof(cbs));").ok();
     writeln!(out, "    cbs.user_data = user_data;").ok();
     for spec in CALLBACKS {
@@ -969,7 +976,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // Shared helpers
     // -------------------------------------------------------------------------
-    writeln!(out, "func decodeNodeContext(c *C.HTMHtmNodeContext) NodeContext {{").ok();
+    writeln!(out, "func decodeNodeContext(c *C.{node_context_type}) NodeContext {{").ok();
     writeln!(out, "\tctx := NodeContext{{").ok();
     writeln!(out, "\t\tNodeType:      nodeTypeFromC(c.node_type),").ok();
     writeln!(out, "\t\tTagName:       C.GoString(c.tag_name),").ok();
@@ -1133,22 +1140,22 @@ pub fn gen_visitor_file(
     // //export trampolines
     // -------------------------------------------------------------------------
     for spec in CALLBACKS {
-        gen_trampoline(&mut out, spec);
+        gen_trampoline(&mut out, spec, &node_context_type);
     }
 
     // -------------------------------------------------------------------------
     // ConvertWithVisitor
     // -------------------------------------------------------------------------
-    gen_convert_with_visitor(&mut out, ffi_prefix);
+    gen_convert_with_visitor(&mut out, ffi_prefix, &conversion_options_type);
 
     out
 }
 
 /// Build the C parameter list string for the extern declaration of an exported Go function.
-fn c_signature(spec: &CallbackSpec, _ffi_prefix: &str) -> String {
+fn c_signature(spec: &CallbackSpec, _ffi_prefix: &str, node_context_type: &str) -> String {
     // CGO's //export generates non-const parameter types in the prolog header,
     // so extern declarations must match — no const qualifiers.
-    let mut parts = vec!["HTMHtmNodeContext* ctx".to_string(), "void* user_data".to_string()];
+    let mut parts = vec![format!("{node_context_type}* ctx"), "void* user_data".to_string()];
     for ep in spec.extra {
         let ctype = match ep.c_type {
             "*C.char" => "char*",
@@ -1195,10 +1202,10 @@ fn iface_param_names(spec: &CallbackSpec) -> Vec<String> {
 }
 
 /// Generate one `//export goVisit*` C callback trampoline.
-fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
+fn gen_trampoline(out: &mut String, spec: &CallbackSpec, node_context_type: &str) {
     // Build Go function parameter list (CGo types).
     let mut go_params = vec![
-        "ctx *C.HTMHtmNodeContext".to_string(),
+        format!("ctx *C.{node_context_type}"),
         "userData unsafe.Pointer".to_string(),
     ];
     for ep in spec.extra {
@@ -1246,7 +1253,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 }
 
 /// Generate the `ConvertWithVisitor` function.
-fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
+fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str, conversion_options_type: &str) {
     writeln!(
         out,
         "// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during"
@@ -1270,7 +1277,7 @@ fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
     writeln!(out, "\tcHTML := C.CString(html)").ok();
     writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
     writeln!(out).ok();
-    writeln!(out, "\tvar cOptions *C.HTMConversionOptions").ok();
+    writeln!(out, "\tvar cOptions *C.{conversion_options_type}").ok();
     writeln!(out, "\tif options != nil {{").ok();
     writeln!(
         out,
