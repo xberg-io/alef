@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **E2E**: bump pinned `vitest` in generated TypeScript and WASM `package.json` from `^3.0.0` to `^4.1.5`, matching the version dependabot already pulls into the alef repo's own e2e lockfile.
+- **Codegen/Scaffold**: all hardcoded third-party dependency version strings used in scaffold and e2e templates are centralized in `alef_core::template_versions` (110 constants grouped by ecosystem: npm, cargo, maven, gem, packagist, nuget, hex, pypi, cran, precommit). Each const that should auto-bump is annotated with a `// renovate: datasource=...` marker, and a new `renovate.json` at the repo root wires up the custom regex manager so Renovate can open version-bump PRs. Pure refactor — no value changes.
 
 ### Fixed
 
