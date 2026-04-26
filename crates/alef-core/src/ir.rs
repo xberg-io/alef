@@ -54,6 +54,10 @@ pub struct TypeDef {
     pub methods: Vec<MethodDef>,
     pub is_opaque: bool,
     pub is_clone: bool,
+    /// True if the type derives `Copy` (or is bitwise-copyable).
+    /// Used by FFI codegen to avoid emitting `.clone()` (which trips clippy::clone_on_copy).
+    #[serde(default)]
+    pub is_copy: bool,
     pub doc: String,
     #[serde(default)]
     pub cfg: Option<String>,
@@ -254,6 +258,10 @@ pub struct EnumDef {
     pub doc: String,
     #[serde(default)]
     pub cfg: Option<String>,
+    /// True if the enum derives `Copy`. Only unit-variant enums can derive Copy.
+    /// Used by FFI codegen to avoid emitting `.clone()` (which trips clippy::clone_on_copy).
+    #[serde(default)]
+    pub is_copy: bool,
     /// Serde tag property name for internally tagged enums (from `#[serde(tag = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_tag: Option<String>,

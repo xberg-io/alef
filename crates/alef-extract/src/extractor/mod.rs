@@ -626,6 +626,7 @@ fn extract_items(
                     methods: vec![],
                     is_opaque: true, // type aliases are opaque (no fields)
                     is_clone: false,
+                    is_copy: false,
                     is_trait: false,
                     has_default: false,
                     has_stripped_cfg_fields: false,
@@ -726,6 +727,7 @@ fn extract_items(
                     methods,
                     is_opaque: true,
                     is_clone: false,
+                    is_copy: false,
                     is_trait: true,
                     has_default: false,
                     has_stripped_cfg_fields: false,

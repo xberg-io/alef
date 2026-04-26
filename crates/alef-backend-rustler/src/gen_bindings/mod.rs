@@ -317,7 +317,7 @@ impl Backend for RustlerBackend {
         let output_dir = resolve_output_dir(
             config.output.elixir.as_ref(),
             &config.crate_config.name,
-            "packages/elixir/native/{name}_rustler/src/",
+            "packages/elixir/native/{name}_nif/src/",
         );
 
         Ok(vec![GeneratedFile {

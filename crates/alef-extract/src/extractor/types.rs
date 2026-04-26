@@ -85,6 +85,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     };
 
     let is_clone = has_derive(item.attrs.as_slice(), "Clone");
+    let is_copy = has_derive(item.attrs.as_slice(), "Copy");
     let has_default = has_derive(item.attrs.as_slice(), "Default");
     let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
@@ -109,6 +110,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         methods: vec![],
         is_opaque,
         is_clone,
+        is_copy,
         is_trait: false,
         has_default,
         has_stripped_cfg_fields,
@@ -131,11 +133,12 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
-    let variants = item.variants.iter().map(extract_enum_variant).collect();
+    let variants: Vec<_> = item.variants.iter().map(extract_enum_variant).collect();
 
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let serde_tag = extract_serde_tag(&item.attrs);
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
+    let is_copy = has_derive(item.attrs.as_slice(), "Copy");
 
     Some(EnumDef {
         rust_path,
@@ -146,6 +149,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         cfg,
         serde_tag,
         serde_rename_all,
+        is_copy,
     })
 }
 

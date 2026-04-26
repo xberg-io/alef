@@ -131,6 +131,7 @@ pub(crate) fn extract_impl_block(
             methods,
             is_opaque: true,
             is_clone: false,
+            is_copy: false,
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,

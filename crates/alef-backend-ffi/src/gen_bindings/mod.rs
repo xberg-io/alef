@@ -116,15 +116,22 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         path_map.insert(err.name.clone(), err.rust_path.replace('-', "_"));
     }
 
-    // Set of enum type names. In our codegen, all enums are #[repr(C)] (Copy), so callers
-    // use this set to avoid emitting clippy::clone_on_copy-triggering .clone().
-    let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
-    // Set of named (struct) types that derive Clone — callers can emit .clone() on these.
+    // Copy-typed named types (structs and enums that derive Copy). For these, callers emit
+    // auto-copy/deref instead of `.clone()` to avoid clippy::clone_on_copy.
+    let enum_names: ahash::AHashSet<String> = api
+        .enums
+        .iter()
+        .filter(|e| e.is_copy)
+        .map(|e| e.name.clone())
+        .chain(api.types.iter().filter(|t| !t.is_trait && t.is_copy).map(|t| t.name.clone()))
+        .collect();
+    // Clone-but-not-Copy named types (structs + data-bearing enums). Callers emit `.clone()`.
     let clone_names: ahash::AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| !t.is_trait && t.is_clone)
+        .filter(|t| !t.is_trait && t.is_clone && !t.is_copy)
         .map(|t| t.name.clone())
+        .chain(api.enums.iter().filter(|e| !e.is_copy).map(|e| e.name.clone()))
         .collect();
 
     // Import traits needed for trait method dispatch
