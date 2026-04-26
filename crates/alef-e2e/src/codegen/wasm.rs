@@ -174,7 +174,7 @@ fn render_package_json(
     "{pkg_name}": "{dep_value}",
     "vite-plugin-top-level-await": "^1.4.0",
     "vite-plugin-wasm": "^3.4.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.5"
   }}
 }}
 "#

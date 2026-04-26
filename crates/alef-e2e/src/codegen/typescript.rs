@@ -171,7 +171,7 @@ fn render_package_json(
   }},
   "devDependencies": {{
     "{pkg_name}": "{dep_value}",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.5"
   }}
 }}
 "#

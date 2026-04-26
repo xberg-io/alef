@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **E2E**: bump pinned `vitest` in generated TypeScript and WASM `package.json` from `^3.0.0` to `^4.1.5`, matching the version dependabot already pulls into the alef repo's own e2e lockfile.
+
 ### Removed
 
 - **Hooks**: `alef-fmt` and `alef-lint` pre-commit hooks. Both used `pass_filenames: false` with a broad `files:` regex, so any matching commit cold-started every configured language toolchain (mvn, dotnet, mypy, etc.) regardless of which file changed — making the hooks unusably slow. The `alef fmt` and `alef lint` CLI commands are unchanged. Scaffold's generated `.pre-commit-config.yaml` no longer emits the removed hook ids.
