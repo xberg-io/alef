@@ -193,8 +193,12 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         let stub_name = format!("stub{}", method.name.to_pascal_case());
 
         let mut method_type_params = vec!["MemorySegment.class".to_string()];
-        for _param in &method.params {
-            method_type_params.push("MemorySegment.class".to_string());
+        for param in &method.params {
+            let class_literal = match &param.ty {
+                TypeRef::Primitive(p) => format!("{}.class", java_type(&TypeRef::Primitive(p.clone()))),
+                _ => "MemorySegment.class".to_string(),
+            };
+            method_type_params.push(class_literal);
         }
         if !matches!(method.return_type, TypeRef::Unit) {
             method_type_params.push("MemorySegment.class".to_string());
@@ -337,15 +341,26 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         "    /** Register a {trait_pascal} implementation via Panama FFM upcall stubs. */"
     )
     .ok();
-    writeln!(
-        out,
-        "    public static void register{trait_pascal}(final I{trait_pascal} impl) throws Exception {{"
-    )
-    .ok();
+    // Plugin traits (has_super_trait) expose name() on the interface; non-plugin traits
+    // require the caller to supply a registry key.
+    let name_expr = if has_super_trait { "impl.name()" } else { "name" };
+    if has_super_trait {
+        writeln!(
+            out,
+            "    public static void register{trait_pascal}(final I{trait_pascal} impl) throws Exception {{"
+        )
+        .ok();
+    } else {
+        writeln!(
+            out,
+            "    public static void register{trait_pascal}(final I{trait_pascal} impl, String name) throws Exception {{"
+        )
+        .ok();
+    }
     writeln!(out, "        var bridge = new {bridge_class}(impl);").ok();
     writeln!(out, "        try {{").ok();
     writeln!(out, "            try (var nameArena = Arena.ofConfined()) {{").ok();
-    writeln!(out, "                var nameCs = nameArena.allocateFrom(impl.name());").ok();
+    writeln!(out, "                var nameCs = nameArena.allocateFrom({name_expr});").ok();
     writeln!(
         out,
         "                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
@@ -387,7 +402,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     .ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
-    writeln!(out, "        {registry_field}.put(impl.name(), bridge);").ok();
+    writeln!(out, "        {registry_field}.put({name_expr}, bridge);").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
@@ -488,9 +503,18 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
     let handle = format!("handle{}", method.name.to_pascal_case());
     let mut sig_params = vec!["MemorySegment userData".to_string()];
     for param in &method.params {
-        // Use a `_in` suffix on the segment name so we can declare the unmarshalled
-        // local under the original identifier without shadowing.
-        sig_params.push(format!("MemorySegment {}_in", java_param_name(&param.name)));
+        let local = java_param_name(&param.name);
+        match &param.ty {
+            TypeRef::Primitive(p) => {
+                // Primitives arrive as their Java primitive type via Panama FFM — no MemorySegment wrapper.
+                sig_params.push(format!("{} {local}", java_type(&TypeRef::Primitive(p.clone()))));
+            }
+            _ => {
+                // Use a `_in` suffix on the segment name so we can declare the unmarshalled
+                // local under the original identifier without shadowing.
+                sig_params.push(format!("MemorySegment {local}_in"));
+            }
+        }
     }
     if !matches!(method.return_type, TypeRef::Unit) {
         sig_params.push("MemorySegment outResult".to_string());
@@ -502,8 +526,10 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
 
     for param in &method.params {
         let local = java_param_name(&param.name);
-        let segment = format!("{local}_in");
-        unmarshal_param(out, &local, &segment, &param.ty);
+        if !matches!(param.ty, TypeRef::Primitive(_)) {
+            let segment = format!("{local}_in");
+            unmarshal_param(out, &local, &segment, &param.ty);
+        }
     }
 
     let java_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
@@ -538,20 +564,10 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
 fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
     match ty {
         TypeRef::Primitive(_) => {
-            // Primitives arrive as their primitive Java type; the bridge signature is generated
-            // with MemorySegment for every parameter, so primitive support is currently
-            // limited — kreuzberg's traits do not exercise this path.
-            writeln!(
-                out,
-                "            // primitive parameter '{local}' is treated as MemorySegment placeholder; not used."
-            )
-            .ok();
-            writeln!(
-                out,
-                "            // (fix me when a trait exposes a primitive method param)"
-            )
-            .ok();
-            writeln!(out, "            {local} = 0; /* unsupported primitive bridge */").ok();
+            // Primitives are declared directly in the handler signature with their Java primitive
+            // type (e.g. `byte _level`). No extraction from a MemorySegment is needed.
+            // This branch is intentionally unreachable — callers skip unmarshal_param for
+            // primitive params — but is kept to keep the match exhaustive.
         }
         TypeRef::Bytes => {
             writeln!(
@@ -751,6 +767,83 @@ mod tests {
         let body = files.bridge_content.as_str();
         assert!(body.contains("byte[] image_bytes = image_bytes_in.reinterpret"));
         assert!(body.contains("String config_json = config_in.reinterpret"));
-        let _ = PrimitiveType::Bool;
+    }
+
+    #[test]
+    fn bridge_handler_emits_primitive_param_as_java_primitive_not_memory_segment() {
+        // A trait method with a u8 primitive param (e.g. heading level).
+        let trait_def = make_trait(
+            "HtmlVisitor",
+            vec![make_method(
+                "visit_heading",
+                TypeRef::Unit,
+                vec![
+                    ParamDef {
+                        name: "level".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::U8),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "text".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+            )],
+        );
+        let files = gen_trait_bridge_files(&trait_def, "htm", "dev.kreuzberg", false);
+        let body = files.bridge_content.as_str();
+
+        // Handler signature: primitive arrives as `byte level`, not as `MemorySegment level_in`.
+        assert!(
+            body.contains("byte level"),
+            "expected 'byte level' in handler signature, got:\n{body}"
+        );
+        assert!(
+            !body.contains("MemorySegment level_in"),
+            "did not expect 'MemorySegment level_in' in handler, got:\n{body}"
+        );
+
+        // MethodType: primitive uses byte.class, not MemorySegment.class.
+        assert!(
+            body.contains("byte.class"),
+            "expected 'byte.class' in MethodType params, got:\n{body}"
+        );
+
+        // FunctionDescriptor: already used ValueLayout.JAVA_BYTE (unchanged by this fix).
+        assert!(
+            body.contains("ValueLayout.JAVA_BYTE"),
+            "expected 'ValueLayout.JAVA_BYTE' in FunctionDescriptor, got:\n{body}"
+        );
+
+        // No unsupported-primitive placeholder comment.
+        assert!(
+            !body.contains("unsupported primitive bridge"),
+            "did not expect placeholder comment in bridge, got:\n{body}"
+        );
+        assert!(
+            !body.contains("fix me when a trait exposes"),
+            "did not expect TODO comment in bridge, got:\n{body}"
+        );
+
+        // The impl call passes `level` directly.
+        assert!(
+            body.contains("impl.visit_heading(level, text)"),
+            "expected 'impl.visit_heading(level, text)' in bridge, got:\n{body}"
+        );
     }
 }
