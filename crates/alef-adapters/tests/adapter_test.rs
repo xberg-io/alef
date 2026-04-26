@@ -73,6 +73,8 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         trait_bridges: vec![],
         adapters: vec![],
         tools: Default::default(),
+        format: Default::default(),
+        format_overrides: HashMap::new(),
     }
 }
 

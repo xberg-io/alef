@@ -64,6 +64,8 @@ fn test_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: ToolsConfig::default(),
+        format: FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 

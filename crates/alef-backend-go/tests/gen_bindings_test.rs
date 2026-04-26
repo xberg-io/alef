@@ -97,6 +97,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -163,14 +165,14 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
-                    doc: "Fast mode".to_string(),
+                    is_tuple: false,doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Slow".to_string(),
                     fields: vec![],
-                    doc: "Slow mode".to_string(),
+                    is_tuple: false,doc: "Slow mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -329,21 +331,21 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
-                    doc: "Pending status".to_string(),
+                    is_tuple: false,doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
-                    doc: "Active status".to_string(),
+                    is_tuple: false,doc: "Active status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Completed".to_string(),
                     fields: vec![],
-                    doc: "Completed status".to_string(),
+                    is_tuple: false,doc: "Completed status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -1069,6 +1071,8 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
         e2e: None,
         trait_bridges: bridge_configs,
         tools: Default::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 

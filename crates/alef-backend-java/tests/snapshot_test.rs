@@ -206,21 +206,21 @@ fn print_generated_java_code() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
-                    doc: "Tesseract OCR".to_string(),
+                    is_tuple: false,doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
-                    doc: "PaddleOCR".to_string(),
+                    is_tuple: false,doc: "PaddleOCR".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "EasyOcr".to_string(),
                     fields: vec![],
-                    doc: "EasyOCR".to_string(),
+                    is_tuple: false,doc: "EasyOCR".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -331,6 +331,8 @@ fn print_generated_java_code() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();

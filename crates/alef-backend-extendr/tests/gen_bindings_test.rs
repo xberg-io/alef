@@ -82,6 +82,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -148,6 +150,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -155,6 +158,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Accurate mode".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -296,6 +300,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -303,6 +308,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Active status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -310,6 +316,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Completed".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Completed status".to_string(),
                     is_default: false,
                     serde_rename: None,

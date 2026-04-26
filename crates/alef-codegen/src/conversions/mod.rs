@@ -195,6 +195,7 @@ mod tests {
                 EnumVariant {
                     name: "Cpu".into(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -202,6 +203,7 @@ mod tests {
                 EnumVariant {
                     name: "Gpu".into(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,

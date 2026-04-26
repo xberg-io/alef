@@ -418,6 +418,7 @@ mod tests {
                     EnumVariant {
                         name: "Text".to_string(),
                         fields: vec![],
+                        is_tuple: false,
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
@@ -425,6 +426,7 @@ mod tests {
                     EnumVariant {
                         name: "Html".to_string(),
                         fields: vec![],
+                        is_tuple: false,
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,

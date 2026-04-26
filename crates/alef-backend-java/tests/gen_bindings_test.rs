@@ -79,6 +79,8 @@ fn make_test_config(package: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -174,14 +176,14 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
-                    doc: "Fast mode".to_string(),
+                    is_tuple: false,doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
-                    doc: "Accurate mode".to_string(),
+                    is_tuple: false,doc: "Accurate mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -268,6 +270,8 @@ fn test_basic_generation() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     // Generate bindings
@@ -416,6 +420,8 @@ fn test_package_default() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -597,6 +603,8 @@ fn test_optional_field_defaults_in_builder() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     // Generate bindings
@@ -676,21 +684,21 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                 EnumVariant {
                     name: "System".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("SystemMessage".to_string()))],
-                    doc: String::new(),
+                    is_tuple: false,doc: String::new(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "User".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("UserMessage".to_string()))],
-                    doc: String::new(),
+                    is_tuple: false,doc: String::new(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Assistant".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("AssistantMessage".to_string()))],
-                    doc: String::new(),
+                    is_tuple: false,doc: String::new(),
                     is_default: false,
                     serde_rename: None,
                 },

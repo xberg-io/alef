@@ -94,6 +94,8 @@ fn make_config_with_stubs() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -160,14 +162,14 @@ fn test_basic_stubs() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
-                    doc: "Fast mode".to_string(),
+                    is_tuple: false,doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
-                    doc: "Accurate mode".to_string(),
+                    is_tuple: false,doc: "Accurate mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -331,21 +333,21 @@ fn test_enum_stubs() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
-                    doc: "Pending status".to_string(),
+                    is_tuple: false,doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
-                    doc: "Active status".to_string(),
+                    is_tuple: false,doc: "Active status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Complete".to_string(),
                     fields: vec![],
-                    doc: "Completed status".to_string(),
+                    is_tuple: false,doc: "Completed status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -955,14 +957,14 @@ fn test_multiple_types_and_functions() {
                 EnumVariant {
                     name: "Asc".to_string(),
                     fields: vec![],
-                    doc: String::new(),
+                    is_tuple: false,doc: String::new(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Desc".to_string(),
                     fields: vec![],
-                    doc: String::new(),
+                    is_tuple: false,doc: String::new(),
                     is_default: false,
                     serde_rename: None,
                 },

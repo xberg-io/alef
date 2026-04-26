@@ -110,14 +110,14 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
-                    doc: "Tesseract OCR".to_string(),
+                    is_tuple: false,doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
-                    doc: "PaddleOCR backend".to_string(),
+                    is_tuple: false,doc: "PaddleOCR backend".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -204,6 +204,8 @@ fn test_basic_generation() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     // Generate bindings
@@ -360,6 +362,8 @@ fn test_namespace_resolution() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -441,6 +445,8 @@ fn test_generated_header() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -605,6 +611,8 @@ fn test_type_mapping() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -744,6 +752,8 @@ fn test_tuple_struct_fields_skipped() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -876,6 +886,8 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);

@@ -87,6 +87,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -166,14 +168,14 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
-                    doc: "Fast mode".to_string(),
+                    is_tuple: false,doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
-                    doc: "Accurate mode".to_string(),
+                    is_tuple: false,doc: "Accurate mode".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -312,21 +314,21 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
-                    doc: "Pending status".to_string(),
+                    is_tuple: false,doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
-                    doc: "Active status".to_string(),
+                    is_tuple: false,doc: "Active status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "Complete".to_string(),
                     fields: vec![],
-                    doc: "Complete status".to_string(),
+                    is_tuple: false,doc: "Complete status".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -1035,7 +1037,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
         }],
-        doc: String::new(),
+                    is_tuple: false,doc: String::new(),
         is_default: false,
         serde_rename: Some(rename.to_string()),
     };

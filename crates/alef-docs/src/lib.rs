@@ -758,6 +758,8 @@ mod tests {
             e2e: None,
             trait_bridges: vec![],
             tools: Default::default(),
+            format: FormatConfig::default(),
+            format_overrides: std::collections::HashMap::new(),
         };
 
         let files = generate_docs(&api, &config, &[Language::Python], "docs").unwrap();
@@ -866,6 +868,7 @@ mod tests {
                     EnumVariant {
                         name: "Markdown".to_string(),
                         fields: vec![],
+                        is_tuple: false,
                         doc: "Markdown output.".to_string(),
                         is_default: true,
                         serde_rename: None,
@@ -873,6 +876,7 @@ mod tests {
                     EnumVariant {
                         name: "Plain".to_string(),
                         fields: vec![],
+                        is_tuple: false,
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
