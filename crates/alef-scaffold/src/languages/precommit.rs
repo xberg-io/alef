@@ -141,14 +141,12 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20     - id: rumdl-fmt\n\n",
     );
 
-    // Alef: format, lint, readme, verify bindings, sync versions
+    // Alef: readme, verify bindings, sync versions
     yaml.push_str(
-        "  # Alef: format and lint all binding languages, generate READMEs, verify bindings, sync versions\n\
+        "  # Alef: generate READMEs, verify bindings, sync versions\n\
          \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
          \x20   rev: v0.7.10\n\
          \x20   hooks:\n\
-         \x20     - id: alef-fmt\n\
-         \x20     - id: alef-lint\n\
          \x20     - id: alef-readme\n\
          \x20     - id: alef-verify\n\
          \x20     - id: alef-sync-versions\n\n",

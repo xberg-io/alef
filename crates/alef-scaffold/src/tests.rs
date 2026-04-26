@@ -301,8 +301,7 @@ fn test_pre_commit_config_python_node() {
     // Python-specific TOML formatting
     assert!(content.contains("pyproject-fmt"));
     // Alef unified hooks replace per-language hooks
-    assert!(content.contains("alef-fmt"));
-    assert!(content.contains("alef-lint"));
+    assert!(content.contains("alef-readme"));
     assert!(content.contains("alef-verify"));
     assert!(content.contains("alef-sync-versions"));
     // No per-language hooks
@@ -323,8 +322,8 @@ fn test_pre_commit_config_ffi_only() {
     assert!(content.contains("cargo-fmt"));
     assert!(content.contains("cargo-clippy"));
     // Alef unified hooks present
-    assert!(content.contains("alef-fmt"));
-    assert!(content.contains("alef-lint"));
+    assert!(content.contains("alef-verify"));
+    assert!(content.contains("alef-readme"));
     // No per-language hooks
     assert!(!content.contains("clang-format"));
     assert!(!content.contains("ruff"));
@@ -375,8 +374,7 @@ fn test_pre_commit_config_all_languages() {
     // Python-specific TOML formatting
     assert!(content.contains("pyproject-fmt"));
     // Alef unified hooks replace all per-language hooks
-    assert!(content.contains("alef-fmt"));
-    assert!(content.contains("alef-lint"));
+    assert!(content.contains("alef-readme"));
     assert!(content.contains("alef-verify"));
     assert!(content.contains("alef-sync-versions"));
     // Clippy excludes for all binding crates
@@ -473,9 +471,9 @@ fn test_precommit_no_biome_with_node() {
     assert!(!content.contains("biome-format"));
     assert!(!content.contains("biome-lint"));
     assert!(!content.contains("biomejs"));
-    // alef-fmt/alef-lint replace oxlint/oxfmt
-    assert!(content.contains("alef-fmt"));
-    assert!(content.contains("alef-lint"));
+    // alef-readme/alef-verify replace oxlint/oxfmt at the alef hook level
+    assert!(content.contains("alef-readme"));
+    assert!(content.contains("alef-verify"));
     assert!(!content.contains("oxlint"));
 }
 
