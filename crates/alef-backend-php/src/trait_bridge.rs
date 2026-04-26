@@ -143,15 +143,10 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         writeln!(out, "let inner_obj = self.inner;").ok();
         writeln!(out, "let cached_name = self.cached_name.clone();").ok();
 
-        // Clone params for the blocking closure
+        // Clone params for the blocking closure (String types need explicit clone)
         for p in &method.params {
-            match &p.ty {
-                TypeRef::String => {
-                    writeln!(out, "let {} = {}.clone();", p.name, p.name).ok();
-                }
-                _ => {
-                    writeln!(out, "let {} = {};", p.name, p.name).ok();
-                }
+            if matches!(&p.ty, TypeRef::String) {
+                writeln!(out, "let {} = {}.clone();", p.name, p.name).ok();
             }
         }
 
