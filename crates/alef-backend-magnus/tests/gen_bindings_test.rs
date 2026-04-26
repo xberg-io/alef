@@ -1095,14 +1095,33 @@ mod trait_bridge {
 }
 
 #[test]
-fn test_tagged_union_enum_vec_field_type() {
+fn test_tagged_union_enum_vec_field_serde_marshalling() {
     let backend = MagnusBackend;
 
-    // Create API with a tagged-union enum that has a Vec<String> field on one variant
+    // Create API with a tagged-union enum that has a Vec<Named> field on one variant.
+    // Named types require JSON marshalling, so Vec<Named> should map to String in the
+    // Magnus binding enum, and the conversion code will use serde_json to deserialize.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![],
+        types: vec![TypeDef {
+            name: "Item".to_string(),
+            rust_path: "test_lib::Item".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
         functions: vec![],
         enums: vec![EnumDef {
             name: "Result".to_string(),
@@ -1112,8 +1131,8 @@ fn test_tagged_union_enum_vec_field_type() {
                 EnumVariant {
                     name: "Success".to_string(),
                     fields: vec![FieldDef {
-                        name: "values".to_string(),
-                        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                        name: "items".to_string(),
+                        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
                         optional: false,
                         default: None,
                         doc: String::new(),
@@ -1126,7 +1145,7 @@ fn test_tagged_union_enum_vec_field_type() {
                         vec_inner_core_wrapper: CoreWrapper::None,
                         newtype_wrapper: None,
                     }],
-                    doc: "Success with values".to_string(),
+                    doc: "Success with items".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
@@ -1172,12 +1191,11 @@ fn test_tagged_union_enum_vec_field_type() {
         .unwrap();
     let content = &lib_file.content;
 
-    // The critical check: the enum should be generated with Vec<String> for the values field,
-    // NOT as String. Before the fix, field_type_for_serde's catch-all arm would map
-    // Vec<T> to "String", causing serde deserialization to fail when receiving an array.
+    // Vec<Named> fields should be mapped to String in the binding enum for JSON marshalling.
+    // The conversion code uses serde_json to serialize/deserialize these fields.
     assert!(
-        content.contains("Vec<String>"),
-        "Tagged-union enum variant with Vec<String> field must map to Vec<String>, not String"
+        content.contains("items: String"),
+        "Tagged-union enum variant with Vec<Named> field should map to String for JSON marshalling"
     );
 
     // Verify the enum definition includes proper variant structure

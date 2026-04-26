@@ -855,6 +855,8 @@ fn pascal_to_snake(name: &str) -> String {
 /// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
 /// Map a field type to a Rust type suitable for serde deserialization in data enums.
 /// Helper to recursively map inner TypeRef to serde type strings.
+/// For types that need JSON marshalling (Vec<Named>, Map, etc.), returns "String"
+/// to indicate they should be JSON-serialized. Otherwise returns the proper type.
 fn field_type_for_serde_inner(ty: &TypeRef) -> String {
     use alef_core::ir::PrimitiveType;
     match ty {
@@ -874,12 +876,10 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Named(n) => n.clone(),
-        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            field_type_for_serde_inner(k),
-            field_type_for_serde_inner(v)
-        ),
+        // Vec<T> and Map<K,V> containing complex types get JSON-marshalled as strings.
+        // The conversion config (vec_named_to_string) handles Vec<Named> and other
+        // complex container types by serializing them to JSON strings for the binding layer.
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
     }

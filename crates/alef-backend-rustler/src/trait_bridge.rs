@@ -41,10 +41,8 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        // async_trait is only needed if we mark the trait as #[async_trait]
-        // Since we're not using it for the impl (methods are in the TraitBridgeSpec),
-        // we don't need to import it unless the trait itself is async
-        vec![]
+        // async_trait is needed because the trait impls may have async methods
+        vec!["async_trait::async_trait".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
