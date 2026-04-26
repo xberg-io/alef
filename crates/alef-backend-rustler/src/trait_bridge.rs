@@ -107,7 +107,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         if has_error {
             writeln!(
                 out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{",
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}Error {{",
                 spec.error_type
             )
             .ok();
@@ -202,7 +202,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         if has_error {
             writeln!(
                 out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{",
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}Error {{",
                 spec.error_type
             )
             .ok();
