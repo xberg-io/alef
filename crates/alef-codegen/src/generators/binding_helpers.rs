@@ -62,14 +62,19 @@ pub fn wrap_return_with_mutex(
             };
             format!("{n} {{ inner: {} }}", arc_wrap(&inner, n, mutex_types))
         }
-        TypeRef::Named(_) => {
+        TypeRef::Named(n) => {
             // Non-opaque Named return type — use .into() for core→binding From conversion.
+            // Exception: when the return type matches the struct type (e.g. HtmlMetadata::from() -> HtmlMetadata),
+            // the core call already returns the right type, so skip the conversion.
             // When the core returns a Cow, call .into_owned() first to get an owned T.
             // When the core returns a reference, clone first since From<&T> typically doesn't exist.
             // NOTE: If this type was sanitized to String in the binding, From won't exist.
             // The calling backend should check method.sanitized before delegating.
             // This code assumes non-sanitized Named types have From impls.
-            if returns_cow {
+            if n == type_name {
+                // Same type: skip conversion (e.g., HtmlMetadata::from() returns HtmlMetadata already)
+                expr.to_string()
+            } else if returns_cow {
                 format!("{expr}.into_owned().into()")
             } else if returns_ref {
                 format!("{expr}.clone().into()")

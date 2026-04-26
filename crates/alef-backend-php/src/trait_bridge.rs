@@ -50,8 +50,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         .ok();
 
         let has_args = !method.params.is_empty();
-        if has_args {
-            writeln!(out, "let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
+        let args_expr = if has_args {
+            let mut args_parts = Vec::new();
             for p in &method.params {
                 let arg_expr = match &p.ty {
                     TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
@@ -77,14 +77,15 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                         p.name
                     ),
                 };
-                writeln!(out, "args.push({arg_expr});").ok();
+                args_parts.push(arg_expr);
             }
-        }
-
-        let args_expr = if has_args {
-            "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()"
+            let args_array = format!("[{}]", args_parts.join(", "));
+            format!(
+                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
+                args_array
+            )
         } else {
-            "vec![]"
+            "vec![]".to_string()
         };
 
         writeln!(
@@ -139,7 +140,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let name = &method.name;
         let mut out = String::with_capacity(1024);
 
-        writeln!(out, "let inner_obj = self.inner.clone();").ok();
+        writeln!(out, "let inner_obj = self.inner;").ok();
         writeln!(out, "let cached_name = self.cached_name.clone();").ok();
 
         // Clone params for the blocking closure
@@ -157,11 +158,11 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "// SAFETY: PHP objects are single-threaded within a request.").ok();
         writeln!(out, "// The block_on executes within the async runtime.").ok();
-        writeln!(out, "let result = WORKER_RUNTIME.block_on(async {{").ok();
+        writeln!(out, "WORKER_RUNTIME.block_on(async {{").ok();
 
         let has_args = !method.params.is_empty();
-        if has_args {
-            writeln!(out, "    let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
+        let args_expr = if has_args {
+            let mut args_parts = Vec::new();
             for p in &method.params {
                 let arg_expr = match &p.ty {
                     TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
@@ -187,14 +188,15 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                         p.name
                     ),
                 };
-                writeln!(out, "    args.push({arg_expr});").ok();
+                args_parts.push(arg_expr);
             }
-        }
-
-        let args_expr = if has_args {
-            "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()"
+            let args_array = format!("[{}]", args_parts.join(", "));
+            format!(
+                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
+                args_array
+            )
         } else {
-            "vec![]"
+            "vec![]".to_string()
         };
 
         // inner_obj is *mut ZendObject, so we need to dereference and call the method.
@@ -238,8 +240,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         writeln!(out, "            plugin_name: cached_name.clone(),").ok();
         writeln!(out, "        }}),").ok();
         writeln!(out, "    }}").ok();
-        writeln!(out, "}});").ok();
-        writeln!(out, "result").ok();
+        writeln!(out, "}})",).ok();
 
         out
     }
@@ -324,7 +325,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 // Check if required method exists by attempting to call it with empty args.
                 writeln!(
                     out,
-                    r#"    if backend.try_call_method("{}".into(), vec![]).is_err() {{"#,
+                    r#"    if backend.try_call_method("{}", vec![]).is_err() {{"#,
                     method.name
                 )
                 .ok();
@@ -335,7 +336,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                     method.name
                 )
                 .ok();
-                writeln!(out, "        ).into());").ok();
+                writeln!(out, "        ));").ok();
                 writeln!(out, "    }}").ok();
             }
         }

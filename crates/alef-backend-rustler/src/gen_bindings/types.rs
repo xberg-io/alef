@@ -129,7 +129,28 @@ pub(super) fn gen_rustler_wrap_return(
                 format!("{expr}.into()")
             }
         }
-        TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("{expr}.into()"),
+        // String and Char: only apply .into() if the core returns a reference (&str, &char).
+        // If returns_ref is false, the core returns owned String/Char, so no conversion needed.
+        TypeRef::String | TypeRef::Char => {
+            if returns_ref {
+                // Core returns &str/&char, need to convert to String/Char
+                format!("{expr}.into()")
+            } else {
+                // Core already returns String/Char, no conversion needed
+                expr.to_string()
+            }
+        }
+        // Bytes (Vec<u8>): only apply .into() if the core returns a reference (&[u8]).
+        // If returns_ref is false, the core returns owned Vec<u8>, so no conversion needed.
+        TypeRef::Bytes => {
+            if returns_ref {
+                // Core returns &[u8], need to convert to Vec<u8>
+                format!("{expr}.into()")
+            } else {
+                // Core already returns Vec<u8>, no conversion needed
+                expr.to_string()
+            }
+        }
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Duration => format!("{expr}.as_millis() as u64"),
         TypeRef::Json => format!("{expr}.to_string()"),

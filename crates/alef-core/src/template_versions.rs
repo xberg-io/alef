@@ -58,6 +58,9 @@ pub mod cargo {
     // renovate: datasource=crate depName=wasm-bindgen-futures
     pub const WASM_BINDGEN_FUTURES: &str = "0.4";
 
+    // renovate: datasource=crate depName=futures-util
+    pub const FUTURES_UTIL: &str = "0.3";
+
     // renovate: datasource=crate depName=serde-wasm-bindgen
     pub const SERDE_WASM_BINDGEN: &str = "0.6";
 

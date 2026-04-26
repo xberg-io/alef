@@ -19,13 +19,13 @@ use alef_codegen::naming::go_param_name;
 use alef_core::hash::{self, CommentStyle};
 use std::fmt::Write;
 
-/// Derive the cbindgen-generated C struct name for the visitor callbacks.
+/// Derive the cbindgen-generated C struct name for a Rust FFI struct.
 ///
 /// cbindgen prepends the configured `prefix` (uppercased) to the Rust type name.
-/// The Rust visitor callbacks struct is named `{PascalPrefix}VisitorCallbacks`
-/// (e.g. for `ffi_prefix = "htm"` → `HtmVisitorCallbacks`), so cbindgen emits
-/// `{PREFIX}{PascalPrefix}VisitorCallbacks` (e.g. `HTMHtmVisitorCallbacks`).
-fn visitor_c_struct_name(ffi_prefix: &str) -> String {
+/// FFI structs are named with a PascalCase prefix in Rust (e.g. `HtmNodeContext`,
+/// `HtmVisitorCallbacks`), so for `ffi_prefix = "htm"` cbindgen emits
+/// `HTMHtmNodeContext`, `HTMHtmVisitorCallbacks`.
+pub(crate) fn ffi_c_struct_name(ffi_prefix: &str, rust_basename: &str) -> String {
     let prefix_upper = ffi_prefix.to_uppercase();
     let prefix_pascal = {
         let mut chars = ffi_prefix.chars();
@@ -34,7 +34,11 @@ fn visitor_c_struct_name(ffi_prefix: &str) -> String {
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         }
     };
-    format!("{prefix_upper}{prefix_pascal}VisitorCallbacks")
+    format!("{prefix_upper}{prefix_pascal}{rust_basename}")
+}
+
+fn visitor_c_struct_name(ffi_prefix: &str) -> String {
+    ffi_c_struct_name(ffi_prefix, "VisitorCallbacks")
 }
 
 /// A single visitor callback specification.
@@ -741,7 +745,7 @@ pub fn gen_visitor_file(
     // cbindgen prepends prefix_upper + the Rust struct name (PascalCase),
     // so the visitor callbacks struct is e.g. "HTMHtmVisitorCallbacks" for prefix "htm".
     let prefix_upper = ffi_prefix.to_uppercase();
-    let node_context_type = format!("{}NodeContext", prefix_upper);
+    let node_context_type = ffi_c_struct_name(ffi_prefix, "NodeContext");
     let visitor_callbacks_type = visitor_c_struct_name(ffi_prefix);
     let conversion_options_type = format!("{}ConversionOptions", prefix_upper);
 

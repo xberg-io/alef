@@ -534,10 +534,7 @@ pub fn gen_trait_bridge(
     // trait would have async_trait-rewritten signatures while the impl uses bare `async fn`,
     // producing E0195 lifetime mismatches. The bridge is also conceptually wasm-only:
     // it wraps `wasm_bindgen::JsValue` and is invoked from the JS register_* entry point.
-    let mod_name = format!(
-        "__alef_wasm_bridge_{}",
-        bridge_cfg.trait_name.to_lowercase()
-    );
+    let mod_name = format!("__alef_wasm_bridge_{}", bridge_cfg.trait_name.to_lowercase());
     let gated = format!(
         "#[cfg(target_arch = \"wasm32\")]\nmod {mod_name} {{\n    use super::*;\n\n{body}\n}}\n#[cfg(target_arch = \"wasm32\")]\npub use {mod_name}::*;",
         mod_name = mod_name,

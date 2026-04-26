@@ -175,7 +175,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
             writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Named(_) => {
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").ok();
+            writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();

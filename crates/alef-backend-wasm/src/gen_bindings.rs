@@ -1835,6 +1835,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features_clause} }}
+futures-util = "{futures_util}"
 js-sys = "{js_sys}"
 wasm-bindgen = "{wasm_bindgen}"
 wasm-bindgen-futures = "{wasm_bindgen_futures}"
@@ -1845,7 +1846,7 @@ serde_json = "1"{extra_deps_section}
 wasm-opt = false
 
 [package.metadata.cargo-machete]
-ignored = ["wasm-bindgen-futures"]
+ignored = ["futures-util", "wasm-bindgen-futures"]
 "#,
         header = header,
         core_crate_dir = core_crate_dir,
@@ -1856,6 +1857,7 @@ ignored = ["wasm-bindgen-futures"]
         keywords_toml = keywords_toml,
         crate_name = crate_name,
         features_clause = features_clause,
+        futures_util = tv::cargo::FUTURES_UTIL,
         js_sys = tv::cargo::JS_SYS,
         wasm_bindgen = tv::cargo::WASM_BINDGEN,
         wasm_bindgen_futures = tv::cargo::WASM_BINDGEN_FUTURES,
