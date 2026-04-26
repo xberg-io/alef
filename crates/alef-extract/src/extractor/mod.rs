@@ -99,6 +99,17 @@ pub fn extract(
         }
     }
 
+    // Post-processing: apply cfg attributes from pub use re-exports.
+    // For intra-crate re-exports like `#[cfg(feature = "api")] pub use core::ServerConfig`,
+    // we need to mark the extracted ServerConfig type with the cfg from the re-export statement.
+    if let Some(first_source) = sources.first() {
+        if let Ok(content) = std::fs::read_to_string(first_source) {
+            if let Ok(file) = syn::parse_file(&content) {
+                apply_reexport_cfg_attributes(&mut surface, &file.items);
+            }
+        }
+    }
+
     // Post-processing: resolve unresolved trait sources.
     // When a file containing `impl Trait for Type` is processed before the file defining
     // the Trait, the `trait_source` on methods will be `None`. Now that all files are
@@ -748,7 +759,14 @@ fn extract_items(
                 }
             }
             syn::Item::Use(item_use) if is_pub(&item_use.vis) => {
-                resolve_use_tree(&item_use.tree, crate_name, surface, workspace_root, visited, &item_use.attrs)?;
+                resolve_use_tree(
+                    &item_use.tree,
+                    crate_name,
+                    surface,
+                    workspace_root,
+                    visited,
+                    &item_use.attrs,
+                )?;
             }
             _ => {}
         }
@@ -776,6 +794,99 @@ fn extract_items(
         }
     }
     Ok(())
+}
+
+/// Apply cfg attributes from pub use and pub mod statements to extracted items.
+///
+/// For example:
+/// - `#[cfg(feature = "api")] pub use core::ServerConfig` marks ServerConfig with cfg
+/// - `#[cfg(feature = "api")] pub mod api { ... }` marks all items from api module with cfg
+fn apply_reexport_cfg_attributes(surface: &mut ApiSurface, items: &[syn::Item]) {
+    for item in items {
+        match item {
+            syn::Item::Use(item_use) if helpers::is_pub(&item_use.vis) => {
+                if let Some(cfg_str) = helpers::extract_cfg_condition(&item_use.attrs) {
+                    collect_reexport_names_with_cfg(&item_use.tree, surface, &cfg_str);
+                }
+            }
+            syn::Item::Mod(item_mod) if helpers::is_pub(&item_mod.vis) => {
+                if let Some(cfg_str) = helpers::extract_cfg_condition(&item_mod.attrs) {
+                    apply_module_cfg(surface, &item_mod.ident.to_string(), &cfg_str);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract names from a use tree and apply cfg to matching items in the surface.
+fn collect_reexport_names_with_cfg(tree: &syn::UseTree, surface: &mut ApiSurface, cfg: &str) {
+    match tree {
+        syn::UseTree::Path(use_path) => {
+            collect_reexport_names_with_cfg(&use_path.tree, surface, cfg);
+        }
+        syn::UseTree::Name(name) => {
+            let item_name = name.ident.to_string();
+            apply_cfg_to_item(surface, &item_name, cfg);
+        }
+        syn::UseTree::Rename(rename) => {
+            let item_name = rename.rename.to_string();
+            apply_cfg_to_item(surface, &item_name, cfg);
+        }
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                collect_reexport_names_with_cfg(item, surface, cfg);
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            // For `pub use module::*`, we'd need to know which items are in module
+            // This is complex so we skip glob re-exports for now
+        }
+    }
+}
+
+/// Apply a cfg attribute to an item in the surface by name.
+fn apply_cfg_to_item(surface: &mut ApiSurface, name: &str, cfg: &str) {
+    for typ in &mut surface.types {
+        if typ.name == name && typ.cfg.is_none() {
+            typ.cfg = Some(cfg.to_string());
+        }
+    }
+    for func in &mut surface.functions {
+        if func.name == name && func.cfg.is_none() {
+            func.cfg = Some(cfg.to_string());
+        }
+    }
+    for en in &mut surface.enums {
+        if en.name == name && en.cfg.is_none() {
+            en.cfg = Some(cfg.to_string());
+        }
+    }
+}
+
+/// Apply a cfg attribute to all items from a module.
+///
+/// For example, if `pub mod api` is gated behind `#[cfg(feature = "api")]`,
+/// all items whose rust_path starts with `{crate_name}::api::` should be marked with that cfg.
+fn apply_module_cfg(surface: &mut ApiSurface, module_name: &str, cfg: &str) {
+    let module_prefix = format!("::{module_name}::");
+    let module_prefix_self = format!("::{module_name}");
+
+    for typ in &mut surface.types {
+        if typ.cfg.is_none() && (typ.rust_path.contains(&module_prefix) || typ.rust_path.ends_with(&module_prefix_self)) {
+            typ.cfg = Some(cfg.to_string());
+        }
+    }
+    for func in &mut surface.functions {
+        if func.cfg.is_none() && (func.rust_path.contains(&module_prefix) || func.rust_path.ends_with(&module_prefix_self)) {
+            func.cfg = Some(cfg.to_string());
+        }
+    }
+    for en in &mut surface.enums {
+        if en.cfg.is_none() && (en.rust_path.contains(&module_prefix) || en.rust_path.ends_with(&module_prefix_self)) {
+            en.cfg = Some(cfg.to_string());
+        }
+    }
 }
 
 #[cfg(test)]
