@@ -181,7 +181,7 @@ fn gen_trait_bridge(
     writeln!(out).ok();
 
     writeln!(out, "\t// Build the C vtable").ok();
-    writeln!(out, "\tvtable := C.TEMP_STRUCT_NAME_FOR_TESTING{{").ok();
+    writeln!(out, "\tvtable := C.{}{{", c_vtable_struct).ok();
 
     // Set up vtable function pointers (via //export trampolines)
     for method in &trait_def.methods {

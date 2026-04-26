@@ -1685,7 +1685,11 @@ fn gen_record_type(
                 Some(DefaultValue::IntLiteral(n)) => n.to_string(),
                 Some(DefaultValue::FloatLiteral(f)) => {
                     let s = f.to_string();
-                    if s.contains('.') { s } else { format!("{s}.0") }
+                    let s = if s.contains('.') { s } else { format!("{s}.0") };
+                    match &field.ty {
+                        TypeRef::Primitive(PrimitiveType::F32) => format!("{}f", s),
+                        _ => s,
+                    }
                 }
                 Some(DefaultValue::StringLiteral(s)) => {
                     let escaped = s
