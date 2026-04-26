@@ -43,7 +43,6 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
- "tracing",
 ]
 
 [[package]]

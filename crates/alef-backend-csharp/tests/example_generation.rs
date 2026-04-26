@@ -107,14 +107,16 @@ fn test_generated_code_example() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
-                    is_tuple: false,doc: "Tesseract OCR engine".to_string(),
+                    is_tuple: false,
+                    doc: "Tesseract OCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
-                    is_tuple: false,doc: "PaddleOCR engine".to_string(),
+                    is_tuple: false,
+                    doc: "PaddleOCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },

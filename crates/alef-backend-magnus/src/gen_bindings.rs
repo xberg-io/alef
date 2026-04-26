@@ -897,11 +897,12 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
-        // Named types already JSON-marshal through string, so collapse Vec<Named> to String
-        TypeRef::Named(_) => "String".to_string(),
-        // Nested Vec requires JSON round-tripping: collapse to String
-        TypeRef::Vec(_) => "String".to_string(),
-        // Map requires JSON round-tripping: collapse to String
+        // Named types serde-derive in the generated module — emit by name so JSON
+        // arrays/objects deserialize directly via serde.
+        TypeRef::Named(n) => n.clone(),
+        // Recurse for Vec so Vec<Item> / Vec<String> round-trip as actual JSON arrays.
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
+        // Map keys/values may be opaque or non-serde; collapse to String and round-trip via serde_json.
         TypeRef::Map(_, _) => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),

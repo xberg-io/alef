@@ -329,11 +329,9 @@ pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Opti
                         let mut outputs = Vec::new();
                         if let Some(cmd_list) = &setup_cfg.install {
                             for cmd in cmd_list.commands() {
-                                let (stdout, stderr) = super::helpers::run_command_captured_with_timeout(
-                                    cmd,
-                                    Some(timeout_secs),
-                                )
-                                .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
+                                let (stdout, stderr) =
+                                    super::helpers::run_command_captured_with_timeout(cmd, Some(timeout_secs))
+                                        .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
                                 outputs.push((cmd.to_string(), stdout, stderr));
                             }
                         }

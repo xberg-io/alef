@@ -15,4 +15,3 @@ alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
-tracing = { workspace = true }

@@ -152,7 +152,8 @@ pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
         format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),}
+        format_overrides: std::collections::HashMap::new(),
+    }
 }
 
 pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {

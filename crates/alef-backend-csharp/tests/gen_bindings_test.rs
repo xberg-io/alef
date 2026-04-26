@@ -110,14 +110,16 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
-                    is_tuple: false,doc: "Tesseract OCR".to_string(),
+                    is_tuple: false,
+                    doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
-                    is_tuple: false,doc: "PaddleOCR backend".to_string(),
+                    is_tuple: false,
+                    doc: "PaddleOCR backend".to_string(),
                     is_default: false,
                     serde_rename: None,
                 },
