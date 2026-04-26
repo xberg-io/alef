@@ -16,7 +16,6 @@ pub(crate) fn gen_facade_class(
     _prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    _has_visitor_bridge: bool,
 ) -> String {
     let mut body = String::with_capacity(4096);
 

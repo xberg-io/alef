@@ -12,7 +12,7 @@ pub(crate) fn gen_native_lib(
     config: &AlefConfig,
     package: &str,
     prefix: &str,
-    has_visitor_bridge: bool,
+    has_visitor_pattern: bool,
 ) -> String {
     // Generate the class body first, then scan it to determine which imports are needed.
     let mut body = String::with_capacity(2048);
@@ -659,7 +659,7 @@ pub(crate) fn gen_native_lib(
     }
 
     // Inject visitor FFI method handles when a trait bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_pattern {
         body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
     }
 

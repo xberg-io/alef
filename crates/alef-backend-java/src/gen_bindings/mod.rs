@@ -90,7 +90,9 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        // Only generate visitor support if ConversionOptions and ConversionResult types exist
+        let has_visitor_pattern = api.types.iter().any(|t| t.name == "ConversionOptions")
+            && api.types.iter().any(|t| t.name == "ConversionResult");
 
         let mut files = Vec::new();
 
@@ -113,7 +115,7 @@ impl Backend for JavaBackend {
         // 1. NativeLib.java - FFI method handles
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),
-            content: gen_native_lib(api, config, &package, &prefix, has_visitor_bridge),
+            content: gen_native_lib(api, config, &package, &prefix, has_visitor_pattern),
             generated_header: true,
         });
 
@@ -128,7 +130,7 @@ impl Backend for JavaBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_pattern,
             ),
             generated_header: true,
         });
@@ -157,7 +159,7 @@ impl Backend for JavaBackend {
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque && !typ.fields.is_empty() {
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_pattern && (typ.name == "NodeContext" || typ.name == "VisitResult") {
                     continue;
                 }
                 files.push(GeneratedFile {
@@ -199,7 +201,7 @@ impl Backend for JavaBackend {
         // 5. Enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_bridge && enum_def.name == "VisitResult" {
+            if has_visitor_pattern && enum_def.name == "VisitResult" {
                 continue;
             }
             files.push(GeneratedFile {
@@ -220,8 +222,8 @@ impl Backend for JavaBackend {
             }
         }
 
-        // 7. Visitor support files (when a trait bridge is configured)
-        if has_visitor_bridge {
+        // 7. Visitor support files (only when ConversionOptions/ConversionResult types exist)
+        if has_visitor_pattern {
             for (filename, content) in crate::gen_visitor::gen_visitor_files(&package, &main_class) {
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
@@ -296,7 +298,6 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
 
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
@@ -309,7 +310,6 @@ impl Backend for JavaBackend {
             &prefix,
             &bridge_param_names,
             &bridge_type_aliases,
-            has_visitor_bridge,
         );
 
         Ok(vec![GeneratedFile {

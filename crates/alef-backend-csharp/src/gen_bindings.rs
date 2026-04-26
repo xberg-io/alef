@@ -51,7 +51,12 @@ impl Backend for CsharpBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
+        let has_visitor_callbacks = config
+            .ffi
+            .as_ref()
+            .map(|f| f.visitor_callbacks)
+            .unwrap_or(false);
 
         // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
         // directly. Skip them in all generated method loops.
@@ -82,7 +87,7 @@ impl Backend for CsharpBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_callbacks,
                 &config.trait_bridges,
                 &streaming_methods,
             )),
@@ -135,14 +140,14 @@ impl Backend for CsharpBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_callbacks,
                 &streaming_methods,
             )),
             generated_header: true,
         });
 
         // 3b. Generate visitor support files when a bridge is configured.
-        if has_visitor_bridge {
+        if has_visitor_callbacks {
             for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace) {
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
@@ -242,7 +247,7 @@ impl Backend for CsharpBackend {
                     continue;
                 }
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_callbacks && (typ.name == "NodeContext" || typ.name == "VisitResult") {
                     continue;
                 }
 
@@ -265,7 +270,7 @@ impl Backend for CsharpBackend {
         // 6. Generate enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_bridge && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
+            if has_visitor_callbacks && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
                 continue;
             }
             let enum_filename = enum_def.name.to_pascal_case();
@@ -437,7 +442,7 @@ fn gen_native_methods(
     prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
+    has_visitor_callbacks: bool,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
 ) -> String {
@@ -612,7 +617,7 @@ fn gen_native_methods(
     out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
 
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_callbacks {
         out.push('\n');
         out.push_str(&crate::gen_visitor::gen_native_methods_visitor(
             namespace, lib_name, prefix,
@@ -761,7 +766,7 @@ fn gen_wrapper_class(
     prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
+    has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
 ) -> String {
     let mut out = hash::header(CommentStyle::DoubleSlash);
@@ -831,7 +836,7 @@ fn gen_wrapper_class(
     }
 
     // Inject ConvertWithVisitor when a visitor bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_callbacks {
         out.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(
             exception_name,
             prefix,

@@ -85,17 +85,20 @@ pub fn gen_trait_bridge(
         // bridge block so multiple bridges can share trait imports without name
         // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
-        let has_imports = output.imports.iter().any(|imp| imp != "magnus::prelude::*");
-        if has_imports {
+        let imports_to_emit: Vec<_> = output.imports.iter()
+            .filter(|imp| *imp != "magnus::prelude::*")
+            .collect();
+        if !imports_to_emit.is_empty() {
             prefixed.push_str("#[allow(unused_imports)]\n");
+            prefixed.push_str("{\n");
         }
-        for imp in &output.imports {
-            if imp == "magnus::prelude::*" {
-                continue;
-            }
+        for imp in &imports_to_emit {
             prefixed.push_str("use ");
             prefixed.push_str(imp);
             prefixed.push_str(" as _;\n");
+        }
+        if !imports_to_emit.is_empty() {
+            prefixed.push_str("}\n");
         }
         prefixed.push_str(&output.code);
         prefixed
@@ -1082,6 +1085,7 @@ pub fn gen_bridge_function(
     if func.error_type.is_some() {
         writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
     }
+    writeln!(out, "#[allow(unused_variables)]").ok();
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
     writeln!(out, "    {body}").ok();
     writeln!(out, "}}").ok();
