@@ -1,70 +1,19 @@
-use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
+use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
-use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-wasm"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
 
-    let extra_deps = render_extra_deps(config, Language::Wasm);
-    let extra_deps_section = if extra_deps.is_empty() {
-        String::new()
-    } else {
-        format!("\n{extra_deps}")
-    };
+    // The wasm crate's Cargo.toml is managed by alef-backend-wasm's generate_bindings
+    // (emitted alongside lib.rs so it is always regenerated). The scaffold only owns
+    // the package.json.
 
-    let content = format!(
-        r#"{pkg_header}
-repository = "{repository}"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-js-sys = "{js_sys}"
-wasm-bindgen = "{wasm_bindgen}"
-wasm-bindgen-futures = "{wasm_bindgen_futures}"
-serde-wasm-bindgen = "{serde_wasm_bindgen}"
-serde_json = "1"{extra_deps_section}
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
-
-[package.metadata.cargo-machete]
-ignored = ["wasm-bindgen-futures"]
-"#,
-        pkg_header = pkg_header,
-        repository = meta.repository,
-        crate_name = &config.crate_config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Wasm),
-        js_sys = tv::cargo::JS_SYS,
-        wasm_bindgen = tv::cargo::WASM_BINDGEN,
-        wasm_bindgen_futures = tv::cargo::WASM_BINDGEN_FUTURES,
-        serde_wasm_bindgen = tv::cargo::SERDE_WASM_BINDGEN,
-        extra_deps_section = extra_deps_section,
-    );
-
-    let mut files = vec![GeneratedFile {
-        path: PathBuf::from(format!("crates/{}-wasm/Cargo.toml", core_crate_dir)),
-        content,
-        generated_header: true,
-    }];
+    let mut files = vec![];
 
     // Generate package.json for npm publishing.
     // Uses the node package name with -wasm suffix for the npm scope.

@@ -9,6 +9,7 @@ use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, Ge
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use alef_core::template_versions as tv;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -356,11 +357,23 @@ impl Backend for WasmBackend {
             "crates/{name}-wasm/src/",
         );
 
-        Ok(vec![GeneratedFile {
-            path: PathBuf::from(&output_dir).join("lib.rs"),
-            content,
-            generated_header: false,
-        }])
+        let cargo_toml_path = PathBuf::from(&output_dir)
+            .parent()
+            .map(|p| p.join("Cargo.toml"))
+            .unwrap_or_else(|| PathBuf::from("Cargo.toml"));
+
+        Ok(vec![
+            GeneratedFile {
+                path: PathBuf::from(&output_dir).join("lib.rs"),
+                content,
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: cargo_toml_path,
+                content: gen_cargo_toml(api, config),
+                generated_header: true,
+            },
+        ])
     }
 
     fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -1454,8 +1467,20 @@ fn gen_function(
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                    // Vec<String> with is_ref=true: core expects &[String].
-                    // Vec<String> coerces directly to &[String] — no intermediate needed.
+                    // Vec<String> with is_ref=true: core expects &[&str].
+                    // gen_call_args_with_let_bindings emits `&{name}_refs`, so we must create
+                    // the intermediate Vec<&str> binding here.
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_refs: Vec<&str> = {n}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n    ",
+                            n = p.name,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
+                            n = p.name,
+                        ));
+                    }
                 }
                 _ => {}
             }
@@ -1738,4 +1763,103 @@ fn wasm_wrap_return_fn(
         },
         _ => expr.to_string(),
     }
+}
+
+/// Generate the `Cargo.toml` for the WASM binding crate.
+///
+/// This is emitted by [`WasmBackend::generate_bindings`] so that the file is
+/// always regenerated on `alef generate` / `alef all` alongside `lib.rs`.
+/// Emitting it here (rather than only in `alef-scaffold`) ensures that the
+/// `js-sys` dependency required by trait-bridge and visitor-bridge generated
+/// code is always present, even in projects whose `Cargo.toml` was created
+/// before `js-sys` was added to the scaffold template.
+fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
+    let core_crate_dir = config.core_crate_dir();
+    let crate_name = &config.crate_config.name;
+    let version = &api.version;
+
+    let scaffold = config.scaffold.as_ref();
+    let license = scaffold.and_then(|s| s.license.as_deref()).unwrap_or("MIT");
+    let description = scaffold
+        .and_then(|s| s.description.as_deref())
+        .unwrap_or(crate_name.as_str());
+    let repository = scaffold.and_then(|s| s.repository.as_deref()).unwrap_or("");
+
+    let keywords = scaffold.map(|s| s.keywords.as_slice()).unwrap_or(&[]);
+    let keywords_toml = if keywords.is_empty() {
+        String::new()
+    } else {
+        let quoted: Vec<String> = keywords.iter().map(|k| format!("\"{k}\"")).collect();
+        format!("keywords = [{}]\n", quoted.join(", "))
+    };
+
+    let features = config.features_for_language(Language::Wasm);
+    let features_clause = if features.is_empty() {
+        String::new()
+    } else {
+        let quoted: Vec<String> = features.iter().map(|f| format!("\"{f}\"")).collect();
+        format!(", features = [{}]", quoted.join(", "))
+    };
+
+    let extra_deps = config.extra_deps_for_language(Language::Wasm);
+    let mut extra_dep_lines: Vec<String> = extra_deps
+        .iter()
+        .map(|(name, value)| {
+            if let Some(s) = value.as_str() {
+                format!("{name} = \"{s}\"")
+            } else {
+                format!("{name} = {value}")
+            }
+        })
+        .collect();
+    extra_dep_lines.sort();
+    let extra_deps_section = if extra_dep_lines.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", extra_dep_lines.join("\n"))
+    };
+
+    let header = hash::header(CommentStyle::Hash);
+    format!(
+        r#"{header}
+[package]
+name = "{core_crate_dir}-wasm"
+version = "{version}"
+edition = "2024"
+license = "{license}"
+description = "{description}"
+repository = "{repository}"
+{keywords_toml}
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+{crate_name} = {{ path = "../{core_crate_dir}"{features_clause} }}
+js-sys = "{js_sys}"
+wasm-bindgen = "{wasm_bindgen}"
+wasm-bindgen-futures = "{wasm_bindgen_futures}"
+serde-wasm-bindgen = "{serde_wasm_bindgen}"
+serde_json = "1"{extra_deps_section}
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen-futures"]
+"#,
+        header = header,
+        core_crate_dir = core_crate_dir,
+        version = version,
+        license = license,
+        description = description,
+        repository = repository,
+        keywords_toml = keywords_toml,
+        crate_name = crate_name,
+        features_clause = features_clause,
+        js_sys = tv::cargo::JS_SYS,
+        wasm_bindgen = tv::cargo::WASM_BINDGEN,
+        wasm_bindgen_futures = tv::cargo::WASM_BINDGEN_FUTURES,
+        serde_wasm_bindgen = tv::cargo::SERDE_WASM_BINDGEN,
+        extra_deps_section = extra_deps_section,
+    )
 }
