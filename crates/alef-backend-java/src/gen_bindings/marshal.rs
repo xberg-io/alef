@@ -49,9 +49,13 @@ pub(crate) fn marshal_param_to_ffi(
     prefix: &str,
 ) {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+        TypeRef::String | TypeRef::Char | TypeRef::Json => {
             let cname = "c".to_string() + name;
             writeln!(out, "            var {} = arena.allocateFrom({});", cname, name).ok();
+        }
+        TypeRef::Path => {
+            let cname = "c".to_string() + name;
+            writeln!(out, "            var {} = arena.allocateFrom({}.toString());", cname, name).ok();
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
@@ -93,11 +97,20 @@ pub(crate) fn marshal_param_to_ffi(
         TypeRef::Optional(inner) => {
             // For optional types, marshal the inner type if not null
             match inner.as_ref() {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+                TypeRef::String | TypeRef::Char | TypeRef::Json => {
                     let cname = "c".to_string() + name;
                     writeln!(
                         out,
                         "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
+                        cname, name, name
+                    )
+                    .ok();
+                }
+                TypeRef::Path => {
+                    let cname = "c".to_string() + name;
+                    writeln!(
+                        out,
+                        "            var {} = {} != null ? arena.allocateFrom({}.toString()) : MemorySegment.NULL;",
                         cname, name, name
                     )
                     .ok();
