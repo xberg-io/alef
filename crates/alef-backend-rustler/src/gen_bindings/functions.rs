@@ -41,9 +41,20 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
             }
             TypeRef::Bytes => format!("&{}", p.name),
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-            TypeRef::Vec(_) => {
+            TypeRef::Vec(inner) => {
                 if p.is_ref {
-                    format!("&{}", p.name)
+                    // Vec<String> binds to either &[String] or &[&str] in the core API. We
+                    // can't disambiguate from the IR, so emit a conversion that produces a
+                    // `Vec<&str>` and pass `&...` — accepted by both signatures via deref
+                    // coercion when possible.
+                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!(
+                            "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
+                            p.name
+                        )
+                    } else {
+                        format!("&{}", p.name)
+                    }
                 } else {
                     p.name.to_string()
                 }
@@ -178,10 +189,18 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(_) => {
+                    TypeRef::Vec(inner) => {
                         if p.is_ref {
-                            // Vec<T> where core expects &[T] → pass as slice
-                            format!("&{}", p.name)
+                            // Vec<String>/Vec<Char>: core may expect &[&str] which doesn't
+                            // coerce from &Vec<String>; build a Vec<&str> slice ref instead.
+                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                                format!(
+                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
+                                    p.name
+                                )
+                            } else {
+                                format!("&{}", p.name)
+                            }
                         } else {
                             p.name.to_string()
                         }
@@ -279,9 +298,16 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(_) => {
+                    TypeRef::Vec(inner) => {
                         if p.is_ref {
-                            format!("&{}", p.name)
+                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                                format!(
+                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
+                                    p.name
+                                )
+                            } else {
+                                format!("&{}", p.name)
+                            }
                         } else {
                             p.name.to_string()
                         }
@@ -429,9 +455,16 @@ pub(super) fn gen_nif_async_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(_) => {
+                    TypeRef::Vec(inner) => {
                         if p.is_ref {
-                            format!("&{}", p.name)
+                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                                format!(
+                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
+                                    p.name
+                                )
+                            } else {
+                                format!("&{}", p.name)
+                            }
                         } else {
                             p.name.to_string()
                         }
