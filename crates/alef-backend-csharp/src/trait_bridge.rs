@@ -86,6 +86,7 @@ pub fn gen_trait_bridges_file(
     writeln!(out).ok();
     writeln!(out, "using System;").ok();
     writeln!(out, "using System.Collections.Concurrent;").ok();
+    writeln!(out, "using System.Collections.Generic;").ok();
     writeln!(out, "using System.Runtime.InteropServices;").ok();
     writeln!(out).ok();
     writeln!(out, "namespace {};", namespace).ok();
