@@ -26,7 +26,7 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
             continue;
         }
 
-        let vendor_mode = lang_config.vendor_mode.unwrap_or_else(|| default_vendor_mode(lang));
+        let vendor_mode = lang_config.vendor_mode.as_ref().unwrap_or(&default_vendor_mode(lang)).clone();
 
         match vendor_mode {
             VendorMode::CoreOnly => {
@@ -88,6 +88,11 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
             } else {
                 eprintln!("Skipping FFI staging for {lang}: no --target specified");
             }
+        }
+
+        // Run after hooks on success (before moving to next language).
+        if !dry_run {
+            run_publish_after_hooks(lang, &lang_config)?;
         }
     }
     Ok(())
@@ -155,6 +160,9 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
         eprintln!("Building {lang} for target {target_str}...");
         run_shell_command(&cmd)?;
         eprintln!("  build complete for {lang}");
+
+        // Run after hooks on success.
+        run_publish_after_hooks(lang, &lang_config)?;
     }
     Ok(())
 }
@@ -328,6 +336,9 @@ pub fn package(
         if let Some(artifact) = result {
             eprintln!("  produced {}", artifact.name);
         }
+
+        // Run after hooks on success.
+        run_publish_after_hooks(lang, &lang_config)?;
     }
     Ok(())
 }
@@ -479,4 +490,142 @@ fn run_publish_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Res
     }
 
     Ok(true)
+}
+
+/// Run after hooks for a language after successful completion.
+///
+/// After hooks run only when the main operation succeeds (symmetrical with before hooks,
+/// which run only before a successful start). This ensures cleanup/finalization logic
+/// only runs when the operation completed.
+fn run_publish_after_hooks(_lang: Language, lang_config: &PublishLanguageConfig) -> Result<()> {
+    if let Some(after) = &lang_config.after {
+        for cmd in after.commands() {
+            run_shell_command(cmd)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::output::StringOrVec;
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn make_temp_marker_file() -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().unwrap();
+        let marker = temp_dir.path().join("marker.txt");
+        (temp_dir, marker)
+    }
+
+    #[test]
+    fn test_run_publish_hooks_runs_before_only() {
+        let (_temp_dir, marker) = make_temp_marker_file();
+        let marker_str = marker.to_str().unwrap();
+
+        // Config with before hook only.
+        let mut config = PublishLanguageConfig::default();
+        config.before = Some(StringOrVec::Single(format!("echo 'before' > {marker_str}")));
+
+        let result = run_publish_hooks(Language::Python, &config);
+        assert!(result.is_ok());
+        assert!(marker.exists(), "before hook should have created marker file");
+    }
+
+    #[test]
+    fn test_run_publish_hooks_precondition_failure_skips() {
+        let (_temp_dir, marker) = make_temp_marker_file();
+        let marker_str = marker.to_str().unwrap();
+
+        let mut config = PublishLanguageConfig::default();
+        config.precondition = Some("false".to_string()); // Always fails
+        config.before = Some(StringOrVec::Single(format!("echo 'before' > {marker_str}")));
+
+        let result = run_publish_hooks(Language::Python, &config);
+        assert!(result.is_ok());
+        // Precondition failed, so before hook should not run
+        assert!(!marker.exists(), "before hook should not run when precondition fails");
+    }
+
+    #[test]
+    fn test_run_publish_after_hooks_runs_after_only() {
+        let (_temp_dir, marker) = make_temp_marker_file();
+        let marker_str = marker.to_str().unwrap();
+
+        let mut config = PublishLanguageConfig::default();
+        config.after = Some(StringOrVec::Single(format!("echo 'after' > {marker_str}")));
+
+        let result = run_publish_after_hooks(Language::Python, &config);
+        assert!(result.is_ok());
+        assert!(marker.exists(), "after hook should have created marker file");
+
+        let content = fs::read_to_string(&marker).unwrap();
+        assert!(content.contains("after"));
+    }
+
+    #[test]
+    fn test_run_publish_after_hooks_no_after_is_noop() {
+        let config = PublishLanguageConfig::default();
+        // Config has no after hook
+        let result = run_publish_after_hooks(Language::Python, &config);
+        assert!(result.is_ok(), "after hooks should succeed when not specified");
+    }
+
+    #[test]
+    fn test_run_publish_after_hooks_multiple_commands() {
+        let temp_dir = TempDir::new().unwrap();
+        let marker1 = temp_dir.path().join("marker1.txt");
+        let marker2 = temp_dir.path().join("marker2.txt");
+
+        let marker1_str = marker1.to_str().unwrap();
+        let marker2_str = marker2.to_str().unwrap();
+
+        let mut config = PublishLanguageConfig::default();
+        config.after = Some(StringOrVec::Multiple(vec![
+            format!("echo 'after1' > {marker1_str}"),
+            format!("echo 'after2' > {marker2_str}"),
+        ]));
+
+        let result = run_publish_after_hooks(Language::Python, &config);
+        assert!(result.is_ok());
+        assert!(marker1.exists(), "first after command should execute");
+        assert!(marker2.exists(), "second after command should execute");
+    }
+
+    #[test]
+    fn test_run_publish_after_hooks_failure_propagates_error() {
+        let mut config = PublishLanguageConfig::default();
+        config.after = Some(StringOrVec::Single("false".to_string())); // Command fails
+
+        let result = run_publish_after_hooks(Language::Python, &config);
+        assert!(result.is_err(), "after hook failure should propagate error");
+    }
+
+    #[test]
+    fn test_publish_hooks_full_lifecycle_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let before_marker = temp_dir.path().join("before.txt");
+        let after_marker = temp_dir.path().join("after.txt");
+
+        let before_str = before_marker.to_str().unwrap();
+        let after_str = after_marker.to_str().unwrap();
+
+        let mut config = PublishLanguageConfig::default();
+        config.before = Some(StringOrVec::Single(format!("echo 'before' > {before_str}")));
+        config.after = Some(StringOrVec::Single(format!("echo 'after' > {after_str}")));
+
+        // Simulate before hook
+        let before_result = run_publish_hooks(Language::Python, &config);
+        assert!(before_result.is_ok());
+        assert!(before_marker.exists(), "before hook should run");
+
+        // Simulate successful operation (no actual work)
+
+        // Simulate after hook
+        let after_result = run_publish_after_hooks(Language::Python, &config);
+        assert!(after_result.is_ok());
+        assert!(after_marker.exists(), "after hook should run on success");
+    }
 }
