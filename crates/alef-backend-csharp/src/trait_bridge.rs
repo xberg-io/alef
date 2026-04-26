@@ -304,7 +304,7 @@ fn gen_single_trait_bridge(
     .ok();
     writeln!(
         out,
-        "        _vtable = Marshal.AllocHGlobal(sizeof(IntPtr) * {});",
+        "        _vtable = Marshal.AllocHGlobal(IntPtr.Size * {});",
         num_vtable_fields
     )
     .ok();
