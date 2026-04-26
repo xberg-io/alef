@@ -10,19 +10,18 @@
 ///   `user_data` to every C callback.
 /// - Package-level `//export goVisit*` functions look up the visitor by ID and call
 ///   the appropriate method.
-/// - A static C helper in the CGo preamble constructs `HTMHtmVisitorCallbacks` by
+/// - A static C helper in the CGo preamble constructs VisitorCallbacks by
 ///   referencing all exported Go trampolines — this is valid because CGo compiles the
 ///   preamble together with the Go file that carries the `//export` declarations.
 /// - `ConvertWithVisitor` registers the visitor, calls the C helper to build the
-///   callbacks struct, then calls `htm_visitor_create` / `htm_convert_with_visitor` /
-///   `htm_visitor_free`, and unregisters the visitor on return.
+///   callbacks struct, then calls the appropriate C API functions to perform conversion.
 use alef_codegen::naming::go_param_name;
 use alef_core::hash::{self, CommentStyle};
 use std::fmt::Write;
 
 /// A single visitor callback specification.
 struct CallbackSpec {
-    /// Field name in `HTMHtmVisitorCallbacks` (snake_case).
+    /// Field name in the C callbacks struct (snake_case).
     c_field: &'static str,
     /// Exported Go function name (e.g. `goVisitText`).
     export_name: &'static str,

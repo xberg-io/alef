@@ -27,10 +27,12 @@ use std::fmt::Write;
 /// Generate the complete trait_bridges.go file content for all configured trait bridges.
 ///
 /// `pkg_name`: Go package name (e.g., `"kreuzberg"`).
-/// `ffi_prefix`: C function prefix (e.g., `"krz"`).
+/// `ffi_prefix`: C function prefix (e.g., `"kreuzberg"`).
 /// `ffi_header`: C header filename (e.g., `"kreuzberg.h"`).
 /// `ffi_crate_dir`: path from go output dir to the FFI crate dir.
 /// `to_root`: relative path from go output dir to the repo root.
+/// `crate_name`: Rust FFI crate name (e.g., `"kreuzberg"`), used to derive C type names.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridges_file(
     api: &ApiSurface,
     config: &alef_core::config::AlefConfig,
@@ -39,6 +41,7 @@ pub fn gen_trait_bridges_file(
     ffi_header: &str,
     ffi_crate_dir: &str,
     to_root: &str,
+    crate_name: &str,
 ) -> String {
     let mut out = String::with_capacity(16_384);
 
@@ -87,7 +90,7 @@ pub fn gen_trait_bridges_file(
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-            gen_trait_bridge(&mut out, trait_def, bridge_cfg, ffi_prefix);
+            gen_trait_bridge(&mut out, trait_def, bridge_cfg, ffi_prefix, crate_name);
             writeln!(out).ok();
         }
     }
@@ -96,10 +99,16 @@ pub fn gen_trait_bridges_file(
 }
 
 /// Generate one trait bridge: interface, trampolines, registration/unregistration functions.
-fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str) {
+fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, crate_name: &str) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let trait_pascal = trait_name.to_pascal_case();
+
+    // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
+    // E.g., for crate="kreuzberg", trait="OcrBackend": KREUZBERGKreuzbergOcrBackendVTable
+    let crate_upper = crate_name.to_uppercase();
+    let crate_pascal = crate_name.to_pascal_case();
+    let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
 
     // =========================================================================
     // Go interface
@@ -159,7 +168,7 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
     writeln!(out).ok();
 
     writeln!(out, "\t// Build the C vtable").ok();
-    writeln!(out, "\tvtable := C.{}_{trait_snake}_VTable{{", ffi_prefix).ok();
+    writeln!(out, "\tvtable := C.{}{{", c_vtable_struct).ok();
 
     // Set up vtable function pointers (via //export trampolines)
     for method in &trait_def.methods {
@@ -185,9 +194,9 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
     writeln!(out).ok();
 
     writeln!(out, "\tvar cErr *C.char").ok();
-    writeln!(out, "\trc := C.{}_{trait_snake}_register(", ffi_prefix).ok();
+    writeln!(out, "\trc := C.{}_register_{trait_snake}(", ffi_prefix).ok();
     writeln!(out, "\t\tcName,").ok();
-    writeln!(out, "\t\tunsafe.Pointer(&vtable),").ok();
+    writeln!(out, "\t\tvtable,").ok();
     writeln!(out, "\t\tunsafe.Pointer(uintptr(handle)),").ok();
     writeln!(out, "\t\t&cErr,").ok();
     writeln!(out, "\t)").ok();
@@ -222,7 +231,7 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
     writeln!(out).ok();
 
     writeln!(out, "\tvar cErr *C.char").ok();
-    writeln!(out, "\trc := C.{}_{trait_snake}_unregister(cName, &cErr)", ffi_prefix).ok();
+    writeln!(out, "\trc := C.{}_unregister_{trait_snake}(cName, &cErr)", ffi_prefix).ok();
     writeln!(out).ok();
 
     writeln!(out, "\tif rc != 0 {{").ok();
@@ -627,5 +636,70 @@ fn capitalize(s: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vtable_struct_name_derivation() {
+        // Test the pattern: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
+        let crate_name = "kreuzberg";
+        let crate_upper = crate_name.to_uppercase();
+        let crate_pascal = crate_name.to_pascal_case();
+        let trait_name = "OcrBackend";
+        let trait_pascal = trait_name.to_pascal_case();
+
+        let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
+
+        assert_eq!(c_vtable_struct, "KREUZBERGKreuzbergOcrBackendVTable");
+    }
+
+    #[test]
+    fn test_register_function_name_format() {
+        // Test the pattern: {ffi_prefix}_register_{trait_snake}
+        let ffi_prefix = "kreuzberg";
+        let trait_name = "OcrBackend";
+        let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+
+        let register_fn = format!("{}_register_{}", ffi_prefix, trait_snake);
+        assert_eq!(register_fn, "kreuzberg_register_ocr_backend");
+    }
+
+    #[test]
+    fn test_unregister_function_name_format() {
+        // Test the pattern: {ffi_prefix}_unregister_{trait_snake}
+        let ffi_prefix = "kreuzberg";
+        let trait_name = "PostProcessor";
+        let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+
+        let unregister_fn = format!("{}_unregister_{}", ffi_prefix, trait_snake);
+        assert_eq!(unregister_fn, "kreuzberg_unregister_post_processor");
+    }
+
+    #[test]
+    fn test_vtable_struct_name_multiple_traits() {
+        // Verify correct naming for multiple traits
+        let test_cases = vec![
+            ("kreuzberg", "OcrBackend", "KREUZBERGKreuzbergOcrBackendVTable"),
+            ("kreuzberg", "PostProcessor", "KREUZBERGKreuzbergPostProcessorVTable"),
+            ("kreuzberg", "Validator", "KREUZBERGKreuzbergValidatorVTable"),
+            ("kreuzberg", "EmbeddingBackend", "KREUZBERGKreuzbergEmbeddingBackendVTable"),
+        ];
+
+        for (crate_name, trait_name, expected_struct) in test_cases {
+            let crate_upper = crate_name.to_uppercase();
+            let crate_pascal = crate_name.to_pascal_case();
+            let trait_pascal = trait_name.to_pascal_case();
+            let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
+
+            assert_eq!(
+                c_vtable_struct, expected_struct,
+                "Mismatch for crate={}, trait={}",
+                crate_name, trait_name
+            );
+        }
     }
 }

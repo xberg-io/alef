@@ -1106,7 +1106,7 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("type OcrBackend interface"),
@@ -1133,7 +1133,7 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     // Plugin lifecycle methods must always be present in the interface
     assert!(
@@ -1181,7 +1181,7 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("ProcessImage("),
@@ -1215,7 +1215,7 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("(string, error)"),
@@ -1251,7 +1251,7 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     // Each trait method must have a //export trampoline
     assert!(
@@ -1292,7 +1292,7 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("cgo.Handle(uintptr(unsafe.Pointer(userData)))"),
@@ -1328,7 +1328,7 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("C.GoString(message)"),
@@ -1359,7 +1359,7 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("func RegisterOcrBackend(impl OcrBackend) error"),
@@ -1370,16 +1370,16 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         "registration must create a cgo.Handle for the Go object"
     );
     assert!(
-        code.contains("C.krz_ocr_backend_register("),
-        "registration must call the C FFI register function"
+        code.contains("C.krz_register_ocr_backend("),
+        "registration must call the C FFI register function with correct name format"
     );
     assert!(
         code.contains("func UnregisterOcrBackend(name string) error"),
         "unregistration function must also be generated"
     );
     assert!(
-        code.contains("C.krz_ocr_backend_unregister("),
-        "unregistration must call the C FFI unregister function"
+        code.contains("C.krz_unregister_ocr_backend("),
+        "unregistration must call the C FFI unregister function with correct name format"
     );
 }
 
@@ -1402,7 +1402,7 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     assert!(
         code.contains("if rc != 0"),
@@ -1415,6 +1415,38 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
     assert!(
         code.contains("handle.Delete()"),
         "registration must delete the cgo.Handle on failure to avoid leaking"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// VTable struct name derivation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    // With crate_name="kreuzberg", the VTable struct should be KREUZBERGKreuzbergOcrBackendVTable
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "kreuzberg", "test.h", "crate/ffi", "../", "kreuzberg");
+
+    assert!(
+        code.contains("vtable := C.KREUZBERGKreuzbergOcrBackendVTable{"),
+        "must use correct cbindgen-generated VTable struct name format: {{CRATE_UPPER}}{{CratePascal}}{{TraitPascal}}VTable"
     );
 }
 
@@ -1441,7 +1473,7 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../", "testlib");
 
     // CGo preamble must forward-declare all exported Go functions
     assert!(

@@ -210,6 +210,7 @@ impl Backend for GoBackend {
                     &ffi_header,
                     &ffi_crate_dir,
                     &to_root,
+                    &config.crate_config.name,
                 ));
                 if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
                     files.push(GeneratedFile {
