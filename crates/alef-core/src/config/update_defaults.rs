@@ -125,10 +125,10 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             precondition: Some(require_tool("Rscript")),
             before: None,
             update: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"remotes::update_packages()\""
+                "cd {output_dir} && Rscript -e \"remotes::update_packages(ask = FALSE)\""
             ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && Rscript -e \"remotes::update_packages()\""
+                "cd {output_dir} && Rscript -e \"remotes::update_packages(ask = FALSE)\""
             ))),
         },
         Language::Ffi => UpdateConfig {
@@ -283,6 +283,15 @@ mod tests {
         let c = cfg(Language::Go, "my/custom/path");
         let update = c.update.unwrap().commands().join(" ");
         assert!(update.contains("my/custom/path"));
+    }
+
+    #[test]
+    fn r_update_is_non_interactive() {
+        let c = cfg(Language::R, "packages/r");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
+        assert!(update.contains("ask = FALSE"), "R update must be non-interactive");
+        assert!(upgrade.contains("ask = FALSE"), "R upgrade must be non-interactive");
     }
 
     #[test]

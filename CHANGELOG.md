@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **E2E**: bump pinned `vitest` in generated TypeScript and WASM `package.json` from `^3.0.0` to `^4.1.5`, matching the version dependabot already pulls into the alef repo's own e2e lockfile.
 
+### Fixed
+
+- **Update**: `alef update --latest` no longer hangs when Node and Wasm are both configured. Commands shared across multiple language default configs (e.g. `pnpm up --latest -r -w`) are now deduplicated — only the first language claiming a command runs it, preventing pnpm lockfile races under parallel execution.
+- **Update**: R `upgrade` command now passes `ask = FALSE` to `remotes::update_packages()`, preventing an interactive prompt that blocked the non-interactive runner.
+
 ### Removed
 
 - **Hooks**: `alef-fmt` and `alef-lint` pre-commit hooks. Both used `pass_filenames: false` with a broad `files:` regex, so any matching commit cold-started every configured language toolchain (mvn, dotnet, mypy, etc.) regardless of which file changed — making the hooks unusably slow. The `alef fmt` and `alef lint` CLI commands are unchanged. Scaffold's generated `.pre-commit-config.yaml` no longer emits the removed hook ids.

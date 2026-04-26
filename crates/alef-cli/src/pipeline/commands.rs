@@ -148,37 +148,72 @@ pub fn fmt_post_generate(config: &AlefConfig, languages: &[Language]) {
     }
 }
 
+/// Deduplicate command strings across language plans, preserving within-language order.
+///
+/// The first language claiming a command owns it; subsequent languages with the same
+/// command string get it removed from their list. This prevents races when multiple
+/// languages (e.g. Node and Wasm) share workspace-wide commands like `pnpm up --latest -r -w`.
+fn dedupe_plans(plans: Vec<(Language, Vec<String>)>) -> Vec<(Language, Vec<String>)> {
+    let mut seen = std::collections::HashSet::<String>::new();
+    plans
+        .into_iter()
+        .map(|(lang, cmds)| {
+            let unique: Vec<String> = cmds.into_iter().filter(|c| seen.insert(c.clone())).collect();
+            (lang, unique)
+        })
+        .collect()
+}
+
 /// Update dependencies for each language.
 ///
 /// When `latest` is true, runs the aggressive `upgrade` commands (including
 /// incompatible/major version bumps). Otherwise runs the safe `update` commands.
+///
+/// Executes in two phases:
+/// 1. Sequential: check preconditions and collect command lists; deduplicate across languages.
+/// 2. Parallel: run each language's deduped command list (within-language order preserved).
 pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyhow::Result<()> {
-    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+    // Phase 1 (sequential): check preconditions, run before hooks, collect command lists.
+    let mut plans: Vec<(Language, Vec<String>)> = Vec::new();
+    for &lang in languages {
+        let update_cfg = config.update_config_for_language(lang);
+        if !check_precondition(lang, update_cfg.precondition.as_deref()) {
+            continue;
+        }
+        run_before(lang, update_cfg.before.as_ref())?;
+        let cmds = if latest {
+            update_cfg.upgrade.as_ref()
+        } else {
+            update_cfg.update.as_ref()
+        };
+        let cmd_strings: Vec<String> = cmds
+            .map(|cmd_list| cmd_list.commands().into_iter().map(|c| c.to_string()).collect())
+            .unwrap_or_default();
+        plans.push((lang, cmd_strings));
+    }
+
+    // Deduplicate shared commands (e.g. pnpm workspace commands shared by Node and Wasm).
+    let plans = dedupe_plans(plans);
+
+    type LangOutputs = Vec<(String, String, String)>;
+
+    // Phase 2 (parallel): run each language's deduped command list.
+    let results: Vec<(Language, anyhow::Result<LangOutputs>)> = plans
         .par_iter()
-        .map(|lang| {
-            let update_cfg = config.update_config_for_language(*lang);
-            if !check_precondition(*lang, update_cfg.precondition.as_deref()) {
-                return Ok(Vec::new());
-            }
-            run_before(*lang, update_cfg.before.as_ref())?;
-            let cmds = if latest {
-                update_cfg.upgrade.as_ref()
-            } else {
-                update_cfg.update.as_ref()
-            };
+        .map(|(lang, cmds)| {
             let mut outputs = Vec::new();
-            if let Some(cmd_list) = cmds {
-                for cmd in cmd_list.commands() {
-                    let (stdout, stderr) = run_command_captured(cmd)?;
-                    outputs.push((cmd.to_string(), stdout, stderr));
+            for cmd in cmds {
+                match run_command_captured(cmd) {
+                    Ok((stdout, stderr)) => outputs.push((cmd.clone(), stdout, stderr)),
+                    Err(e) => return (*lang, Err(e)),
                 }
             }
-            Ok(outputs)
+            (*lang, Ok(outputs))
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
-    for result in results {
+    for (_lang, result) in results {
         match result {
             Ok(outputs) => {
                 for (cmd, stdout, stderr) in outputs {
@@ -739,6 +774,68 @@ fn run_post_build(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::*;
+
+    #[test]
+    fn dedupe_plans_removes_duplicate_commands_across_languages() {
+        let plans = vec![
+            (
+                Language::Node,
+                vec![
+                    "corepack use pnpm@latest".to_string(),
+                    "pnpm up --latest -r -w".to_string(),
+                ],
+            ),
+            (
+                Language::Wasm,
+                vec![
+                    "corepack use pnpm@latest".to_string(),
+                    "pnpm up --latest -r -w".to_string(),
+                ],
+            ),
+        ];
+        let result = dedupe_plans(plans);
+        assert_eq!(
+            result[0].1,
+            vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]
+        );
+        assert!(result[1].1.is_empty(), "Wasm should have no commands after dedupe");
+    }
+
+    #[test]
+    fn dedupe_plans_preserves_within_language_order() {
+        let plans = vec![
+            (
+                Language::Rust,
+                vec![
+                    "cargo upgrade --incompatible".to_string(),
+                    "cargo update".to_string(),
+                ],
+            ),
+            (
+                Language::Node,
+                vec!["cargo update".to_string()], // hypothetical duplicate
+            ),
+        ];
+        let result = dedupe_plans(plans);
+        assert_eq!(result[0].1, vec!["cargo upgrade --incompatible", "cargo update"]);
+        assert!(result[1].1.is_empty());
+    }
+
+    #[test]
+    fn dedupe_plans_unique_commands_unchanged() {
+        let plans = vec![
+            (Language::Python, vec!["uv sync --upgrade".to_string()]),
+            (Language::Ruby, vec!["bundle update --all".to_string()]),
+        ];
+        let result = dedupe_plans(plans);
+        assert_eq!(result[0].1, vec!["uv sync --upgrade"]);
+        assert_eq!(result[1].1, vec!["bundle update --all"]);
+    }
 }
 
 #[cfg(all(test, unix))]
