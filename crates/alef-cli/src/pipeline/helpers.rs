@@ -319,10 +319,7 @@ mod tests {
     fn run_command_captured_with_timeout_kills_on_timeout() {
         // A command that takes longer than the timeout should fail
         let result = run_command_captured_with_timeout("sleep 5", Some(1));
-        assert!(
-            result.is_err(),
-            "Command that exceeds timeout should return error"
-        );
+        assert!(result.is_err(), "Command that exceeds timeout should return error");
         let err_msg = format!("{:?}", result);
         assert!(err_msg.contains("timed out"), "Error should mention timeout");
     }
