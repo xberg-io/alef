@@ -90,6 +90,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: Default::default(),
+        format_overrides: HashMap::new(),
     }
 }
 

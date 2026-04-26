@@ -183,7 +183,10 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
                     r"spec\.version\s*=\s*['\x22]([^'\x22]*)['\x22]",
                 ) {
                     if found != expected_rubygems {
-                        mismatches.push(format!("{}: found {found}, expected {expected_rubygems}", path.display()));
+                        mismatches.push(format!(
+                            "{}: found {found}, expected {expected_rubygems}",
+                            path.display()
+                        ));
                     }
                 }
             }
@@ -200,7 +203,10 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
             for entry in entries.flatten() {
                 if let Some(found) = extract_version(&entry.to_string_lossy(), r#"VERSION\s*=\s*["']([^"']*)["']"#) {
                     if found != expected_rubygems {
-                        mismatches.push(format!("{}: found {found}, expected {expected_rubygems}", entry.display()));
+                        mismatches.push(format!(
+                            "{}: found {found}, expected {expected_rubygems}",
+                            entry.display()
+                        ));
                     }
                 }
             }

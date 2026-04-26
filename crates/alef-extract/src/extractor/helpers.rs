@@ -342,6 +342,7 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
 
 /// Extract an enum variant with its fields.
 pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
+    let is_tuple = matches!(&v.fields, syn::Fields::Unnamed(_));
     let variant_fields = match &v.fields {
         syn::Fields::Named(named) => named.named.iter().map(|f| extract_field(f, None)).collect(),
         syn::Fields::Unnamed(unnamed) => unnamed
@@ -393,6 +394,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         doc: extract_doc_comments(&v.attrs),
         is_default: v.attrs.iter().any(|a| a.path().is_ident("default")),
         serde_rename,
+        is_tuple,
     }
 }
 

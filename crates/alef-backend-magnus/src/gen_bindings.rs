@@ -897,17 +897,12 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
-        TypeRef::Named(n) => n.clone(),
-        // Containers must round-trip as their actual JSON shape (array / object), not
-        // collapsed to "String". Mapping Vec to String previously caused serde to fail
-        // on tagged-union variants like StopSequence::Multiple(Vec<String>) — the FFI
-        // sends a JSON array, not a JSON-encoded string.
-        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            field_type_for_serde_inner(k),
-            field_type_for_serde_inner(v),
-        ),
+        // Named types already JSON-marshal through string, so collapse Vec<Named> to String
+        TypeRef::Named(_) => "String".to_string(),
+        // Nested Vec requires JSON round-tripping: collapse to String
+        TypeRef::Vec(_) => "String".to_string(),
+        // Map requires JSON round-tripping: collapse to String
+        TypeRef::Map(_, _) => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
     }

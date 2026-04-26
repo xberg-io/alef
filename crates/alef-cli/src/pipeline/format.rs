@@ -162,10 +162,7 @@ fn is_tool_available(tool: &str) -> bool {
 
 /// Run a formatter command with arguments in a specific directory.
 fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Result<()> {
-    let output = Command::new(command)
-        .args(args)
-        .current_dir(work_dir)
-        .output()?;
+    let output = Command::new(command).args(args).current_dir(work_dir).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -181,11 +178,7 @@ fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Resul
 
 /// Run a custom formatter command (shell-style string) in a directory.
 fn run_custom_formatter(cmd: &str, work_dir: &Path) -> bool {
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(work_dir)
-        .output();
+    let output = Command::new("sh").arg("-c").arg(cmd).current_dir(work_dir).output();
 
     match output {
         Ok(out) => out.status.success(),

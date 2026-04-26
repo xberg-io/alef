@@ -274,6 +274,10 @@ pub struct EnumVariant {
     /// Explicit serde rename for this variant (from `#[serde(rename = "...")]`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_rename: Option<String>,
+    /// True if this is a tuple variant (unnamed fields like `Variant(T1, T2)`).
+    /// False for struct variants with named fields or unit variants.
+    #[serde(default)]
+    pub is_tuple: bool,
 }
 
 /// An error type (enum used in Result<T, E>).
