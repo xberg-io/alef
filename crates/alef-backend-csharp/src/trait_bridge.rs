@@ -207,7 +207,7 @@ fn gen_single_trait_bridge(
 
     writeln!(out, "    private readonly I{} _impl;", trait_pascal).ok();
     writeln!(out, "    private readonly GCHandle _implHandle;").ok();
-    writeln!(out, "    private IntPtr _vtable;").ok();
+    writeln!(out, "    internal IntPtr _vtable;").ok();
     writeln!(out, "    private bool _disposed;").ok();
     writeln!(out).ok();
 
