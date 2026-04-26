@@ -163,6 +163,30 @@ pub(super) fn gen_rustler_wrap_return(
             }
             _ => expr.to_string(),
         },
+        // Optional<T>: when the core returns a reference (&str, &T) wrapped in Option,
+        // we must convert each value with `.map(...)`. Without this, Option<&str> is
+        // returned where the wrapper signature expects Option<String>.
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::String | TypeRef::Char | TypeRef::Bytes if returns_ref => {
+                format!("{expr}.map(|v| v.into())")
+            }
+            TypeRef::Path => format!("{expr}.map(|v| v.to_string_lossy().to_string())"),
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(v.clone()) }}))")
+                } else {
+                    format!("{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }}))")
+                }
+            }
+            TypeRef::Named(_) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| v.clone().into())")
+                } else {
+                    format!("{expr}.map(|v| v.into())")
+                }
+            }
+            _ => expr.to_string(),
+        },
         _ => expr.to_string(),
     }
 }
