@@ -50,29 +50,25 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
-        // Create a fresh OwnedEnv locally for thread-safe access to SavedTerm.
-        // SAFETY: OwnedEnv manages its own lifetime and is Send + Sync.
-        // We don't actually dispatch here (that requires message passing),
-        // but we demonstrate the pattern for safely loading the saved term.
-        writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "env.run(|_env_ref| {{").ok();
-        writeln!(out, "    // Load the saved Elixir term into the environment.").ok();
-        writeln!(out, "    // let _elixir_term = self.inner.load(_env_ref);").ok();
-        writeln!(out).ok();
-        writeln!(out, "    // Sync dispatch not implemented; use async methods or message passing.").ok();
-
         if has_error {
+            // For methods returning Result, use OwnedEnv for proper lifetime management.
+            // SAFETY: OwnedEnv manages its own lifetime and is Send + Sync.
+            writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
+            writeln!(out, "env.run(|_env_ref| {{").ok();
+            writeln!(out, "    // Load the saved Elixir term into the environment.").ok();
+            writeln!(out, "    // let _elixir_term = self.inner.load(_env_ref);").ok();
+            writeln!(out).ok();
+            writeln!(out, "    // Sync dispatch not implemented; use async methods or message passing.").ok();
             writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
             writeln!(out, "        message: \"Sync Elixir function dispatch not implemented\".to_string(),").ok();
             writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
             writeln!(out, "    }})").ok();
+            writeln!(out, "}})").ok();
         } else {
-            // For non-error methods, env.run() returns (), so we must extract the unit value
-            writeln!(out, "}}); Default::default()").ok();
-            return out;
+            // For non-error methods, return default (no dispatch needed).
+            writeln!(out, "// Sync Elixir dispatch not implemented; use async methods").ok();
+            writeln!(out, "Default::default()").ok();
         }
-
-        writeln!(out, "}})").ok();
 
         out
     }

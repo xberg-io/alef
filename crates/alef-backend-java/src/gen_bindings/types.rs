@@ -479,7 +479,8 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
                     TypeRef::Bytes => "new byte[0]".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),
-                        PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                        PrimitiveType::F32 => "0.0f".to_string(),
+                        PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),
                     },
                     TypeRef::Vec(_) => "List.of()".to_string(),
