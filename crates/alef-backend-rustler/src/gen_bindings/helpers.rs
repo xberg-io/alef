@@ -325,6 +325,49 @@ pub(super) fn elixir_safe_type_name(name: &str) -> String {
         name.to_owned()
     }
 }
+/// Elixir built-in module attributes that cannot be used as custom `@attribute` names.
+///
+/// Emitting `@doc :doc` (for an enum variant named `Doc`) raises a compiler error because
+/// `@doc` is a built-in module attribute. Append `_attr` when the snake_case variant name
+/// collides with one of these identifiers.
+const ELIXIR_RESERVED_MODULE_ATTRIBUTES: &[&str] = &[
+    "after_compile",
+    "before_compile",
+    "behaviour",
+    "callback",
+    "compile",
+    "deprecated",
+    "derive",
+    "dialyzer",
+    "doc",
+    "enforce_keys",
+    "external_resource",
+    "file",
+    "impl",
+    "moduledoc",
+    "on_definition",
+    "on_load",
+    "opaque",
+    "optional_callbacks",
+    "spec",
+    "type",
+    "typedoc",
+    "typep",
+    "vsn",
+];
+
+/// Return a module attribute name that does not collide with an Elixir built-in attribute.
+///
+/// If `name` matches a reserved Elixir module attribute (e.g. `doc`, `type`, `spec`)
+/// it is suffixed with `_attr` so the generated `@attribute` declaration does not
+/// shadow the built-in and trigger a compiler error.
+pub(super) fn elixir_safe_attr_name(name: &str) -> String {
+    if ELIXIR_RESERVED_MODULE_ATTRIBUTES.contains(&name) {
+        format!("{name}_attr")
+    } else {
+        name.to_owned()
+    }
+}
 
 /// Elixir reserved words that cannot be used as parameter names.
 const ELIXIR_RESERVED_WORDS: &[&str] = &[
@@ -393,15 +436,17 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
 
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
-            let attr_name = variant.name.to_snake_case();
-            let _ = writeln!(out, "  @{attr_name} :{attr_name}");
+            let atom_name = variant.name.to_snake_case();
+            let attr_name = elixir_safe_attr_name(&atom_name);
+            let _ = writeln!(out, "  @{attr_name} :{atom_name}");
         }
         let _ = writeln!(out);
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
-            let attr_name = variant.name.to_snake_case();
-            let _ = writeln!(out, "  @spec {attr_name}() :: t()");
-            let _ = writeln!(out, "  def {attr_name}, do: @{attr_name}");
+            let atom_name = variant.name.to_snake_case();
+            let attr_name = elixir_safe_attr_name(&atom_name);
+            let _ = writeln!(out, "  @spec {atom_name}() :: t()");
+            let _ = writeln!(out, "  def {atom_name}, do: @{attr_name}");
         }
     } else {
         // Data enum: provide a @type t :: term() and per-variant type aliases

@@ -813,3 +813,71 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
         "Should emit `@type function_variant ::` for the renamed type; content:\n{content}"
     );
 }
+
+/// A simple-enum variant named `Doc` snake-cases to `doc`, which is a reserved Elixir
+/// module attribute. Emitting `@doc :doc` causes a compiler error. The generator must
+/// use `@doc_attr :doc` and `def doc, do: @doc_attr` instead.
+#[test]
+fn test_reserved_attr_doc_variant_uses_safe_name() {
+    let backend = RustlerBackend;
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "CommentKind".to_string(),
+            rust_path: "my_lib::CommentKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Doc".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Line".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let enum_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/comment_kind.ex"))
+        .expect("comment_kind.ex should be generated");
+
+    let content = &enum_file.content;
+
+    assert!(
+        !content.contains("@doc :doc"),
+        "Must not emit reserved `@doc :doc`; content:\n{content}"
+    );
+    assert!(
+        content.contains("@doc_attr :doc"),
+        "Should emit `@doc_attr :doc` for the safe attribute name; content:\n{content}"
+    );
+    assert!(
+        content.contains("def doc, do: @doc_attr"),
+        "Should emit `def doc, do: @doc_attr`; content:\n{content}"
+    );
+    assert!(
+        content.contains("@spec doc() :: t()"),
+        "Should emit `@spec doc() :: t()`; content:\n{content}"
+    );
+}
