@@ -102,8 +102,6 @@ pub fn gen_trait_bridges_file(
         writeln!(out).ok();
     }
 
-    writeln!(out, "}}").ok();
-
     ("TraitBridges.cs".to_string(), out)
 }
 
@@ -522,7 +520,7 @@ fn gen_single_trait_bridge(
     writeln!(out, "                bridge.Dispose();").ok();
     writeln!(out, "                var errorMsg = Marshal.PtrToStringUTF8(outError) ?? \"Unknown error\";").ok();
     writeln!(out, "                Marshal.FreeCoTaskMem(outError);").ok();
-    writeln!(out, "                throw new InvalidOperationException($\"Failed to register {{}}: {{errorMsg}}\", name);").ok();
+    writeln!(out, "                throw new InvalidOperationException($\"Failed to register {{name}}: {{errorMsg}}\");").ok();
     writeln!(out, "            }}").ok();
     writeln!(out).ok();
     writeln!(out, "            _bridges.TryAdd(name, bridge);").ok();
@@ -547,7 +545,7 @@ fn gen_single_trait_bridge(
     writeln!(out, "        if (result != 0) {{").ok();
     writeln!(out, "            var errorMsg = Marshal.PtrToStringUTF8(outError) ?? \"Unknown error\";").ok();
     writeln!(out, "            Marshal.FreeCoTaskMem(outError);").ok();
-    writeln!(out, "            throw new InvalidOperationException($\"Failed to unregister {{}}: {{errorMsg}}\", name);").ok();
+    writeln!(out, "            throw new InvalidOperationException($\"Failed to unregister {{name}}: {{errorMsg}}\");").ok();
     writeln!(out, "        }}").ok();
     writeln!(out).ok();
     writeln!(out, "        if (_bridges.TryRemove(name, out var bridge)) {{").ok();
