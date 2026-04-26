@@ -43,6 +43,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 rustler = "{rustler}"
+async-trait = "{async_trait}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
@@ -56,6 +57,7 @@ workspace = true
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
         rustler = tv::cargo::RUSTLER,
+        async_trait = tv::cargo::ASYNC_TRAIT,
         extra_deps_section = extra_deps_section,
     );
 

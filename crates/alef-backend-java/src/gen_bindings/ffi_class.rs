@@ -440,13 +440,24 @@ pub(crate) fn gen_async_wrapper_method(
     .ok();
     writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
     writeln!(out, "            try {{").ok();
-    writeln!(
-        out,
-        "                return {}({});",
-        sync_method_name,
-        param_names.join(", ")
-    )
-    .ok();
+    if matches!(func.return_type, TypeRef::Unit) {
+        writeln!(
+            out,
+            "                {}({});",
+            sync_method_name,
+            param_names.join(", ")
+        )
+        .ok();
+        writeln!(out, "                return null;").ok();
+    } else {
+        writeln!(
+            out,
+            "                return {}({});",
+            sync_method_name,
+            param_names.join(", ")
+        )
+        .ok();
+    }
     writeln!(out, "            }} catch (Throwable e) {{").ok();
     writeln!(out, "                throw new CompletionException(e);").ok();
     writeln!(out, "            }}").ok();

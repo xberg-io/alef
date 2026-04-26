@@ -106,8 +106,11 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
 
     // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
     // E.g., for crate="kreuzberg", trait="OcrBackend": KREUZBERGKreuzbergOcrBackendVTable
-    let crate_upper = crate_name.to_uppercase();
-    let crate_pascal = crate_name.to_pascal_case();
+    // Hyphens in crate names (e.g. "html-to-markdown") are not valid in C identifiers;
+    // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
+    let crate_normalized = crate_name.replace('-', "_");
+    let crate_upper = crate_normalized.to_uppercase();
+    let crate_pascal = crate_normalized.to_pascal_case();
     let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
 
     // =========================================================================
@@ -176,11 +179,11 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
         writeln!(out, "\t\t{}: C.{},", &method.name, export_name).ok();
     }
 
-    // Plugin method pointers
-    writeln!(out, "\t\tname: C.go{}Name,", &trait_pascal).ok();
-    writeln!(out, "\t\tversion: C.go{}Version,", &trait_pascal).ok();
-    writeln!(out, "\t\tinitialize: C.go{}Initialize,", &trait_pascal).ok();
-    writeln!(out, "\t\tshutdown: C.go{}Shutdown,", &trait_pascal).ok();
+    // Plugin method pointers (cbindgen suffixes lifecycle hooks with `_fn`).
+    writeln!(out, "\t\tname_fn: C.go{}Name,", &trait_pascal).ok();
+    writeln!(out, "\t\tversion_fn: C.go{}Version,", &trait_pascal).ok();
+    writeln!(out, "\t\tinitialize_fn: C.go{}Initialize,", &trait_pascal).ok();
+    writeln!(out, "\t\tshutdown_fn: C.go{}Shutdown,", &trait_pascal).ok();
 
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
     writeln!(out, "\t\tfree_user_data: C.go{}FreeUserData,", &trait_pascal).ok();

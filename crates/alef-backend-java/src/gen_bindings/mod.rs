@@ -90,9 +90,12 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Only generate visitor support if ConversionOptions and ConversionResult types exist
-        let has_visitor_pattern = api.types.iter().any(|t| t.name == "ConversionOptions")
-            && api.types.iter().any(|t| t.name == "ConversionResult");
+        // Only generate visitor support if visitor_callbacks is explicitly enabled in FFI config
+        let has_visitor_pattern = config
+            .ffi
+            .as_ref()
+            .map(|f| f.visitor_callbacks)
+            .unwrap_or(false);
 
         let mut files = Vec::new();
 

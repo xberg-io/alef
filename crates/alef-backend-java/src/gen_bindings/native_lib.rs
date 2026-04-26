@@ -369,17 +369,38 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
 
+    // Collect trait bridge handle names that will be emitted later, so we can skip them
+    // in the functions loop (prevents duplicate handle emission with wrong descriptors).
+    let trait_bridge_handles: AHashSet<String> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| !b.exclude_languages.contains(&alef_core::config::Language::Java.to_string()))
+        .flat_map(|b| {
+            let trait_snake = b.trait_name.to_snake_case();
+            let trait_upper = trait_snake.to_uppercase();
+            vec![
+                format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper),
+                format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper),
+            ]
+        })
+        .collect();
+
     // Generate method handles for free functions.
     // All functions get handles regardless of is_async — the FFI layer always exposes
     // synchronous C functions, and the Java async wrapper delegates to the sync method.
     for func in &api.functions {
+        let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
+
+        // Skip if this function's handle will be emitted by trait bridge code (with correct descriptor).
+        if trait_bridge_handles.contains(&handle_name) {
+            continue;
+        }
+
         let ffi_name = format!("{}_{}", prefix, func.name.to_lowercase());
         let return_layout = gen_ffi_layout(&func.return_type);
         let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
 
         let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
-
-        let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 
         writeln!(
             body,

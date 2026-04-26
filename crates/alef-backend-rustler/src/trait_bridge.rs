@@ -10,9 +10,11 @@
 //!    (anonymous functions / `fn/arity` captures). Called via `rustler::Env::run_gc()`.
 //!    Bridge param becomes `Option<rustler::Term<'_>>`.
 //!
-//! 2. **Plugin bridge** (registered, cached, async-friendly): Uses `OwnedEnv` + `SavedTerm`
-//!    to extend term lifetime beyond the NIF call. Supports both sync and async dispatch
-//!    to Elixir callbacks via `tokio::runtime::Runtime` blocking.
+//! 2. **Plugin bridge** (registered, cached, async-friendly): Uses `LocalPid` to enable
+//!    message passing to a GenServer-backed Elixir implementation. The bridge stores only
+//!    a `LocalPid` (which is Copy + Send + Sync) and dispatches via channels to satisfy
+//!    `Plugin: Send + Sync + 'static` bounds. Supports both sync (via `block_on`) and
+//!    async dispatch to Elixir callbacks.
 
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 use alef_codegen::generators::trait_bridge::{
@@ -37,7 +39,7 @@ pub struct RustlerBridgeGenerator {
 
 impl TraitBridgeGenerator for RustlerBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "rustler::env::SavedTerm"
+        "rustler::LocalPid"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -46,35 +48,80 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let _name = &method.name;
+        let name = &method.name;
         let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
-        if has_error {
-            // For methods returning Result, use OwnedEnv for proper lifetime management.
-            // SAFETY: OwnedEnv manages its own lifetime and is Send + Sync.
-            writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
-            writeln!(out, "env.run(|_env_ref| {{").ok();
-            writeln!(out, "    // Load the saved Elixir term into the environment.").ok();
-            writeln!(out, "    // let _elixir_term = self.inner.load(_env_ref);").ok();
-            writeln!(out).ok();
-            writeln!(out, "    // Sync dispatch not implemented; use async methods or message passing.").ok();
-            writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "        message: \"Sync Elixir function dispatch not implemented\".to_string(),").ok();
-            writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
-            writeln!(out, "    }})").ok();
-            writeln!(out, "}})").ok();
-        } else {
-            // For non-error methods, return default (no dispatch needed).
-            writeln!(out, "// Sync Elixir dispatch not implemented; use async methods").ok();
-            writeln!(out, "Default::default()").ok();
+        // Clone params for the blocking closure
+        for p in &method.params {
+            if p.is_ref || matches!(&p.ty, TypeRef::String) {
+                writeln!(out, "let {0} = {0}.clone();", p.name).ok();
+            }
         }
+
+        writeln!(out).ok();
+        writeln!(out, "// Sync dispatch via tokio::runtime::Handle::block_on.").ok();
+        writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
+        writeln!(out, "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();").ok();
+        writeln!(out, "let pid = self.pid;").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "// Send request message to Elixir GenServer via OwnedEnv.").ok();
+        writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "let _ = env.send_and_clear(&pid, |env| {{").ok();
+        writeln!(out, "    // Build message: {{:trait_call, method_name, args_json, reply_channel_resource}}").ok();
+
+        // Build args as JSON
+        writeln!(out, "    let mut args = serde_json::Map::new();").ok();
+        for p in &method.params {
+            let json_expr = build_json_arg(p);
+            writeln!(out, "    args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
+        }
+
+        writeln!(out, "    let args_json = serde_json::Value::Object(args).to_string();").ok();
+        writeln!(out, "    let method_atom = rustler::types::atom::Atom::from_str(env, \"{}\").unwrap().to_term(env);", name).ok();
+        writeln!(out, "    let args_term = args_json.encode(env);").ok();
+        writeln!(out, "    let tag = rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap().to_term(env);").ok();
+        writeln!(out, "    rustler::types::tuple::make_tuple(env, &[tag, method_atom, args_term])").ok();
+        writeln!(out, "}});").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "// Block on the oneshot receiver using the current tokio runtime.").ok();
+        writeln!(out, "match tokio::runtime::Handle::try_current() {{").ok();
+        writeln!(out, "    Ok(handle) => {{").ok();
+        writeln!(out, "        handle.block_on(async {{").ok();
+
+        if has_error {
+            writeln!(out, "            match rx.await {{").ok();
+            writeln!(out, "                Ok(result) => Ok(serde_json::from_value(result).unwrap_or_default()),").ok();
+            writeln!(out, "                Err(_) => Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "                    message: \"Elixir callback timed out or disconnected\".to_string(),").ok();
+            writeln!(out, "                    plugin_name: self.cached_name.clone(),").ok();
+            writeln!(out, "                }})").ok();
+            writeln!(out, "            }}").ok();
+        } else {
+            writeln!(out, "            rx.await.map(|_| Default::default()).unwrap_or_else(|_| Default::default())").ok();
+        }
+
+        writeln!(out, "        }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "    Err(_) => {{").ok();
+        if has_error {
+            writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "            message: \"No active tokio runtime for sync dispatch\".to_string(),").ok();
+            writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
+            writeln!(out, "        }})").ok();
+        } else {
+            writeln!(out, "        Default::default()").ok();
+        }
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
 
         out
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let _name = &method.name;
+        let name = &method.name;
         let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
@@ -89,26 +136,40 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "// Async Elixir dispatch via tokio::spawn_blocking.").ok();
-        writeln!(out, "// Real dispatch to Elixir would require message passing to a GenServer,").ok();
-        writeln!(out, "// which is beyond the scope of this bridge. Return an error for now.").ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
+        writeln!(out, "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();").ok();
+        writeln!(out, "let pid = self.pid;").ok();
+        writeln!(out).ok();
 
-        if has_error {
-            writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "        message: \"Async Elixir function dispatch not yet implemented\".to_string(),").ok();
-            writeln!(out, "        plugin_name: cached_name,").ok();
-            writeln!(out, "    }})").ok();
-        } else {
-            writeln!(out, "    Ok(Default::default())").ok();
+        writeln!(out, "// Async dispatch: spawn_blocking sends message to Elixir and waits.").ok();
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "    let _ = env.send_and_clear(&pid, |env| {{").ok();
+        writeln!(out, "        // Build message: {{:trait_call, method_name, args_json, reply_channel_resource}}").ok();
+
+        writeln!(out, "        let mut args = serde_json::Map::new();").ok();
+        for p in &method.params {
+            let json_expr = build_json_arg(p);
+            writeln!(out, "        args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
         }
 
+        writeln!(out, "        let args_json = serde_json::Value::Object(args).to_string();").ok();
+        writeln!(out, "        let method_atom = rustler::types::atom::Atom::from_str(env, \"{}\").unwrap().to_term(env);", name).ok();
+        writeln!(out, "        let args_term = args_json.encode(env);").ok();
+        writeln!(out, "        let tag = rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap().to_term(env);").ok();
+        writeln!(out, "        rustler::types::tuple::make_tuple(env, &[tag, method_atom, args_term])").ok();
+        writeln!(out, "    }});").ok();
         writeln!(out, "}})").ok();
         writeln!(out, ".await").ok();
-        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "    plugin_name: cached_name,").ok();
-        writeln!(out, "}})").ok();
+
+        if has_error {
+            writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
+            writeln!(out, "    plugin_name: cached_name.clone(),").ok();
+            writeln!(out, "}})").ok();
+        } else {
+            writeln!(out, ".map_err(|e| {{}})").ok();
+        }
 
         out
     }
@@ -118,39 +179,19 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let mut out = String::with_capacity(512);
 
         writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping an Elixir term.").ok();
+        writeln!(out, "    /// Create a new bridge wrapping an Elixir GenServer PID.").ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Saves the term in a rustler::SavedTerm for safe use across").ok();
-        writeln!(out, "    /// async boundaries and thread spawns. Caches the module name for").ok();
-        writeln!(out, "    /// fast Plugin::name() lookups.").ok();
+        writeln!(out, "    /// The PID is copied (LocalPid is Copy + Send + Sync) and used to send").ok();
+        writeln!(out, "    /// messages to the backing GenServer. The plugin_name is cached for fast").ok();
+        writeln!(out, "    /// Plugin::name() lookups.").ok();
         writeln!(
             out,
-            "    pub fn new(env: rustler::Env<'_>, elixir_term: rustler::Term<'_>) -> Self {{"
+            "    pub fn new(pid: rustler::LocalPid, plugin_name: String) -> Self {{"
         )
         .ok();
-        writeln!(out, "        // Create OwnedEnv locally to extract and cache the name.").ok();
-        writeln!(out, "        // SAFETY: OwnedEnv is scoped to this function; we only keep SavedTerm.").ok();
-        writeln!(out, "        let owned = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "        let saved = owned.save(elixir_term);").ok();
-
-        // Cache the name by trying to call __struct__ or checking map keys
-        writeln!(out, "        let cached_name = owned.run(|env| {{").ok();
-        writeln!(out, "            // Try to extract module name from the term").ok();
-        writeln!(out, "            if let Ok(struct_atom) = rustler::types::atom::Atom::from_str(env, \"__struct__\") {{").ok();
-        writeln!(out, "                // For a struct, try to get the module name").ok();
-        writeln!(out, "                if let Ok(module_term) = rustler::Term::map_get(elixir_term, struct_atom.to_term(env)) {{").ok();
-        writeln!(out, "                    if let Ok(name_str) = module_term.atom_to_string() {{").ok();
-        writeln!(out, "                        return name_str;").ok();
-        writeln!(out, "                    }}").ok();
-        writeln!(out, "                }}").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "            \"unknown\".to_string()").ok();
-        writeln!(out, "        }});").ok();
-
-        writeln!(out).ok();
         writeln!(out, "        Self {{").ok();
-        writeln!(out, "            inner: saved,").ok();
-        writeln!(out, "            cached_name,").ok();
+        writeln!(out, "            pid,").ok();
+        writeln!(out, "            cached_name: plugin_name,").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
@@ -172,40 +213,12 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "#[rustler::nif]").ok();
         writeln!(
             out,
-            "pub fn {register_fn}(env: rustler::Env<'_>, elixir_backend: rustler::Term<'_>) -> rustler::Atom {{"
+            "pub fn {register_fn}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {{"
         )
         .ok();
 
-        // Validate required methods exist in the term
-        let req_methods: Vec<&MethodDef> = spec.required_methods();
-        if !req_methods.is_empty() {
-            writeln!(
-                out,
-                "    let required = [{}];",
-                req_methods
-                    .iter()
-                    .map(|m| format!("\"{}\"", m.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-            .ok();
-            writeln!(out, "    for method_name in &required {{").ok();
-            writeln!(
-                out,
-                "        if !elixir_backend.map_get(rustler::types::atom::Atom::from_str(env, method_name).unwrap()).is_ok() {{"
-            )
-            .ok();
-            writeln!(
-                out,
-                "            return rustler::types::atom::Atom::from_str(env, \"error\").unwrap();"
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-            writeln!(out, "    }}").ok();
-        }
-
         writeln!(out).ok();
-        writeln!(out, "    let bridge = {wrapper}::new(env, elixir_backend);").ok();
+        writeln!(out, "    let bridge = {wrapper}::new(genserver_pid, plugin_name);").ok();
         writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
         writeln!(out).ok();
 

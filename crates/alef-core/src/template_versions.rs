@@ -70,6 +70,9 @@ pub mod cargo {
     // renovate: datasource=crate depName=rustler
     pub const RUSTLER: &str = "0.37";
 
+    // renovate: datasource=crate depName=async-trait
+    pub const ASYNC_TRAIT: &str = "0.1";
+
     // renovate: datasource=crate depName=extendr-api
     pub const EXTENDR_API: &str = "0.7";
 

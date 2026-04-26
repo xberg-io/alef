@@ -121,8 +121,8 @@ fn test_plugin_bridge_generates_wrapper_struct() {
         "plugin bridge must generate RustlerOcrBackendBridge wrapper struct"
     );
     assert!(
-        code.code.contains("inner: rustler::env::SavedTerm"),
-        "wrapper struct must hold a rustler::env::SavedTerm"
+        code.code.contains("inner: rustler::LocalPid") || code.code.contains("pid: rustler::LocalPid"),
+        "wrapper struct must hold a rustler::LocalPid for message passing"
     );
     assert!(
         code.code.contains("cached_name: String"),
@@ -166,8 +166,8 @@ fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
         "sync method body must reference the method name 'analyze'"
     );
     assert!(
-        code.code.contains("map_get") || code.code.contains("self.env.run"),
-        "sync method body must dispatch via OwnedEnv or map_get"
+        code.code.contains("OwnedEnv::new()") || code.code.contains("send_and_clear"),
+        "sync method body must dispatch via OwnedEnv and send_and_clear to the GenServer"
     );
 }
 
@@ -252,8 +252,8 @@ fn test_plugin_bridge_constructor_caches_name() {
         "constructor must populate cached_name"
     );
     assert!(
-        code.code.contains("SavedTerm") || code.code.contains("saved"),
-        "constructor must save the term for safe lifetime extension"
+        code.code.contains("LocalPid") || code.code.contains("plugin_name"),
+        "constructor must accept a LocalPid and plugin_name for message passing"
     );
 }
 
