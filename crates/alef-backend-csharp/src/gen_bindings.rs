@@ -1934,6 +1934,13 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
 
+    // Collect all variant pascal names to check for field-name-to-variant-name clashes
+    let variant_names: std::collections::HashSet<String> = enum_def
+        .variants
+        .iter()
+        .map(|v| v.name.to_pascal_case())
+        .collect();
+
     // Nested sealed records for each variant
     for variant in &enum_def.variants {
         let pascal = variant.name.to_pascal_case();
@@ -1987,7 +1994,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     } else {
                         let json_name = field.name.trim_start_matches('_');
                         let cs_name = to_csharp_name(json_name);
-                        let clashes = cs_name == pascal || cs_name == cs_type;
+                        // Check if this field name clashes with:
+                        // 1. The variant pascal name (e.g., "Slide" variant with "slide" field → "Slide" param)
+                        // 2. The field type name (e.g., "ImageUrl" type with "url" field → "Url" param matching a nested record)
+                        // 3. Another variant pascal name (e.g., nested "Title" record with "title" field in "Slide" variant)
+                        let clashes = cs_name == pascal || cs_name == cs_type || variant_names.contains(&cs_name);
                         if clashes {
                             out.push_str(&format!("        {cs_type} Value{comma}\n"));
                         } else {

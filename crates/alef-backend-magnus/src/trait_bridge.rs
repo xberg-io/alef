@@ -88,17 +88,12 @@ pub fn gen_trait_bridge(
         let imports_to_emit: Vec<_> = output.imports.iter()
             .filter(|imp| *imp != "magnus::prelude::*")
             .collect();
-        if !imports_to_emit.is_empty() {
-            prefixed.push_str("#[allow(unused_imports)]\n");
-            prefixed.push_str("{\n");
-        }
+        // Emit allow attribute before each import group to suppress unused_imports warnings
         for imp in &imports_to_emit {
+            prefixed.push_str("#[allow(unused_imports)]\n");
             prefixed.push_str("use ");
             prefixed.push_str(imp);
             prefixed.push_str(" as _;\n");
-        }
-        if !imports_to_emit.is_empty() {
-            prefixed.push_str("}\n");
         }
         prefixed.push_str(&output.code);
         prefixed

@@ -46,43 +46,30 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
+        let _name = &method.name;
         let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
-        // Create a fresh OwnedEnv locally for thread-safe Elixir dispatch.
-        // SAFETY: OwnedEnv is Send + Sync and manages its own lifetime via a Box<ErlNifEnv>.
-        // SavedTerm holds a reference to an ErlNifEnv that is managed by the OwnedEnv that
-        // created it, so we must restore it before use. We load the saved term into a new
-        // OwnedEnv context and execute the dispatch synchronously.
+        // Create a fresh OwnedEnv locally for thread-safe access to SavedTerm.
+        // SAFETY: OwnedEnv manages its own lifetime and is Send + Sync.
+        // We don't actually dispatch here (that requires message passing),
+        // but we demonstrate the pattern for safely loading the saved term.
         writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "env.run(|env_ref| {{").ok();
-        writeln!(out, "    // Load the saved Elixir term into the current environment.").ok();
-        writeln!(out, "    let elixir_term = self.inner.load(env_ref);").ok();
+        writeln!(out, "env.run(|_env_ref| {{").ok();
+        writeln!(out, "    // Load the saved Elixir term into the environment.").ok();
+        writeln!(out, "    // let _elixir_term = self.inner.load(_env_ref);").ok();
         writeln!(out).ok();
-        writeln!(out, "    // Extract the callback function from the term (atom: {name}).").ok();
-        writeln!(out, "    let fn_atom = rustler::types::atom::Atom::from_str(env_ref, \"{name}\")").ok();
-        writeln!(out, "        .unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env_ref, \"error\").unwrap());").ok();
-        writeln!(out).ok();
-        writeln!(out, "    // Call the Elixir function with encoded arguments.").ok();
-        writeln!(out, "    let mut args = Vec::new();").ok();
-        for p in &method.params {
-            writeln!(out, "    args.push(format!(\"{{:?}}\", {}).encode(env_ref));", p.name).ok();
-        }
-        writeln!(out, "    if args.is_empty() {{").ok();
-        writeln!(out, "        args.push(rustler::types::atom::Atom::from_str(env_ref, \"ok\").unwrap().to_term(env_ref));").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-        writeln!(out, "    // This is a placeholder: real dispatch requires message passing to BEAM.").ok();
-        writeln!(out, "    // For now, return an error indicating the method is async-only.").ok();
+        writeln!(out, "    // Sync dispatch not implemented; use async methods or message passing.").ok();
 
         if has_error {
             writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "        message: \"Sync dispatch not supported; use async methods\".to_string(),").ok();
+            writeln!(out, "        message: \"Sync Elixir function dispatch not implemented\".to_string(),").ok();
             writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
             writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, "    Ok(Default::default())").ok();
+            // For non-error methods, env.run() returns (), so we must extract the unit value
+            writeln!(out, "}}); Default::default()").ok();
+            return out;
         }
 
         writeln!(out, "}})").ok();
@@ -91,12 +78,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let name = &method.name;
+        let _name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(768);
+        let mut out = String::with_capacity(512);
 
-        // Clone the saved term and cached name so they can be moved into the blocking task.
-        writeln!(out, "let saved_term = self.inner.clone();").ok();
+        // Clone the cached name for the async block
         writeln!(out, "let cached_name = self.cached_name.clone();").ok();
 
         // Clone params so they can be moved into the blocking task
@@ -107,48 +93,25 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "// Dispatch to Elixir asynchronously via tokio::spawn_blocking.").ok();
-        writeln!(out, "// SAFETY: saved_term was saved from an OwnedEnv and can be restored into").ok();
-        writeln!(out, "// a new OwnedEnv safely. The spawned closure will complete before the saved term").ok();
-        writeln!(out, "// is dropped.").ok();
-        writeln!(out, "Box::pin(async move {{").ok();
-        writeln!(out, "    tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "        let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "        env.run(|env_ref| {{").ok();
-        writeln!(out, "            // Load the saved Elixir term into the async environment.").ok();
-        writeln!(out, "            let elixir_term = saved_term.load(env_ref);").ok();
-        writeln!(out).ok();
-        writeln!(out, "            // Extract the callback function (atom: {name}).").ok();
-        writeln!(out, "            let fn_atom = rustler::types::atom::Atom::from_str(env_ref, \"{name}\")").ok();
-        writeln!(out, "                .unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env_ref, \"error\").unwrap());").ok();
-        writeln!(out).ok();
-        writeln!(out, "            // Build arguments list.").ok();
-        writeln!(out, "            let mut args = Vec::new();").ok();
-        for p in &method.params {
-            writeln!(out, "            args.push(format!(\"{{:?}}\", {}).encode(env_ref));", p.name).ok();
-        }
-        writeln!(out, "            if args.is_empty() {{").ok();
-        writeln!(out, "                args.push(rustler::types::atom::Atom::from_str(env_ref, \"ok\").unwrap().to_term(env_ref));").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out).ok();
-        writeln!(out, "            // Placeholder: real dispatch via message passing would go here.").ok();
+        writeln!(out, "// Async Elixir dispatch via tokio::spawn_blocking.").ok();
+        writeln!(out, "// Real dispatch to Elixir would require message passing to a GenServer,").ok();
+        writeln!(out, "// which is beyond the scope of this bridge. Return an error for now.").ok();
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
 
         if has_error {
-            writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "                message: \"Async Elixir dispatch not yet fully implemented\".to_string(),").ok();
-            writeln!(out, "                plugin_name: cached_name,").ok();
-            writeln!(out, "            }})").ok();
+            writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "        message: \"Async Elixir function dispatch not yet implemented\".to_string(),").ok();
+            writeln!(out, "        plugin_name: cached_name,").ok();
+            writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, "            Ok(Default::default())").ok();
+            writeln!(out, "    Ok(Default::default())").ok();
         }
 
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "    .await").ok();
-        writeln!(out, "    .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "        message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "        plugin_name: cached_name,").ok();
-        writeln!(out, "    }})").ok();
+        writeln!(out, "}})").ok();
+        writeln!(out, ".await").ok();
+        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
+        writeln!(out, "    plugin_name: cached_name,").ok();
         writeln!(out, "}})").ok();
 
         out

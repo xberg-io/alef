@@ -554,14 +554,19 @@ fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
             )
             .ok();
         }
-        TypeRef::Named(_)
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _)
-        | TypeRef::Optional(_)
-        | TypeRef::Json
-        | TypeRef::Duration
-        | TypeRef::Char
-        | TypeRef::Unit => {
+        TypeRef::Named(type_name) => {
+            writeln!(
+                out,
+                "            String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            {type_name} {local} = JSON.readValue({local}_json, {type_name}.class);"
+            )
+            .ok();
+        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => {
             let java_ty = java_type(ty);
             writeln!(
                 out,
@@ -570,13 +575,22 @@ fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
             .ok();
             writeln!(
                 out,
-                "            {java_ty} {local} = JSON.readValue({local}_json, com.fasterxml.jackson.core.type.TypeReference.class);"
+                "            {java_ty} {local} = JSON.readValue({local}_json, new com.fasterxml.jackson.core.type.TypeReference<{java_ty}>() {{ }});"
             )
             .ok();
-            // The TypeReference erasure yields raw Object, so cast through.
-            // Note: trait bridges should use concrete classes for now; complex
-            // generic types are an ongoing limitation.
-            let _ = java_ty;
+        }
+        TypeRef::Json | TypeRef::Duration | TypeRef::Char | TypeRef::Unit => {
+            let java_ty = java_type(ty);
+            writeln!(
+                out,
+                "            String {local}_json = {segment}.reinterpret(Long.MAX_VALUE).getString(0);"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            {java_ty} {local} = JSON.readValue({local}_json, {java_ty}.class);"
+            )
+            .ok();
         }
     }
 }

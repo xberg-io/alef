@@ -357,9 +357,9 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        // Determine the element type for deserialization
+        // Determine the element type for deserialization (use boxed types for generics)
         let element_type = match &func.return_type {
-            TypeRef::Vec(inner) => java_type(inner),
+            TypeRef::Vec(inner) => java_boxed_type(inner),
             _ => unreachable!(),
         };
         writeln!(
