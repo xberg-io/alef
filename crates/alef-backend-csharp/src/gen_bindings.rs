@@ -1723,7 +1723,16 @@ fn gen_record_type(
                         .replace('\t', "\\t");
                     format!("\"{}\"", escaped)
                 }
-                Some(DefaultValue::EnumVariant(v)) => format!("{}.{}", base_type, v.to_pascal_case()),
+                Some(DefaultValue::EnumVariant(v)) => {
+                    // When the C# field type is `string` (the referenced enum was excluded /
+                    // collapsed to its serde JSON tag), emit the variant tag as a string literal
+                    // rather than `string.VariantName` which would resolve to a missing static.
+                    if base_type == "string" || base_type == "string?" {
+                        format!("\"{}\"", v.to_pascal_case())
+                    } else {
+                        format!("{}.{}", base_type, v.to_pascal_case())
+                    }
+                }
                 Some(DefaultValue::None) => "null".to_string(),
                 Some(DefaultValue::Empty) | None => match &field.ty {
                     TypeRef::Vec(_) => "[]".to_string(),
