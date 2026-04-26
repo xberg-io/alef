@@ -6,6 +6,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
+use heck::ToSnakeCase;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -128,7 +129,7 @@ end
 ]
 "#;
 
-    Ok(vec![
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/mix.exs")),
             content,
@@ -176,5 +177,95 @@ end
             .to_string(),
             generated_header: false,
         },
-    ])
+    ];
+
+    // Generate trait bridge GenServer modules
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg
+            .exclude_languages
+            .iter()
+            .any(|l| l == "elixir" || l == "rustler")
+        {
+            continue;
+        }
+        let trait_name_snake = bridge_cfg.trait_name.to_snake_case();
+        let trait_name_camel = capitalize_first(&bridge_cfg.trait_name);
+        let module_name = format!("{}{}Bridge", capitalize_first(&app_name), trait_name_camel);
+        let native_mod = format!("{}.Native", capitalize_first(&app_name));
+
+        let bridge_content = format!(
+            r#"defmodule {module_name} do
+  @moduledoc """
+  GenServer bridge for {trait_name} implementation in {app_name}.
+
+  Handles incoming trait method calls from Rust and dispatches them to an implementation module.
+  """
+
+  use GenServer
+
+  require Logger
+
+  @doc """
+  Start a GenServer linked to the current process.
+
+  impl_module should be a module that implements the {trait_name} trait methods.
+  """
+  def start_link(impl_module) do
+    GenServer.start_link(__MODULE__, impl_module, name: __MODULE__)
+  end
+
+  @impl GenServer
+  def init(impl_module) do
+    {{{:ok, impl_module}}}
+  end
+
+  @doc """
+  Handle an incoming trait call message.
+
+  Message format: {{:trait_call, method_atom, args_json, reply_id}}
+  """
+  @impl GenServer
+  def handle_info({{:trait_call, method, args_json, reply_id}}, impl_module) do
+    try do
+      args = Jason.decode!(args_json)
+
+      # Dispatch to the implementation module
+      result = apply(impl_module, String.to_atom(method), args)
+
+      # Send result back to Rust
+      {native_mod}.complete_trait_call(reply_id, Jason.encode!(result))
+    rescue
+      e ->
+        Logger.error("Error calling {{impl_module}}.{{method}}: {{Exception.message(e)}}")
+        {native_mod}.fail_trait_call(reply_id, Exception.message(e))
+    end
+
+    {{{:noreply, impl_module}}}
+  end
+
+  @doc """
+  Register an implementation module, starting a GenServer to handle trait calls.
+  """
+  def register(impl_module) do
+    {{{:ok, _pid}}} = start_link(impl_module)
+    {native_mod}.register_{trait_name_snake}(self(), Atom.to_string(impl_module))
+  end
+end
+"#,
+            module_name = module_name,
+            trait_name = bridge_cfg.trait_name,
+            app_name = app_name,
+            trait_name_snake = trait_name_snake,
+            native_mod = native_mod,
+        );
+
+        let bridge_path = PathBuf::from(format!("{pkg_dir}/lib/{app_name}/{trait_name_snake}_bridge.ex"));
+        files.push(GeneratedFile {
+            path: bridge_path,
+            content: bridge_content,
+            generated_header: true,
+        });
+    }
+
+    Ok(files)
 }
