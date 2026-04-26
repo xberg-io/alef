@@ -33,6 +33,13 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
     } else {
         format!("\n{extra_deps}")
     };
+    let has_async =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let tokio_dep = if has_async {
+        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }"
+    } else {
+        ""
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -46,8 +53,7 @@ crate-type = ["cdylib"]
 rustler = "{rustler}"
 async-trait = "{async_trait}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
+serde_json = "1"{tokio_dep}{extra_deps_section}
 
 [lints]
 workspace = true
@@ -59,6 +65,7 @@ workspace = true
         features = core_dep_features(config, Language::Elixir),
         rustler = tv::cargo::RUSTLER,
         async_trait = tv::cargo::ASYNC_TRAIT,
+        tokio_dep = tokio_dep,
         extra_deps_section = extra_deps_section,
     );
 

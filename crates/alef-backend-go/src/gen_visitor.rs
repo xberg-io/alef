@@ -19,6 +19,24 @@ use alef_codegen::naming::go_param_name;
 use alef_core::hash::{self, CommentStyle};
 use std::fmt::Write;
 
+/// Derive the cbindgen-generated C struct name for the visitor callbacks.
+///
+/// cbindgen prepends the configured `prefix` (uppercased) to the Rust type name.
+/// The Rust visitor callbacks struct is named `{PascalPrefix}VisitorCallbacks`
+/// (e.g. for `ffi_prefix = "htm"` → `HtmVisitorCallbacks`), so cbindgen emits
+/// `{PREFIX}{PascalPrefix}VisitorCallbacks` (e.g. `HTMHtmVisitorCallbacks`).
+fn visitor_c_struct_name(ffi_prefix: &str) -> String {
+    let prefix_upper = ffi_prefix.to_uppercase();
+    let prefix_pascal = {
+        let mut chars = ffi_prefix.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        }
+    };
+    format!("{prefix_upper}{prefix_pascal}VisitorCallbacks")
+}
+
 /// A single visitor callback specification.
 struct CallbackSpec {
     /// Field name in the C callbacks struct (snake_case).
@@ -720,10 +738,11 @@ pub fn gen_visitor_file(
     writeln!(out).ok();
 
     // Construct C type names from the FFI prefix.
-    // E.g., ffi_prefix="htm" → "HTMNodeContext", "HTMVisitorCallbacks"
+    // cbindgen prepends prefix_upper + the Rust struct name (PascalCase),
+    // so the visitor callbacks struct is e.g. "HTMHtmVisitorCallbacks" for prefix "htm".
     let prefix_upper = ffi_prefix.to_uppercase();
     let node_context_type = format!("{}NodeContext", prefix_upper);
-    let visitor_callbacks_type = format!("{}VisitorCallbacks", prefix_upper);
+    let visitor_callbacks_type = visitor_c_struct_name(ffi_prefix);
     let conversion_options_type = format!("{}ConversionOptions", prefix_upper);
 
     // -------------------------------------------------------------------------
@@ -753,7 +772,7 @@ pub fn gen_visitor_file(
 
     writeln!(out).ok();
 
-    // Static C helper that constructs VisitorCallbacks with all Go trampolines.
+    // Static C helper that constructs the cbindgen-named visitor callbacks struct.
     writeln!(
         out,
         "static {visitor_callbacks_type} makeVisitorCallbacks(void* user_data) {{"

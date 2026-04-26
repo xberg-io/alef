@@ -289,6 +289,7 @@ const ELIXIR_BUILTIN_TYPES: &[&str] = &[
     "charlist",
     "float",
     "fun",
+    "function",
     "identifier",
     "integer",
     "iodata",

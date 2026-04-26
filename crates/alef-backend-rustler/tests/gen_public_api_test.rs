@@ -753,3 +753,63 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         &lib_rs.content[lib_rs.content.len().saturating_sub(200)..]
     );
 }
+
+/// A data-enum variant named `Function` snake-cases to `function`, which is an Elixir
+/// built-in type. The generated `@type` declaration must use `function_variant` to avoid
+/// a `Kernel.TypespecError: type function/0 is a built-in type and it cannot be redefined`.
+#[test]
+fn test_builtin_type_function_variant_uses_safe_type_name() {
+    let backend = RustlerBackend;
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Message".to_string(),
+            rust_path: "my_lib::Message".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Function".to_string(),
+                    fields: vec![make_field("name", TypeRef::String, false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![make_field("content", TypeRef::String, false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let enum_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/message.ex"))
+        .expect("message.ex should be generated");
+
+    let content = &enum_file.content;
+
+    assert!(
+        !content.contains("@type function ::"),
+        "Must not emit reserved `@type function ::`; content:\n{content}"
+    );
+    assert!(
+        content.contains("@type function_variant ::"),
+        "Should emit `@type function_variant ::` for the renamed type; content:\n{content}"
+    );
+}

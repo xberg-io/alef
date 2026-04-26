@@ -717,3 +717,108 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         "crate-level version should be overridden, got: {rendered}"
     );
 }
+
+#[test]
+fn test_scaffold_elixir_cargo_no_tokio_when_sync_only() {
+    let mut config = test_config();
+    config.languages = vec![Language::Elixir];
+    let api = test_api(); // all sync — no async functions or methods
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    assert!(
+        !cargo_toml.content.contains("tokio"),
+        "sync-only API must not include tokio; content:\n{}",
+        cargo_toml.content
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_cargo_tokio_when_async_function() {
+    use alef_core::ir::{FunctionDef, TypeRef};
+    let mut config = test_config();
+    config.languages = vec![Language::Elixir];
+    let mut api = test_api();
+    api.functions.push(FunctionDef {
+        name: "do_work".to_string(),
+        rust_path: "my_lib::do_work".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: true,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    });
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.content.contains("tokio"),
+        "async function API must include tokio; content:\n{}",
+        cargo_toml.content
+    );
+    assert!(
+        cargo_toml.content.contains("rt-multi-thread"),
+        "tokio dep must include rt-multi-thread feature; content:\n{}",
+        cargo_toml.content
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_cargo_tokio_when_async_method() {
+    use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+    let mut config = test_config();
+    config.languages = vec![Language::Elixir];
+    let mut api = test_api();
+    api.types.push(TypeDef {
+        name: "Worker".to_string(),
+        rust_path: "my_lib::Worker".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "run".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: true,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }],
+        is_opaque: false,
+        is_clone: true,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    });
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    assert!(
+        cargo_toml.content.contains("tokio"),
+        "async method API must include tokio; content:\n{}",
+        cargo_toml.content
+    );
+    assert!(
+        cargo_toml.content.contains("rt-multi-thread"),
+        "tokio dep must include rt-multi-thread feature; content:\n{}",
+        cargo_toml.content
+    );
+}
