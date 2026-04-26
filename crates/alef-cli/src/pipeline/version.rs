@@ -1,9 +1,11 @@
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
+use std::path::Path;
 use std::sync::LazyLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::helpers::run_command;
+use super::{extract, readme, write_files};
 
 /// Regex for matching version field in Cargo.toml format files.
 static CARGO_VERSION_RE: LazyLock<regex::Regex> =
@@ -110,11 +112,25 @@ fn to_pep440(version: &str) -> String {
     }
 }
 
+/// Convert a semver pre-release version to RubyGems canonical prerelease format.
+/// e.g., "0.1.0-rc.2" → "0.1.0.pre.rc.2", "0.1.0-alpha.2" → "0.1.0.pre.alpha.2"
+/// Non-pre-release versions are returned unchanged.
+fn to_rubygems_prerelease(version: &str) -> String {
+    if let Some((base, pre)) = version.split_once('-') {
+        // Replace dashes and underscores with dots in prerelease part, then prepend "pre."
+        let normalized_pre = pre.replace('-', ".").replace('_', ".");
+        format!("{base}.pre.{normalized_pre}")
+    } else {
+        version.to_string()
+    }
+}
+
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
 /// Returns a list of mismatches (empty = all consistent).
 pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
     let expected = read_version(&config.crate_config.version_from)?;
     let expected_pep440 = to_pep440(&expected);
+    let expected_rubygems = to_rubygems_prerelease(&expected);
     let mut mismatches = Vec::new();
 
     fn extract_version(path: &str, pattern: &str) -> Option<String> {
@@ -157,7 +173,7 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
         }
     }
 
-    // Ruby gemspec
+    // Ruby gemspec (compare normalized form)
     if let Ok(entries) = std::fs::read_dir("packages/ruby") {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -166,15 +182,15 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
                     &path.to_string_lossy(),
                     r"spec\.version\s*=\s*['\x22]([^'\x22]*)['\x22]",
                 ) {
-                    if found != expected {
-                        mismatches.push(format!("{}: found {found}, expected {expected}", path.display()));
+                    if found != expected_rubygems {
+                        mismatches.push(format!("{}: found {found}, expected {expected_rubygems}", path.display()));
                     }
                 }
             }
         }
     }
 
-    // Ruby version.rb files (packages/ruby/{lib/*/,ext/*/src/*/,ext/*/native/src/*/}version.rb)
+    // Ruby version.rb files (packages/ruby/{lib/*/,ext/*/src/*/,ext/*/native/src/*/}version.rb) (compare normalized form)
     for pattern in &[
         "packages/ruby/lib/*/version.rb",
         "packages/ruby/ext/*/src/*/version.rb",
@@ -183,8 +199,8 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
         if let Ok(entries) = glob::glob(pattern) {
             for entry in entries.flatten() {
                 if let Some(found) = extract_version(&entry.to_string_lossy(), r#"VERSION\s*=\s*["']([^"']*)["']"#) {
-                    if found != expected {
-                        mismatches.push(format!("{}: found {found}, expected {expected}", entry.display()));
+                    if found != expected_rubygems {
+                        mismatches.push(format!("{}: found {found}, expected {expected_rubygems}", entry.display()));
                     }
                 }
             }
@@ -294,14 +310,15 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         }
     }
 
-    // Ruby: *.gemspec
+    // Ruby: *.gemspec (convert to RubyGems prerelease format)
+    let ruby_version = to_rubygems_prerelease(&version);
     if let Ok(entries) = std::fs::read_dir("packages/ruby") {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "gemspec") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Some(new_content) =
-                        replace_version_pattern(&content, r#"spec\.version\s*=\s*['"][^'"]*['"]"#, &version)
+                        replace_version_pattern(&content, r#"spec\.version\s*=\s*['"][^'"]*['"]"#, &ruby_version)
                     {
                         std::fs::write(&path, &new_content)?;
                         updated.push(path.to_string_lossy().to_string());
@@ -311,7 +328,7 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         }
     }
 
-    // Ruby: {lib/*/,ext/*/src/*/,ext/*/native/src/*/}version.rb
+    // Ruby: {lib/*/,ext/*/src/*/,ext/*/native/src/*/}version.rb (convert to RubyGems prerelease format)
     for pattern in &[
         "packages/ruby/lib/*/version.rb",
         "packages/ruby/ext/*/src/*/version.rb",
@@ -320,7 +337,7 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         for entry in glob::glob(pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&entry) {
                 if let Some(new_content) =
-                    replace_version_pattern(&content, r#"VERSION\s*=\s*['"][^'"]*['"]"#, &version)
+                    replace_version_pattern(&content, r#"VERSION\s*=\s*['"][^'"]*['"]"#, &ruby_version)
                 {
                     std::fs::write(&entry, &new_content)?;
                     updated.push(entry.to_string_lossy().to_string());
@@ -541,7 +558,41 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         let _ = run_command(&format!("cargo build -p {ffi_crate}"));
     }
 
+    // Invalidate the IR cache so that subsequent readme/docs generation picks up the new version.
+    // This ensures READMEs (which embed version strings) are regenerated with the new version.
+    info!("Invalidating IR cache to refresh version in documentation");
+    if let Err(e) = std::fs::remove_dir_all(".alef") {
+        // Log at debug level if cache doesn't exist yet (not an error)
+        debug!("Could not remove cache directory: {e}");
+    }
+
+    // Regenerate READMEs with the new version.
+    info!("Regenerating READMEs with updated version");
+    match regenerate_readmes(config) {
+        Ok(count) => {
+            if count > 0 {
+                info!("  Regenerated {count} README(s)");
+            } else {
+                debug!("  No READMEs updated");
+            }
+        }
+        Err(e) => {
+            warn!("Could not regenerate READMEs: {e}");
+        }
+    }
+
     Ok(())
+}
+
+/// Internal helper to regenerate READMEs after a version sync.
+/// Extracts IR, computes README files, and writes them to disk.
+fn regenerate_readmes(config: &AlefConfig) -> anyhow::Result<usize> {
+    let api = extract(config, &config.crate_config.config_path, false)?;
+    let languages = config.languages.clone();
+    let readme_files = readme(&api, config, &languages)?;
+    let base_dir = std::path::PathBuf::from(".");
+    let count = write_files(&readme_files, &base_dir)?;
+    Ok(count)
 }
 
 /// Replace version pattern in content. Returns Some(new_content) if replaced, None if pattern not found.
@@ -574,6 +625,27 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_to_rubygems_prerelease_rc() {
+        assert_eq!(to_rubygems_prerelease("1.8.0"), "1.8.0");
+        assert_eq!(to_rubygems_prerelease("1.8.0-rc.2"), "1.8.0.pre.rc.2");
+    }
+
+    #[test]
+    fn test_to_rubygems_prerelease_alpha() {
+        assert_eq!(to_rubygems_prerelease("0.1.0-alpha.2"), "0.1.0.pre.alpha.2");
+    }
+
+    #[test]
+    fn test_to_rubygems_prerelease_beta() {
+        assert_eq!(to_rubygems_prerelease("0.1.0-beta.3"), "0.1.0.pre.beta.3");
+    }
+
+    #[test]
+    fn test_to_rubygems_prerelease_no_prerelease() {
+        assert_eq!(to_rubygems_prerelease("0.1.0"), "0.1.0");
+    }
 
     #[test]
     fn test_replace_version_pattern_ruby_version() {
