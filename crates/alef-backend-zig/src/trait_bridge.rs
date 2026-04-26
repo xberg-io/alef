@@ -66,6 +66,218 @@ fn trait_snake(trait_name: &str) -> String {
     trait_name.to_snake_case()
 }
 
+/// Emit a Zig param name for the C-ABI slot, expanding `Bytes` to ptr+len.
+///
+/// Returns a list of `(c_param_name, c_param_type)` pairs.
+fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
+    let mut params = vec![("ud".to_string(), "?*anyopaque".to_string())];
+    for p in &method.params {
+        if matches!(p.ty, TypeRef::Bytes) {
+            params.push((format!("{}_ptr", p.name), "[*c]const u8".to_string()));
+            params.push((format!("{}_len", p.name), "usize".to_string()));
+        } else {
+            params.push((p.name.clone(), vtable_param_type(&p.ty).to_string()));
+        }
+    }
+    if method.error_type.is_some() {
+        if !matches!(method.return_type, TypeRef::Unit) {
+            params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
+        }
+        params.push(("out_error".to_string(), "?*?[*c]u8".to_string()));
+    } else if !matches!(method.return_type, TypeRef::Unit) {
+        params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
+    }
+    params
+}
+
+/// Emit a `make_{trait_snake}_vtable(comptime T: type, instance: *T) I{Trait}` helper.
+///
+/// The helper builds `callconv(.C)` thunks for every vtable slot so the consumer
+/// only needs to write plain Zig methods on their type.
+///
+/// # Limitations
+///
+/// - Methods returning non-unit values through `out_result` use `unreachable` for
+///   the conversion path when the type cannot be expressed as a direct C primitive
+///   (complex types are documented as requiring manual implementation).
+/// - Lifecycle slots (`name_fn`, `version_fn`, `initialize_fn`, `shutdown_fn`) are
+///   emitted with `unreachable` bodies as stubs — the consumer overrides the
+///   relevant field in the returned vtable if needed.
+pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &TypeDef, out: &mut String) {
+    let snake = trait_snake(trait_name);
+
+    out.push_str(&format!(
+        "/// Build an `I{trait_name}` vtable for a concrete Zig type `T`.\n"
+    ));
+    out.push_str("///\n");
+    out.push_str(&format!(
+        "/// `T` must implement every method of `{trait_name}` as a plain Zig function.\n"
+    ));
+    out.push_str("/// Each slot is wrapped in a `callconv(.C)` thunk that casts `user_data`\n");
+    out.push_str("/// back to `*T` and forwards the call.\n");
+    out.push_str("///\n");
+    out.push_str("/// # Usage\n");
+    out.push_str("/// ```zig\n");
+    out.push_str("/// const vtable = make_{snake}_vtable(MyType, &my_instance);\n");
+    out.push_str(&format!(
+        "/// _ = register_{snake}(\"my-impl\", vtable, &my_instance, &out_error);\n"
+    ));
+    out.push_str("/// ```\n");
+    out.push_str(&format!(
+        "pub fn make_{snake}_vtable(comptime T: type, instance: *T) I{trait_name} {{\n"
+    ));
+    out.push_str("    _ = instance; // instance is passed as user_data by the caller\n");
+    out.push_str(&format!("    return I{trait_name}{{\n"));
+
+    // Lifecycle stubs when super_trait is present
+    if has_super_trait {
+        out.push_str("        .name_fn = struct {\n");
+        out.push_str(
+            "            fn thunk(user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void {\n",
+        );
+        out.push_str("                _ = user_data;\n");
+        out.push_str("                _ = out_name;\n");
+        out.push_str("                unreachable; // override .name_fn in the returned vtable\n");
+        out.push_str("            }\n");
+        out.push_str("        }.thunk,\n");
+        out.push_str("\n");
+
+        out.push_str("        .version_fn = struct {\n");
+        out.push_str(
+            "            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void {\n",
+        );
+        out.push_str("                _ = user_data;\n");
+        out.push_str("                _ = out_version;\n");
+        out.push_str("                unreachable; // override .version_fn in the returned vtable\n");
+        out.push_str("            }\n");
+        out.push_str("        }.thunk,\n");
+        out.push_str("\n");
+
+        out.push_str("        .initialize_fn = struct {\n");
+        out.push_str(
+            "            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n",
+        );
+        out.push_str("                _ = user_data;\n");
+        out.push_str("                _ = out_error;\n");
+        out.push_str("                return 0;\n");
+        out.push_str("            }\n");
+        out.push_str("        }.thunk,\n");
+        out.push_str("\n");
+
+        out.push_str("        .shutdown_fn = struct {\n");
+        out.push_str(
+            "            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n",
+        );
+        out.push_str("                _ = user_data;\n");
+        out.push_str("                _ = out_error;\n");
+        out.push_str("                return 0;\n");
+        out.push_str("            }\n");
+        out.push_str("        }.thunk,\n");
+        out.push_str("\n");
+    }
+
+    // Per-method thunks
+    for method in &trait_def.methods {
+        let method_snake = method.name.to_snake_case();
+        let c_params = vtable_c_params(method);
+        let ret = vtable_return_type(method);
+
+        // Build the thunk parameter list string
+        let params_str = c_params
+            .iter()
+            .map(|(name, ty)| format!("{name}: {ty}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        out.push_str(&format!("        .{method_snake} = struct {{\n"));
+        out.push_str(&format!(
+            "            fn thunk({params_str}) callconv(.C) {ret} {{\n"
+        ));
+
+        // Cast user_data to *T
+        out.push_str("                const self: *T = @ptrCast(@alignCast(ud));\n");
+
+        // Reconstruct Bytes slices and build forwarding arg list
+        let mut call_args: Vec<String> = Vec::new();
+        for p in &method.params {
+            if matches!(p.ty, TypeRef::Bytes) {
+                out.push_str(&format!(
+                    "                const {}_slice = {}_ptr[0..{}_len];\n",
+                    p.name, p.name, p.name
+                ));
+                call_args.push(format!("{}_slice", p.name));
+            } else {
+                call_args.push(p.name.clone());
+            }
+        }
+
+        let args_str = call_args.join(", ");
+
+        if method.error_type.is_some() {
+            // Fallible method: call returns error union, write out_result/out_error
+            let has_result_out = !matches!(method.return_type, TypeRef::Unit);
+            out.push_str(&format!(
+                "                if (self.{method_snake}({args_str})) |result| {{\n"
+            ));
+            if has_result_out {
+                // Write result via out_result pointer — for complex types this is unreachable
+                match &method.return_type {
+                    TypeRef::Primitive(_) | TypeRef::Unit => {
+                        out.push_str("                    if (out_result) |ptr| ptr.* = result;\n");
+                    }
+                    _ => {
+                        // String/Bytes/complex: cannot safely convert without allocator context
+                        out.push_str(
+                            "                    _ = result; _ = out_result; unreachable; // complex return: implement manually\n",
+                        );
+                    }
+                }
+            }
+            out.push_str("                    return 0;\n");
+            out.push_str("                } else |err| {\n");
+            out.push_str("                    _ = err;\n");
+            out.push_str(
+                "                    if (out_error) |ptr| ptr.* = null; // caller checks error code\n",
+            );
+            out.push_str("                    return 1;\n");
+            out.push_str("                }\n");
+        } else {
+            match &method.return_type {
+                TypeRef::Unit => {
+                    out.push_str(&format!("                self.{method_snake}({args_str});\n"));
+                }
+                TypeRef::Primitive(_) => {
+                    out.push_str(&format!(
+                        "                return self.{method_snake}({args_str});\n"
+                    ));
+                }
+                _ => {
+                    // Non-unit infallible non-primitive: pass through (e.g., [*c]const u8)
+                    out.push_str(&format!(
+                        "                return self.{method_snake}({args_str});\n"
+                    ));
+                }
+            }
+        }
+
+        out.push_str("            }\n");
+        out.push_str("        }.thunk,\n");
+        out.push_str("\n");
+    }
+
+    // free_user_data stub — does nothing by default; caller overrides if needed
+    out.push_str("        .free_user_data = struct {\n");
+    out.push_str(
+        "            fn thunk(user_data: ?*anyopaque) callconv(.C) void {\n",
+    );
+    out.push_str("                _ = user_data;\n");
+    out.push_str("            }\n");
+    out.push_str("        }.thunk,\n");
+
+    out.push_str("    };\n");
+    out.push_str("}\n");
+}
+
 /// Emit the vtable extern struct and registration shim for a single trait bridge.
 ///
 /// `prefix` is the C FFI prefix (e.g., `"kreuzberg"`).
@@ -195,6 +407,12 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     ));
     out.push_str(&format!("    return {c_unregister}(name, out_error);\n"));
     out.push_str("}\n");
+    out.push('\n');
+
+    // -------------------------------------------------------------------------
+    // Comptime vtable builder: make_{trait_snake}_vtable
+    // -------------------------------------------------------------------------
+    emit_make_vtable(trait_name, has_super_trait, trait_def, out);
 }
 
 #[cfg(test)]
@@ -362,6 +580,146 @@ mod tests {
         assert!(
             out.contains("pub fn register_ocr_backend("),
             "missing register_ocr_backend fn: {out}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // make_*_vtable tests
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn make_vtable_emits_comptime_function_and_thunk() {
+        let trait_def = make_trait_def(
+            "Validator",
+            vec![make_method(
+                "validate",
+                vec![make_param("input", TypeRef::String)],
+                TypeRef::Primitive(PrimitiveType::Bool),
+                None,
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("Validator", None);
+
+        let mut out = String::new();
+        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+
+        // Helper function declaration
+        assert!(
+            out.contains("pub fn make_validator_vtable(comptime T: type, instance: *T)"),
+            "missing make_validator_vtable: {out}"
+        );
+        // Returns the vtable type
+        assert!(out.contains("IValidator{"), "missing vtable literal: {out}");
+        // Thunk casts user_data
+        assert!(
+            out.contains("@ptrCast(@alignCast(ud))"),
+            "missing @ptrCast cast: {out}"
+        );
+        // callconv(.C) in thunk
+        assert!(out.contains("callconv(.C)"), "missing callconv(.C) in thunk: {out}");
+        // validate thunk field
+        assert!(out.contains(".validate ="), "missing .validate thunk field: {out}");
+        // free_user_data thunk
+        assert!(out.contains(".free_user_data ="), "missing .free_user_data thunk: {out}");
+        // No lifecycle stubs without super_trait
+        assert!(!out.contains(".name_fn ="), "must not emit .name_fn without super_trait: {out}");
+    }
+
+    #[test]
+    fn make_vtable_with_super_trait_emits_lifecycle_stubs() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::Plugin"));
+
+        let mut out = String::new();
+        emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
+
+        assert!(
+            out.contains("pub fn make_ocr_backend_vtable(comptime T: type, instance: *T)"),
+            "missing make_ocr_backend_vtable: {out}"
+        );
+        assert!(out.contains(".name_fn ="), "missing .name_fn stub: {out}");
+        assert!(out.contains(".version_fn ="), "missing .version_fn stub: {out}");
+        assert!(out.contains(".initialize_fn ="), "missing .initialize_fn stub: {out}");
+        assert!(out.contains(".shutdown_fn ="), "missing .shutdown_fn stub: {out}");
+    }
+
+    #[test]
+    fn make_vtable_bytes_param_reconstructs_slice_in_thunk() {
+        let trait_def = make_trait_def(
+            "Processor",
+            vec![make_method(
+                "process",
+                vec![make_param("data", TypeRef::Bytes)],
+                TypeRef::Unit,
+                None,
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("Processor", None);
+
+        let mut out = String::new();
+        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+
+        // Thunk receives ptr+len params
+        assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
+        assert!(out.contains("data_len: usize"), "missing data_len param: {out}");
+        // Thunk reconstructs slice
+        assert!(
+            out.contains("data_ptr[0..data_len]"),
+            "thunk must reconstruct slice from ptr+len: {out}"
+        );
+        // Thunk calls self.process with the slice
+        assert!(out.contains("self.process(data_slice)"), "thunk must call self.process: {out}");
+    }
+
+    #[test]
+    fn make_vtable_fallible_method_returns_i32_error_code() {
+        let trait_def = make_trait_def(
+            "Parser",
+            vec![make_method(
+                "parse",
+                vec![],
+                TypeRef::Unit,
+                Some("ParseError"),
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("Parser", None);
+
+        let mut out = String::new();
+        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+
+        // Thunk returns i32 (fallible → i32 return)
+        assert!(
+            out.contains("callconv(.C) i32"),
+            "fallible thunk must return i32: {out}"
+        );
+        // Returns 0 on success
+        assert!(out.contains("return 0;"), "must return 0 on success: {out}");
+        // Returns 1 on error
+        assert!(out.contains("return 1;"), "must return 1 on error: {out}");
+        // Error branch writes to out_error
+        assert!(out.contains("out_error"), "must write to out_error: {out}");
+    }
+
+    #[test]
+    fn make_vtable_primitive_return_passes_through() {
+        let trait_def = make_trait_def(
+            "Counter",
+            vec![make_method(
+                "count",
+                vec![],
+                TypeRef::Primitive(PrimitiveType::I32),
+                None,
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("demo", None);
+
+        let mut out = String::new();
+        emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
+
+        // Infallible primitive method: thunk returns the value directly
+        assert!(
+            out.contains("return self.count()"),
+            "primitive return must be forwarded directly: {out}"
         );
     }
 }
