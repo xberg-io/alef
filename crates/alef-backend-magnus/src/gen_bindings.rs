@@ -735,7 +735,14 @@ fn gen_struct_methods(
 /// Generate a field accessor method.
 fn gen_field_accessor(field: &FieldDef, mapper: &MagnusMapper) -> String {
     let return_type = if field.optional {
-        mapper.optional(&mapper.map_type(&field.ty))
+        // Strip one Optional wrapper: when field.ty is already Optional(T) and field.optional is
+        // also true (e.g. Option<Option<T>> in core), the struct field is declared as
+        // Option<T> (struct codegen strips the outer Optional). The accessor must match.
+        let inner_ty = match &field.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            ty => ty,
+        };
+        mapper.optional(&mapper.map_type(inner_ty))
     } else {
         mapper.map_type(&field.ty)
     };

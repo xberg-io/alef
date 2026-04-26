@@ -602,8 +602,14 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
 
     for field in &typ.fields {
         let is_optional = field_is_optional_in_rust(field);
-        // Use inner type for try_convert, since the hash value is the inner T, not Option<T>.
-        let inner_type = type_mapper(&field.ty);
+        // Use inner type for try_convert, since the hash value is T, not Option<T>.
+        // When field.ty is already Optional(T) and field.optional is true, strip one layer so we
+        // call <T>::try_convert, not <Option<T>>::try_convert (which would yield Option<Option<T>>).
+        let effective_inner_ty = match &field.ty {
+            TypeRef::Optional(inner) if is_optional => inner.as_ref(),
+            ty => ty,
+        };
+        let inner_type = type_mapper(effective_inner_ty);
         let type_prefix = as_type_path_prefix(&inner_type);
         if is_optional {
             // Field is Option<T>: extract from hash, wrap in Some, default to None
@@ -674,10 +680,14 @@ fn gen_magnus_positional_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRe
         let comma = if i < typ.fields.len() - 1 { "," } else { "" };
         let is_optional = field_is_optional_in_rust(field);
         if is_optional {
-            // field.ty is the inner type; the mapper maps inner type, we wrap in Option<>
-            // BUT the type_mapper call site already wraps when field.optional==true.
-            // Here we call type_mapper on the field's inner type directly to get the param type.
-            let inner_type = type_mapper(&field.ty);
+            // Strip one Optional wrapper when ty is Optional(T) AND field is marked optional,
+            // to avoid emitting Option<Option<T>>. The param represents Option<inner>, not
+            // Option<Option<inner>>.
+            let effective_inner_ty = match &field.ty {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                ty => ty,
+            };
+            let inner_type = type_mapper(effective_inner_ty);
             writeln!(out, "    {}: Option<{}>{}", field.name, inner_type, comma).ok();
         } else {
             let field_type = type_mapper(&field.ty);
@@ -2162,6 +2172,132 @@ mod tests {
         assert!(
             output.contains("<Vec<String>>::try_convert"),
             "generic types should use UFCS angle-bracket prefix: {output}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Bug B regression: Option<Option<T>> must not appear when field.optional==true
+    // and field.ty==Optional(T). This happens for "Update" structs where the core
+    // field is Option<Option<T>> — the binding flattens to Option<T>.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
+        // field with optional=true AND ty=Optional(Usize) — represents a core Option<Option<usize>>
+        // that should flatten to Option<usize> in the binding constructor.
+        // simple_type_mapper maps Usize → "i64" (catch-all primitive arm).
+        let field = FieldDef {
+            name: "max_depth".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        // Build a large type (>15 fields) so the hash constructor is used
+        let mut fields: Vec<FieldDef> = (0..15)
+            .map(|i| FieldDef {
+                name: format!("field_{i}"),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            })
+            .collect();
+        fields.push(field);
+        let typ = TypeDef {
+            name: "UpdateConfig".to_string(),
+            rust_path: "crate::UpdateConfig".to_string(),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        // The try_convert call must be for the inner type (i64, as mapped by simple_type_mapper),
+        // not Option<i64> (which would yield Option<Option<i64>>).
+        assert!(
+            !output.contains("Option<Option<"),
+            "hash constructor must not emit double Option: {output}"
+        );
+        assert!(
+            output.contains("i64::try_convert"),
+            "hash constructor should call inner-type::try_convert, not Option<T>::try_convert: {output}"
+        );
+    }
+
+    #[test]
+    fn test_magnus_positional_constructor_no_double_option_when_ty_is_optional() {
+        // field with optional=true AND ty=Optional(Usize) — small type uses positional constructor
+        // simple_type_mapper maps Usize → "i64"
+        let field = FieldDef {
+            name: "max_depth".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        let typ = TypeDef {
+            name: "SmallUpdate".to_string(),
+            rust_path: "crate::SmallUpdate".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![field],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        // simple_type_mapper maps Usize → "i64", so Optional(Usize) → "Option<i64>"
+        // The param must be Option<i64>, never Option<Option<i64>>.
+        assert!(
+            !output.contains("Option<Option<"),
+            "positional constructor must not emit double Option: {output}"
+        );
+        assert!(
+            output.contains("Option<i64>"),
+            "positional constructor should emit Option<inner> for optional Optional(T): {output}"
         );
     }
 }

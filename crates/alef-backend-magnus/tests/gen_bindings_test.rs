@@ -1454,3 +1454,70 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
         "Vec<Named> conversion must use .into_iter().map(Into::into).collect(); got:\n{content}"
     );
 }
+
+/// Bug B regression — a struct with field (ty=Optional(Usize), optional=true) must produce
+/// a getter returning Option<usize>, not Option<Option<usize>>.
+#[test]
+fn test_field_accessor_no_double_option_when_ty_is_optional() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "UpdateConfig".to_string(),
+            rust_path: "test_lib::UpdateConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "max_depth".to_string(),
+                // ty = Optional(Usize) AND optional = true mimics a core Option<Option<usize>>
+                // that the binding flattens to Option<usize>.
+                ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            doc: String::new(),
+            cfg: None,
+            super_traits: vec![],
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    // Getter must return Option<usize>, not Option<Option<usize>>
+    assert!(
+        !content.contains("Option<Option<usize>>"),
+        "field accessor must not emit Option<Option<usize>>:\n{content}"
+    );
+    assert!(
+        content.contains("fn max_depth(&self) -> Option<usize>"),
+        "field accessor must return Option<usize>:\n{content}"
+    );
+}
