@@ -5,6 +5,7 @@ use anyhow::Result;
 use syn;
 
 use super::helpers::ReexportKind;
+use super::helpers::extract_cfg_condition;
 
 /// Resolve a `pub use` tree, extracting re-exported items from workspace sibling crates.
 pub(crate) fn resolve_use_tree(
@@ -13,7 +14,9 @@ pub(crate) fn resolve_use_tree(
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
     visited: &mut Vec<PathBuf>,
+    attrs: &[syn::Attribute],
 ) -> Result<()> {
+    let cfg = extract_cfg_condition(attrs);
     match tree {
         syn::UseTree::Path(use_path) => {
             let root_ident = use_path.ident.to_string();
@@ -31,11 +34,12 @@ pub(crate) fn resolve_use_tree(
                 surface,
                 workspace_root,
                 visited,
+                cfg,
             )
         }
         syn::UseTree::Group(group) => {
             for tree in &group.items {
-                resolve_use_tree(tree, crate_name, surface, workspace_root, visited)?;
+                resolve_use_tree(tree, crate_name, surface, workspace_root, visited, attrs)?;
             }
             Ok(())
         }
@@ -52,6 +56,7 @@ fn resolve_external_use(
     surface: &mut ApiSurface,
     workspace_root: Option<&Path>,
     visited: &mut Vec<PathBuf>,
+    cfg: Option<String>,
 ) -> Result<()> {
     let Some(crate_source) = find_crate_source(ext_crate_name, workspace_root) else {
         return Ok(());
@@ -100,10 +105,10 @@ fn resolve_external_use(
 
     match filter {
         UseFilter::All => {
-            merge_surface(surface, ext_surface);
+            merge_surface(surface, ext_surface, cfg);
         }
         UseFilter::Names(names) => {
-            merge_surface_filtered(surface, ext_surface, &names);
+            merge_surface_filtered(surface, ext_surface, &names, cfg);
         }
     }
 
@@ -139,38 +144,56 @@ pub(crate) fn collect_use_names(tree: &syn::UseTree) -> UseFilter {
 }
 
 /// Merge all items from `src` into `dst`, skipping duplicates.
-pub(crate) fn merge_surface(dst: &mut ApiSurface, src: ApiSurface) {
-    for ty in src.types {
+pub(crate) fn merge_surface(dst: &mut ApiSurface, src: ApiSurface, cfg: Option<String>) {
+    for mut ty in src.types {
         if !dst.types.iter().any(|t| t.name == ty.name) {
+            if cfg.is_some() && ty.cfg.is_none() {
+                ty.cfg = cfg.clone();
+            }
             dst.types.push(ty);
         }
     }
-    for func in src.functions {
+    for mut func in src.functions {
         if !dst.functions.iter().any(|f| f.name == func.name) {
+            if cfg.is_some() && func.cfg.is_none() {
+                func.cfg = cfg.clone();
+            }
             dst.functions.push(func);
         }
     }
-    for en in src.enums {
+    for mut en in src.enums {
         if !dst.enums.iter().any(|e| e.name == en.name) {
+            if cfg.is_some() && en.cfg.is_none() {
+                en.cfg = cfg.clone();
+            }
             dst.enums.push(en);
         }
     }
 }
 
 /// Merge only items whose name is in `names` from `src` into `dst`.
-pub(crate) fn merge_surface_filtered(dst: &mut ApiSurface, src: ApiSurface, names: &[String]) {
-    for ty in src.types {
+pub(crate) fn merge_surface_filtered(dst: &mut ApiSurface, src: ApiSurface, names: &[String], cfg: Option<String>) {
+    for mut ty in src.types {
         if names.contains(&ty.name) && !dst.types.iter().any(|t| t.name == ty.name) {
+            if cfg.is_some() && ty.cfg.is_none() {
+                ty.cfg = cfg.clone();
+            }
             dst.types.push(ty);
         }
     }
-    for func in src.functions {
+    for mut func in src.functions {
         if names.contains(&func.name) && !dst.functions.iter().any(|f| f.name == func.name) {
+            if cfg.is_some() && func.cfg.is_none() {
+                func.cfg = cfg.clone();
+            }
             dst.functions.push(func);
         }
     }
-    for en in src.enums {
+    for mut en in src.enums {
         if names.contains(&en.name) && !dst.enums.iter().any(|e| e.name == en.name) {
+            if cfg.is_some() && en.cfg.is_none() {
+                en.cfg = cfg.clone();
+            }
             dst.enums.push(en);
         }
     }

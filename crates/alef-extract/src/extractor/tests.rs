@@ -479,7 +479,7 @@ fn test_merge_surface_no_duplicates() {
         errors: vec![],
     };
 
-    merge_surface(&mut dst, src);
+    merge_surface(&mut dst, src, None);
     assert_eq!(dst.types.len(), 2);
     assert_eq!(dst.types[0].name, "Existing");
     assert_eq!(dst.types[1].name, "NewType");
@@ -542,7 +542,7 @@ fn test_merge_surface_filtered() {
         errors: vec![],
     };
 
-    merge_surface_filtered(&mut dst, src, &["Wanted".to_string()]);
+    merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
     assert_eq!(dst.types.len(), 1);
     assert_eq!(dst.types[0].name, "Wanted");
 }
@@ -2678,7 +2678,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         errors: vec![],
     };
 
-    super::reexports::merge_surface(&mut dst, src);
+    super::reexports::merge_surface(&mut dst, src, None);
     assert_eq!(dst.functions.len(), 1);
     assert_eq!(dst.functions[0].name, "my_fn");
     assert_eq!(dst.enums.len(), 1);
@@ -2759,7 +2759,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
     };
 
     let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];
-    super::reexports::merge_surface_filtered(&mut dst, src, &names);
+    super::reexports::merge_surface_filtered(&mut dst, src, &names, None);
     assert_eq!(dst.functions.len(), 1);
     assert_eq!(dst.functions[0].name, "wanted_fn");
     assert_eq!(dst.enums.len(), 1);

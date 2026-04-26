@@ -748,7 +748,7 @@ fn extract_items(
                 }
             }
             syn::Item::Use(item_use) if is_pub(&item_use.vis) => {
-                resolve_use_tree(&item_use.tree, crate_name, surface, workspace_root, visited)?;
+                resolve_use_tree(&item_use.tree, crate_name, surface, workspace_root, visited, &item_use.attrs)?;
             }
             _ => {}
         }
