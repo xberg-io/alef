@@ -204,19 +204,20 @@ alef cache status   # Show cache state
 alef cache clear    # Force full regeneration next run
 ```
 
-## Verify (input-hash semantics)
+## Verify (per-file source+output, idempotent across alef versions)
 
-`alef verify` is **formatter-agnostic by design**. The `alef:hash:<hex>` line in every generated file is a fingerprint of the *inputs*, not the file body:
+`alef verify` is a **pure read+strip+rehash+compare**. The `alef:hash:<hex>` line in every generated file is a per-file fingerprint of the rust sources and the on-disk byte content:
 
 ```text
-alef:hash:<hex> = blake3( sorted(rust_source_files) + alef.toml + alef_version )
+alef:hash:<hex> = blake3( sources_hash || file_content_without_hash_line )
+sources_hash    = blake3( sorted(rust_source_files) )
 ```
 
-`alef generate` writes the same hash into every alef-headered file. `alef verify` recomputes the same input hash and compares it to each disk header — without inspecting any file body, without rerunning codegen.
+`alef generate` finalises the hash *after* every formatter has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes.
 
-Consequence: spotless / rubocop / dotnet format / biome / mix format / php-cs-fixer / ruff / rustfmt / taplo can reformat alef-generated files freely; verify only goes red when (a) a Rust source file changed, (b) `alef.toml` changed, or (c) the alef CLI version changed.
+The hash deliberately does **not** include the alef CLI version or `alef.toml`. Bumping the alef CLI on a tagged repo does not by itself flag any file as stale; verify only goes red when (a) a `[crate].sources` rust file changed, (b) an alef-generated file was edited or mutated by something post-format, or (c) `alef generate` would now produce a different file body. The IR cache (`.alef/ir.json`) keys on `sources_hash` alone — pass `--clean` to bust it when the alef extractor itself has changed.
 
-`--lang`, `--compile`, `--lint` flags on verify are accepted for backwards compatibility but ignored — verify is a single repo-wide hash compare. Use `alef build` / `alef lint` / `alef test` for the per-language checks those flags used to imply.
+`--lang`, `--compile`, `--lint` flags on verify are accepted for backwards compatibility but ignored — verify is a per-file hash compare. Use `alef build` / `alef lint` / `alef test` for the per-language checks those flags used to imply.
 
 See `references/cli-reference.md#alef-verify` for the full mental model.
 
