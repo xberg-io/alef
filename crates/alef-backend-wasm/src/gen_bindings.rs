@@ -1820,6 +1820,42 @@ fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
     };
 
     let header = hash::header(CommentStyle::Hash);
+
+    // Layout follows cargo-sort canonical order: [package] -> [package.metadata.*]
+    // -> [lib] -> [dependencies] (alphabetical). Otherwise cargo-sort rewrites the
+    // file post-generate and breaks the alef hash header.
+    let mut deps: Vec<(String, String)> = vec![
+        (
+            crate_name.to_string(),
+            format!(r#"{{ path = "../{core_crate_dir}"{features_clause} }}"#),
+        ),
+        ("futures-util".to_string(), format!(r#""{}""#, tv::cargo::FUTURES_UTIL)),
+        ("js-sys".to_string(), format!(r#""{}""#, tv::cargo::JS_SYS)),
+        ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
+        (
+            "wasm-bindgen-futures".to_string(),
+            format!(r#""{}""#, tv::cargo::WASM_BINDGEN_FUTURES),
+        ),
+        (
+            "serde-wasm-bindgen".to_string(),
+            format!(r#""{}""#, tv::cargo::SERDE_WASM_BINDGEN),
+        ),
+        ("serde_json".to_string(), r#""1""#.to_string()),
+    ];
+    // Append parsed extra deps as (name, value) pairs.
+    for line in extra_deps_section.lines() {
+        let trimmed = line.trim();
+        if let Some((name, value)) = trimmed.split_once('=') {
+            deps.push((name.trim().to_string(), value.trim().to_string()));
+        }
+    }
+    deps.sort_by(|a, b| a.0.cmp(&b.0));
+    let deps_block = deps
+        .iter()
+        .map(|(name, value)| format!("{name} = {value}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     format!(
         r#"{header}
 [package]
@@ -1830,23 +1866,17 @@ license = "{license}"
 description = "{description}"
 repository = "{repository}"
 {keywords_toml}
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features_clause} }}
-futures-util = "{futures_util}"
-js-sys = "{js_sys}"
-wasm-bindgen = "{wasm_bindgen}"
-wasm-bindgen-futures = "{wasm_bindgen_futures}"
-serde-wasm-bindgen = "{serde_wasm_bindgen}"
-serde_json = "1"{extra_deps_section}
+[package.metadata.cargo-machete]
+ignored = ["futures-util", "wasm-bindgen-futures", "serde_json"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
-[package.metadata.cargo-machete]
-ignored = ["futures-util", "wasm-bindgen-futures"]
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+{deps_block}
 "#,
         header = header,
         core_crate_dir = core_crate_dir,
@@ -1855,13 +1885,6 @@ ignored = ["futures-util", "wasm-bindgen-futures"]
         description = description,
         repository = repository,
         keywords_toml = keywords_toml,
-        crate_name = crate_name,
-        features_clause = features_clause,
-        futures_util = tv::cargo::FUTURES_UTIL,
-        js_sys = tv::cargo::JS_SYS,
-        wasm_bindgen = tv::cargo::WASM_BINDGEN,
-        wasm_bindgen_futures = tv::cargo::WASM_BINDGEN_FUTURES,
-        serde_wasm_bindgen = tv::cargo::SERDE_WASM_BINDGEN,
-        extra_deps_section = extra_deps_section,
+        deps_block = deps_block,
     )
 }

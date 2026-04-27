@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-04-27
+
+A follow-up to v0.8.3 fixing two cases where downstream tooling reformatted alef-generated `crates/{lib}-wasm/Cargo.toml` and silently invalidated the alef hash header.
+
+### Fixed
+
+- **WASM `Cargo.toml` cargo-sort canonical layout**: `alef-backend-wasm`'s `gen_cargo_toml` previously emitted `[lib]`/`[dependencies]` *before* the `[package.metadata.*]` blocks and listed dependencies in declaration order. cargo-sort, run as a pre-commit hook in every consumer, then rewrote the file in canonical alphabetical / TOML-section order — invalidating the embedded `alef:hash:` line, so the next `alef verify` reported the wasm Cargo.toml as stale on every commit. The template now emits sections and dependencies in cargo-sort canonical order (`[package]` → `[package.metadata.*]` → `[lib]` → `[dependencies]` sorted alphabetically including the dynamic core crate dep), so cargo-sort is a no-op.
+- **WASM cargo-machete unused-dep flag for `serde_json`**: the wasm `Cargo.toml` always declared `serde_json = "1"` because trait-bridge / function generators may use it, but consumers without those code paths would fail `cargo-machete` on every commit. Added `serde_json` to the existing `[package.metadata.cargo-machete] ignored` list alongside the already-ignored `futures-util` and `wasm-bindgen-futures`.
+
 ## [0.8.3] - 2026-04-26
 
 A follow-up to v0.8.2 making `alef verify` formatter-agnostic and fixing the Ruby version-sync footgun. Verify is now a pure hash comparison: alef computes the canonical hash at generation time, embeds it in the file header, and on `alef verify` only compares the embedded hash against a freshly-computed hash of the canonicalised generated content. External formatters (php-cs-fixer, rubocop, ruff, biome, …) can reformat the body freely without ever causing a verify diff.
