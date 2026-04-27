@@ -308,6 +308,7 @@ fn unit_enum_emits_dart_enum() {
         serde_tag: None,
         cfg: None,
         is_copy: false,
+        has_serde: false,
     };
     let api = ApiSurface { enums: vec![en], ..make_empty_api() };
     let config = make_config_ffi();

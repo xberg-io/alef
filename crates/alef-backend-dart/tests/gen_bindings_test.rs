@@ -251,6 +251,7 @@ fn unit_enum_emits_dart_enum() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };
@@ -300,6 +301,7 @@ fn data_bearing_enum_emits_sealed_class() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

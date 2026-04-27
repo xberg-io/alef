@@ -86,6 +86,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         serde_rename_all: None,
 
         is_copy: false,
+        has_serde: false,
     }
 }
 

@@ -274,6 +274,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };
@@ -323,6 +324,7 @@ fn data_bearing_enum_emits_associated_values() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

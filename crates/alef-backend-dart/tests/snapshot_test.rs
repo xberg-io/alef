@@ -109,6 +109,7 @@ fn make_basic_api() -> ApiSurface {
             doc: "Processing status.".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],

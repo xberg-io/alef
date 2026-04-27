@@ -139,6 +139,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     let serde_tag = extract_serde_tag(&item.attrs);
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let is_copy = has_derive(item.attrs.as_slice(), "Copy");
+    let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
 
     Some(EnumDef {
         rust_path,
@@ -150,6 +151,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         serde_tag,
         serde_rename_all,
         is_copy,
+        has_serde,
     })
 }
 

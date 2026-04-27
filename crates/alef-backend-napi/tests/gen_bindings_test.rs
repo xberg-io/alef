@@ -195,6 +195,7 @@ fn test_basic_generation() {
             doc: "Processing mode".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],
@@ -353,6 +354,7 @@ fn test_enum_generation() {
             doc: "Task status".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],
@@ -1107,6 +1109,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
                 make_variant("User", "user", "UserMessage"),
             ],
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

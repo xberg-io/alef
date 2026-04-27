@@ -478,6 +478,7 @@ mod tests {
                 doc: "Output format.".to_string(),
                 cfg: None,
                 is_copy: false,
+                has_serde: false,
                 serde_tag: None,
                 serde_rename_all: None,
             }],

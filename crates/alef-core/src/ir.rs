@@ -267,6 +267,10 @@ pub struct EnumDef {
     /// Used by FFI codegen to avoid emitting `.clone()` (which trips clippy::clone_on_copy).
     #[serde(default)]
     pub is_copy: bool,
+    /// True if the enum derives both `serde::Serialize` and `serde::Deserialize`.
+    /// Used by host-language emission (e.g. Swift `Codable`) to gate JSON-bridge conformance.
+    #[serde(default)]
+    pub has_serde: bool,
     /// Serde tag property name for internally tagged enums (from `#[serde(tag = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_tag: Option<String>,

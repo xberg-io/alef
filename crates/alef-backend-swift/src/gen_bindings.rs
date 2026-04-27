@@ -65,13 +65,22 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
+        // Compute the set of enums that need Swift `Codable` conformance.
+        // Beyond enums that derive serde::{Serialize, Deserialize}, any enum used
+        // as a field type by a has_serde struct must also be Codable for the
+        // struct's auto-synthesised conformance to compile. Some upstream enums
+        // implement Deserialize manually (only Serialize is derived), which the
+        // syn-based extractor cannot detect — this closes that gap.
+        let codable_enum_names: std::collections::HashSet<&str> = compute_codable_enums(api);
+
         for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
             emit_struct(ty, &mut body, &mapper);
             body.push('\n');
         }
 
         for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            emit_enum(en, &mut body, &mapper);
+            let force_codable = codable_enum_names.contains(en.name.as_str());
+            emit_enum(en, &mut body, &mapper, force_codable);
             body.push('\n');
         }
 
@@ -184,14 +193,77 @@ fn resolve_field_type(field: &FieldDef, mapper: &SwiftMapper) -> String {
     }
 }
 
+/// Collects the names of enums that should receive Swift `: Codable` conformance.
+///
+/// An enum is included if either:
+/// * it derives both `serde::Serialize` and `serde::Deserialize` (`has_serde`), or
+/// * it is referenced as a field type by a struct that has `has_serde = true`.
+///
+/// The second case is required because Swift's auto-synthesised `Codable`
+/// conformance on a struct depends on every stored property's type also being
+/// `Codable`. Some Rust enums in upstream crates derive `Serialize` only and
+/// implement `Deserialize` manually (which the syn-based extractor cannot see),
+/// so we conservatively grant Codable to any enum reachable from a has_serde
+/// struct field.
+fn compute_codable_enums(api: &ApiSurface) -> std::collections::HashSet<&str> {
+    let mut codable: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| e.has_serde)
+        .map(|e| e.name.as_str())
+        .collect();
+
+    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
+
+    for ty in &api.types {
+        if !ty.has_serde {
+            continue;
+        }
+        for field in &ty.fields {
+            collect_referenced_enum_names(&field.ty, &enum_names, &mut codable);
+        }
+    }
+
+    codable
+}
+
+/// Walks a `TypeRef` recursively and inserts any referenced enum names that
+/// appear in `enum_names` into `out`. Used by `compute_codable_enums` to
+/// transitively propagate Codable conformance through Option/Vec/etc. wrappers.
+fn collect_referenced_enum_names<'a>(
+    ty: &'a TypeRef,
+    enum_names: &std::collections::HashSet<&'a str>,
+    out: &mut std::collections::HashSet<&'a str>,
+) {
+    match ty {
+        TypeRef::Named(name) => {
+            if let Some(name_ref) = enum_names.get(name.as_str()) {
+                out.insert(*name_ref);
+            }
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            collect_referenced_enum_names(inner, enum_names, out);
+        }
+        TypeRef::Map(k, v) => {
+            collect_referenced_enum_names(k, enum_names, out);
+            collect_referenced_enum_names(v, enum_names, out);
+        }
+        _ => {}
+    }
+}
+
 /// Emits a Swift `public enum` for the given `EnumDef`.
-fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
+///
+/// `force_codable`: when true, emit `: Codable` even if `en.has_serde` is false.
+/// Used by the cross-reference pass in `compute_codable_enums`.
+fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper, force_codable: bool) {
     emit_doc_comment(&en.doc, "", out);
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+    let codable = if en.has_serde || force_codable { ": Codable" } else { "" };
 
     if all_unit {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&format!("public enum {}{} {{\n", en.name, codable));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
@@ -199,7 +271,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         }
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&format!("public enum {}{} {{\n", en.name, codable));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }

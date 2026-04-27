@@ -453,6 +453,7 @@ fn mpp_sealed_enum_in_common_main() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

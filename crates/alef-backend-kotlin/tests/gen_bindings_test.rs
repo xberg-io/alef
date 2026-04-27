@@ -233,6 +233,7 @@ fn unit_enum_emits_enum_class() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

@@ -337,6 +337,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

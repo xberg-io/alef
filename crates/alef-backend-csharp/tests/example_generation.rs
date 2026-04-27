@@ -126,6 +126,7 @@ fn test_generated_code_example() {
             doc: "Available OCR backends".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],
