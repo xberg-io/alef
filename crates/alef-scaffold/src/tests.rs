@@ -528,6 +528,45 @@ fn test_go_golangci_v2_format() {
     assert!(golangci.content.contains("exclusions:"));
 }
 
+#[test]
+fn test_scaffold_csharp_csproj_at_package_root() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Csharp]).unwrap();
+    let files = language_files(&all_files);
+    // csproj at package root + .editorconfig + Directory.Build.props
+    let csproj = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".csproj"))
+        .expect("C# scaffold must produce a .csproj file");
+    // Must be at packages/csharp/<Namespace>.csproj (package root), NOT inside the source subdir
+    assert_eq!(
+        csproj.path,
+        PathBuf::from("packages/csharp/MyLib.csproj"),
+        "csproj must be at the package root, not inside the source subdirectory"
+    );
+    assert!(
+        csproj.content.contains("Microsoft.NET.Sdk"),
+        "csproj must use Microsoft.NET.Sdk"
+    );
+    assert!(
+        csproj.content.contains("net10.0"),
+        "csproj must target net10.0 by default"
+    );
+    assert!(
+        csproj.content.contains("<RootNamespace>MyLib</RootNamespace>"),
+        "csproj must set RootNamespace to the PascalCase project name"
+    );
+    assert!(
+        csproj.content.contains("<Nullable>enable</Nullable>"),
+        "csproj must enable nullable reference types"
+    );
+    assert!(
+        !csproj.generated_header,
+        "csproj must be scaffold-once (generated_header = false)"
+    );
+}
+
 fn config_with_extra_deps() -> AlefConfig {
     let mut config = test_config();
     config
@@ -767,6 +806,108 @@ fn test_scaffold_elixir_cargo_tokio_when_async_function() {
         cargo_toml.content.contains("rt-multi-thread"),
         "tokio dep must include rt-multi-thread feature; content:\n{}",
         cargo_toml.content
+    );
+}
+
+/// Trait bridge module names must use PascalCase for hyphenated crate names.
+///
+/// When the consumer crate name contains hyphens (e.g., `html-to-markdown`), the
+/// Elixir trait bridge module name must be `HtmlToMarkdownHtmlVisitorBridge`, not
+/// `Html_to_markdownHtmlVisitorBridge` (which is what `capitalize_first` produces).
+#[test]
+fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_crate() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.crate_config.name = "html-to-markdown".to_string();
+    config.languages = vec![Language::Elixir];
+    config.elixir = Some(alef_core::config::ElixirConfig {
+        app_name: Some("html_to_markdown".to_string()),
+        features: None,
+        serde_rename_all: None,
+        exclude_functions: vec![],
+        exclude_types: vec![],
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+    });
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }];
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let bridge_file = all_files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("html_visitor_bridge.ex"))
+        .expect("Elixir scaffold must produce a trait bridge .ex file");
+
+    assert!(
+        bridge_file
+            .content
+            .contains("defmodule HtmlToMarkdownHtmlVisitorBridge do"),
+        "trait bridge module name must be PascalCase for hyphenated crate names; got:\n{}",
+        bridge_file.content
+    );
+    assert!(
+        !bridge_file.content.contains("Html_to_markdown"),
+        "trait bridge module name must not contain capitalize_first artifact 'Html_to_markdown'; got:\n{}",
+        bridge_file.content
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_crate() {
+    use alef_core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.crate_config.name = "tree-sitter-language-pack".to_string();
+    config.languages = vec![Language::Elixir];
+    config.elixir = Some(alef_core::config::ElixirConfig {
+        app_name: Some("tree_sitter_language_pack".to_string()),
+        features: None,
+        serde_rename_all: None,
+        exclude_functions: vec![],
+        exclude_types: vec![],
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+    });
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "Parser".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }];
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let bridge_file = all_files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("parser_bridge.ex"))
+        .expect("Elixir scaffold must produce a trait bridge .ex file");
+
+    assert!(
+        bridge_file
+            .content
+            .contains("defmodule TreeSitterLanguagePackParserBridge do"),
+        "trait bridge module name must be full PascalCase; got:\n{}",
+        bridge_file.content
     );
 }
 

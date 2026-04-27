@@ -6,7 +6,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
-use heck::ToSnakeCase;
+use heck::{ToPascalCase, ToSnakeCase};
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -127,7 +127,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::
   end
 end
 "#,
-        module = capitalize_first(&app_name),
+        module = app_name.to_pascal_case(),
         app_name = app_name,
         nif_atom = format_args!("{app_name}_nif"),
         version = version,
@@ -208,8 +208,8 @@ end
         }
         let trait_name_snake = bridge_cfg.trait_name.to_snake_case();
         let trait_name_camel = capitalize_first(&bridge_cfg.trait_name);
-        let module_name = format!("{}{}Bridge", capitalize_first(&app_name), trait_name_camel);
-        let native_mod = format!("{}.Native", capitalize_first(&app_name));
+        let module_name = format!("{}{}Bridge", app_name.to_pascal_case(), trait_name_camel);
+        let native_mod = format!("{}.Native", app_name.to_pascal_case());
 
         let bridge_content = format!(
             r#"defmodule {module_name} do
