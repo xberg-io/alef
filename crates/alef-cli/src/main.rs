@@ -1,4 +1,3 @@
-use alef_core::hash;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -307,39 +306,34 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, clean)?;
             let files = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
-            // Single input-deterministic hash for this generate run. Every alef-headered
-            // file gets this same hash; alef verify recomputes it from the same inputs.
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            // Pure source-only fingerprint. The embedded `alef:hash:` line in
+            // every generated file combines this with the file's own (post-format)
+            // content, so the hash stays stable across alef CLI bumps as long as
+            // the rust sources and emitted bytes are unchanged.
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
 
-            // For each language: compute content hashes, compare against stored
-            // hashes, write only when something changed.
             let mut total_written: usize = 0;
             let mut any_written = false;
             for (lang, lang_files) in &files {
                 let lang_str = lang.to_string();
-
-                // Track all generated paths for cleanup BEFORE any skip-on-up-to-date check.
-                // The cleanup pass uses this set to know which files the current run *would*
-                // produce — including unchanged files that we skip writing.
                 for file in lang_files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
 
-                // Per-language up-to-date short-circuit. Cache key is the (path, file
-                // content) of what we'd write; if every file matches the stored cache,
-                // skip writing this language. This is independent of the embedded
-                // alef:hash header (which is the input-deterministic generation hash).
+                // Per-language up-to-date short-circuit: hash the codegen output
+                // (pre-format) and compare with the stored hashes from the last
+                // run. Independent of the embedded `alef:hash:` line, which is
+                // finalised on-disk after formatters run.
                 let hashes: Vec<(String, String)> = lang_files
                     .iter()
                     .map(|f| {
                         let normalized = pipeline::normalize_content(&f.path, &f.content);
-                        let final_content = hash::inject_hash_line(&normalized, &generation_hash);
                         (
                             base_dir.join(&f.path).display().to_string(),
-                            cache::hash_content(&final_content),
+                            cache::hash_content(&normalized),
                         )
                     })
                     .collect();
@@ -352,9 +346,8 @@ fn main() -> Result<()> {
                     continue;
                 }
 
-                // Write all files for this language and store updated hashes.
                 let single = vec![(*lang, lang_files.clone())];
-                let written = pipeline::write_files(&single, &base_dir, &generation_hash)?;
+                let written = pipeline::write_files(&single, &base_dir)?;
                 total_written += written;
                 any_written = true;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
@@ -364,10 +357,10 @@ fn main() -> Result<()> {
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
-                    let api_count = pipeline::write_files(&public_api_files, &base_dir, &generation_hash)?;
+                    let api_count = pipeline::write_files(&public_api_files, &base_dir)?;
                     eprintln!("Generated {api_count} public API files");
+                    any_written = true;
 
-                    // Track public API files for cleanup
                     for (_, files) in &public_api_files {
                         for file in files {
                             current_gen_paths.insert(base_dir.join(&file.path));
@@ -396,12 +389,11 @@ fn main() -> Result<()> {
                     !stub_hashes.is_empty() && stub_hashes.iter().all(|(p, h)| stored_stubs.get(p) == Some(h));
 
                 if !stubs_match || clean {
-                    let stub_count = pipeline::write_files(&stub_files, &base_dir, &generation_hash)?;
+                    let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
                     eprintln!("Generated {stub_count} type stub files");
                     any_written = true;
                     let _ = cache::write_generation_hashes("stubs", &stub_hashes);
 
-                    // Track stub files for cleanup
                     for (_, files) in &stub_files {
                         for file in files {
                             current_gen_paths.insert(base_dir.join(&file.path));
@@ -412,7 +404,6 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Clean up orphaned alef-generated files
             if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                 if removed > 0 {
                     eprintln!("Removed {removed} stale alef-generated file(s)");
@@ -420,35 +411,20 @@ fn main() -> Result<()> {
             }
 
             if any_written && !no_format {
-                // Auto-format generated files using language-native formatters
-                // (ruff, mix format, cargo fmt, etc.). This ensures CI formatter
-                // checks pass without requiring users to run formatters manually.
-                // Formatting failures are logged as warnings and do not fail the
-                // generate command, since formatter quirks shouldn't block codegen.
                 eprintln!("Formatting generated files...");
                 pipeline::format_generated(&files, &config, &base_dir);
             }
 
             if any_written {
-                // Format generated files using configured formatters.
-                // Generation hashes are already stored from in-memory content
-                // (pre-formatter), so formatter modifications don't affect
-                // staleness detection. `alef verify` compares generation-to-
-                // generation, never consulting on-disk state.
-                //
-                // Post-generation formatting is best-effort: formatters are
-                // expected to modify files, and a missing tool / non-zero
-                // exit must not abort the generate run. Failures are logged
-                // and skipped per-language.
                 pipeline::fmt_post_generate(&config, &languages);
             }
 
-            // Always re-sync versions across user-owned manifests (gemspec,
-            // composer.json, package.json, *.csproj, mix.exs, ...). These are
-            // scaffold-once files alef can't safely overwrite, but their version
-            // strings must track Cargo.toml or `alef verify` flags them as stale.
-            // Running sync after every generate makes verify a true successor of
-            // generate without the consumer needing a second `alef sync-versions`.
+            // Finalise per-file hashes after all formatters have run, so the
+            // embedded `alef:hash:` line describes the actual on-disk content
+            // and `alef verify` can recompute it without regenerating.
+            pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
+
+            // Always re-sync versions across user-owned manifests.
             if let Err(e) = pipeline::sync_versions(&config, config_path, None) {
                 tracing::warn!("version sync failed: {e}");
             }
@@ -463,7 +439,7 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, false)?;
             let files = pipeline::generate_stubs(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
 
             // Compute content hashes and compare against stored values; write
             // only when something has actually changed.
@@ -487,8 +463,14 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let count = pipeline::write_files(&files, &base_dir, &generation_hash)?;
+            let count = pipeline::write_files(&files, &base_dir)?;
             let _ = cache::write_generation_hashes("stubs", &hashes);
+            // Finalise per-file hashes for the freshly written stubs.
+            let stub_paths: std::collections::HashSet<PathBuf> = files
+                .iter()
+                .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
+                .collect();
+            pipeline::finalize_hashes(&stub_paths, &sources_hash)?;
             println!("Generated {count} stub files");
             Ok(())
         }
@@ -506,9 +488,11 @@ fn main() -> Result<()> {
             eprintln!("Generating scaffolding for: {}", format_languages(&languages));
             let files = pipeline::scaffold(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
-            let count = pipeline::write_scaffold_files(&files, &base_dir, &generation_hash)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
+            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+            let scaffold_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+            pipeline::finalize_hashes(&scaffold_paths, &sources_hash)?;
             cache::write_stage_hash("scaffold", &stage_hash, &output_paths)?;
             println!("Generated {count} scaffold files");
             Ok(())
@@ -527,9 +511,11 @@ fn main() -> Result<()> {
             eprintln!("Generating READMEs for: {}", format_languages(&languages));
             let files = pipeline::readme(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
-            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+            let readme_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+            pipeline::finalize_hashes(&readme_paths, &sources_hash)?;
             cache::write_stage_hash("readme", &stage_hash, &output_paths)?;
             println!("Generated {count} README files");
             Ok(())
@@ -549,9 +535,11 @@ fn main() -> Result<()> {
             eprintln!("Generating API docs for: {}", format_languages(&languages));
             let files = alef_docs::generate_docs(&api, &config, &languages, &output)?;
             let base_dir = std::env::current_dir()?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
-            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+            let doc_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+            pipeline::finalize_hashes(&doc_paths, &sources_hash)?;
             cache::write_stage_hash("docs", &stage_hash, &output_paths)?;
             println!("Generated {count} API doc files");
             Ok(())
@@ -637,28 +625,24 @@ fn main() -> Result<()> {
             lint: _,
             lang: _,
         } => {
-            // alef verify is **input-deterministic**: it computes the same generation
-            // hash that `alef generate` embedded into every alef-headered file
-            // (blake3 of sorted rust sources + alef.toml + alef version) and compares
-            // it against the `alef:hash:<hex>` line in each generated file.
+            // alef verify is **idempotent across alef versions**: for each
+            // alef-headered file on disk it recomputes
+            // `blake3(sources_hash || file_content_without_hash_line)` and
+            // compares with the embedded `alef:hash:<hex>` line. There is no
+            // alef-version dimension and no `alef.toml` dimension, so a green
+            // `alef verify` stays green after upgrading the alef CLI as long
+            // as the rust sources and on-disk file contents are unchanged.
             //
-            // Verify never regenerates outputs and never reads any file body — only
-            // header lines. Downstream formatters (rustfmt, rubocop, dotnet format,
-            // spotless, biome, mix format, php-cs-fixer, …) can reformat alef-
-            // generated content freely without breaking verify; only changes to the
-            // generation inputs (Rust source, alef.toml, alef version) invalidate
-            // the embedded hash.
-            //
-            // The legacy `--compile` / `--lint` / `--lang` flags are accepted but
-            // ignored; the canonical generated-code check no longer regenerates per
-            // language and so cannot scope its check that way. Run `alef build` /
-            // `alef lint` / `alef test` for those concerns.
+            // Verify never regenerates and never writes — pure read+rehash.
+            // The legacy `--compile` / `--lint` / `--lang` flags are accepted
+            // but ignored; run `alef build` / `alef lint` / `alef test` for
+            // those concerns.
             let config = load_config(config_path)?;
-            eprintln!("Verifying alef-generated files (input-hash mode)");
+            eprintln!("Verifying alef-generated files (per-file hash mode)");
             let base_dir = std::env::current_dir()?;
-            let expected_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
 
-            let stale = verify_walk(&base_dir, &expected_hash)?;
+            let stale = verify_walk(&base_dir, &sources_hash)?;
 
             // Version consistency check still runs — it doesn't depend on the
             // generation hash; it compares manifest versions to Cargo.toml.
@@ -719,7 +703,7 @@ fn main() -> Result<()> {
 
             let api = pipeline::extract(&config, config_path, clean)?;
             let base_dir = std::env::current_dir()?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
@@ -732,8 +716,6 @@ fn main() -> Result<()> {
             for (lang, lang_files) in &bindings {
                 let lang_str = lang.to_string();
 
-                // Track all generated paths for cleanup BEFORE the skip-if-up-to-date check,
-                // so unchanged but legitimate files are not deleted as orphans.
                 for file in lang_files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
@@ -757,7 +739,7 @@ fn main() -> Result<()> {
                 }
 
                 let single = vec![(*lang, lang_files.clone())];
-                binding_count += pipeline::write_files(&single, &base_dir, &generation_hash)?;
+                binding_count += pipeline::write_files(&single, &base_dir)?;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
             }
 
@@ -780,7 +762,7 @@ fn main() -> Result<()> {
                 !stub_hashes.is_empty() && stub_hashes.iter().all(|(p, h)| stored_stubs.get(p) == Some(h));
 
             let stub_count = if !stubs_match || clean {
-                let count = pipeline::write_files(&stubs, &base_dir, &generation_hash)?;
+                let count = pipeline::write_files(&stubs, &base_dir)?;
                 let _ = cache::write_generation_hashes("stubs", &stub_hashes);
                 count
             } else {
@@ -788,22 +770,17 @@ fn main() -> Result<()> {
                 0
             };
 
-            // Track stub paths for cleanup regardless of whether they were just rewritten;
-            // up-to-date stubs are still legitimate output of this run.
             for (_, files) in &stubs {
                 for file in files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
             }
 
-            // Generate public API wrappers
             let mut api_count = 0;
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
-                    api_count = pipeline::write_files(&public_api_files, &base_dir, &generation_hash)?;
-
-                    // Track public API files for cleanup
+                    api_count = pipeline::write_files(&public_api_files, &base_dir)?;
                     for (_, files) in &public_api_files {
                         for file in files {
                             current_gen_paths.insert(base_dir.join(&file.path));
@@ -814,43 +791,38 @@ fn main() -> Result<()> {
 
             eprintln!("Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
-            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir, &generation_hash)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
             for file in &scaffold_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
-            let readme_count =
-                pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean, &generation_hash)?;
+            let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean)?;
             for file in &readme_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
 
-            // Generate e2e tests if [e2e] section is present in config
             let mut e2e_count = 0;
             if let Some(e2e_config) = &config.e2e {
                 eprintln!("Generating e2e test suites...");
                 let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
-                e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean, &generation_hash)?;
+                e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
                 alef_e2e::format::run_formatters(&files, e2e_config);
                 for file in &files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
             }
 
-            // Generate API docs using filtered IR so docs match the public API surface.
             eprintln!("Generating API docs...");
             let docs_api = pipeline::extract(&config, config_path, false)?;
             let doc_languages = resolve_doc_languages(&config, None)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
-            let doc_count =
-                pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean, &generation_hash)?;
+            let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
             for file in &doc_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
 
-            // Clean up orphaned alef-generated files
             if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                 if removed > 0 {
                     eprintln!("Removed {removed} stale alef-generated file(s)");
@@ -863,26 +835,10 @@ fn main() -> Result<()> {
             eprintln!("Running formatters...");
             pipeline::fmt_post_generate(&config, &languages);
 
-            // Update input hashes AFTER formatting. Formatters may have modified files
-            // so the input hash recorded during generation is stale. Re-load config
-            // from disk and re-hash so `alef verify` sees consistent values.
-            // Generation content hashes were stored before formatting — no need to recompute.
-            eprintln!("Updating input hashes...");
-            let post_config_struct = load_config(config_path)?;
-            let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
-            let post_ir = serde_json::to_string(&post_api)?;
-            let post_config = toml::to_string(&post_config_struct).unwrap_or_default();
-            for lang in &languages {
-                let lang_str = lang.to_string();
-                let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
-                if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
-                    let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-                }
-            }
-            let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
-            if let Ok(paths) = cache::read_manifest_paths("stubs") {
-                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
-            }
+            // Finalise per-file hashes after every formatter has run, so
+            // `alef verify` can recompute the same hash from on-disk content.
+            eprintln!("Finalising hashes...");
+            pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
 
             println!(
                 "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files, {e2e_count} e2e files, {doc_count} doc files"
@@ -904,25 +860,35 @@ fn main() -> Result<()> {
 
             // Extract API surface
             let api = pipeline::extract(&config, config_path, false)?;
-            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
 
             // Generate bindings
             eprintln!("  Generating bindings...");
             let bindings = pipeline::generate(&api, &config, &languages, false)?;
             let mut binding_count: usize = 0;
+            let mut all_paths = std::collections::HashSet::new();
             for (lang_key, lang_files) in &bindings {
+                for file in lang_files {
+                    all_paths.insert(base_dir.join(&file.path));
+                }
                 let single = vec![(*lang_key, lang_files.clone())];
-                binding_count += pipeline::write_files(&single, &base_dir, &generation_hash)?;
+                binding_count += pipeline::write_files(&single, &base_dir)?;
             }
 
             // Scaffold package manifests and lint configs
             eprintln!("  Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
-            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir, &generation_hash)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+            for file in &scaffold_files {
+                all_paths.insert(base_dir.join(&file.path));
+            }
 
             // Format generated code (best-effort).
             eprintln!("  Formatting...");
             pipeline::fmt_post_generate(&config, &languages);
+
+            // Finalise per-file hashes after formatting.
+            pipeline::finalize_hashes(&all_paths, &sources_hash)?;
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(())
@@ -960,14 +926,15 @@ fn main() -> Result<()> {
                     let languages = lang.as_deref();
                     let files = alef_e2e::generate_e2e(&config, e2e_ref, languages)?;
                     let base_dir = std::env::current_dir()?;
-                    let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
-                    let count =
-                        pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
+                    let sources_hash = cache::sources_hash(&config.crate_config.sources)?;
+                    let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                     // Run per-language formatters
                     alef_e2e::format::run_formatters(&files, e2e_ref);
 
                     let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+                    let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+                    pipeline::finalize_hashes(&path_set, &sources_hash)?;
                     cache::write_stage_hash(cache_key, &stage_hash, &output_paths)?;
                     println!("Generated {count} e2e files");
                     Ok(())
@@ -1182,16 +1149,16 @@ fn format_languages(languages: &[alef_core::config::Language]) -> String {
 }
 
 /// Walk the consumer's repo from `base_dir`, find every alef-headered file, and
-/// return the list of stale ones (where the embedded `alef:hash` doesn't match
-/// `expected_hash`).
+/// return the list of stale ones — where
+/// `compute_file_hash(sources_hash, on_disk_content)` doesn't match the
+/// embedded `alef:hash:` line.
 ///
 /// Skips obvious build/cache directories (`target/`, `node_modules/`, `_build/`,
 /// `.alef/`, `parsers/`, `dist/`, `vendor/`, `.git/`) so verify stays fast on
-/// large repos. Only inspects the first ~10 lines of each candidate file via
-/// [`alef_core::hash::extract_hash`]; files without the marker are skipped
-/// silently — those are user-owned (scaffold-once Cargo.toml templates,
-/// composer.json, gemspec, package.json, lockfiles, etc.) and alef has no claim.
-fn verify_walk(base_dir: &std::path::Path, expected_hash: &str) -> anyhow::Result<Vec<String>> {
+/// large repos. Files without the alef header marker are skipped silently —
+/// those are user-owned (scaffold-once Cargo.toml templates, composer.json,
+/// gemspec, package.json, lockfiles, etc.) and alef has no claim.
+fn verify_walk(base_dir: &std::path::Path, sources_hash: &str) -> anyhow::Result<Vec<String>> {
     const SKIP_DIRS: &[&str] = &[
         ".git",
         ".alef",
@@ -1255,8 +1222,6 @@ fn verify_walk(base_dir: &std::path::Path, expected_hash: &str) -> anyhow::Resul
             if !ext_ok {
                 continue;
             }
-            // Read just enough to find the hash header (first ~10 lines).
-            // `extract_hash` already caps at 10 lines internally.
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -1264,7 +1229,12 @@ fn verify_walk(base_dir: &std::path::Path, expected_hash: &str) -> anyhow::Resul
             let Some(disk_hash) = alef_core::hash::extract_hash(&content) else {
                 continue;
             };
-            if disk_hash != expected_hash {
+            // Recompute the per-file hash from the on-disk byte content.
+            // `compute_file_hash` strips the existing `alef:hash:` line so the
+            // computation is symmetric with the post-format finalisation in
+            // `pipeline::finalize_hashes`.
+            let expected = alef_core::hash::compute_file_hash(sources_hash, &content);
+            if disk_hash != expected {
                 stale.push(path.display().to_string());
             }
         }

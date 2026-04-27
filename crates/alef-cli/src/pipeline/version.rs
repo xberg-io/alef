@@ -614,8 +614,13 @@ fn regenerate_readmes(config: &AlefConfig, config_path: &std::path::Path) -> any
     let languages = config.languages.clone();
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
-    let generation_hash = super::super::cache::generation_hash(&config.crate_config.sources, config_path)?;
-    super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true, &generation_hash)
+    let _ = config_path; // unused now that the embedded hash is per-file content-derived
+    let sources_hash = super::super::cache::sources_hash(&config.crate_config.sources)?;
+    let count = super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
+    let paths: std::collections::HashSet<std::path::PathBuf> =
+        readme_files.iter().map(|f| base_dir.join(&f.path)).collect();
+    super::generate::finalize_hashes(&paths, &sources_hash)?;
+    Ok(count)
 }
 
 /// Replace version pattern in content. Returns Some(new_content) if replaced, None if pattern not found.

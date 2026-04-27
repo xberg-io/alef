@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-04-27
+
+A patch release reworking `alef verify` to be **idempotent across alef versions** and bundling six small generator/scaffold fixes that landed since v0.10.0. The verify hash no longer encodes the alef CLI version or `alef.toml`; it is now a per-file fingerprint derived purely from the rust sources and the on-disk file content, so a green `alef verify` stays green after upgrading the alef CLI as long as nothing else changed.
+
+### Changed
+
+- **`alef verify` is now per-file source+output deterministic**. The `alef:hash:<hex>` line embedded in every generated file is computed as `blake3(sources_hash || file_content_without_hash_line)`, where `sources_hash = blake3(sorted(rust_source_files))` — no alef version dimension, no `alef.toml` dimension. `alef generate` finalises the hash *after* every formatter has run (so the embedded hash describes the actual on-disk byte content), and `alef verify` is now a pure read+strip+rehash+compare with no regeneration and no writes. Previously the hash incorporated the alef CLI version, which forced every consumer repo to re-run `alef generate` after every alef bump even when nothing else had changed.
+- **`alef_core::hash::compute_generation_hash` is removed**; use `compute_sources_hash` + `compute_file_hash` instead. The IR cache (`.alef/ir.json`) now keys on `compute_sources_hash` alone — pass `--clean` to bust the cache when the alef extractor itself has changed.
+- **`pipeline::write_files` / `write_scaffold_files` no longer take a `generation_hash` argument**; the hash is finalised separately by the new `pipeline::finalize_hashes(paths, sources_hash)` after formatters run.
+
+  Migration: after upgrading, every existing alef-generated file still carries the old input-deterministic hash. Run `alef generate` once (then `alef e2e generate` if the repo uses `[e2e]`) to refresh embedded hashes to the new per-file scheme.
+
+### Fixed
+
+- **`alef scaffold` emitted Dart and Swift `Cargo.toml` files without a `license` field and pulled in an unused `serde_json` dep** — both languages now emit the same `license = "..."` line as the other backends, and the spurious `serde_json = "1"` is gone.
+- **Go e2e fixtures used raw `to_pascal_case` for method names** instead of routing through `to_go_name`, so generated test code referenced `result.Html` while the binding declared `result.HTML` (golangci-lint rejected the package). All Go method emission now goes through `alef_codegen::naming::to_go_name`.
+- **Dart codegen emitted reserved keywords / numeric idents / unescaped `$` and `\`** in field names, parameter names, and string literals — Dart now escapes reserved keywords (`async`, `class`, …), prefixes leading-digit identifiers with `_`, and escapes `$` / `\` / `"` inside generated string literals.
+- **`alef readme` panicked when a snippet section was missing from the language template** — missing snippet keys default to an empty Tera object instead of raising.
+- **`fmt_post_generate` did not run the configured formatters for WASM, C#, and Java** because the lint/format dispatch was hardcoded to a static set of languages — the dispatch is now driven entirely by `LintConfig::format` so any backend can opt in.
+- **NAPI `.d.ts` emission placed optional parameters before required ones**, which TypeScript rejects with `TS1016`. NAPI generators now reorder optional parameters last in the emitted `.d.ts` signatures.
+
 ## [0.10.0] - 2026-04-27
 
 A major release expanding alef's target-language coverage from 11 to 16 backends. Adds full code-generation support for **Kotlin** (JNA), **Swift** (swift-bridge), **Dart** (flutter_rust_bridge), **Gleam** (Rustler-on-BEAM), and **Zig** (C ABI), each with scaffold, lint, format, build, test, setup, update, and clean defaults wired through `alef-core`. The five new backends share the existing IR, trait-bridge round-trip API, and `alef-docs` language-native doc emission paths — there is no per-language fork of the codegen pipeline. Also adds language-native doc comments (PHPDoc, C# XML, `@doc`, roxygen2) to the existing PHP/C#/Elixir/R backends, and fills in numerous correctness gaps surfaced by the kreuzberg verification worktree.

@@ -3,24 +3,12 @@ use std::path::{Path, PathBuf};
 
 const CACHE_DIR: &str = ".alef";
 
-/// CLI version of alef. Embedded into [`generation_hash`] so cached IR is
-/// invalidated when alef itself is upgraded (different alef → different IR/output).
-const ALEF_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// Compute the input-deterministic generation hash for the current run.
-///
-/// Wraps [`alef_core::hash::compute_generation_hash`], passing the crate's
-/// `CARGO_PKG_VERSION` as the alef-version dimension. Used for both:
-///
-/// - IR cache invalidation (different inputs → re-extract IR)
-/// - The `alef:hash:<hex>` line written into every alef-generated file
-///   (and the value `alef verify` recomputes & compares)
-pub fn generation_hash(sources: &[PathBuf], config_path: &Path) -> anyhow::Result<String> {
-    Ok(alef_core::hash::compute_generation_hash(
-        sources,
-        config_path,
-        ALEF_VERSION,
-    )?)
+/// Compute the per-run sources hash that drives both the IR cache and the
+/// embedded `alef:hash:` value. Pure function of the rust source files (paths
+/// + content); independent of `alef.toml` and the alef CLI version, so
+/// `alef verify` is idempotent across alef upgrades.
+pub fn sources_hash(sources: &[PathBuf]) -> anyhow::Result<String> {
+    Ok(alef_core::hash::compute_sources_hash(sources)?)
 }
 
 /// Check if cached IR is still valid.
@@ -222,13 +210,6 @@ pub fn read_generation_hashes(name: &str) -> anyhow::Result<std::collections::Ha
         .filter_map(|l| l.split_once('\t'))
         .map(|(p, h)| (p.to_string(), h.to_string()))
         .collect())
-}
-
-/// Read the manifest for a given name and return the list of file paths.
-pub fn read_manifest_paths(name: &str) -> anyhow::Result<Vec<PathBuf>> {
-    let manifest_path = Path::new(CACHE_DIR).join("hashes").join(format!("{name}.manifest"));
-    let content = fs::read_to_string(&manifest_path)?;
-    Ok(content.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect())
 }
 
 /// Clear cache.
