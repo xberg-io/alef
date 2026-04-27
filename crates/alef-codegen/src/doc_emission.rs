@@ -63,6 +63,23 @@ pub fn emit_elixir_doc(out: &mut String, doc: &str) {
     out.push_str("\"\"\"\n");
 }
 
+/// Emit Rust `///` documentation comments.
+///
+/// Used by alef backends that emit Rust source (e.g., the Rustler NIF crate,
+/// the swift-bridge wrapper crate, the FRB Dart bridge crate). Distinct from
+/// `emit_swift_doc` only by intent — the syntax is identical (`/// ` per line).
+pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    for line in doc.lines() {
+        out.push_str(indent);
+        out.push_str("/// ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
 /// Escape Elixir doc line: handle triple-quote sequences that could close the heredoc early.
 fn escape_elixir_doc_line(s: &str) -> String {
     s.replace("\"\"\"", "\"\" \"")

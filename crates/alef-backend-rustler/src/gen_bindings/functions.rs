@@ -339,7 +339,7 @@ pub(super) fn gen_nif_function(
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
     let mut out = String::new();
-    doc_emission::emit_elixir_doc(&mut out, &func.doc);
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "");
     out.push_str("#[rustler::nif]\npub fn ");
     out.push_str(&func.name);
     out.push('(');
@@ -516,7 +516,7 @@ pub(super) fn gen_nif_async_function(
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &format!("{}_async", func.name), true)
     };
     let mut out = String::new();
-    doc_emission::emit_elixir_doc(&mut out, &func.doc);
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "");
     out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
     out.push_str(&func.name);
     out.push_str("_async(");
@@ -652,7 +652,7 @@ pub(super) fn gen_nif_method(
         }
     };
     let mut out = String::new();
-    doc_emission::emit_elixir_doc(&mut out, &method.doc);
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "");
     out.push_str("#[rustler::nif]\npub fn ");
     out.push_str(&method_fn_name);
     out.push('(');
@@ -752,7 +752,7 @@ pub(super) fn gen_nif_async_method(
         }
     };
     let mut out = String::new();
-    doc_emission::emit_elixir_doc(&mut out, &method.doc);
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "");
     out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
     out.push_str(&method_fn_name);
     out.push('(');
