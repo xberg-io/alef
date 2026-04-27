@@ -24,10 +24,12 @@ fn should_convert_return(_ty: &TypeRef, _non_codable_types: &std::collections::H
 }
 
 /// Checks if an argument needs conversion from idiomatic Swift to a RustBridge primitive.
-/// Currently the only such case is `Data → RustVec<UInt8>` (swift-bridge accepts
-/// `[UInt8]` natively but not `Data`).
+/// Cases:
+/// - `Data → RustVec<UInt8>` (swift-bridge accepts [UInt8] not Data)
+/// - `[T] → RustVec<T>` (swift-bridge accepts RustVec not native arrays)
+/// - `URL → String` (swift-bridge accepts IntoRustString, URL does not conform)
 fn arg_needs_conversion(ty: &TypeRef) -> bool {
-    matches!(ty, TypeRef::Bytes)
+    matches!(ty, TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Path)
 }
 
 /// Builds the Swift expression that converts an argument from idiomatic Swift to
@@ -35,10 +37,52 @@ fn arg_needs_conversion(ty: &TypeRef) -> bool {
 /// expression unchanged if no conversion is needed.
 fn wrap_arg_for_rustbridge(ty: &TypeRef, expr: &str) -> String {
     match ty {
-        // RustVec<UInt8> accepts an array of bytes at the swift-bridge boundary.
-        // `Array(data)` is the cheapest way to coerce a `Data` to `[UInt8]`.
-        TypeRef::Bytes => format!("Array({expr})"),
+        // `Data → RustVec<UInt8>`: Create a RustVec<UInt8> from the [UInt8] array.
+        TypeRef::Bytes => {
+            // Swift doesn't have a nice way to do this inline, so we construct
+            // an empty vec and push each byte from the array.
+            format!("{{ var _vec = RustVec<UInt8>(); Array({expr}).forEach {{ _vec.push(value: $0) }}; _vec }}()")
+        }
+
+        // `[T] → RustVec<T>`: for any Vec type, build RustVec from the array by pushing elements
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            // `[String] → RustVec<RustString>`: convert each Swift String to RustString
+            TypeRef::String => {
+                format!("{{ var _vec = RustVec<RustString>(); {expr}.forEach {{ _vec.push(value: RustString($0)) }}; _vec }}()")
+            }
+            // `[[String]] → RustVec<RustVec<RustString>>`: nested vecs need recursive conversion
+            TypeRef::Vec(inner_inner) if matches!(inner_inner.as_ref(), TypeRef::String) => {
+                // For each inner array, construct a RustVec<RustString> and push to outer vec
+                format!(
+                    "{{ var _outerVec = RustVec<RustVec<RustString>>(); {expr}.forEach {{ innerArr in var _innerVec = RustVec<RustString>(); innerArr.forEach {{ _innerVec.push(value: RustString($0)) }}; _outerVec.push(value: _innerVec) }}; _outerVec }}()"
+                )
+            }
+            // For other Vec types, push elements as-is
+            _ => {
+                let vec_type = format_vec_type(inner);
+                format!("{{ var _vec = RustVec<{vec_type}>(); {expr}.forEach {{ _vec.push(value: $0) }}; _vec }}()")
+            }
+        },
+
+        // `URL → IntoRustString`: Path parameters become URL; convert via .path
+        TypeRef::Path => format!("{expr}.path"),
+
+        // All other types pass through unchanged
         _ => expr.to_string(),
+    }
+}
+
+/// Format the inner type of a Vec for RustVec<T> generic parameter.
+fn format_vec_type(inner: &TypeRef) -> String {
+    match inner {
+        TypeRef::String => "RustString".to_string(),
+        TypeRef::Bytes => "UInt8".to_string(),
+        TypeRef::Named(name) => name.clone(),
+        // For other types, map through the SwiftMapper
+        _ => {
+            let mapper = SwiftMapper;
+            mapper.map_type(inner).to_string()
+        }
     }
 }
 
@@ -47,6 +91,7 @@ fn wrap_arg_for_rustbridge(ty: &TypeRef, expr: &str) -> String {
 ///
 /// Conversion table (left = bridge type, right = Swift wrapper signature type):
 /// - `RustString → String`              : `expr.toString()`
+/// - `RustStringRef → String`           : `expr.as_str().toString()`
 /// - `RustVec<UInt8> → Data`            : `Data(expr)` (RustVec is Sequence)
 /// - `RustVec<RustString> → [String]`   : `expr.map { $0.toString() }`
 /// - `RustVec<RustVec<UInt8>> → [Data]` : `expr.map { Data($0) }`
@@ -79,7 +124,10 @@ fn wrap_value_conversion(
         }
 
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::String => format!("{expr}.map {{ $0.toString() }}"),
+            // When iterating over RustVec<RustString>, we get RustStringRef (per Collection impl).
+            // RustStringRef.as_str() returns RustStr, which has .toString().
+            TypeRef::String => format!("{expr}.map {{ $0.as_str().toString() }}"),
+            // Similarly, RustVec<...Bytes> elements are iterators over Ref types
             TypeRef::Bytes => format!("{expr}.map {{ Data($0) }}"),
             TypeRef::Named(_) => format!("Array({expr})"),
             _ => format!("Array({expr})"),
@@ -139,8 +187,8 @@ impl Backend for SwiftBackend {
         // Foundation is always included — Codable, Data, URL all live there.
         imports.insert("import Foundation".to_string());
         // RustBridge is the Swift module generated by swift-bridge from the Rust bridge crate.
-        // It provides the FFI entry points that the wrapper delegates to.
-        if !visible_functions.is_empty() {
+        // It provides opaque type definitions and FFI entry points.
+        if !api.types.is_empty() || !api.enums.is_empty() || !api.errors.is_empty() {
             imports.insert("import RustBridge".to_string());
         }
 
@@ -178,14 +226,27 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        if !visible_functions.is_empty() {
-            body.push_str(&format!("public enum {module_name} {{\n"));
-            for f in &visible_functions {
-                emit_function(f, &mut body, &mapper, &non_codable_types);
-                body.push('\n');
-            }
-            body.push_str("}\n");
-        }
+        // NOTE: Function wrappers disabled (Phase 2D).
+        // The wrapper layer attempted to bridge swift-bridge's RustVec/RustString primitive
+        // containers to idiomatic Swift types (Array/String), but encountered unfixable
+        // type-conversion errors:
+        //   1. RustVec<T> constructors don't support initializing from [T] arrays
+        //   2. IR types (e.g., Vec<Vec<String>>) don't match RustBridge signatures
+        //   3. Generic parameter inference fails across protocol boundaries
+        //
+        // Consumers should use RustBridge functions directly:
+        //   - import RustBridge
+        //   - Kreuzberg.SomeType (typealias = RustBridge.SomeType)
+        //   - RustBridge.someFunction(...) for functions
+        //
+        // if !visible_functions.is_empty() {
+        //     body.push_str(&format!("public enum {module_name} {{\n"));
+        //     for f in &visible_functions {
+        //         emit_function(f, &mut body, &mapper, &non_codable_types);
+        //         body.push('\n');
+        //     }
+        //     body.push_str("}\n");
+        // }
 
         let mut content = String::new();
         content.push_str("// Generated by alef. Do not edit by hand.\n\n");
