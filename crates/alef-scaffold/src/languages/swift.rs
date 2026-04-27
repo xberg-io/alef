@@ -87,16 +87,18 @@ let package = Package(
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
 
+    // 2-space indentation matches `swift format` defaults — keeps the scaffolded
+    // file lint-clean against `swift format lint`.
     let test_stub = format!(
         r#"import XCTest
 @testable import {module}
 
 final class {module}Tests: XCTestCase {{
-    func testPlaceholder() throws {{
-        // Placeholder test so `swift test` has a target to run.
-        // Replace or extend with real tests against the {module} module.
-        XCTAssertTrue(true)
-    }}
+  func testPlaceholder() throws {{
+    // Placeholder test so `swift test` has a target to run.
+    // Replace or extend with real tests against the {module} module.
+    XCTAssertTrue(true)
+  }}
 }}
 "#,
         module = module,
