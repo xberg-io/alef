@@ -51,6 +51,7 @@ version = "0.8.1"
 dependencies = [
  "alef-codegen",
  "alef-core",
+ "alef-docs",
  "anyhow",
  "criterion",
  "heck",
@@ -87,6 +88,7 @@ version = "0.8.1"
 dependencies = [
  "alef-codegen",
  "alef-core",
+ "alef-docs",
  "anyhow",
  "criterion",
  "heck",
@@ -122,6 +124,7 @@ version = "0.8.1"
 dependencies = [
  "alef-codegen",
  "alef-core",
+ "alef-docs",
  "anyhow",
  "criterion",
  "insta",
@@ -214,6 +217,7 @@ version = "0.8.1"
 dependencies = [
  "alef-codegen",
  "alef-core",
+ "alef-docs",
  "anyhow",
  "criterion",
  "heck",
