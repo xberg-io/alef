@@ -1,3 +1,4 @@
+use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
@@ -7,6 +8,7 @@ const JACKSON_VERSION: &str = "2.18.2";
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
     let version = &api.version;
     let kotlin_package = config.kotlin_package();
     let project_name = config.crate_config.name.replace('-', "_");
@@ -26,6 +28,7 @@ plugins {{
     `java-library`
     kotlin("jvm") version "{kotlin_plugin}"
     `maven-publish`
+    id("org.jlleitschuh.gradle.ktlint") version "12.1.1"
 }}
 
 group = "{package}"
@@ -70,6 +73,13 @@ kotlin {{
     }}
 }}
 
+// ktlint configuration — see .editorconfig for details
+ktlint {{
+    version.set("1.4.1")
+    outputToConsole.set(true)
+    ignoreFailures.set(false)
+}}
+
 // JNA needs the native lib on java.library.path; default to the workspace
 // `target/release` cargo output. Override with `-Pkb.lib.path=<dir>`.
 tasks.withType<Test>().configureEach {{
@@ -96,6 +106,90 @@ publishing {{
 
     let gitignore = "build/\n.gradle/\n.idea/\n*.iml\n";
 
+    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.kt]\nindent_style = space\nindent_size = 4\n\n[*.gradle.kts]\nindent_style = space\nindent_size = 2\n";
+
+    let gradle_properties = "org.gradle.parallel=true\nkotlin.code.style=official\n";
+
+    let readme = format!(
+        r#"# {project_name}
+
+{description}
+
+## Installation
+
+Add to your `build.gradle.kts`:
+
+```kotlin
+dependencies {{
+    implementation("{package}:your-lib-kt:{version}")
+}}
+```
+
+## Building
+
+```sh
+gradle build
+gradle test
+```
+
+## License
+
+{license}
+"#,
+        project_name = project_name,
+        description = meta.description,
+        package = kotlin_package,
+        version = version,
+        license = meta.license,
+    );
+
+    let sample_kotlin = format!(
+        r#"package {package}.sample
+
+// Sample usage of the generated Kotlin bindings.
+// Replace with your actual API calls after code generation.
+
+object {module}Sample {{
+    @JvmStatic
+    fun main(args: Array<String>) {{
+        println("Sample: {module} bindings loaded successfully")
+    }}
+}}
+"#,
+        package = kotlin_package,
+        module = project_name
+            .chars()
+            .enumerate()
+            .map(|(i, c)| if i == 0 { c.to_uppercase().to_string() } else { c.to_string() })
+            .collect::<String>(),
+    );
+
+    let github_workflow = format!(
+        r#"name: Kotlin
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - name: Run Gradle build
+        run: gradle build --project-path packages/kotlin
+      - name: Run Gradle tests
+        run: gradle test --project-path packages/kotlin
+"#
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/kotlin/build.gradle.kts"),
@@ -110,6 +204,31 @@ publishing {{
         GeneratedFile {
             path: PathBuf::from("packages/kotlin/.gitignore"),
             content: gitignore.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/kotlin/.editorconfig"),
+            content: editorconfig.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/kotlin/gradle.properties"),
+            content: gradle_properties.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/kotlin/README.md"),
+            content: readme,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt"),
+            content: sample_kotlin,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(".github/workflows/kotlin.yml"),
+            content: github_workflow,
             generated_header: false,
         },
     ])

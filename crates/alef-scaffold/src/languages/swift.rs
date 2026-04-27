@@ -1,9 +1,11 @@
+use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
     let module = config.swift_module();
     // Strip the minor version component: "13.0" → "13", "16.0" → "16".
     // Swift PackageDescription uses e.g. `.v13` and `.v16`.
@@ -216,6 +218,82 @@ swift build --package-path packages/swift --configuration release
         binding_crate_underscore = binding_crate_underscore,
     );
 
+    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 4\n";
+
+    let swiftformat = "lineLength = 120\nindent = 4\nusesTabs = false\n";
+
+    let readme = format!(
+        r#"# {module}
+
+{description}
+
+## Installation
+
+Add to your `Package.swift`:
+
+```swift
+.package(url = "https://github.com/example/{module}.git", branch: "main"),
+```
+
+## Building
+
+```sh
+cargo build -p {binding_crate}
+# Copy generated sources (see BUILDING.md for details)
+swift build --package-path packages/swift
+```
+
+For detailed build instructions, see [BUILDING.md](BUILDING.md).
+
+## License
+
+{license}
+"#,
+        module = module,
+        description = meta.description,
+        binding_crate = binding_crate_name,
+        license = meta.license,
+    );
+
+    let demo_swift = format!(
+        r#"import {module}
+
+@main
+struct Demo {{
+    static func main() {{
+        print("Demo: {module} loaded successfully")
+        // Add your API calls here after code generation
+    }}
+}}
+"#,
+        module = module,
+    );
+
+    let github_workflow = format!(
+        r#"name: Swift
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Swift
+        uses: actions/setup-swift@v4
+        with:
+          swift-version: '5.9'
+      - name: Build Swift package
+        run: swift build --package-path packages/swift
+      - name: Run tests
+        run: swift test --package-path packages/swift
+"#
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
@@ -250,6 +328,31 @@ swift build --package-path packages/swift --configuration release
         GeneratedFile {
             path: PathBuf::from("packages/swift/BUILDING.md"),
             content: building_md,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/swift/.editorconfig"),
+            content: editorconfig.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/swift/.swiftformat"),
+            content: swiftformat.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/swift/README.md"),
+            content: readme,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/swift/Examples/Demo/main.swift"),
+            content: demo_swift,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(".github/workflows/swift.yml"),
+            content: github_workflow,
             generated_header: false,
         },
     ])

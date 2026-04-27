@@ -1,3 +1,4 @@
+use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
@@ -5,12 +6,15 @@ use alef_core::template_versions::hex;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_gleam(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
     let version = &api.version;
     let gleam_app = config.gleam_app_name();
 
     let gleam_toml = format!(
         r#"name = "{app_name}"
 version = "{version}"
+description = "{description}"
+licences = ["MIT"]
 target = "erlang"
 
 [dependencies]
@@ -21,6 +25,7 @@ gleeunit = "{gleeunit}"
 "#,
         app_name = gleam_app,
         version = version,
+        description = meta.description,
         stdlib = hex::GLEAM_STDLIB_VERSION_RANGE,
         gleeunit = hex::GLEEUNIT_VERSION_RANGE,
     );
@@ -48,6 +53,82 @@ pub fn smoke_test() {
 "#
     .to_string();
 
+    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.gleam]\nindent_style = space\nindent_size = 2\n";
+
+    let readme = format!(
+        r#"# {gleam_app}
+
+{description}
+
+## Building
+
+Install Gleam (see [gleam.run](https://gleam.run)):
+
+```sh
+gleam build
+gleam test
+```
+
+## Usage
+
+Add to your `gleam.toml`:
+
+```toml
+[dependencies]
+{gleam_app} = "{{github = \"example/{gleam_app}\"}}"
+```
+
+## License
+
+{license}
+"#,
+        gleam_app = gleam_app,
+        description = meta.description,
+        license = meta.license,
+    );
+
+    let example_gleam = format!(
+        r#"import {gleam_app}
+
+pub fn main() {{
+  // Example: load and use the generated {gleam_app} module
+  // Replace with your actual API calls after code generation
+  Nil
+}}
+"#,
+        gleam_app = gleam_app,
+    );
+
+    let github_workflow = format!(
+        r#"name: Gleam
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up BEAM (Erlang/Elixir)
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27'
+          gleam-version: '1.4'
+      - name: Set up Gleam
+        uses: gleam-lang/setup-gleam@v1
+        with:
+          gleam-version: '1.4'
+      - name: Build Gleam project
+        run: gleam build --working-dir=packages/gleam
+      - name: Run tests
+        run: gleam test --working-dir=packages/gleam
+"#
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/gleam/gleam.toml"),
@@ -67,6 +148,26 @@ pub fn smoke_test() {
         GeneratedFile {
             path: PathBuf::from(format!("packages/gleam/test/{gleam_app}_test.gleam")),
             content: smoke_test,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/gleam/.editorconfig"),
+            content: editorconfig.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/gleam/README.md"),
+            content: readme,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/gleam/src/{gleam_app}_example.gleam")),
+            content: example_gleam,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(".github/workflows/gleam.yml"),
+            content: github_workflow,
             generated_header: false,
         },
     ])
