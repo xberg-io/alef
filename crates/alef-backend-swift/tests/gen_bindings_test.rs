@@ -132,16 +132,18 @@ fn make_config() -> AlefConfig {
 
 #[test]
 fn struct_with_primitive_fields_emits_public_struct() {
+    let mut ty = make_type(
+        "Point",
+        vec![
+            make_field("x_coord", TypeRef::Primitive(PrimitiveType::I32), false),
+            make_field("y_coord", TypeRef::Primitive(PrimitiveType::I32), false),
+        ],
+    );
+    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
-        types: vec![make_type(
-            "Point",
-            vec![
-                make_field("x_coord", TypeRef::Primitive(PrimitiveType::I32), false),
-                make_field("y_coord", TypeRef::Primitive(PrimitiveType::I32), false),
-            ],
-        )],
+        types: vec![ty],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -157,15 +159,12 @@ fn struct_with_primitive_fields_emits_public_struct() {
         "missing header: {content}"
     );
     assert!(content.contains("import Foundation"), "missing Foundation import: {content}");
-    assert!(content.contains("public struct Point {"), "missing struct declaration: {content}");
-    assert!(content.contains("public let xCoord: Int32"), "missing xCoord field: {content}");
-    assert!(content.contains("public let yCoord: Int32"), "missing yCoord field: {content}");
-    assert!(content.contains("public init(xCoord: Int32, yCoord: Int32)"), "missing init: {content}");
-    assert!(content.contains("self.xCoord = xCoord"), "missing self assignment: {content}");
+    assert!(content.contains("public typealias Point = RustBridge.Point"), "missing typealias declaration: {content}");
 }
 
 #[test]
 fn struct_with_optional_array_and_dict_fields() {
+    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -189,13 +188,12 @@ fn struct_with_optional_array_and_dict_fields() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    assert!(content.contains("public let tag: String?"), "missing optional field: {content}");
-    assert!(content.contains("public let items: [String]"), "missing array field: {content}");
-    assert!(content.contains("public let meta: [String: Int64]"), "missing dict field: {content}");
+    assert!(content.contains("public typealias Container = RustBridge.Container"), "missing typealias declaration: {content}");
 }
 
 #[test]
 fn struct_with_serde_derives_codable() {
+    // All non-trait structs become typealiases to RustBridge.X
     let mut ty = make_type(
         "Config",
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
@@ -215,13 +213,14 @@ fn struct_with_serde_derives_codable() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public struct Config: Codable {"),
-        "missing Codable conformance: {content}"
+        content.contains("public typealias Config = RustBridge.Config"),
+        "missing typealias declaration: {content}"
     );
 }
 
 #[test]
 fn empty_struct_emits_single_line() {
+    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -234,13 +233,14 @@ fn empty_struct_emits_single_line() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    assert!(content.contains("public struct Empty {}"), "missing empty struct: {content}");
+    assert!(content.contains("public typealias Empty = RustBridge.Empty"), "missing typealias declaration: {content}");
 }
 
 // ── enum tests ────────────────────────────────────────────────────────────────
 
 #[test]
 fn unit_only_enum_emits_lower_camel_cases() {
+    // Non-Codable enums become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -282,15 +282,12 @@ fn unit_only_enum_emits_lower_camel_cases() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    assert!(content.contains("public enum Status {"), "missing enum decl: {content}");
-    assert!(content.contains("case active"), "missing active case: {content}");
-    assert!(content.contains("case inactive"), "missing inactive case: {content}");
-    // Must NOT use SCREAMING_SNAKE (Kotlin style)
-    assert!(!content.contains("ACTIVE"), "unexpected SCREAMING_SNAKE: {content}");
+    assert!(content.contains("public typealias Status = RustBridge.Status"), "missing typealias declaration: {content}");
 }
 
 #[test]
 fn data_bearing_enum_emits_associated_values() {
+    // Non-Codable enums become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -332,12 +329,7 @@ fn data_bearing_enum_emits_associated_values() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    assert!(content.contains("public enum Shape {"), "missing enum decl: {content}");
-    assert!(
-        content.contains("case circle(radius: Double)"),
-        "missing circle case with associated value: {content}"
-    );
-    assert!(content.contains("case unit"), "missing unit case: {content}");
+    assert!(content.contains("public typealias Shape = RustBridge.Shape"), "missing typealias declaration: {content}");
 }
 
 // ── function tests ────────────────────────────────────────────────────────────

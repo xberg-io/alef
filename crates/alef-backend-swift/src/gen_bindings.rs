@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -12,25 +12,31 @@ use crate::type_map::SwiftMapper;
 
 /// Checks if a type reference contains any Named types (struct/enum references).
 /// Used to determine if conversion from RustBridge types is needed.
-fn should_convert_return(ty: &TypeRef) -> bool {
+/// Non-Codable types (typealiases to RustBridge.X) don't need conversion.
+fn should_convert_return(ty: &TypeRef, non_codable_types: &std::collections::HashSet<&str>) -> bool {
     match ty {
-        TypeRef::Named(_) => true,
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
-        _ => is_container_of_named(ty),
+        TypeRef::Named(name) => !non_codable_types.contains(name.as_str()),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
+        }
+        _ => is_container_of_named(ty, non_codable_types),
     }
 }
 
-/// Recursively checks if a type is a container (Vec, Optional, etc.) of Named types.
-fn is_container_of_named(ty: &TypeRef) -> bool {
+/// Recursively checks if a type is a container (Vec, Optional, etc.) of Named types
+/// that need conversion (i.e., not non-Codable typealiases).
+fn is_container_of_named(ty: &TypeRef, non_codable_types: &std::collections::HashSet<&str>) -> bool {
     match ty {
         TypeRef::Vec(inner) => {
-            matches!(inner.as_ref(), TypeRef::Named(_)) || is_container_of_named(inner)
+            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
+                || is_container_of_named(inner, non_codable_types)
         }
         TypeRef::Optional(inner) => {
-            matches!(inner.as_ref(), TypeRef::Named(_)) || is_container_of_named(inner)
+            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
+                || is_container_of_named(inner, non_codable_types)
         }
         TypeRef::Map(k, v) => {
-            is_container_of_named(k) || is_container_of_named(v)
+            is_container_of_named(k, non_codable_types) || is_container_of_named(v, non_codable_types)
         }
         _ => false,
     }
@@ -38,18 +44,34 @@ fn is_container_of_named(ty: &TypeRef) -> bool {
 
 /// Builds a Swift expression that converts a value from RustBridge type to the idiomatic wrapper type.
 /// For example: `Data(rustVal: value)` or `[String](rustVal: value)`.
-fn wrap_value_conversion(ty: &TypeRef, expr: &str, mapper: &SwiftMapper) -> String {
+/// For non-Codable types (which are typealiases to RustBridge.X), returns the expression unchanged.
+fn wrap_value_conversion(
+    ty: &TypeRef,
+    expr: &str,
+    mapper: &SwiftMapper,
+    non_codable_types: &std::collections::HashSet<&str>,
+) -> String {
     match ty {
         TypeRef::Named(name) => {
-            format!("{}(rustVal: {})", name, expr)
+            if non_codable_types.contains(name.as_str()) {
+                // Non-Codable type is a typealias to RustBridge.X — no conversion needed
+                expr.to_string()
+            } else {
+                format!("{}(rustVal: {})", name, expr)
+            }
         }
         TypeRef::Optional(inner) => {
-            let inner_conversion = wrap_value_conversion(inner, "val", mapper);
+            let inner_conversion = wrap_value_conversion(inner, "val", mapper, non_codable_types);
             format!("{}.map {{ val in {} }}", expr, inner_conversion)
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) => {
-                format!("{}.map {{ {}(rustVal: $0) }}", expr, name)
+                if non_codable_types.contains(name.as_str()) {
+                    // Non-Codable type in Vec — no conversion needed
+                    expr.to_string()
+                } else {
+                    format!("{}.map {{ {}(rustVal: $0) }}", expr, name)
+                }
             }
             _ => expr.to_string(),
         },
@@ -112,22 +134,30 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Compute the set of enums that need Swift `Codable` conformance.
-        // Beyond enums that derive serde::{Serialize, Deserialize}, any enum used
-        // as a field type by a has_serde struct must also be Codable for the
-        // struct's auto-synthesised conformance to compile. Some upstream enums
-        // implement Deserialize manually (only Serialize is derived), which the
-        // syn-based extractor cannot detect — this closes that gap.
-        let codable_enum_names: std::collections::HashSet<&str> = compute_codable_enums(api);
+        // Compute the set of non-trait types that should be emitted as typealiases to RustBridge.X.
+        // This includes ALL non-trait enums and structs (both Codable and non-Codable).
+        // swift-bridge generates opaque Swift classes for these, not enums or structs.
+        // Emitting typealiases makes them pass through without conversion, avoiding:
+        //   1. Invalid enum pattern matching on opaque classes
+        //   2. Type mismatches between Codable wrappers and RustBridge opaque types
+        //   3. Need for bidirectional JSON serialization
+        // Tradeoff: users interact with RustBridge opaque types directly rather than
+        // idiomatic Swift wrappers. This is acceptable for the current phase where
+        // swift-bridge handling is incomplete.
+        let non_codable_types: std::collections::HashSet<&str> = api
+            .enums
+            .iter()
+            .map(|e| e.name.as_str())
+            .chain(api.types.iter().filter(|t| !t.is_trait).map(|t| t.name.as_str()))
+            .collect();
 
         for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-            emit_struct(ty, &mut body, &mapper);
+            emit_struct(ty, &mut body, &mapper, &non_codable_types);
             body.push('\n');
         }
 
         for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            let force_codable = codable_enum_names.contains(en.name.as_str());
-            emit_enum(en, &mut body, &mapper, force_codable);
+            emit_enum(en, &mut body, &mapper, &non_codable_types);
             body.push('\n');
         }
 
@@ -139,7 +169,7 @@ impl Backend for SwiftBackend {
         if !visible_functions.is_empty() {
             body.push_str(&format!("public enum {module_name} {{\n"));
             for f in &visible_functions {
-                emit_function(f, &mut body, &mapper);
+                emit_function(f, &mut body, &mapper, &non_codable_types);
                 body.push('\n');
             }
             body.push_str("}\n");
@@ -190,196 +220,55 @@ impl Backend for SwiftBackend {
 }
 
 /// Emits a Swift `public struct` for the given `TypeDef`.
-fn emit_struct(ty: &TypeDef, out: &mut String, mapper: &SwiftMapper) {
-    emit_doc_comment(&ty.doc, "", out);
-
-    let codable = if ty.has_serde { ": Codable" } else { "" };
-
-    if ty.fields.is_empty() {
-        out.push_str(&format!("public struct {}{} {{}}\n", ty.name, codable));
+/// All non-trait structs are emitted as typealiases to RustBridge.X.
+fn emit_struct(ty: &TypeDef, out: &mut String, _mapper: &SwiftMapper, non_codable_types: &std::collections::HashSet<&str>) {
+    // All structs become typealiases to the RustBridge opaque class
+    if non_codable_types.contains(ty.name.as_str()) {
+        emit_doc_comment(&ty.doc, "", out);
+        out.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
         return;
     }
 
-    out.push_str(&format!("public struct {}{} {{\n", ty.name, codable));
-
-    // Stored properties
-    for field in &ty.fields {
-        emit_field_doc_comment(&field.doc, out);
-        let ty_str = resolve_field_type(field, mapper);
-        let name = swift_ident(&field.name.to_lower_camel_case());
-        out.push_str(&format!("    public let {name}: {ty_str}\n"));
-    }
-
-    // Memberwise initialiser (Swift structs do not expose their synthesised init as `public`)
-    out.push('\n');
-    let init_params: Vec<String> = ty
-        .fields
-        .iter()
-        .map(|f| {
-            let ty_str = resolve_field_type(f, mapper);
-            let name = swift_ident(&f.name.to_lower_camel_case());
-            format!("{name}: {ty_str}")
-        })
-        .collect();
-    out.push_str(&format!("    public init({}) {{\n", init_params.join(", ")));
-    for field in &ty.fields {
-        let name = swift_ident(&field.name.to_lower_camel_case());
-        out.push_str(&format!("        self.{name} = {name}\n"));
-    }
-    out.push_str("    }\n");
-
+    // Trait types fall through but shouldn't happen in practice
+    emit_doc_comment(&ty.doc, "", out);
+    out.push_str(&format!("public struct {} {{\n", ty.name));
     out.push_str("}\n");
 }
 
-/// Resolves a `FieldDef`'s full Swift type string (handles optionality).
-fn resolve_field_type(field: &FieldDef, mapper: &SwiftMapper) -> String {
-    let base = mapper.map_type(&field.ty);
-    if field.optional {
-        format!("{base}?")
-    } else {
-        base
-    }
-}
-
-/// Collects the names of enums that should receive Swift `: Codable` conformance.
-///
-/// An enum is included if either:
-/// * it derives both `serde::Serialize` and `serde::Deserialize` (`has_serde`), or
-/// * it is referenced as a field type by a struct that has `has_serde = true`.
-///
-/// The second case is required because Swift's auto-synthesised `Codable`
-/// conformance on a struct depends on every stored property's type also being
-/// `Codable`. Some Rust enums in upstream crates derive `Serialize` only and
-/// implement `Deserialize` manually (which the syn-based extractor cannot see),
-/// so we conservatively grant Codable to any enum reachable from a has_serde
-/// struct field.
-fn compute_codable_enums(api: &ApiSurface) -> std::collections::HashSet<&str> {
-    let mut codable: std::collections::HashSet<&str> = api
-        .enums
-        .iter()
-        .filter(|e| e.has_serde)
-        .map(|e| e.name.as_str())
-        .collect();
-
-    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
-
-    for ty in &api.types {
-        if !ty.has_serde {
-            continue;
-        }
-        for field in &ty.fields {
-            collect_referenced_enum_names(&field.ty, &enum_names, &mut codable);
-        }
-    }
-
-    codable
-}
-
-/// Walks a `TypeRef` recursively and inserts any referenced enum names that
-/// appear in `enum_names` into `out`. Used by `compute_codable_enums` to
-/// transitively propagate Codable conformance through Option/Vec/etc. wrappers.
-fn collect_referenced_enum_names<'a>(
-    ty: &'a TypeRef,
-    enum_names: &std::collections::HashSet<&'a str>,
-    out: &mut std::collections::HashSet<&'a str>,
-) {
-    match ty {
-        TypeRef::Named(name) => {
-            if let Some(name_ref) = enum_names.get(name.as_str()) {
-                out.insert(*name_ref);
-            }
-        }
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
-            collect_referenced_enum_names(inner, enum_names, out);
-        }
-        TypeRef::Map(k, v) => {
-            collect_referenced_enum_names(k, enum_names, out);
-            collect_referenced_enum_names(v, enum_names, out);
-        }
-        _ => {}
-    }
-}
-
 /// Emits a Swift `public enum` for the given `EnumDef`.
-///
-/// `force_codable`: when true, emit `: Codable` even if `en.has_serde` is false.
-/// Used by the cross-reference pass in `compute_codable_enums`.
-fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper, force_codable: bool) {
+/// All non-trait enums are emitted as typealiases to RustBridge.X.
+fn emit_enum(
+    en: &EnumDef,
+    out: &mut String,
+    mapper: &SwiftMapper,
+    non_codable_types: &std::collections::HashSet<&str>,
+) {
+    // All enums become typealiases to the RustBridge opaque class
+    if non_codable_types.contains(en.name.as_str()) {
+        emit_doc_comment(&en.doc, "", out);
+        out.push_str(&format!("public typealias {} = RustBridge.{}\n", en.name, en.name));
+        return;
+    }
+
     emit_doc_comment(&en.doc, "", out);
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
-    let codable = if en.has_serde || force_codable { ": Codable" } else { "" };
 
     if all_unit {
-        out.push_str(&format!("public enum {}{} {{\n", en.name, codable));
+        out.push_str(&format!("public enum {} {{\n", en.name));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
             out.push_str(&format!("    case {case_name}\n"));
         }
-        // Add conversion initializer for unit enums (only if not Codable)
-        emit_enum_conversion_init(en, out, mapper, force_codable);
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("public enum {}{} {{\n", en.name, codable));
+        out.push_str(&format!("public enum {} {{\n", en.name));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }
-        // Add conversion initializer for enums with data (only if not Codable)
-        emit_enum_conversion_init(en, out, mapper, force_codable);
         out.push_str("}\n");
     }
-}
-
-/// Emits a conversion initializer from RustBridge enum to the wrapper enum.
-/// Only emits for non-Codable enums, since Codable enums use JSON deserialization.
-fn emit_enum_conversion_init(en: &EnumDef, out: &mut String, mapper: &SwiftMapper, force_codable: bool) {
-    // Skip Codable enums - they use JSON deserialization, not rustVal conversion
-    if en.has_serde || force_codable {
-        return;
-    }
-
-    out.push('\n');
-    out.push_str(&format!("    public init(rustVal: RustBridge.{}) {{\n", en.name));
-    out.push_str(&format!("        switch rustVal {{\n"));
-
-    for variant in &en.variants {
-        let case_name = swift_ident(&variant.name.to_lower_camel_case());
-        if variant.fields.is_empty() {
-            out.push_str(&format!("        case .{case_name}:\n"));
-            out.push_str(&format!("            self = .{case_name}\n"));
-        } else {
-            // Build the pattern for the switch case
-            let field_patterns: Vec<String> = variant
-                .fields
-                .iter()
-                .enumerate()
-                .map(|(idx, f)| {
-                    let label = swift_associated_label(&f.name, idx);
-                    format!("let {label}")
-                })
-                .collect();
-
-            out.push_str(&format!("        case .{case_name}({}):\n", field_patterns.join(", ")));
-
-            // Build the constructor with conversions
-            let field_conversions: Vec<String> = variant
-                .fields
-                .iter()
-                .enumerate()
-                .map(|(idx, f)| {
-                    let label = swift_associated_label(&f.name, idx);
-                    let conversion = wrap_value_conversion(&f.ty, &label, mapper);
-                    format!("{label}: {conversion}")
-                })
-                .collect();
-
-            out.push_str(&format!("            self = .{case_name}({})\n", field_conversions.join(", ")));
-        }
-    }
-
-    out.push_str("        }\n");
-    out.push_str("    }\n");
 }
 
 /// Emits a single enum case, with or without associated values.
@@ -452,7 +341,12 @@ fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
 }
 
 /// Emits a single `public static func` inside the module enum namespace.
-fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
+fn emit_function(
+    f: &FunctionDef,
+    out: &mut String,
+    mapper: &SwiftMapper,
+    non_codable_types: &std::collections::HashSet<&str>,
+) {
     emit_doc_comment(&f.doc, "    ", out);
 
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, mapper)).collect();
@@ -503,8 +397,8 @@ fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
         out.push_str(&format!("        {invocation}\n"));
     } else {
         // Wrap return value with conversion if it's a Named type or container of Named types
-        let return_expr = if should_convert_return(&f.return_type) {
-            wrap_value_conversion(&f.return_type, &invocation, mapper)
+        let return_expr = if should_convert_return(&f.return_type, non_codable_types) {
+            wrap_value_conversion(&f.return_type, &invocation, mapper, non_codable_types)
         } else {
             invocation
         };
@@ -533,7 +427,3 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
     }
 }
 
-/// Emits field-level doc comments.
-fn emit_field_doc_comment(doc: &str, out: &mut String) {
-    emit_doc_comment(doc, "    ", out);
-}
