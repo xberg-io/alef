@@ -1,6 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", ":semanticCommits", ":dependencyDashboard"],
+  "rebaseWhen": "behind-base-branch",
+  "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -8,9 +14,83 @@
         "/^crates/alef-core/src/template_versions\\.rs$/"
       ],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>[^\\s]+)(?: packageName=(?<packageName>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\s*\\npub const [A-Z_]+: &str = \"(?<currentValue>[^\"]+)\";"
+        "// renovate:\\s*datasource=(?<datasource>\\S+)(?:\\s+depName=(?<depName>\\S+))?(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>\\S+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*\\n\\s*pub const [A-Z_]+: &str = \"(?<currentValue>[^\"]+)\";"
       ],
-      "depNameTemplate": "{{#if packageName}}{{{packageName}}}{{else}}{{{depName}}}{{/if}}"
+      "depNameTemplate": "{{#if depName}}{{{depName}}}{{else}}{{{packageName}}}{{/if}}",
+      "packageNameTemplate": "{{#if packageName}}{{{packageName}}}{{else}}{{{depName}}}{{/if}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group Rust crate version pins emitted into generated bindings",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["crate"],
+      "groupName": "generated rust crate pins"
+    },
+    {
+      "description": "Group Python tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["pypi"],
+      "groupName": "python tooling pins"
+    },
+    {
+      "description": "Group npm tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["npm"],
+      "groupName": "npm tooling pins"
+    },
+    {
+      "description": "Group RubyGems tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["rubygems"],
+      "groupName": "rubygems tooling pins"
+    },
+    {
+      "description": "Group Packagist (PHP) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["packagist"],
+      "groupName": "php tooling pins"
+    },
+    {
+      "description": "Group Maven (Java/Kotlin) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["maven"],
+      "groupName": "jvm tooling pins"
+    },
+    {
+      "description": "Group NuGet (C#) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["nuget"],
+      "groupName": "csharp tooling pins"
+    },
+    {
+      "description": "Group Hex (Elixir/Gleam) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["hex"],
+      "groupName": "beam tooling pins"
+    },
+    {
+      "description": "Group pub.dev (Dart) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["pub"],
+      "groupName": "dart tooling pins"
+    },
+    {
+      "description": "Group CRAN (R) tooling pins",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["cran"],
+      "groupName": "r tooling pins"
+    },
+    {
+      "description": "Group pre-commit hook revisions tracked via github-tags",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-tags"],
+      "groupName": "pre-commit hook revisions"
+    },
+    {
+      "description": "Group GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
     }
   ]
 }
