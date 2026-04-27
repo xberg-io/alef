@@ -206,6 +206,14 @@ fn try_template_readme(
         }
     }
 
+    // Ensure `snippets` is always defined so templates can access `snippets.X`
+    // unconditionally without raising an undefined-variable error. When the
+    // per-language config omits the `snippets` key (e.g. kreuzberg's `ffi` block),
+    // accessing `snippets.basic_extraction` would otherwise cause minijinja to
+    // error with "could not render include".
+    ctx.entry("snippets")
+        .or_insert_with(|| json_to_minijinja_value(&serde_json::Value::Object(Default::default())));
+
     let tmpl = env
         .get_template(&template_name)
         .map_err(|e| anyhow::anyhow!("Failed to load template '{}': {}", template_name, e))?;
@@ -1583,6 +1591,60 @@ languages:
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, PathBuf::from("packages/python/README.md"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: missing snippets key does not error ---
+
+    #[test]
+    fn test_template_readme_missing_snippets_renders_gracefully() {
+        // Reproduces: kreuzberg ffi language config has no `snippets` key.
+        // The quick_start partial accesses `snippets.basic_extraction` unconditionally;
+        // if `snippets` is absent from the context the render must not error.
+        let tmp = std::env::temp_dir().join("alef_readme_test_missing_snippets");
+        let _ = fs::remove_dir_all(&tmp);
+        let partials_dir = tmp.join("partials");
+        fs::create_dir_all(&partials_dir).unwrap();
+
+        // Minimal partial that accesses snippets.basic_extraction unconditionally
+        fs::write(
+            partials_dir.join("quick_start.md.jinja"),
+            "{{ snippets.basic_extraction | include_snippet(language) }}",
+        )
+        .unwrap();
+        fs::write(
+            tmp.join("language_package.md"),
+            "{% include 'partials/quick_start.md.jinja' %}",
+        )
+        .unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        // No `snippets` key — mirrors kreuzberg's ffi language block
+        lang_map.insert(
+            "ffi".to_string(),
+            serde_json::json!({
+                "template": "language_package.md",
+                "output_path": "crates/my-lib-ffi/README.md",
+                "name": "FFI"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        // Must not error even though `snippets` is absent from the language config
+        let files = generate_readmes(&api, &config, &[Language::Ffi]).unwrap();
+        assert_eq!(files.len(), 1);
 
         let _ = fs::remove_dir_all(&tmp);
     }
