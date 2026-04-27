@@ -26,12 +26,12 @@
 
 # Alef
 
-Generate fully-typed, lint-clean language bindings for Rust libraries across 11 languages. Alef handles the entire pipeline -- API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation -- from a single TOML config file.
+Generate fully-typed, lint-clean language bindings for Rust libraries across 14 languages (16 with Swift and Dart in progress). Alef handles the entire pipeline -- API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation -- from a single TOML config file.
 
 ## Key Features
 
 - **API extraction** -- Parses your Rust crate's public API via `syn` into a language-agnostic intermediate representation. Handles `pub use` re-exports across workspace crates, `#[cfg(feature)]` gating, serde `rename_all` metadata, doc comments, `Default` detection, and transparent newtype resolution.
-- **11 language backends** -- Each backend generates idiomatic, lint-clean binding code using the target language's native framework. See the [supported languages](#supported-languages) table below.
+- **14 language backends** (with Swift and Dart in progress) -- Each backend generates idiomatic, lint-clean binding code using the target language's native framework. See the [supported languages](#supported-languages) table below.
 - **Configurable DTO styles** -- Choose how types are represented in each language: Python `dataclass` vs `TypedDict` vs `pydantic` vs `msgspec`, TypeScript `interface` vs `zod`, Ruby `Struct` vs `dry-struct` vs `Data`, and more. Input and output types can use different styles.
 - **Type stubs** -- Generates `.pyi` (Python), `.rbs` (Ruby), and `.d.ts` (TypeScript) type definition files for editor support and static analysis in consuming projects.
 - **Package scaffolding** -- Generates complete package manifests for each language: `pyproject.toml`, `package.json`, `.gemspec`, `composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION` (R), and `Cargo.toml` for binding crates.
@@ -62,7 +62,12 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 11 
 | C# | P/Invoke | NuGet (.nupkg) | xUnit | `record` |
 | Elixir | [Rustler](https://github.com/rusterlium/rustler) | Hex | ExUnit | `struct`, `typed-struct` |
 | R | [extendr](https://extendr.github.io/extendr/) | CRAN | testthat | `list`, `r6` |
+| Kotlin/JVM | [Panama FFM](https://openjdk.org/jeps/454) (shared with Java) | Maven (.jar) | JUnit | `data-class`, `sealed-class` |
+| Gleam | [Rustler](https://github.com/rusterlium/rustler) NIF + `@external` | Hex | gleeunit | record types |
+| Zig | C FFI via `@cImport` | tarball | `std.testing` | structs |
 | C | [cbindgen](https://github.com/mozilla/cbindgen) | Header (.h) | -- | -- |
+| Swift | _planned (swift-bridge, Phase 2)_ | XCFramework / SwiftPM | XCTest | -- |
+| Dart | _planned (flutter_rust_bridge, Phase 2)_ | pub.dev | `package:test` | -- |
 
 ## Quick Start
 

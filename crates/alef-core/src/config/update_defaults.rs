@@ -150,6 +150,12 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: None,
             upgrade: None,
         },
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => UpdateConfig {
+            precondition: None,
+            before: None,
+            update: None,
+            upgrade: None,
+        },
     }
 }
 
@@ -172,6 +178,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -191,7 +202,11 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_update_commands() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            // Skip FFI and Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -203,7 +218,11 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_default_precondition() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            // Skip FFI and Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
                 continue;
             }
             let c = cfg(lang, "packages/test");

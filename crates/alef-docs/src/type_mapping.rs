@@ -16,6 +16,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "character".to_string(),
             Language::Rust => "String".to_string(),
             Language::Ffi => "const char*".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
+            Language::Gleam => "String".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Bytes => match lang {
             Language::Python => "bytes".to_string(),
@@ -29,6 +32,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "raw".to_string(),
             Language::Rust => "Vec<u8>".to_string(),
             Language::Ffi => "const uint8_t*".to_string(),
+            Language::Kotlin => "ByteArray".to_string(),
+            Language::Swift => "Data".to_string(),
+            Language::Dart => "Uint8List".to_string(),
+            Language::Gleam => "BitArray".to_string(),
+            Language::Zig => "[]const u8".to_string(),
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
         TypeRef::Optional(inner) => {
@@ -48,6 +56,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => format!("{inner_ty} or NULL"),
                 Language::Rust => format!("Option<{inner_ty}>"),
                 Language::Ffi => format!("{inner_ty}*"),
+                Language::Kotlin | Language::Swift | Language::Dart => format!("{inner_ty}?"),
+                Language::Gleam => format!("Option({inner_ty})"),
+                Language::Zig => format!("?{inner_ty}"),
             }
         }
         TypeRef::Vec(inner) => {
@@ -74,6 +85,10 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Rust => format!("Vec<{inner_ty}>"),
                         Language::Ffi => format!("{inner_ty}*"),
                         Language::Java | Language::Csharp => unreachable!(),
+                        Language::Kotlin | Language::Dart => format!("List<{inner_ty}>"),
+                        Language::Swift => format!("[{inner_ty}]"),
+                        Language::Gleam => format!("List({inner_ty})"),
+                        Language::Zig => format!("[]const {inner_ty}"),
                     }
                 }
             }
@@ -99,6 +114,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => "list".to_string(),
                 Language::Rust => format!("HashMap<{kty}, {vty}>"),
                 Language::Ffi => "void*".to_string(),
+                Language::Kotlin => format!("Map<{kty}, {vty}>"),
+                Language::Swift => format!("[{kty}: {vty}]"),
+                Language::Dart => format!("Map<{kty}, {vty}>"),
+                Language::Gleam => format!("Dict({kty}, {vty})"),
+                Language::Zig => format!("std.StringHashMap({vty})"),
             }
         }
         TypeRef::Named(name) if name.starts_with('(') && name.ends_with(')') => {
@@ -109,19 +129,40 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 .map(|part| {
                     let trimmed = part.trim();
                     match trimmed {
-                        "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => match lang {
-                            Language::Python => "int".to_string(),
-                            Language::Node | Language::Wasm => "number".to_string(),
-                            Language::Go => "int".to_string(),
-                            Language::Java => "long".to_string(),
-                            Language::Csharp => "long".to_string(),
-                            Language::Ruby => "Integer".to_string(),
-                            Language::Php => "int".to_string(),
-                            Language::Elixir => "integer()".to_string(),
-                            Language::R => "integer".to_string(),
-                            Language::Rust => trimmed.to_string(),
-                            Language::Ffi => "uint64_t".to_string(),
-                        },
+                        "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => {
+                            // Swift preserves the signed/unsigned distinction; other
+                            // languages collapse to a single integer type per their
+                            // primitive convention.
+                            let swift_name = match trimmed {
+                                "u64" | "usize" => "UInt64",
+                                "u32" => "UInt32",
+                                "u16" => "UInt16",
+                                "u8" => "UInt8",
+                                "i64" | "isize" => "Int64",
+                                "i32" => "Int32",
+                                "i16" => "Int16",
+                                "i8" => "Int8",
+                                _ => "Int64",
+                            };
+                            match lang {
+                                Language::Python => "int".to_string(),
+                                Language::Node | Language::Wasm => "number".to_string(),
+                                Language::Go => "int".to_string(),
+                                Language::Java => "long".to_string(),
+                                Language::Csharp => "long".to_string(),
+                                Language::Ruby => "Integer".to_string(),
+                                Language::Php => "int".to_string(),
+                                Language::Elixir => "integer()".to_string(),
+                                Language::R => "integer".to_string(),
+                                Language::Rust => trimmed.to_string(),
+                                Language::Ffi => "uint64_t".to_string(),
+                                Language::Kotlin => "Long".to_string(),
+                                Language::Swift => swift_name.to_string(),
+                                Language::Dart => "int".to_string(),
+                                Language::Gleam => "Int".to_string(),
+                                Language::Zig => "i64".to_string(),
+                            }
+                        }
                         s @ ("str" | "&str" | "String" | "&'static str" | "&'staticstr") => match lang {
                             Language::Python => "str".to_string(),
                             Language::Node | Language::Wasm => "string".to_string(),
@@ -134,6 +175,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::R => "character".to_string(),
                             Language::Rust => s.to_string(),
                             Language::Ffi => "const char*".to_string(),
+                            Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
+                            Language::Gleam => "String".to_string(),
+                            Language::Zig => "[]const u8".to_string(),
                         },
                         // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
                         // Also covers compacted IR forms like &'static[&'staticstr]
@@ -155,6 +199,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::R => "list".to_string(),
                                 Language::Rust => s.to_string(),
                                 Language::Ffi => "const char**".to_string(),
+                                Language::Kotlin | Language::Swift | Language::Dart => "List<String>".to_string(),
+                                Language::Gleam => "List(String)".to_string(),
+                                Language::Zig => "[]const []const u8".to_string(),
                             }
                         }
                         other => {
@@ -181,6 +228,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => "list".to_string(),
                 Language::Rust => format!("({})", rendered.join(", ")),
                 Language::Ffi => "void*".to_string(),
+                Language::Kotlin => format!("Pair<{}>", rendered.join(", ")),
+                Language::Swift => format!("({})", rendered.join(", ")),
+                Language::Dart => format!("({})", rendered.join(", ")),
+                Language::Gleam => format!("#({})", rendered.join(", ")),
+                Language::Zig => format!("struct {{ {} }}", rendered.join(", ")),
             }
         }
         TypeRef::Named(name) => type_name(name, lang, ffi_prefix),
@@ -196,6 +248,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "character".to_string(),
             Language::Rust => "PathBuf".to_string(),
             Language::Ffi => "const char*".to_string(),
+            Language::Kotlin => "Path".to_string(),
+            Language::Swift => "URL".to_string(),
+            Language::Dart => "String".to_string(),
+            Language::Gleam => "String".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Unit => match lang {
             Language::Python => "None".to_string(),
@@ -209,6 +266,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "NULL".to_string(),
             Language::Rust => "()".to_string(),
             Language::Ffi => "void".to_string(),
+            Language::Kotlin => "Unit".to_string(),
+            Language::Swift => "Void".to_string(),
+            Language::Dart => "void".to_string(),
+            Language::Gleam => "Nil".to_string(),
+            Language::Zig => "void".to_string(),
         },
         TypeRef::Json => match lang {
             Language::Python => "dict[str, Any]".to_string(),
@@ -222,6 +284,14 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "list".to_string(),
             Language::Rust => "serde_json::Value".to_string(),
             Language::Ffi => "void*".to_string(),
+            Language::Kotlin => "Any".to_string(),
+            // Swift and Dart mappers return "String" — JSON is passed serialized.
+            Language::Swift => "String".to_string(),
+            Language::Dart => "String".to_string(),
+            // Gleam and Zig backends serialize JSON as a string (the Mappers
+            // return "String" / "[:0]const u8"); doc names must match.
+            Language::Gleam => "String".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Duration => match lang {
             Language::Python => "float".to_string(),
@@ -235,6 +305,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "numeric".to_string(),
             Language::Rust => "std::time::Duration".to_string(),
             Language::Ffi => "uint64_t".to_string(),
+            Language::Kotlin => "Duration".to_string(),
+            Language::Swift => "Duration".to_string(),
+            Language::Dart => "Duration".to_string(),
+            Language::Gleam => "Int".to_string(),
+            Language::Zig => "i64".to_string(),
         },
     }
 }
@@ -335,6 +410,54 @@ pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::I64 => "i64".to_string(),
             PrimitiveType::Usize => "usize".to_string(),
             PrimitiveType::Isize => "isize".to_string(),
+            PrimitiveType::F32 => "f32".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+        },
+        Language::Kotlin => match p {
+            PrimitiveType::Bool => "Boolean".to_string(),
+            PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
+            PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
+            PrimitiveType::U32 | PrimitiveType::I32 => "Int".to_string(),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
+        },
+        Language::Swift => match p {
+            PrimitiveType::Bool => "Bool".to_string(),
+            PrimitiveType::U8 => "UInt8".to_string(),
+            PrimitiveType::U16 => "UInt16".to_string(),
+            PrimitiveType::U32 => "UInt32".to_string(),
+            PrimitiveType::U64 | PrimitiveType::Usize => "UInt64".to_string(),
+            PrimitiveType::I8 => "Int8".to_string(),
+            PrimitiveType::I16 => "Int16".to_string(),
+            PrimitiveType::I32 => "Int32".to_string(),
+            PrimitiveType::I64 | PrimitiveType::Isize => "Int64".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
+        },
+        Language::Dart => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::F32 | PrimitiveType::F64 => "double".to_string(),
+            _ => "int".to_string(),
+        },
+        Language::Gleam => match p {
+            PrimitiveType::Bool => "Bool".to_string(),
+            PrimitiveType::F32 | PrimitiveType::F64 => "Float".to_string(),
+            _ => "Int".to_string(),
+        },
+        Language::Zig => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "u8".to_string(),
+            PrimitiveType::U16 => "u16".to_string(),
+            PrimitiveType::U32 => "u32".to_string(),
+            PrimitiveType::U64 => "u64".to_string(),
+            PrimitiveType::I8 => "i8".to_string(),
+            PrimitiveType::I16 => "i16".to_string(),
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 => "i64".to_string(),
+            // ZigMapper deliberately uses fixed-width types for FFI stability.
+            PrimitiveType::Usize => "u64".to_string(),
+            PrimitiveType::Isize => "i64".to_string(),
             PrimitiveType::F32 => "f32".to_string(),
             PrimitiveType::F64 => "f64".to_string(),
         },
@@ -470,6 +593,18 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Ruby, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Rust, TEST_PREFIX), "Vec<u8>");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Ffi, TEST_PREFIX), "const uint8_t*");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Kotlin, TEST_PREFIX), "ByteArray");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Swift, TEST_PREFIX), "Data");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Dart, TEST_PREFIX), "Uint8List");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Gleam, TEST_PREFIX), "BitArray");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Zig, TEST_PREFIX), "[]const u8");
+    }
+
+    #[test]
+    fn test_doc_type_string_kotlin_gleam_zig() {
+        assert_eq!(doc_type(&TypeRef::String, Language::Kotlin, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::String, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::String, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -485,6 +620,9 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Unit, Language::R, TEST_PREFIX), "NULL");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Rust, TEST_PREFIX), "()");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Ffi, TEST_PREFIX), "void");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Kotlin, TEST_PREFIX), "Unit");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Gleam, TEST_PREFIX), "Nil");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Zig, TEST_PREFIX), "void");
     }
 
     #[test]
@@ -500,6 +638,9 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Path, Language::R, TEST_PREFIX), "character");
         assert_eq!(doc_type(&TypeRef::Path, Language::Rust, TEST_PREFIX), "PathBuf");
         assert_eq!(doc_type(&TypeRef::Path, Language::Ffi, TEST_PREFIX), "const char*");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Kotlin, TEST_PREFIX), "Path");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -521,6 +662,13 @@ mod tests {
             "serde_json::Value"
         );
         assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Kotlin, TEST_PREFIX), "Any");
+        // SwiftMapper, DartMapper, GleamMapper, and ZigMapper all serialize JSON
+        // as a string at the FFI boundary; doc names must match the mappers.
+        assert_eq!(doc_type(&TypeRef::Json, Language::Swift, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Dart, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -539,6 +687,32 @@ mod tests {
             "std::time::Duration"
         );
         assert_eq!(doc_type(&TypeRef::Duration, Language::Ffi, TEST_PREFIX), "uint64_t");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Kotlin, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Swift, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Dart, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Gleam, TEST_PREFIX), "Int");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Zig, TEST_PREFIX), "i64");
+    }
+
+    #[test]
+    fn test_doc_type_swift_dart_vec_and_map() {
+        // Swift uses `[T]` syntactic sugar; Dart uses `List<T>` like Kotlin.
+        let vec_string = TypeRef::Vec(Box::new(TypeRef::String));
+        assert_eq!(doc_type(&vec_string, Language::Swift, TEST_PREFIX), "[String]");
+        assert_eq!(doc_type(&vec_string, Language::Dart, TEST_PREFIX), "List<String>");
+
+        // Swift dict literal: `[K: V]`. Dart: `Map<K, V>`.
+        let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        assert_eq!(doc_type(&map, Language::Swift, TEST_PREFIX), "[String: String]");
+        assert_eq!(doc_type(&map, Language::Dart, TEST_PREFIX), "Map<String, String>");
+    }
+
+    #[test]
+    fn test_doc_type_swift_dart_path_and_unit() {
+        assert_eq!(doc_type(&TypeRef::Path, Language::Swift, TEST_PREFIX), "URL");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Dart, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Swift, TEST_PREFIX), "Void");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Dart, TEST_PREFIX), "void");
     }
 
     #[test]
@@ -758,6 +932,80 @@ mod tests {
                 doc_type(&TypeRef::Primitive(prim.clone()), Language::Ffi, TEST_PREFIX),
                 *expected,
                 "FFI primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_kotlin_primitives() {
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "Boolean"),
+            (PrimitiveType::U8, "Byte"),
+            (PrimitiveType::I8, "Byte"),
+            (PrimitiveType::U16, "Short"),
+            (PrimitiveType::I16, "Short"),
+            (PrimitiveType::U32, "Int"),
+            (PrimitiveType::I32, "Int"),
+            (PrimitiveType::U64, "Long"),
+            (PrimitiveType::I64, "Long"),
+            (PrimitiveType::Usize, "Long"),
+            (PrimitiveType::Isize, "Long"),
+            (PrimitiveType::F32, "Float"),
+            (PrimitiveType::F64, "Double"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Kotlin, TEST_PREFIX),
+                *expected,
+                "Kotlin primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_gleam_primitives() {
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "Bool"),
+            (PrimitiveType::U8, "Int"),
+            (PrimitiveType::U64, "Int"),
+            (PrimitiveType::I32, "Int"),
+            (PrimitiveType::Usize, "Int"),
+            (PrimitiveType::F32, "Float"),
+            (PrimitiveType::F64, "Float"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Gleam, TEST_PREFIX),
+                *expected,
+                "Gleam primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_zig_primitives() {
+        // ZigMapper deliberately maps Usize/Isize to fixed-width u64/i64 for
+        // FFI stability — pin that choice so docs and the mapper don't drift.
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "bool"),
+            (PrimitiveType::U8, "u8"),
+            (PrimitiveType::U16, "u16"),
+            (PrimitiveType::U32, "u32"),
+            (PrimitiveType::U64, "u64"),
+            (PrimitiveType::I8, "i8"),
+            (PrimitiveType::I16, "i16"),
+            (PrimitiveType::I32, "i32"),
+            (PrimitiveType::I64, "i64"),
+            (PrimitiveType::Usize, "u64"),
+            (PrimitiveType::Isize, "i64"),
+            (PrimitiveType::F32, "f32"),
+            (PrimitiveType::F64, "f64"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Zig, TEST_PREFIX),
+                *expected,
+                "Zig primitive {prim:?}"
             );
         }
     }

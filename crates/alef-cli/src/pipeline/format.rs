@@ -119,6 +119,41 @@ fn get_default_formatter(lang: Language) -> Option<FormatterSpec> {
             }],
             work_dir: "",
         }),
+        Language::Kotlin => Some(FormatterSpec {
+            commands: &[FormatterCommand {
+                command: "ktlint",
+                args: &["--format"],
+            }],
+            work_dir: "packages/kotlin/src/",
+        }),
+        Language::Swift => Some(FormatterSpec {
+            commands: &[FormatterCommand {
+                command: "swift",
+                args: &["format", "--in-place", "--recursive", "Sources"],
+            }],
+            work_dir: "packages/swift/",
+        }),
+        Language::Dart => Some(FormatterSpec {
+            commands: &[FormatterCommand {
+                command: "dart",
+                args: &["format", "."],
+            }],
+            work_dir: "packages/dart/",
+        }),
+        Language::Gleam => Some(FormatterSpec {
+            commands: &[FormatterCommand {
+                command: "gleam",
+                args: &["format"],
+            }],
+            work_dir: "packages/gleam/",
+        }),
+        Language::Zig => Some(FormatterSpec {
+            commands: &[FormatterCommand {
+                command: "zig",
+                args: &["fmt", "src"],
+            }],
+            work_dir: "packages/zig/",
+        }),
         Language::Rust => None,
     }
 }

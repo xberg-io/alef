@@ -132,6 +132,12 @@ pub(crate) fn default_build_config(
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-r"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-r"))),
         },
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => BuildCommandConfig {
+            precondition: None,
+            before: None,
+            build: None,
+            build_release: None,
+        },
     }
 }
 
@@ -154,6 +160,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -166,6 +177,13 @@ mod tests {
     #[test]
     fn every_language_has_build_and_build_release() {
         for lang in all_languages() {
+            // Skip Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
+                continue;
+            }
             let c = cfg(lang, "packages/test", "my-lib");
             assert!(c.build.is_some(), "{lang} should have a default build command");
             assert!(
@@ -178,6 +196,13 @@ mod tests {
     #[test]
     fn every_language_has_default_precondition() {
         for lang in all_languages() {
+            // Skip Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
+                continue;
+            }
             let c = cfg(lang, "packages/test", "my-lib");
             let pre = c
                 .precondition

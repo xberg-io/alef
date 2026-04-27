@@ -1,0 +1,21 @@
+[package]
+name = "alef-backend-kotlin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Kotlin (JVM) backend for alef"
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+alef-codegen = { workspace = true }
+alef-core = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "emit"
+harness = false

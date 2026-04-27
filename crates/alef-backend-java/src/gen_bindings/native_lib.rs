@@ -463,6 +463,8 @@ pub(crate) fn gen_native_lib(
     // Track emitted handles to avoid duplicates (a type may appear both as
     // a function return type AND as an opaque type, or as both return and parameter type).
     let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
+    // Same dedup for `_to_json` handles — when multiple functions return the
+    // same Named type we'd otherwise emit the constant twice.
     let mut emitted_to_json_handles: AHashSet<String> = AHashSet::new();
 
     // Build the set of opaque type names so we can pick the right accessor below.

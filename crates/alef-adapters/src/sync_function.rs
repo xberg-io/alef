@@ -15,6 +15,9 @@ pub fn generate_body(adapter: &AdapterConfig, language: Language, config: &AlefC
         Language::Csharp => gen_csharp_body(adapter, config),
         Language::R => gen_r_body(adapter, config),
         Language::Rust => anyhow::bail!("Rust does not need generated binding adapters"),
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            anyhow::bail!("Phase 1: {language} backend not yet implemented")
+        }
     };
     Ok(body)
 }

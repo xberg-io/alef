@@ -32,10 +32,18 @@ fn test_config() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: Some(ScaffoldConfig {
             description: Some("Test library".to_string()),
             license: Some("MIT".to_string()),
@@ -734,6 +742,78 @@ fn test_scaffold_elixir_cargo_no_tokio_when_sync_only() {
 }
 
 #[test]
+fn test_scaffold_dart() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
+    let files = language_files(&all_files);
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test/my_lib_test.dart + BUILDING.md
+    assert_eq!(files.len(), 5);
+
+    let pubspec = &files[0];
+    assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
+    assert!(pubspec.content.contains("name: my_lib"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("version: 0.1.0"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("flutter_rust_bridge:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("sdk: '"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
+
+    let analysis_options = &files[1];
+    assert_eq!(
+        analysis_options.path,
+        PathBuf::from("packages/dart/analysis_options.yaml")
+    );
+    assert!(
+        analysis_options.content.contains("package:lints/recommended.yaml"),
+        "got: {}",
+        analysis_options.content
+    );
+
+    let gitignore = &files[2];
+    assert_eq!(gitignore.path, PathBuf::from("packages/dart/.gitignore"));
+    assert!(gitignore.content.contains(".dart_tool/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("pubspec.lock"), "got: {}", gitignore.content);
+
+    let test_file = &files[3];
+    assert_eq!(test_file.path, PathBuf::from("packages/dart/test/my_lib_test.dart"));
+    assert!(
+        test_file.content.contains("import 'package:test/test.dart'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("test('placeholder'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("expect(1 + 1, equals(2))"),
+        "got: {}",
+        test_file.content
+    );
+
+    let building_md = &files[4];
+    assert_eq!(building_md.path, PathBuf::from("packages/dart/BUILDING.md"));
+    assert!(
+        building_md.content.contains("cargo install flutter_rust_bridge_codegen"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("flutter_rust_bridge_codegen generate"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("dart test"),
+        "got: {}",
+        building_md.content
+    );
+}
+
+#[test]
 fn test_scaffold_elixir_cargo_tokio_when_async_function() {
     use alef_core::ir::{FunctionDef, TypeRef};
     let mut config = test_config();
@@ -822,5 +902,114 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         cargo_toml.content.contains("rt-multi-thread"),
         "tokio dep must include rt-multi-thread feature; content:\n{}",
         cargo_toml.content
+    );
+}
+
+#[test]
+fn test_scaffold_swift() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
+    let files = language_files(&all_files);
+    // Package.swift + .gitignore + Tests/MyLibTests/MyLibTests.swift
+    // + Sources/RustBridge/RustBridge.h + Sources/RustBridge/module.modulemap
+    // + Sources/RustBridge/RustBridge.swift + BUILDING.md
+    assert_eq!(files.len(), 7);
+
+    let package_swift = &files[0];
+    assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
+    // Module name derives to PascalCase of "my-lib" → "MyLib"
+    assert!(
+        package_swift.content.contains("name: \"MyLib\""),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".macOS(.v13)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".iOS(.v16)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("swift-tools-version: 5.9"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Sources/MyLib"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Tests/MyLibTests"),
+        "got: {}",
+        package_swift.content
+    );
+    // Must declare RustBridge and RustBridgeC targets
+    assert!(
+        package_swift.content.contains("\"RustBridge\""),
+        "Package.swift must declare RustBridge target; got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("\"RustBridgeC\""),
+        "Package.swift must declare RustBridgeC target; got: {}",
+        package_swift.content
+    );
+    // RustBridge must link the static library
+    assert!(
+        package_swift.content.contains("linkedLibrary(\"my_lib_swift\")"),
+        "Package.swift must link my_lib_swift; got: {}",
+        package_swift.content
+    );
+
+    let gitignore = &files[1];
+    assert_eq!(gitignore.path, PathBuf::from("packages/swift/.gitignore"));
+    assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);
+
+    // RustBridgeC placeholder header (pure C target)
+    let header = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridgeC/RustBridgeC.h"))
+        .unwrap();
+    assert!(
+        header.content.contains("#ifndef RUST_BRIDGE_C_H"),
+        "got: {}",
+        header.content
+    );
+
+    // module.modulemap in RustBridge (kept as documentation comment)
+    let modulemap = files.iter().find(|f| f.path.ends_with("module.modulemap")).unwrap();
+    assert!(!modulemap.content.is_empty(), "module.modulemap must not be empty");
+
+    // RustBridge placeholder Swift source
+    let rust_bridge_swift = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridge/RustBridge.swift"))
+        .unwrap();
+    assert!(
+        !rust_bridge_swift.content.is_empty(),
+        "RustBridge.swift must not be empty"
+    );
+
+    // BUILDING.md documents the cargo-then-copy workflow
+    let building = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/BUILDING.md"))
+        .unwrap();
+    assert!(
+        building.content.contains("cargo build"),
+        "BUILDING.md must mention cargo build; got: {}",
+        building.content
+    );
+    assert!(
+        building.content.contains("Sources/RustBridgeC"),
+        "BUILDING.md must mention RustBridgeC copy destination; got: {}",
+        building.content
     );
 }

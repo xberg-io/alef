@@ -379,6 +379,49 @@ pub const R_KEYWORDS: &[&str] = &[
     "return", "while",
 ];
 
+/// Kotlin reserved keywords (hard + soft + modifier keywords that conflict with identifiers).
+pub const KOTLIN_KEYWORDS: &[&str] = &[
+    "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in", "interface", "is", "null",
+    "object", "package", "return", "super", "this", "throw", "true", "try", "typealias", "typeof", "val", "var",
+    "when", "while",
+    // Soft keywords commonly mistaken as identifiers
+    "by", "init", "constructor", "field", "value", "where",
+];
+
+/// Swift reserved keywords (declarations + statements + expressions/types + patterns).
+pub const SWIFT_KEYWORDS: &[&str] = &[
+    "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "init", "inout",
+    "internal", "let", "open", "operator", "private", "protocol", "public", "rethrows", "static", "struct",
+    "subscript", "typealias", "var", "break", "case", "continue", "default", "defer", "do", "else", "fallthrough",
+    "for", "guard", "if", "in", "repeat", "return", "switch", "where", "while", "as", "Any", "catch", "false", "is",
+    "nil", "super", "self", "Self", "throw", "throws", "true", "try", "_",
+];
+
+/// Dart reserved + built-in identifiers that cannot be used as plain identifiers.
+pub const DART_KEYWORDS: &[&str] = &[
+    "abstract", "as", "assert", "async", "await", "break", "case", "catch", "class", "const", "continue", "covariant",
+    "default", "deferred", "do", "dynamic", "else", "enum", "export", "extends", "extension", "external", "factory",
+    "false", "final", "finally", "for", "Function", "get", "hide", "if", "implements", "import", "in", "interface",
+    "is", "late", "library", "mixin", "new", "null", "of", "on", "operator", "part", "required", "rethrow", "return",
+    "set", "show", "static", "super", "switch", "sync", "this", "throw", "true", "try", "typedef", "var", "void",
+    "when", "while", "with", "yield",
+];
+
+/// Gleam reserved keywords.
+pub const GLEAM_KEYWORDS: &[&str] = &[
+    "as", "assert", "auto", "case", "const", "delegate", "derive", "echo", "else", "fn", "if", "implement", "import",
+    "let", "macro", "opaque", "panic", "pub", "test", "todo", "type", "use",
+];
+
+/// Zig reserved keywords.
+pub const ZIG_KEYWORDS: &[&str] = &[
+    "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm", "async", "await", "break", "callconv",
+    "catch", "comptime", "const", "continue", "defer", "else", "enum", "errdefer", "error", "export", "extern", "fn",
+    "for", "if", "inline", "linksection", "noalias", "noinline", "nosuspend", "or", "orelse", "packed", "pub",
+    "resume", "return", "struct", "suspend", "switch", "test", "threadlocal", "try", "union", "unreachable", "usingnamespace",
+    "var", "volatile", "while",
+];
+
 /// Return the escaped field name for use in the generated binding of the given language,
 /// or `None` if the name is not reserved and no escaping is needed.
 ///
@@ -398,6 +441,76 @@ pub fn python_safe_name(name: &str) -> Option<String> {
 /// escaping is needed. Convenience wrapper for call sites that always need a `String`.
 pub fn python_ident(name: &str) -> String {
     python_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `Some(escaped_name)` if `name` is a Kotlin reserved keyword, else `None`.
+pub fn kotlin_safe_name(name: &str) -> Option<String> {
+    if KOTLIN_KEYWORDS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Kotlin identifier.
+pub fn kotlin_ident(name: &str) -> String {
+    kotlin_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `Some(escaped_name)` if `name` is a Swift reserved keyword, else `None`.
+pub fn swift_safe_name(name: &str) -> Option<String> {
+    if SWIFT_KEYWORDS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Swift identifier.
+pub fn swift_ident(name: &str) -> String {
+    swift_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `Some(escaped_name)` if `name` is a Dart reserved keyword, else `None`.
+pub fn dart_safe_name(name: &str) -> Option<String> {
+    if DART_KEYWORDS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Dart identifier.
+pub fn dart_ident(name: &str) -> String {
+    dart_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `Some(escaped_name)` if `name` is a Gleam reserved keyword, else `None`.
+pub fn gleam_safe_name(name: &str) -> Option<String> {
+    if GLEAM_KEYWORDS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Gleam identifier.
+pub fn gleam_ident(name: &str) -> String {
+    gleam_safe_name(name).unwrap_or_else(|| name.to_string())
+}
+
+/// Returns `Some(escaped_name)` if `name` is a Zig reserved keyword, else `None`.
+pub fn zig_safe_name(name: &str) -> Option<String> {
+    if ZIG_KEYWORDS.contains(&name) {
+        Some(format!("{name}_"))
+    } else {
+        None
+    }
+}
+
+/// Convenience: always returns a usable Zig identifier.
+pub fn zig_ident(name: &str) -> String {
+    zig_safe_name(name).unwrap_or_else(|| name.to_string())
 }
 
 #[cfg(test)]
@@ -422,6 +535,46 @@ mod tests {
     #[test]
     fn python_ident_ordinary() {
         assert_eq!(python_ident("layout_class"), "layout_class");
+    }
+
+    #[test]
+    fn kotlin_class_is_reserved() {
+        assert_eq!(kotlin_safe_name("class"), Some("class_".to_string()));
+        assert_eq!(kotlin_safe_name("fun"), Some("fun_".to_string()));
+        assert_eq!(kotlin_safe_name("ordinary"), None);
+        assert_eq!(kotlin_ident("typealias"), "typealias_");
+    }
+
+    #[test]
+    fn swift_init_is_reserved() {
+        assert_eq!(swift_safe_name("init"), Some("init_".to_string()));
+        assert_eq!(swift_safe_name("Self"), Some("Self_".to_string()));
+        assert_eq!(swift_safe_name("normal"), None);
+        assert_eq!(swift_ident("protocol"), "protocol_");
+    }
+
+    #[test]
+    fn dart_async_is_reserved() {
+        assert_eq!(dart_safe_name("async"), Some("async_".to_string()));
+        assert_eq!(dart_safe_name("late"), Some("late_".to_string()));
+        assert_eq!(dart_safe_name("normal"), None);
+        assert_eq!(dart_ident("required"), "required_");
+    }
+
+    #[test]
+    fn gleam_pub_is_reserved() {
+        assert_eq!(gleam_safe_name("pub"), Some("pub_".to_string()));
+        assert_eq!(gleam_safe_name("opaque"), Some("opaque_".to_string()));
+        assert_eq!(gleam_safe_name("normal"), None);
+        assert_eq!(gleam_ident("type"), "type_");
+    }
+
+    #[test]
+    fn zig_comptime_is_reserved() {
+        assert_eq!(zig_safe_name("comptime"), Some("comptime_".to_string()));
+        assert_eq!(zig_safe_name("errdefer"), Some("errdefer_".to_string()));
+        assert_eq!(zig_safe_name("normal"), None);
+        assert_eq!(zig_ident("usingnamespace"), "usingnamespace_");
     }
 
     #[test]

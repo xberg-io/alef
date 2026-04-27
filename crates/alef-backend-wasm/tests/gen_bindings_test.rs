@@ -68,10 +68,18 @@ fn make_config() -> AlefConfig {
             extra_lint_paths: Vec::new(),
         }),
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

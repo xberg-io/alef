@@ -12,6 +12,7 @@ homepage.workspace = true
 [dependencies]
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+heck = { workspace = true }
 minijinja = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

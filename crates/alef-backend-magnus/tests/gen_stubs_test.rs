@@ -83,10 +83,18 @@ fn make_config_with_stubs() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -642,10 +650,18 @@ fn test_rbs_stubs_without_config() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -959,10 +975,18 @@ fn test_module_naming_from_crate_name() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
