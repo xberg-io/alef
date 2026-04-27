@@ -334,6 +334,15 @@ fn render_test_file(
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");
     }
 
+    // Import the visitor trait, result enum, and node context when any fixture
+    // in this file declares a `visitor` block. Without these, the inline
+    // `impl HtmlVisitor for _TestVisitor` block fails to resolve.
+    let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
+    if file_needs_visitor {
+        let visitor_trait = resolve_visitor_trait(&module);
+        let _ = writeln!(out, "use {module}::{{{visitor_trait}, NodeContext, VisitResult}};");
+    }
+
     let _ = writeln!(out);
 
     for fixture in fixtures {
@@ -1746,12 +1755,21 @@ fn resolve_visitor_trait(module: &str) -> String {
 }
 
 /// Emit a Rust visitor method for a callback action.
+///
+/// The parameter type list mirrors the `HtmlVisitor` trait in
+/// `kreuzberg-dev/html-to-markdown`. Param names are bound to `_` because the
+/// generated visitor body never references them — the body always returns a
+/// fixed `VisitResult` variant — so we'd otherwise hit `unused_variables`
+/// warnings that fail prek's `cargo clippy -D warnings` hook.
 fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    // Each entry: parameters typed exactly as `HtmlVisitor` expects them,
+    // bound to `_` patterns so the generated body needn't introduce unused
+    // bindings. Receiver is `&mut self` to match the trait.
     let params = match method_name {
-        "visit_link" => "ctx, href, text, title",
-        "visit_image" => "ctx, src, alt, title",
-        "visit_heading" => "ctx, level, text, id",
-        "visit_code_block" => "ctx, lang, code",
+        "visit_link" => "_: &NodeContext, _: &str, _: &str, _: &str",
+        "visit_image" => "_: &NodeContext, _: &str, _: &str, _: &str",
+        "visit_heading" => "_: &NodeContext, _: u8, _: &str, _: Option<&str>",
+        "visit_code_block" => "_: &NodeContext, _: Option<&str>, _: &str",
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -1764,23 +1782,25 @@ fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &Callba
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "ctx, text",
-        "visit_text" => "ctx, text",
-        "visit_list_item" => "ctx, ordered, marker, text",
-        "visit_blockquote" => "ctx, content, depth",
-        "visit_table_row" => "ctx, cells, is_header",
-        "visit_custom_element" => "ctx, tag_name, html",
-        "visit_form" => "ctx, action_url, method",
-        "visit_input" => "ctx, input_type, name, value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
-        "visit_details" => "ctx, is_open",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
-        "visit_list_start" => "ctx, ordered",
-        "visit_list_end" => "ctx, ordered, output",
-        _ => "ctx",
+        | "visit_definition_description" => "_: &NodeContext, _: &str",
+        "visit_text" => "_: &NodeContext, _: &str",
+        "visit_list_item" => "_: &NodeContext, _: bool, _: &str, _: &str",
+        "visit_blockquote" => "_: &NodeContext, _: &str, _: u32",
+        "visit_table_row" => "_: &NodeContext, _: &[String], _: bool",
+        "visit_custom_element" => "_: &NodeContext, _: &str, _: &str",
+        "visit_form" => "_: &NodeContext, _: &str, _: &str",
+        "visit_input" => "_: &NodeContext, _: &str, _: &str, _: &str",
+        "visit_audio" | "visit_video" | "visit_iframe" => "_: &NodeContext, _: &str",
+        "visit_details" => "_: &NodeContext, _: bool",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "_: &NodeContext, _: &str"
+        }
+        "visit_list_start" => "_: &NodeContext, _: bool",
+        "visit_list_end" => "_: &NodeContext, _: bool, _: &str",
+        _ => "_: &NodeContext",
     };
 
-    let _ = writeln!(out, "        fn {method_name}(&self, {params}) -> VisitResult {{");
+    let _ = writeln!(out, "        fn {method_name}(&mut self, {params}) -> VisitResult {{");
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "            VisitResult::Skip");
@@ -1793,7 +1813,7 @@ fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &Callba
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_rust(output);
-            let _ = writeln!(out, "            VisitResult::Custom({escaped}.to_string())");
+            let _ = writeln!(out, "            VisitResult::Custom(\"{escaped}\".to_string())");
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_rust(template);

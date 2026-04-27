@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **e2e Rust crate's `Cargo.toml` was silently inherited by any parent workspace**, so running `cargo fmt`/`cargo build` from inside `e2e/rust/` failed with `current package believes it's in a workspace when it's not` whenever the consuming repo had a top-level workspace `Cargo.toml` that didn't explicitly list `e2e/rust` in `members` or `exclude`. The default formatter `(cd {dir} && cargo fmt --all)` therefore exited 1 and left `e2e/rust/tests/*.rs` unformatted, breaking the next `alef verify`. The generated `e2e/rust/Cargo.toml` now starts with an empty `[workspace]` table so the e2e crate is its own workspace root and is unaffected by any parent — consumers no longer have to remember to add `e2e/rust` to `workspace.exclude`.
 
+- **`alef all` skipped `format_generated`**, leaving every language-default formatter (mix format, ruff format, biome format, php-cs-fixer, etc.) unrun on the freshly emitted bindings. Prek's check-mode formatting hooks (`mix format --check-formatted`, etc.) therefore failed against `packages/elixir/lib/<lib>/native.ex` and similar files in every repo that ran the orchestrated `alef all` instead of `alef generate`. `Commands::All` now invokes `pipeline::format_generated` before `fmt_post_generate`, mirroring the order in `alef generate`.
+
+- **e2e Rust visitor codegen emitted untyped trait method parameters** (`fn visit_custom_element(&self, ctx, tag_name, html) -> VisitResult`), producing files that could not parse. Three coupled fixes:
+  - Each visitor parameter is now bound to a `_` pattern with the explicit `&NodeContext` / `&str` / `bool` / `u8` / `u32` / `Option<&str>` / `&[String]` type from the `HtmlVisitor` trait, so the body needn't introduce unused bindings.
+  - The receiver is now `&mut self` to match the trait, not `&self`.
+  - `CallbackAction::Custom` was missing the surrounding string-literal quotes — `VisitResult::Custom([CUSTOM WIDGET].to_string())` was the literal output for `output: "[CUSTOM WIDGET]"`. The codegen now wraps the escaped value in `"…"` before calling `.to_string()`, so the emitted expression is a well-formed `&str` literal.
+  - The test file now imports `HtmlVisitor`, `NodeContext`, and `VisitResult` whenever any fixture in the file declares a `visitor` block.
+
 ## [0.10.3] - 2026-04-27
 
 A patch release fixing `alef e2e generate` so it only emits test projects for languages the consumer has actually scaffolded, plus two `alef verify`-vs-`prek` drift fixes uncovered by a clean v0.10.2 regenerate of the downstream polyglot repos.

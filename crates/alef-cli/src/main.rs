@@ -832,6 +832,21 @@ fn main() -> Result<()> {
             // Format all generated files using configured formatters.
             // Best-effort: a missing formatter or non-zero exit must not
             // abort the orchestrated pipeline.
+            //
+            // Two distinct formatter passes:
+            //  1. `format_generated` runs language-native defaults (cargo fmt,
+            //     ruff format, mix format, biome format, etc.) on the freshly
+            //     emitted files so prek's check-mode formatting hooks see
+            //     already-clean output. Without this, alef-generated Elixir
+            //     `native.ex` files (and other languages with built-in
+            //     defaults) are written unformatted, then `mix format
+            //     --check-formatted` fails inside prek and the autofix
+            //     mutations break `alef verify`.
+            //  2. `fmt_post_generate` runs any extra repo-configured
+            //     `[lint.<lang>].format` commands (linters, custom passes).
+            eprintln!("Formatting generated files...");
+            pipeline::format_generated(&bindings, &config, &base_dir);
+
             eprintln!("Running formatters...");
             pipeline::fmt_post_generate(&config, &languages);
 
