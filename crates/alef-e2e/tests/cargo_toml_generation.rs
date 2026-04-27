@@ -1,7 +1,7 @@
 use alef_e2e::codegen::rust::render_cargo_toml;
 
 #[test]
-fn test_cargo_toml_does_not_contain_workspace_section_in_local_mode() {
+fn test_cargo_toml_contains_empty_workspace_section_in_local_mode() {
     let result = render_cargo_toml(
         "my-lib",                                // crate_name
         "my_lib",                                // dep_name
@@ -14,16 +14,17 @@ fn test_cargo_toml_does_not_contain_workspace_section_in_local_mode() {
         &[],                                     // features
     );
 
-    // The generated Cargo.toml should NOT contain a [workspace] section
-    // because local e2e crates should inherit the parent workspace configuration
+    // The generated Cargo.toml MUST contain an empty `[workspace]` table so the
+    // e2e crate is its own workspace root and never gets pulled into a parent
+    // crate's workspace (which would break `cargo fmt`/`cargo build`).
     assert!(
-        !result.contains("[workspace]"),
-        "Local mode e2e Cargo.toml should not contain [workspace] section"
+        result.contains("[workspace]"),
+        "Local mode e2e Cargo.toml must contain an empty [workspace] section so it stands alone"
     );
 }
 
 #[test]
-fn test_cargo_toml_does_not_contain_workspace_section_in_registry_mode() {
+fn test_cargo_toml_contains_empty_workspace_section_in_registry_mode() {
     let result = render_cargo_toml(
         "my-lib",                                   // crate_name
         "my_lib",                                   // dep_name
@@ -36,12 +37,12 @@ fn test_cargo_toml_does_not_contain_workspace_section_in_registry_mode() {
         &[],                                        // features
     );
 
-    // The generated Cargo.toml should NOT contain a [workspace] section.
-    // Registry mode e2e crates are downloaded from a registry; they don't need
-    // their own [workspace] header because the consuming project manages that.
+    // Registry mode e2e crates also need an empty `[workspace]` so they're
+    // self-contained inside any consuming project that happens to be a
+    // workspace.
     assert!(
-        !result.contains("[workspace]"),
-        "Registry mode e2e Cargo.toml should not contain [workspace] section"
+        result.contains("[workspace]"),
+        "Registry mode e2e Cargo.toml must contain an empty [workspace] section so it stands alone"
     );
 }
 
