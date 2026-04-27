@@ -6,7 +6,7 @@
 use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
 use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
-use heck::ToSnakeCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
 pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<String>) -> String {
@@ -113,6 +113,17 @@ pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> Stri
         // attribute (the build script's parser rejects it). To bridge async
         // functions, we declare them as plain `fn` in the extern block — the
         // wrapper will block on the future at the bridge boundary.
+        //
+        // `swift_name` rebinds the Swift-side function name to camelCase so the
+        // host wrapper (`Sources/{Module}/Kreuzberg.swift`) can call
+        // `RustBridge.batchExtractBytes(...)` instead of the snake_case Rust
+        // identifier — which is what the wrapper emits for idiomatic Swift.
+        let swift_name = swift_ident(&f.name.to_lower_camel_case());
+        if swift_name != fn_name {
+            block.push_str(&format!(
+                "        #[swift_bridge(swift_name = \"{swift_name}\")]\n"
+            ));
+        }
         block.push_str(&format!(
             "        fn {fn_name}({params_str}) -> {return_ty};\n"
         ));
