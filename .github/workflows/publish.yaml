@@ -298,6 +298,7 @@ jobs:
             alef-e2e
             alef-readme
             alef-scaffold
+            alef-publish
             alef-backend-pyo3
             alef-backend-napi
             alef-backend-wasm
