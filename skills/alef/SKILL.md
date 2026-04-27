@@ -203,6 +203,22 @@ alef cache status   # Show cache state
 alef cache clear    # Force full regeneration next run
 ```
 
+## Verify (input-hash semantics)
+
+`alef verify` is **formatter-agnostic by design**. The `alef:hash:<hex>` line in every generated file is a fingerprint of the *inputs*, not the file body:
+
+```text
+alef:hash:<hex> = blake3( sorted(rust_source_files) + alef.toml + alef_version )
+```
+
+`alef generate` writes the same hash into every alef-headered file. `alef verify` recomputes the same input hash and compares it to each disk header — without inspecting any file body, without rerunning codegen.
+
+Consequence: spotless / rubocop / dotnet format / biome / mix format / php-cs-fixer / ruff / rustfmt / taplo can reformat alef-generated files freely; verify only goes red when (a) a Rust source file changed, (b) `alef.toml` changed, or (c) the alef CLI version changed.
+
+`--lang`, `--compile`, `--lint` flags on verify are accepted for backwards compatibility but ignored — verify is a single repo-wide hash compare. Use `alef build` / `alef lint` / `alef test` for the per-language checks those flags used to imply.
+
+See `references/cli-reference.md#alef-verify` for the full mental model.
+
 ## Common Pitfalls
 
 1. **Missing `ffi` language**: Go, Java, and C# require the C FFI layer. Add `ffi` to `languages` or it's implicitly included.

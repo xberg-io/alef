@@ -257,23 +257,69 @@ alef clean --lang rust,node
 
 ## `alef verify`
 
-Verify that generated output is up to date. Regenerates bindings, stubs, scaffold manifests, docs, **and per-language READMEs** in memory and compares against files on disk. Designed for CI pipelines.
+Confirm every alef-generated file on disk reflects the current Rust source + `alef.toml` + alef CLI version.
+
+### Mental model (what verify is)
+
+`alef verify` is a **pure input-hash comparison**, not a regenerate-and-diff. The hash baked into the comment header of every alef-generated file (the `alef:hash:<hex>` line) is:
+
+```text
+blake3( sorted(rust_source_files) + alef.toml + alef_version )
+```
+
+— the *inputs* that produced the run. Every alef-headered file produced by the same `alef generate` carries the **same** hash.
+
+`alef verify` does, in pseudocode:
+
+```text
+expected = blake3(sorted(rust_sources) + alef.toml + alef_version)
+walk repo (skip target/ node_modules/ _build/ parsers/ dist/ vendor/ .alef/ .git/ … )
+for each generated-language file:
+    if first ~10 lines contain `alef:hash:<hex>`:
+        if hex != expected: report stale
+```
+
+That is the whole algorithm. Verify never runs codegen, never reads a file body, never invokes a formatter. With `--exit-code` it exits 1 on the first mismatch (after listing all stale files); without, it just prints them.
+
+### Properties
+
+- **Formatter-agnostic.** rustfmt, rubocop, spotless, dotnet format, biome, mix format, php-cs-fixer, ruff, taplo can reformat alef-generated files freely — the hash header line is preserved, so verify still passes. There is no longer a "skip these hooks before alef-verify" CI dance.
+- **Repo-wide.** Walks the whole repo for alef-headered files (binding glue, stubs, READMEs, scaffolds with the marker, e2e tests). User-owned scaffolds without the marker (Cargo.toml templates, composer.json, gemspec, package.json shims, lockfiles) are skipped silently — alef has no claim on files it didn't tag.
+- **Versioning.** Different alef CLI versions produce different IR / output, so the alef version is in the hash. Upgrading alef makes every generated file appear stale until `alef generate` is rerun once.
+
+### Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--exit-code` | bool | `false` | Exit with code 1 if any output is stale (CI mode) |
-| `--compile` | bool | `false` | Also run a compilation check |
-| `--lint` | bool | `false` | Also run lint checks |
-| `--lang` | string (comma-separated) | all from config | Languages to verify |
+| `--compile` | bool | `false` | **Accepted but ignored.** Verify is a hash-only check; use `alef build` to compile. |
+| `--lint` | bool | `false` | **Accepted but ignored.** Use `alef lint` to lint. |
+| `--lang` | string (comma-separated) | all from config | **Accepted but ignored.** Verify is a single repo-wide hash compare; the input fingerprint isn't language-scoped. |
 
 ```bash
-alef verify
-alef verify --exit-code
-alef verify --exit-code --compile --lint
-alef verify --lang python,node --exit-code
+alef verify              # report any stale alef-generated files
+alef verify --exit-code  # exit 1 in CI when stale
 ```
 
-Lists all stale files when differences are detected. Combine with `--exit-code` to fail CI when any output is out of date. README freshness was added in v0.7.9 — `alef verify` now flags README drift the same way it flags stale bindings.
+### When verify reports stale
+
+A file is stale if its embedded `alef:hash` doesn't match the freshly-computed input hash. That happens when (and only when):
+
+- A `[crate].sources` Rust file changed (edited / added / removed / renamed).
+- `alef.toml` changed (any field — the whole file is hashed).
+- The alef CLI was upgraded.
+
+Fix: `alef generate` (and `alef e2e generate` if `[e2e]` is configured). One regenerate writes the new uniform hash into every alef-headered file in a single pass.
+
+### What verify is not
+
+- **Not a regenerate.** It does not run codegen, stubs, README, or scaffold pipelines. Use `alef diff` if you want to see the actual content that would be written.
+- **Not a formatter check.** Run the language's formatter (or `alef fmt`) to enforce style; verify only checks the input fingerprint.
+- **Not a compile check.** Use `alef build` (or `cargo check` / `cargo build`) to confirm generated code compiles.
+
+### Migration from v0.8.x
+
+In alef v0.8.x and earlier the hash was a per-file blake3 of the normalised generated content, and verify worked by regenerating in memory and comparing. After upgrading to v0.9.0+, every existing alef-generated file still carries the old per-file hash. Run `alef generate` (and `alef e2e generate` if applicable) once after the upgrade — every alef-headered file is rewritten with the new uniform input hash. Generated content itself is unchanged; only the `alef:hash:` value in the header differs.
 
 ---
 
