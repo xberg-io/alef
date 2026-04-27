@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-04-27
+
+A patch release fixing three orchestration / e2e-codegen bugs that surfaced during a clean `alef all --clean` regenerate of every downstream polyglot repo: standalone e2e Rust crates were getting absorbed into parent workspaces, the orchestrated `alef all` skipped the language-default formatter pass, and the Rust visitor codegen was producing unparsable trait-impl blocks.
+
 ### Fixed
 
 - **e2e Rust crate's `Cargo.toml` was silently inherited by any parent workspace**, so running `cargo fmt`/`cargo build` from inside `e2e/rust/` failed with `current package believes it's in a workspace when it's not` whenever the consuming repo had a top-level workspace `Cargo.toml` that didn't explicitly list `e2e/rust` in `members` or `exclude`. The default formatter `(cd {dir} && cargo fmt --all)` therefore exited 1 and left `e2e/rust/tests/*.rs` unformatted, breaking the next `alef verify`. The generated `e2e/rust/Cargo.toml` now starts with an empty `[workspace]` table so the e2e crate is its own workspace root and is unaffected by any parent — consumers no longer have to remember to add `e2e/rust` to `workspace.exclude`.
