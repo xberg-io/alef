@@ -215,12 +215,7 @@ pub(crate) fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> Stri
         } else {
             format!("Task<{ret}>")
         };
-        format!(
-            "public static async {} {}({})",
-            task_ret,
-            async_name,
-            params.join(", ")
-        )
+        format!("public static async {} {}({})", task_ret, async_name, params.join(", "))
     } else {
         format!("public static {} {}({})", ret, name, params.join(", "))
     }
