@@ -1,4 +1,5 @@
 use crate::type_map::csharp_type;
+use alef_codegen::doc_emission;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
@@ -1079,14 +1080,10 @@ fn gen_wrapper_function(
         .cloned()
         .collect();
 
-    // XML doc comment
-    if !func.doc.is_empty() {
-        out.push_str("    /// <summary>\n");
-        for line in func.doc.lines() {
-            out.push_str(&format!("    /// {}\n", line));
-        }
-        out.push_str("    /// </summary>\n");
-        for param in &visible_params {
+    // XML doc comment using shared doc emission
+    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
+    for param in &visible_params {
+        if !func.doc.is_empty() {
             out.push_str(&format!(
                 "    /// <param name=\"{}\">{}</param>\n",
                 param.name.to_lower_camel_case(),
@@ -1260,14 +1257,10 @@ fn gen_wrapper_method(
         .cloned()
         .collect();
 
-    // XML doc comment
-    if !method.doc.is_empty() {
-        out.push_str("    /// <summary>\n");
-        for line in method.doc.lines() {
-            out.push_str(&format!("    /// {}\n", line));
-        }
-        out.push_str("    /// </summary>\n");
-        for param in &visible_params {
+    // XML doc comment using shared doc emission
+    doc_emission::emit_csharp_doc(&mut out, &method.doc, "    ");
+    for param in &visible_params {
+        if !method.doc.is_empty() {
             out.push_str(&format!(
                 "    /// <param name=\"{}\">{}</param>\n",
                 param.name.to_lower_camel_case(),

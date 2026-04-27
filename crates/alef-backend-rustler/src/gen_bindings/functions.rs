@@ -1,6 +1,7 @@
 use super::types::gen_rustler_wrap_return;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
+use alef_codegen::doc_emission;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
@@ -337,11 +338,18 @@ pub(super) fn gen_nif_function(
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
-    format!(
-        "#[rustler::nif]\npub fn {}({params_str}) -> {return_annotation} {{\n    \
-         {body}\n}}",
-        func.name
-    )
+    let mut out = String::new();
+    doc_emission::emit_elixir_doc(&mut out, &func.doc);
+    out.push_str("#[rustler::nif]\npub fn ");
+    out.push_str(&func.name);
+    out.push('(');
+    out.push_str(&params_str);
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF async free function (sync wrapper scheduled on DirtyCpu).
@@ -507,12 +515,18 @@ pub(super) fn gen_nif_async_function(
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &format!("{}_async", func.name), true)
     };
-    format!(
-        "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}_async({params_str}) -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        func.name
-    )
+    let mut out = String::new();
+    doc_emission::emit_elixir_doc(&mut out, &func.doc);
+    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    out.push_str(&func.name);
+    out.push_str("_async(");
+    out.push_str(&params_str);
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF method for a struct using the shared TypeMapper.
@@ -637,13 +651,18 @@ pub(super) fn gen_nif_method(
             )
         }
     };
-    format!(
-        "#[rustler::nif]\npub fn {}({}) -> {} {{\n    \
-         {body}\n}}",
-        method_fn_name,
-        params.join(", "),
-        return_annotation
-    )
+    let mut out = String::new();
+    doc_emission::emit_elixir_doc(&mut out, &method.doc);
+    out.push_str("#[rustler::nif]\npub fn ");
+    out.push_str(&method_fn_name);
+    out.push('(');
+    out.push_str(&params.join(", "));
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF async method for a struct (sync wrapper scheduled on DirtyCpu).
@@ -732,12 +751,16 @@ pub(super) fn gen_nif_async_method(
             super::helpers::gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, true)
         }
     };
-    format!(
-        "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}({}) -> {} {{\n    \
-         {body}\n\
-         }}",
-        method_fn_name,
-        params.join(", "),
-        return_annotation
-    )
+    let mut out = String::new();
+    doc_emission::emit_elixir_doc(&mut out, &method.doc);
+    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    out.push_str(&method_fn_name);
+    out.push('(');
+    out.push_str(&params.join(", "));
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }

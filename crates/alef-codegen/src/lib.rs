@@ -5,6 +5,7 @@ pub mod builder;
 pub mod c_consumer;
 pub mod config_gen;
 pub mod conversions;
+pub mod doc_emission;
 pub mod error_gen;
 pub mod generators;
 pub mod keywords;
