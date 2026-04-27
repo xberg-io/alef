@@ -87,6 +87,7 @@ fn test_dartdoc_emitted_for_bridge_function() {
                 doc: "A test function that returns a string.".to_string(),
                 cfg: None,
                 sanitized: false,
+                return_sanitized: false,
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,

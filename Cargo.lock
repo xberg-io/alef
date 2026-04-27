@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-dart"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-gleam"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-kotlin"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-swift"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-zig"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "alef-codegen",
  "alef-core",

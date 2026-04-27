@@ -87,6 +87,7 @@ fn test_gleam_doc_emitted_for_function() {
                 doc: "This is a test function.".to_string(),
                 cfg: None,
                 sanitized: false,
+                return_sanitized: false,
                 returns_ref: false,
                 returns_cow: false,
                 return_newtype_wrapper: None,
