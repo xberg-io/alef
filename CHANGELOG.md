@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-04-27
+
+A patch fixing two `alef update --latest` (`task upgrade`) failures observed across all four consumer repos.
+
+### Fixed
+
+- **Java `versions:use-latest-releases` aborted on missing rules file**: `alef-core/src/config/update_defaults.rs` unconditionally appended `-Dmaven.version.rules=file://${PWD}/{output_dir}/versions-rules.xml`, but most consumers don't ship that file. Maven aborted with `ResourceDoesNotExistException`, failing the whole upgrade pipeline. The flag is now wrapped in `$([ -f .../versions-rules.xml ] && echo "...")` so it's only appended when the file exists.
+- **C# `dotnet outdated packages/csharp` rejected the directory**: `dotnet outdated` requires a `.sln` or `.csproj` path, or a directory that contains one at the top level. Most consumers nest projects under `packages/csharp/<ProjectName>/`, so the call failed with "The directory 'packages/csharp' does not contain any solutions or projects." The default now resolves to the first `.sln`/`.csproj` found under the output dir (depth 3) before invoking `dotnet outdated`.
+
 ## [0.8.4] - 2026-04-27
 
 A follow-up to v0.8.3 fixing two cases where downstream tooling reformatted alef-generated `crates/{lib}-wasm/Cargo.toml` and silently invalidated the alef hash header.

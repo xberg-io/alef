@@ -100,19 +100,26 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
         Language::Java => UpdateConfig {
             precondition: Some(require_tool("mvn")),
             before: None,
+            // The `-Dmaven.version.rules=file://...` flag is appended only when the rules file
+            // exists, since `mvn versions:use-latest-releases` aborts on missing rule files.
             update: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") -q"
             ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true -Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") -q"
             ))),
         },
         Language::Csharp => UpdateConfig {
             precondition: Some(require_tool("dotnet")),
             before: None,
-            update: Some(StringOrVec::Single(format!("dotnet outdated --upgrade {output_dir}"))),
+            // `dotnet outdated` requires either a .sln/.csproj path or a directory containing
+            // one. Consumers typically nest csproj files under packages/csharp/<project>/, so
+            // shell out to find a top-level project file or fall back to the first one found.
+            update: Some(StringOrVec::Single(format!(
+                "dotnet outdated --upgrade $(ls {output_dir}/*.sln {output_dir}/*.csproj 2>/dev/null | head -1 || find {output_dir} -maxdepth 3 -name '*.sln' -o -name '*.csproj' 2>/dev/null | head -1 || echo {output_dir})"
+            ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "dotnet outdated --upgrade --version-lock major {output_dir}"
+                "dotnet outdated --upgrade --version-lock major $(ls {output_dir}/*.sln {output_dir}/*.csproj 2>/dev/null | head -1 || find {output_dir} -maxdepth 3 -name '*.sln' -o -name '*.csproj' 2>/dev/null | head -1 || echo {output_dir})"
             ))),
         },
         Language::Elixir => UpdateConfig {
@@ -276,6 +283,22 @@ mod tests {
         let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("versions:use-latest-releases"));
         assert!(upgrade.contains("allowMajorUpdates=true"));
+        // Rules-file flag must be guarded so missing versions-rules.xml doesn't fail mvn.
+        assert!(
+            update.contains("[ -f packages/java/versions-rules.xml ]"),
+            "java update should make versions-rules.xml optional"
+        );
+    }
+
+    #[test]
+    fn csharp_update_resolves_csproj_in_subdir() {
+        let c = cfg(Language::Csharp, "packages/csharp");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
+        // Both commands must search for a .sln/.csproj rather than passing the directory raw,
+        // since `dotnet outdated` errors when the dir contains no top-level project file.
+        assert!(update.contains("find packages/csharp"), "update should locate csproj");
+        assert!(upgrade.contains("find packages/csharp"), "upgrade should locate csproj");
     }
 
     #[test]
