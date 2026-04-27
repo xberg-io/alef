@@ -31,11 +31,7 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
     let trait_name = &trait_def.name;
 
     // Filter to own methods only (no inherited super-trait methods).
-    let own_methods: Vec<&MethodDef> = trait_def
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none())
-        .collect();
+    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
     // Doc comment: registration pattern.
     out.push_str(&format!("/// Abstract class for the `{trait_name}` Rust trait.\n"));

@@ -18,10 +18,9 @@ impl TypeMapper for KotlinMapper {
             PrimitiveType::U8 | PrimitiveType::I8 => Cow::Borrowed("Byte"),
             PrimitiveType::U16 | PrimitiveType::I16 => Cow::Borrowed("Short"),
             PrimitiveType::U32 | PrimitiveType::I32 => Cow::Borrowed("Int"),
-            PrimitiveType::U64
-            | PrimitiveType::I64
-            | PrimitiveType::Usize
-            | PrimitiveType::Isize => Cow::Borrowed("Long"),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                Cow::Borrowed("Long")
+            }
             PrimitiveType::F32 => Cow::Borrowed("Float"),
             PrimitiveType::F64 => Cow::Borrowed("Double"),
         }

@@ -77,7 +77,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
-            is_tuple: false,
+                is_tuple: false,
             })
             .collect(),
         doc: String::new(),
@@ -149,8 +149,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -179,7 +179,9 @@ fn cargo_toml_contains_swift_bridge_version() {
         cargo.content
     );
     assert!(
-        cargo.content.contains(&format!("swift-bridge-build = \"{expected_build}\"")),
+        cargo
+            .content
+            .contains(&format!("swift-bridge-build = \"{expected_build}\"")),
         "Cargo.toml missing swift-bridge-build version: {}",
         cargo.content
     );
@@ -630,7 +632,13 @@ fn lib_rs_enum_extern_block_and_wrapper() {
 
 // ── trait bridge tests ────────────────────────────────────────────────────────
 
-fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool, error_type: Option<&str>) -> MethodDef {
+fn make_method(
+    name: &str,
+    params: Vec<ParamDef>,
+    return_type: TypeRef,
+    is_async: bool,
+    error_type: Option<&str>,
+) -> MethodDef {
     MethodDef {
         name: name.to_string(),
         params,
@@ -736,7 +744,8 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
     );
     // Wrapper struct must wrap Box<dyn Trait>.
     assert!(
-        lib.content.contains("pub struct ValidatorBox(pub Box<dyn demo::Validator"),
+        lib.content
+            .contains("pub struct ValidatorBox(pub Box<dyn demo::Validator"),
         "lib.rs missing ValidatorBox wrapper struct: {}",
         lib.content
     );
@@ -787,7 +796,8 @@ fn trait_bridge_async_method_emits_block_on() {
         lib.content
     );
     assert!(
-        lib.content.contains("pub struct ProcessorBox(pub Box<dyn demo::Processor"),
+        lib.content
+            .contains("pub struct ProcessorBox(pub Box<dyn demo::Processor"),
         "lib.rs missing ProcessorBox wrapper struct: {}",
         lib.content
     );

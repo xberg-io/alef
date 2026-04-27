@@ -46,16 +46,15 @@ dev_dependencies:
 
     let module_name = api.crate_name.replace('-', "_");
 
-    let test_dart = format!(
-        r#"import 'package:test/test.dart';
+    let test_dart = r#"import 'package:test/test.dart';
 
-void main() {{
-  test('placeholder', () {{
+void main() {
+  test('placeholder', () {
     expect(1 + 1, equals(2));
-  }});
-}}
+  });
+}
 "#
-    );
+    .to_string();
 
     let crate_name = &api.crate_name;
     let building_md = format!(
@@ -158,8 +157,7 @@ void main() {{
         module_name = module_name,
     );
 
-    let github_workflow = format!(
-        r#"name: Dart
+    let github_workflow = r#"name: Dart
 
 on:
   push:
@@ -183,7 +181,7 @@ jobs:
       - name: Run tests
         run: dart test --working-dir=packages/dart
 "#
-    );
+    .to_string();
 
     Ok(vec![
         GeneratedFile {

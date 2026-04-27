@@ -25,13 +25,20 @@ pub(crate) fn is_bridgeable_fn(
     no_serde_names: &std::collections::HashSet<&str>,
 ) -> bool {
     // Enum parameter: no reverse From generated.
-    if f.params.iter().any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()))) {
+    if f.params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str())))
+    {
         return false;
     }
     // Tuple-vec with Vec<u8> inner: batch_extract_bytes pattern.
     for p in &f.params {
         let original = p.original_type.as_deref().unwrap_or("");
-        let stripped = original.trim().trim_start_matches('&').trim_start_matches("mut ").trim();
+        let stripped = original
+            .trim()
+            .trim_start_matches('&')
+            .trim_start_matches("mut ")
+            .trim();
         if !stripped.is_empty() && stripped.starts_with("Vec(") && stripped.contains("Named(\"(") {
             let tuple_inner = stripped
                 .find("Named(\"(")
@@ -86,16 +93,17 @@ pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
             .find("Named(\"(")
             .and_then(|start| {
                 let rest = &stripped_orig[start + 8..];
-                rest.find(")\")").map(|end| rest[..end].trim_end_matches(')').to_string())
+                rest.find(")\")")
+                    .map(|end| rest[..end].trim_end_matches(')').to_string())
             })
             .unwrap_or_default();
         if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
-            return format!(
-                "{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()"
-            );
+            return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
-            return format!("{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Swift not yet bridged\") }}");
+            return format!(
+                "{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Swift not yet bridged\") }}"
+            );
         }
     }
 
@@ -157,9 +165,7 @@ pub(crate) fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
                         "{name}.as_ref().map(|v| v.iter().map(|w| w.0.clone()).collect::<Vec<_>>()).as_deref()"
                     );
                 }
-                return format!(
-                    "{name}.map(|v| v.into_iter().map(|w| w.0).collect::<Vec<_>>())"
-                );
+                return format!("{name}.map(|v| v.into_iter().map(|w| w.0).collect::<Vec<_>>())");
             }
             if p.is_ref {
                 // kreuzberg expects &[T]. Collect to a temporary Vec and slice it.
@@ -229,7 +235,7 @@ pub(crate) fn emit_function_shim(
     };
 
     // Build call args, deserializing JSON-bridged params before passing to the real fn
-    let call_args: Vec<String> = f.params.iter().map(|p| swift_call_arg(p)).collect();
+    let call_args: Vec<String> = f.params.iter().map(swift_call_arg).collect();
     let call_args_str = call_args.join(", ");
 
     // Resolve the source call via the IR's full rust_path so module-prefixed
@@ -245,7 +251,10 @@ pub(crate) fn emit_function_shim(
     // If any parameter is a Named enum wrapper, we cannot pass it into kreuzberg
     // because the bridge enum only generates From<kreuzberg::T> for BridgeT (not the
     // reverse). Emit an unimplemented!() body — the function will panic at runtime.
-    if f.params.iter().any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()))) {
+    if f.params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str())))
+    {
         let problematic = f
             .params
             .iter()
@@ -321,9 +330,9 @@ pub(crate) fn emit_function_shim(
     //   - Optional(Named(T)) → `.map(T)` or `.map(T::from)`
     //   - Vec(Named(T)) → `.into_iter().map(T).collect::<Vec<_>>()`
     enum WrapShape {
-        Direct(String),  // T(value) or T::from(value)
-        OptMap(String),  // value.map(T) or value.map(T::from)
-        VecMap(String),  // value.into_iter().map(T).collect()
+        Direct(String), // T(value) or T::from(value)
+        OptMap(String), // value.map(T) or value.map(T::from)
+        VecMap(String), // value.into_iter().map(T).collect()
     }
     let wrap_shape = match &f.return_type {
         TypeRef::Named(n) => Some(WrapShape::Direct(n.clone())),

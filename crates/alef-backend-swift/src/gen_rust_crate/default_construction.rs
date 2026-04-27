@@ -46,16 +46,13 @@ pub(crate) fn emit_default_construction_body(
             match &f.ty {
                 TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
                     TypeRef::Named(n)
-                        if !type_paths.contains_key(n.as_str())
-                            || no_serde_names.contains(n.as_str()) =>
+                        if !type_paths.contains_key(n.as_str()) || no_serde_names.contains(n.as_str()) =>
                     {
                         Some(n.as_str())
                     }
                     _ => None,
                 },
-                TypeRef::Named(n)
-                    if !type_paths.contains_key(n.as_str()) || no_serde_names.contains(n.as_str()) =>
-                {
+                TypeRef::Named(n) if !type_paths.contains_key(n.as_str()) || no_serde_names.contains(n.as_str()) => {
                     Some(n.as_str())
                 }
                 _ => None,
@@ -175,12 +172,8 @@ pub(crate) fn emit_default_construction_body(
                     "        // alef: {name} — String fallback in non-serde struct, left at default\n"
                 ));
             } else if f.optional {
-                out.push_str(&format!(
-                    "        if let Some(s) = {param} {{\n"
-                ));
-                out.push_str(&format!(
-                    "            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {{\n"
-                ));
+                out.push_str(&format!("        if let Some(s) = {param} {{\n"));
+                out.push_str("            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {\n");
                 out.push_str(&format!(
                     "                if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = Some(t); }}\n"
                 ));

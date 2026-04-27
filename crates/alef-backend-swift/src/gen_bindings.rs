@@ -142,7 +142,12 @@ impl Backend for SwiftBackend {
 
 /// Emits a Swift `public struct` for the given `TypeDef`.
 /// All non-trait structs are emitted as typealiases to RustBridge.X.
-fn emit_struct(ty: &TypeDef, out: &mut String, _mapper: &SwiftMapper, non_codable_types: &std::collections::HashSet<&str>) {
+fn emit_struct(
+    ty: &TypeDef,
+    out: &mut String,
+    _mapper: &SwiftMapper,
+    non_codable_types: &std::collections::HashSet<&str>,
+) {
     // All structs become typealiases to the RustBridge opaque class
     if non_codable_types.contains(ty.name.as_str()) {
         emit_doc_comment(&ty.doc, "", out);
@@ -273,4 +278,3 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
         out.push('\n');
     }
 }
-

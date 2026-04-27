@@ -54,8 +54,22 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
         .as_ref()
         .map(|c| c.exclude_fields.iter().cloned().collect())
         .unwrap_or_default();
-    let cargo_toml = cargo::emit_cargo_toml(crate_name, version, swift_bridge_ver, swift_bridge_build_ver, &core_path, features);
-    let lib_rs = emit_lib_rs(api, config, crate_name, &exclude_functions, &exclude_types, &exclude_fields);
+    let cargo_toml = cargo::emit_cargo_toml(
+        crate_name,
+        version,
+        swift_bridge_ver,
+        swift_bridge_build_ver,
+        &core_path,
+        features,
+    );
+    let lib_rs = emit_lib_rs(
+        api,
+        config,
+        crate_name,
+        &exclude_functions,
+        &exclude_types,
+        &exclude_fields,
+    );
     let build_rs = cargo::emit_build_rs();
 
     Ok(vec![
@@ -111,11 +125,7 @@ fn emit_lib_rs(
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
         .collect();
-    let visible_enums: Vec<&EnumDef> = api
-        .enums
-        .iter()
-        .filter(|e| !exclude_types.contains(&e.name))
-        .collect();
+    let visible_enums: Vec<&EnumDef> = api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).collect();
 
     // Set of enum names (not struct names) so wrappers can use the correct
     // conversion idiom: `T::from(val)` for enums, `T(val)` for struct newtypes.
@@ -183,7 +193,14 @@ fn emit_lib_rs(
     out.push_str("}\n\n");
 
     for ty in &visible_types {
-        out.push_str(&wrappers::emit_type_wrapper(ty, &source_crate, &type_paths, &enum_names, &no_serde_names, exclude_fields));
+        out.push_str(&wrappers::emit_type_wrapper(
+            ty,
+            &source_crate,
+            &type_paths,
+            &enum_names,
+            &no_serde_names,
+            exclude_fields,
+        ));
         out.push('\n');
     }
     for en in &visible_enums {
@@ -191,14 +208,23 @@ fn emit_lib_rs(
         out.push('\n');
     }
     for f in &visible_functions {
-        out.push_str(&shims::emit_function_shim(f, &source_crate, &type_paths, &enum_names, &no_serde_names));
+        out.push_str(&shims::emit_function_shim(
+            f,
+            &source_crate,
+            &type_paths,
+            &enum_names,
+            &no_serde_names,
+        ));
         out.push('\n');
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
-        out.push_str(&trait_bridge::emit_trait_bridge_wrapper(trait_def, &source_crate, &enum_names));
+        out.push_str(&trait_bridge::emit_trait_bridge_wrapper(
+            trait_def,
+            &source_crate,
+            &enum_names,
+        ));
         out.push('\n');
     }
 
     out
 }
-

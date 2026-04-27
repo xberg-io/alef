@@ -30,11 +30,7 @@ fn is_positional_field(name: &str) -> bool {
     name.starts_with('_') && name[1..].parse::<usize>().is_ok()
 }
 
-pub(crate) fn emit_variant_fields(
-    fields: &[FieldDef],
-    out: &mut String,
-    imports: &mut BTreeSet<&'static str>,
-) {
+pub(crate) fn emit_variant_fields(fields: &[FieldDef], out: &mut String, imports: &mut BTreeSet<&'static str>) {
     for (idx, field) in fields.iter().enumerate() {
         let ty_str = gleam_type(&field.ty, field.optional, imports);
         let comma = if idx + 1 == fields.len() { "" } else { "," };

@@ -397,7 +397,10 @@ mod tests {
     fn kotlin_uses_gradle_dependency_updates() {
         let c = cfg(Language::Kotlin, "packages/kotlin");
         let update = c.update.unwrap().commands().join(" ");
-        assert!(update.contains("gradle dependencyUpdates"), "Kotlin update should use gradle dependencyUpdates, got: {update}");
+        assert!(
+            update.contains("gradle dependencyUpdates"),
+            "Kotlin update should use gradle dependencyUpdates, got: {update}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
     }
 
@@ -405,8 +408,14 @@ mod tests {
     fn swift_uses_swift_package_update() {
         let c = cfg(Language::Swift, "packages/swift");
         let update = c.update.unwrap().commands().join(" ");
-        assert!(update.contains("swift package update"), "Swift update should use swift package update, got: {update}");
-        assert!(update.contains("--package-path packages/swift"), "Swift update should include package path, got: {update}");
+        assert!(
+            update.contains("swift package update"),
+            "Swift update should use swift package update, got: {update}"
+        );
+        assert!(
+            update.contains("--package-path packages/swift"),
+            "Swift update should include package path, got: {update}"
+        );
     }
 
     #[test]
@@ -414,15 +423,24 @@ mod tests {
         let c = cfg(Language::Dart, "packages/dart");
         let update = c.update.unwrap().commands().join(" ");
         let upgrade = c.upgrade.unwrap().commands().join(" ");
-        assert!(update.contains("dart pub upgrade"), "Dart update should use dart pub upgrade, got: {update}");
-        assert!(upgrade.contains("--major-versions"), "Dart upgrade should include --major-versions, got: {upgrade}");
+        assert!(
+            update.contains("dart pub upgrade"),
+            "Dart update should use dart pub upgrade, got: {update}"
+        );
+        assert!(
+            upgrade.contains("--major-versions"),
+            "Dart upgrade should include --major-versions, got: {upgrade}"
+        );
     }
 
     #[test]
     fn gleam_uses_gleam_deps_update() {
         let c = cfg(Language::Gleam, "packages/gleam");
         let update = c.update.unwrap().commands().join(" ");
-        assert!(update.contains("gleam deps update"), "Gleam update should use gleam deps update, got: {update}");
+        assert!(
+            update.contains("gleam deps update"),
+            "Gleam update should use gleam deps update, got: {update}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
@@ -430,7 +448,10 @@ mod tests {
     fn zig_uses_zig_build_fetch() {
         let c = cfg(Language::Zig, "packages/zig");
         let update = c.update.unwrap().commands().join(" ");
-        assert!(update.contains("zig build --fetch"), "Zig update should use zig build --fetch, got: {update}");
+        assert!(
+            update.contains("zig build --fetch"),
+            "Zig update should use zig build --fetch, got: {update}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

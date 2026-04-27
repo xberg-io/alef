@@ -9,9 +9,7 @@ mod nif_external;
 mod trait_bridge;
 mod variant_collision;
 
-use nif_external::{
-    emit_enum, emit_error_type, emit_function, emit_type,
-};
+use nif_external::{emit_enum, emit_error_type, emit_function, emit_type};
 use trait_bridge::{emit_trait_bridge_shims, emit_trait_support_nifs};
 use variant_collision::build_collision_set;
 
@@ -78,7 +76,11 @@ impl Backend for GleamBackend {
         }
 
         let declared_errors: Vec<String> = api.errors.iter().map(|e| e.name.clone()).collect();
-        for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
+        for f in api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        {
             emit_function(f, &nif_module, &declared_errors, &mut body, &mut imports);
             body.push('\n');
         }
@@ -93,7 +95,14 @@ impl Backend for GleamBackend {
         let mut support_nifs_emitted = false;
         for bridge_cfg in &active_bridges {
             let trait_type = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
-            emit_trait_bridge_shims(bridge_cfg, trait_type, &nif_module, &declared_errors, &mut body, &mut imports);
+            emit_trait_bridge_shims(
+                bridge_cfg,
+                trait_type,
+                &nif_module,
+                &declared_errors,
+                &mut body,
+                &mut imports,
+            );
             body.push('\n');
 
             if !support_nifs_emitted {

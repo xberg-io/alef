@@ -126,8 +126,7 @@ Add to your `build.zig.zon`:
 
     let main_zig = "// Main module stub for the Zig bindings\n// Replace with your actual API calls after code generation\n\npub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}\n\ntest \"example\" {\n    const a: i32 = 1;\n    const b: i32 = 1;\n    try @import(\"std\").testing.expectEqual(a + b, 2);\n}\n";
 
-    let github_workflow = format!(
-        r#"name: Zig
+    let github_workflow = r#"name: Zig
 
 on:
   push:
@@ -149,7 +148,7 @@ jobs:
       - name: Run tests
         run: zig build test --directory packages/zig
 "#
-    );
+    .to_string();
 
     Ok(vec![
         GeneratedFile {

@@ -15,8 +15,7 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     // cannot be matched as unit patterns in the From impl below, so we expose only
     // the unit variants here. Data variants are bridged as JSON (String) by the
     // JSON-bridge fallback on containing types.
-    let unit_variants: Vec<&alef_core::ir::EnumVariant> =
-        en.variants.iter().filter(|v| v.fields.is_empty()).collect();
+    let unit_variants: Vec<&alef_core::ir::EnumVariant> = en.variants.iter().filter(|v| v.fields.is_empty()).collect();
 
     // Bridge enum variant names: use the raw Rust identifier from the IR (which is
     // the actual identifier from the kreuzberg source, e.g. "EasyOCR", "RDFa").

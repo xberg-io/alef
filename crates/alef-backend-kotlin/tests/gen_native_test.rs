@@ -185,8 +185,8 @@ fn make_native_config(crate_name: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -229,15 +229,33 @@ fn native_struct_emits_data_class() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let kt = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "kt")).unwrap();
+    let kt = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
+        .unwrap();
     let content = &kt.content;
 
-    assert!(content.contains("package dev.kreuzberg.demo"), "missing package: {content}");
-    assert!(content.contains("import kotlinx.cinterop.*"), "missing cinterop import: {content}");
-    assert!(content.contains("data class ConversionOptions("), "missing data class: {content}");
-    assert!(content.contains("val maxWidth: Int"), "missing maxWidth field: {content}");
+    assert!(
+        content.contains("package dev.kreuzberg.demo"),
+        "missing package: {content}"
+    );
+    assert!(
+        content.contains("import kotlinx.cinterop.*"),
+        "missing cinterop import: {content}"
+    );
+    assert!(
+        content.contains("data class ConversionOptions("),
+        "missing data class: {content}"
+    );
+    assert!(
+        content.contains("val maxWidth: Int"),
+        "missing maxWidth field: {content}"
+    );
     // Path → String in Native mode (no java.nio.file.Path).
-    assert!(content.contains("val outputPath: String"), "Path field should be String in native: {content}");
+    assert!(
+        content.contains("val outputPath: String"),
+        "Path field should be String in native: {content}"
+    );
 }
 
 /// Unit enum emits `enum class` with SCREAMING_SNAKE_CASE variants.
@@ -260,7 +278,7 @@ fn native_unit_enum_emits_enum_class() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
                 EnumVariant {
                     name: "PlainText".to_string(),
@@ -268,7 +286,7 @@ fn native_unit_enum_emits_enum_class() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
             ],
             cfg: None,
@@ -282,10 +300,16 @@ fn native_unit_enum_emits_enum_class() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let kt = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "kt")).unwrap();
+    let kt = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
+        .unwrap();
     let content = &kt.content;
 
-    assert!(content.contains("enum class OutputFormat {"), "missing enum class: {content}");
+    assert!(
+        content.contains("enum class OutputFormat {"),
+        "missing enum class: {content}"
+    );
     assert!(content.contains("MARKDOWN"), "missing MARKDOWN variant: {content}");
     assert!(content.contains("PLAIN_TEXT"), "missing PLAIN_TEXT variant: {content}");
 }
@@ -308,7 +332,10 @@ fn native_function_uses_mem_scoped() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let kt = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "kt")).unwrap();
+    let kt = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
+        .unwrap();
     let content = &kt.content;
 
     assert!(content.contains("fun convertHtml("), "missing function: {content}");
@@ -349,12 +376,21 @@ fn native_fallible_function_checks_error_code() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let kt = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "kt")).unwrap();
+    let kt = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
+        .unwrap();
     let content = &kt.content;
 
-    assert!(content.contains("demo_last_error_code()"), "missing error code check: {content}");
+    assert!(
+        content.contains("demo_last_error_code()"),
+        "missing error code check: {content}"
+    );
     assert!(content.contains("throw RuntimeException("), "missing throw: {content}");
-    assert!(content.contains("demo_last_error_context()"), "missing error context: {content}");
+    assert!(
+        content.contains("demo_last_error_context()"),
+        "missing error context: {content}"
+    );
 }
 
 /// .def file references the correct header, prefix, and library name.
@@ -370,11 +406,20 @@ fn native_def_file_has_correct_fields() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let def = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "def")).unwrap();
+    let def = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "def"))
+        .unwrap();
     let content = &def.content;
 
-    assert!(content.contains("headers = demo.h"), "missing header in .def: {content}");
-    assert!(content.contains("headerFilter = demo_*"), "missing headerFilter in .def: {content}");
+    assert!(
+        content.contains("headers = demo.h"),
+        "missing header in .def: {content}"
+    );
+    assert!(
+        content.contains("headerFilter = demo_*"),
+        "missing headerFilter in .def: {content}"
+    );
     assert!(content.contains("-ldemo_ffi"), "missing linker flag in .def: {content}");
 }
 
@@ -391,7 +436,10 @@ fn native_kt_file_is_at_correct_path() {
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    let kt = files.iter().find(|f| f.path.extension().is_some_and(|e| e == "kt")).unwrap();
+    let kt = files
+        .iter()
+        .find(|f| f.path.extension().is_some_and(|e| e == "kt"))
+        .unwrap();
     let path_str = kt.path.to_string_lossy();
 
     assert!(
@@ -402,5 +450,8 @@ fn native_kt_file_is_at_correct_path() {
         path_str.contains("dev/kreuzberg/demo"),
         "package path missing from .kt file path: {path_str}"
     );
-    assert!(path_str.ends_with("MyCrate.kt"), "wrong filename for .kt file: {path_str}");
+    assert!(
+        path_str.ends_with("MyCrate.kt"),
+        "wrong filename for .kt file: {path_str}"
+    );
 }

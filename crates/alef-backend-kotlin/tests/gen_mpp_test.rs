@@ -166,8 +166,8 @@ fn make_mpp_config(crate_name: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -188,7 +188,11 @@ fn mpp_emits_five_files() {
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    assert_eq!(files.len(), 5, "expected 5 files (commonMain, jvmMain, nativeMain, def, gradle): {files:?}");
+    assert_eq!(
+        files.len(),
+        5,
+        "expected 5 files (commonMain, jvmMain, nativeMain, def, gradle): {files:?}"
+    );
 }
 
 /// commonMain contains `expect object` with function signatures only (no bodies).
@@ -383,9 +387,21 @@ fn mpp_def_file_has_correct_fields() {
         .find(|f| f.path.extension().is_some_and(|e| e == "def"))
         .expect(".def file missing");
 
-    assert!(def.content.contains("headers = demo.h"), "missing header: {}", def.content);
-    assert!(def.content.contains("headerFilter = demo_*"), "missing headerFilter: {}", def.content);
-    assert!(def.content.contains("-ldemo_ffi"), "missing linker flag: {}", def.content);
+    assert!(
+        def.content.contains("headers = demo.h"),
+        "missing header: {}",
+        def.content
+    );
+    assert!(
+        def.content.contains("headerFilter = demo_*"),
+        "missing headerFilter: {}",
+        def.content
+    );
+    assert!(
+        def.content.contains("-ldemo_ffi"),
+        "missing linker flag: {}",
+        def.content
+    );
 }
 
 /// build.gradle.kts contains the multiplatform plugin and jvm() + linuxX64 + macosArm64 targets.
@@ -412,9 +428,21 @@ fn mpp_gradle_uses_multiplatform_plugin() {
         "missing multiplatform plugin: {}",
         gradle.content
     );
-    assert!(gradle.content.contains("jvm()"), "missing jvm target: {}", gradle.content);
-    assert!(gradle.content.contains("linuxX64"), "missing linuxX64 target: {}", gradle.content);
-    assert!(gradle.content.contains("macosArm64"), "missing macosArm64 target: {}", gradle.content);
+    assert!(
+        gradle.content.contains("jvm()"),
+        "missing jvm target: {}",
+        gradle.content
+    );
+    assert!(
+        gradle.content.contains("linuxX64"),
+        "missing linuxX64 target: {}",
+        gradle.content
+    );
+    assert!(
+        gradle.content.contains("macosArm64"),
+        "missing macosArm64 target: {}",
+        gradle.content
+    );
 }
 
 /// Sealed enum with payload fields works in commonMain (pure Kotlin, no platform deps).
@@ -437,7 +465,7 @@ fn mpp_sealed_enum_in_common_main() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
                 EnumVariant {
                     name: "PlainText".to_string(),
@@ -445,7 +473,7 @@ fn mpp_sealed_enum_in_common_main() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
             ],
             cfg: None,

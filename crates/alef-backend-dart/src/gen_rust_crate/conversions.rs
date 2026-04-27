@@ -24,7 +24,11 @@ pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
         TypeRef::Optional(inner) => format!("Option<{}>", frb_rust_type_inner(inner)),
         TypeRef::Vec(inner) => format!("Vec<{}>", frb_rust_type_inner(inner)),
         TypeRef::Map(k, v) => {
-            format!("std::collections::HashMap<{}, {}>", frb_rust_type_inner(k), frb_rust_type_inner(v))
+            format!(
+                "std::collections::HashMap<{}, {}>",
+                frb_rust_type_inner(k),
+                frb_rust_type_inner(v)
+            )
         }
         TypeRef::Named(name) => name.clone(),
         TypeRef::Path => "String".to_string(),
@@ -76,10 +80,16 @@ pub(crate) fn frb_rust_type_inner_with_source(
             None => format!("{source_crate}::{name}"),
         },
         TypeRef::Optional(inner) => {
-            format!("Option<{}>", frb_rust_type_inner_with_source(inner, source_crate, type_paths))
+            format!(
+                "Option<{}>",
+                frb_rust_type_inner_with_source(inner, source_crate, type_paths)
+            )
         }
         TypeRef::Vec(inner) => {
-            format!("Vec<{}>", frb_rust_type_inner_with_source(inner, source_crate, type_paths))
+            format!(
+                "Vec<{}>",
+                frb_rust_type_inner_with_source(inner, source_crate, type_paths)
+            )
         }
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",
@@ -118,9 +128,7 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
             })
             .unwrap_or_default();
         if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
-            return format!(
-                "{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()"
-            );
+            return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
             return format!(
@@ -172,14 +180,10 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
                             "{name}.as_ref().map(|v| v.iter().map(|x| *x as {target}).collect::<Vec<_>>()).as_deref()"
                         );
                     }
-                    return format!(
-                        "{name}.map(|v| v.into_iter().map(|x| x as {target}).collect::<Vec<_>>())"
-                    );
+                    return format!("{name}.map(|v| v.into_iter().map(|x| x as {target}).collect::<Vec<_>>())");
                 }
                 if p.is_ref {
-                    return format!(
-                        "{name}.iter().map(|x| *x as {target}).collect::<Vec<_>>().as_slice()"
-                    );
+                    return format!("{name}.iter().map(|x| *x as {target}).collect::<Vec<_>>().as_slice()");
                 }
                 return format!("{name}.into_iter().map(|x| x as {target}).collect::<Vec<_>>()");
             }

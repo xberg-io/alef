@@ -36,10 +36,7 @@ pub(super) fn emit_typealiases(
         .collect();
     for ty in &visible_types {
         if ty.is_trait {
-            body.push_str(&format!(
-                "typealias {} = {java_package}.I{}\n",
-                ty.name, ty.name
-            ));
+            body.push_str(&format!("typealias {} = {java_package}.I{}\n", ty.name, ty.name));
         } else {
             body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
         }
@@ -61,7 +58,10 @@ pub(super) fn emit_typealiases(
     }
 
     for error in &api.errors {
-        body.push_str(&format!("typealias {} = {java_package}.{}Exception\n", error.name, error.name));
+        body.push_str(&format!(
+            "typealias {} = {java_package}.{}Exception\n",
+            error.name, error.name
+        ));
     }
     if !api.errors.is_empty() {
         body.push('\n');

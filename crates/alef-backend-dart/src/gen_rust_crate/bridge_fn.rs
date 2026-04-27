@@ -35,7 +35,7 @@ pub(crate) fn emit_bridge_fn(
     // the original concrete type (`original_type`). FRB widens primitives to
     // i64/f64 and Strings to `String`, but the source function may want `u16`,
     // `usize`, `&Path`, etc. — emit a cast (`as Foo`) or conversion call.
-    let call_args: Vec<String> = f.params.iter().map(|p| dart_call_arg(p)).collect();
+    let call_args: Vec<String> = f.params.iter().map(dart_call_arg).collect();
 
     let has_error = f.error_type.is_some();
     let return_ty = if has_error {
@@ -88,7 +88,10 @@ pub(crate) fn emit_bridge_fn(
                 if target == "f64" || target == "i64" || target == "bool" {
                     String::new()
                 } else {
-                    format!(".into_iter().map(|x| x as {}).collect::<Vec<_>>()", frb_rust_type_inner(inner))
+                    format!(
+                        ".into_iter().map(|x| x as {}).collect::<Vec<_>>()",
+                        frb_rust_type_inner(inner)
+                    )
                 }
             }
             // Vec<&str> -> Vec<String>

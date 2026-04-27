@@ -39,14 +39,13 @@ pub(crate) fn emit_trait_bridge(
     };
 
     // Filter to only own methods (no super-trait inherited ones).
-    let own_methods: Vec<&MethodDef> = trait_def
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none())
-        .collect();
+    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
     // Check if Plugin is a direct super-trait.
-    let has_plugin_super = trait_def.super_traits.iter().any(|s| s == "Plugin" || s.ends_with("::Plugin"));
+    let has_plugin_super = trait_def
+        .super_traits
+        .iter()
+        .any(|s| s == "Plugin" || s.ends_with("::Plugin"));
 
     // --- 1. Opaque struct with one closure field per method ---
     out.push_str("/// FRB opaque handle holding Dart callbacks for each trait method.\n");
@@ -213,7 +212,10 @@ fn emit_trait_bridge_method(
     };
 
     let async_kw = if method.is_async { "async " } else { "" };
-    let sig_line = format!("    {async_kw}fn {method_name}({}) -> {return_sig} {{", params_sig.join(", "));
+    let sig_line = format!(
+        "    {async_kw}fn {method_name}({}) -> {return_sig} {{",
+        params_sig.join(", ")
+    );
     out.push_str(&sig_line);
     out.push('\n');
 

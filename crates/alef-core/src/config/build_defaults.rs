@@ -366,8 +366,14 @@ mod tests {
         let c = cfg(Language::Kotlin, "packages/kotlin", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
-        assert!(build.contains("gradle build"), "Kotlin build should use gradle build, got: {build}");
-        assert!(release.contains("gradle build"), "Kotlin release should use gradle build, got: {release}");
+        assert!(
+            build.contains("gradle build"),
+            "Kotlin build should use gradle build, got: {build}"
+        );
+        assert!(
+            release.contains("gradle build"),
+            "Kotlin release should use gradle build, got: {release}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
     }
 
@@ -376,16 +382,28 @@ mod tests {
         let c = cfg(Language::Swift, "packages/swift", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
-        assert!(build.contains("swift build"), "Swift build should use swift build, got: {build}");
-        assert!(build.contains("--package-path packages/swift"), "Swift build should include package path, got: {build}");
-        assert!(release.contains("--configuration release"), "Swift release should use --configuration release, got: {release}");
+        assert!(
+            build.contains("swift build"),
+            "Swift build should use swift build, got: {build}"
+        );
+        assert!(
+            build.contains("--package-path packages/swift"),
+            "Swift build should include package path, got: {build}"
+        );
+        assert!(
+            release.contains("--configuration release"),
+            "Swift release should use --configuration release, got: {release}"
+        );
     }
 
     #[test]
     fn dart_uses_dart_pub_get() {
         let c = cfg(Language::Dart, "packages/dart", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
-        assert!(build.contains("dart pub get"), "Dart build should use dart pub get, got: {build}");
+        assert!(
+            build.contains("dart pub get"),
+            "Dart build should use dart pub get, got: {build}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
     }
 
@@ -393,7 +411,10 @@ mod tests {
     fn gleam_uses_gleam_build() {
         let c = cfg(Language::Gleam, "packages/gleam", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
-        assert!(build.contains("gleam build"), "Gleam build should use gleam build, got: {build}");
+        assert!(
+            build.contains("gleam build"),
+            "Gleam build should use gleam build, got: {build}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
@@ -402,8 +423,14 @@ mod tests {
         let c = cfg(Language::Zig, "packages/zig", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
-        assert!(build.contains("zig build"), "Zig build should use zig build, got: {build}");
-        assert!(release.contains("--release=fast"), "Zig release should use --release=fast, got: {release}");
+        assert!(
+            build.contains("zig build"),
+            "Zig build should use zig build, got: {build}"
+        );
+        assert!(
+            release.contains("--release=fast"),
+            "Zig release should use --release=fast, got: {release}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

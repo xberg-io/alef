@@ -132,48 +132,40 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
     // Lifecycle stubs when super_trait is present
     if has_super_trait {
         out.push_str("        .name_fn = struct {\n");
-        out.push_str(
-            "            fn thunk(user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void {\n",
-        );
+        out.push_str("            fn thunk(user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void {\n");
         out.push_str("                _ = user_data;\n");
         out.push_str("                _ = out_name;\n");
         out.push_str("                unreachable; // override .name_fn in the returned vtable\n");
         out.push_str("            }\n");
         out.push_str("        }.thunk,\n");
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("        .version_fn = struct {\n");
-        out.push_str(
-            "            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void {\n",
-        );
+        out.push_str("            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void {\n");
         out.push_str("                _ = user_data;\n");
         out.push_str("                _ = out_version;\n");
         out.push_str("                unreachable; // override .version_fn in the returned vtable\n");
         out.push_str("            }\n");
         out.push_str("        }.thunk,\n");
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("        .initialize_fn = struct {\n");
-        out.push_str(
-            "            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n",
-        );
+        out.push_str("            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n");
         out.push_str("                _ = user_data;\n");
         out.push_str("                _ = out_error;\n");
         out.push_str("                return 0;\n");
         out.push_str("            }\n");
         out.push_str("        }.thunk,\n");
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("        .shutdown_fn = struct {\n");
-        out.push_str(
-            "            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n",
-        );
+        out.push_str("            fn thunk(user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 {\n");
         out.push_str("                _ = user_data;\n");
         out.push_str("                _ = out_error;\n");
         out.push_str("                return 0;\n");
         out.push_str("            }\n");
         out.push_str("        }.thunk,\n");
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // Per-method thunks
@@ -190,9 +182,7 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             .join(", ");
 
         out.push_str(&format!("        .{method_snake} = struct {{\n"));
-        out.push_str(&format!(
-            "            fn thunk({params_str}) callconv(.C) {ret} {{\n"
-        ));
+        out.push_str(&format!("            fn thunk({params_str}) callconv(.C) {ret} {{\n"));
 
         // Cast user_data to *T
         out.push_str("                const self: *T = @ptrCast(@alignCast(ud));\n");
@@ -257,9 +247,7 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             }
             out.push_str("                } else |err| {\n");
             out.push_str("                    _ = err;\n");
-            out.push_str(
-                "                    if (out_error) |ptr| ptr.* = null; // caller checks error code\n",
-            );
+            out.push_str("                    if (out_error) |ptr| ptr.* = null; // caller checks error code\n");
             out.push_str("                    return 1;\n");
             out.push_str("                }\n");
         } else {
@@ -275,29 +263,23 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
                     out.push_str(&format!("                self.{method_snake}({args_str});\n"));
                 }
                 TypeRef::Primitive(_) => {
-                    out.push_str(&format!(
-                        "                return self.{method_snake}({args_str});\n"
-                    ));
+                    out.push_str(&format!("                return self.{method_snake}({args_str});\n"));
                 }
                 _ => {
                     // Non-unit infallible non-primitive: pass through (e.g., [*c]const u8)
-                    out.push_str(&format!(
-                        "                return self.{method_snake}({args_str});\n"
-                    ));
+                    out.push_str(&format!("                return self.{method_snake}({args_str});\n"));
                 }
             }
         }
 
         out.push_str("            }\n");
         out.push_str("        }.thunk,\n");
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // free_user_data stub — does nothing by default; caller overrides if needed
     out.push_str("        .free_user_data = struct {\n");
-    out.push_str(
-        "            fn thunk(user_data: ?*anyopaque) callconv(.C) void {\n",
-    );
+    out.push_str("            fn thunk(user_data: ?*anyopaque) callconv(.C) void {\n");
     out.push_str("                _ = user_data;\n");
     out.push_str("            }\n");
     out.push_str("        }.thunk,\n");
@@ -320,32 +302,40 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // -------------------------------------------------------------------------
     // Vtable struct: I{Trait}
     // -------------------------------------------------------------------------
-    out.push_str(&format!("/// Vtable for a Zig implementation of the `{trait_name}` trait.\n"));
+    out.push_str(&format!(
+        "/// Vtable for a Zig implementation of the `{trait_name}` trait.\n"
+    ));
     out.push_str("/// Fill each function pointer, then pass this struct to the corresponding\n");
-    out.push_str(&format!("/// `register_{snake}` function to register your implementation.\n"));
+    out.push_str(&format!(
+        "/// `register_{snake}` function to register your implementation.\n"
+    ));
     out.push_str(&format!("pub const I{trait_name} = extern struct {{\n"));
 
     // Plugin lifecycle slots — always present when a super_trait is configured.
     if has_super_trait {
         out.push_str("    /// Return the plugin name into `out_name` (heap-allocated, caller frees).\n");
-        out.push_str("    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void = null,\n");
-        out.push_str("\n");
+        out.push_str(
+            "    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void = null,\n",
+        );
+        out.push('\n');
 
         out.push_str("    /// Return the plugin version into `out_version` (heap-allocated, caller frees).\n");
-        out.push_str("    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void = null,\n");
-        out.push_str("\n");
+        out.push_str(
+            "    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void = null,\n",
+        );
+        out.push('\n');
 
         out.push_str("    /// Initialise the plugin; return 0 on success, non-zero on error.\n");
         out.push_str(
             "    initialize_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 = null,\n",
         );
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("    /// Shut down the plugin; return 0 on success, non-zero on error.\n");
         out.push_str(
             "    shutdown_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 = null,\n",
         );
-        out.push_str("\n");
+        out.push('\n');
     }
 
     // Trait method slots
@@ -393,9 +383,7 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // free_user_data — always last; called by Rust Drop to release the Zig-side handle.
     out.push_str("    /// Called by the Rust runtime when the bridge is dropped.\n");
     out.push_str("    /// Use this to release any Zig-side state held via `user_data`.\n");
-    out.push_str(
-        "    free_user_data: ?*const fn (user_data: ?*anyopaque) callconv(.C) void = null,\n",
-    );
+    out.push_str("    free_user_data: ?*const fn (user_data: ?*anyopaque) callconv(.C) void = null,\n");
 
     out.push_str("};\n");
     out.push('\n');
@@ -418,7 +406,9 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     out.push_str(&format!(
         "pub fn register_{snake}(name: [*c]const u8, vtable: I{trait_name}, user_data: ?*anyopaque, out_error: ?*?[*c]u8) i32 {{\n"
     ));
-    out.push_str(&format!("    return {c_register}(name, vtable, user_data, out_error);\n"));
+    out.push_str(&format!(
+        "    return {c_register}(name, vtable, user_data, out_error);\n"
+    ));
     out.push_str("}\n");
     out.push('\n');
 
@@ -534,7 +524,10 @@ mod tests {
         emit_trait_bridge("demo", &bridge_cfg, &trait_def, &mut out);
 
         // Vtable struct
-        assert!(out.contains("pub const IValidator = extern struct {"), "missing vtable struct: {out}");
+        assert!(
+            out.contains("pub const IValidator = extern struct {"),
+            "missing vtable struct: {out}"
+        );
         // Method slot present
         assert!(out.contains("validate:"), "missing validate slot: {out}");
         // user_data first arg
@@ -547,10 +540,19 @@ mod tests {
         assert!(out.contains("pub fn register_validator("), "missing register fn: {out}");
         assert!(out.contains("c.demo_register_validator("), "wrong C symbol: {out}");
         // Unregistration shim
-        assert!(out.contains("pub fn unregister_validator("), "missing unregister fn: {out}");
-        assert!(out.contains("c.demo_unregister_validator("), "wrong unregister C symbol: {out}");
+        assert!(
+            out.contains("pub fn unregister_validator("),
+            "missing unregister fn: {out}"
+        );
+        assert!(
+            out.contains("c.demo_unregister_validator("),
+            "wrong unregister C symbol: {out}"
+        );
         // No plugin lifecycle when no super_trait
-        assert!(!out.contains("name_fn:"), "should not emit name_fn without super_trait: {out}");
+        assert!(
+            !out.contains("name_fn:"),
+            "should not emit name_fn without super_trait: {out}"
+        );
     }
 
     #[test]
@@ -581,7 +583,10 @@ mod tests {
         emit_trait_bridge("kreuzberg", &bridge_cfg, &trait_def, &mut out);
 
         // Struct name
-        assert!(out.contains("pub const IOcrBackend = extern struct {"), "missing vtable: {out}");
+        assert!(
+            out.contains("pub const IOcrBackend = extern struct {"),
+            "missing vtable: {out}"
+        );
         // Plugin lifecycle slots emitted
         assert!(out.contains("name_fn:"), "missing name_fn: {out}");
         assert!(out.contains("version_fn:"), "missing version_fn: {out}");
@@ -589,12 +594,18 @@ mod tests {
         assert!(out.contains("shutdown_fn:"), "missing shutdown_fn: {out}");
         // Trait method slots
         assert!(out.contains("process_image:"), "missing process_image slot: {out}");
-        assert!(out.contains("supports_language:"), "missing supports_language slot: {out}");
+        assert!(
+            out.contains("supports_language:"),
+            "missing supports_language slot: {out}"
+        );
         // Bytes param expands to ptr + len
         assert!(out.contains("image_bytes_ptr:"), "missing bytes ptr expansion: {out}");
         assert!(out.contains("image_bytes_len:"), "missing bytes len expansion: {out}");
         // Fallible method gets out_error
-        assert!(out.contains("out_error:"), "missing out_error for fallible method: {out}");
+        assert!(
+            out.contains("out_error:"),
+            "missing out_error for fallible method: {out}"
+        );
         // C symbols use kreuzberg prefix
         assert!(
             out.contains("c.kreuzberg_register_ocr_backend("),
@@ -639,18 +650,21 @@ mod tests {
         // Returns the vtable type
         assert!(out.contains("IValidator{"), "missing vtable literal: {out}");
         // Thunk casts user_data
-        assert!(
-            out.contains("@ptrCast(@alignCast(ud))"),
-            "missing @ptrCast cast: {out}"
-        );
+        assert!(out.contains("@ptrCast(@alignCast(ud))"), "missing @ptrCast cast: {out}");
         // callconv(.C) in thunk
         assert!(out.contains("callconv(.C)"), "missing callconv(.C) in thunk: {out}");
         // validate thunk field
         assert!(out.contains(".validate ="), "missing .validate thunk field: {out}");
         // free_user_data thunk
-        assert!(out.contains(".free_user_data ="), "missing .free_user_data thunk: {out}");
+        assert!(
+            out.contains(".free_user_data ="),
+            "missing .free_user_data thunk: {out}"
+        );
         // No lifecycle stubs without super_trait
-        assert!(!out.contains(".name_fn ="), "must not emit .name_fn without super_trait: {out}");
+        assert!(
+            !out.contains(".name_fn ="),
+            "must not emit .name_fn without super_trait: {out}"
+        );
     }
 
     #[test]
@@ -696,19 +710,17 @@ mod tests {
             "thunk must reconstruct slice from ptr+len: {out}"
         );
         // Thunk calls self.process with the slice
-        assert!(out.contains("self.process(data_slice)"), "thunk must call self.process: {out}");
+        assert!(
+            out.contains("self.process(data_slice)"),
+            "thunk must call self.process: {out}"
+        );
     }
 
     #[test]
     fn make_vtable_fallible_method_returns_i32_error_code() {
         let trait_def = make_trait_def(
             "Parser",
-            vec![make_method(
-                "parse",
-                vec![],
-                TypeRef::Unit,
-                Some("ParseError"),
-            )],
+            vec![make_method("parse", vec![], TypeRef::Unit, Some("ParseError"))],
         );
         let bridge_cfg = make_bridge_cfg("Parser", None);
 

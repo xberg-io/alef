@@ -42,12 +42,7 @@ pub(crate) fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BT
 }
 
 /// Emit a JVM function body (delegates to Bridge) inside an `object` block.
-pub(crate) fn emit_function_jvm(
-    f: &FunctionDef,
-    out: &mut String,
-    imports: &mut BTreeSet<String>,
-    java_package: &str,
-) {
+pub(crate) fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>, java_package: &str) {
     object_wrapper::emit_function(f, out, imports, java_package)
 }
 
@@ -155,7 +150,9 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
         // via a typealias-only Kotlin shim). Functions returning trait types
         // or trait registry helpers (register_*, list_*, clear_*) flow through
         // the Java facade unchanged.
-        f.params.iter().any(|p| traits::type_ref_uses_named(&p.ty, &trait_type_names))
+        f.params
+            .iter()
+            .any(|p| traits::type_ref_uses_named(&p.ty, &trait_type_names))
     };
 
     let visible_functions: Vec<&FunctionDef> = api

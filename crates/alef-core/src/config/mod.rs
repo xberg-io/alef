@@ -643,8 +643,16 @@ impl AlefConfig {
                 .map(|c| c.extra_lint_paths.as_slice())
                 .unwrap_or(&[]),
             extras::Language::Dart => self.dart.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            extras::Language::Swift => self.swift.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            extras::Language::Gleam => self.gleam.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Swift => self
+                .swift
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Gleam => self
+                .gleam
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             extras::Language::Zig => self.zig.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             extras::Language::Ffi | extras::Language::Rust => &[],
         }

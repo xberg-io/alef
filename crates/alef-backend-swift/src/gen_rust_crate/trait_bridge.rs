@@ -72,11 +72,7 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
 /// - For each method: a `pub fn {trait_snake}_call_{method}(this: &{Trait}Box, …) -> ret`
 ///   that delegates to `this.0.{method}(…)`.
 /// - Async methods block on a current-thread Tokio runtime (same as async function shims).
-pub(crate) fn emit_trait_bridge_wrapper<'a>(
-    trait_def: &TypeDef,
-    source_crate: &str,
-    enum_names: &HashSet<&'a str>,
-) -> String {
+pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str, enum_names: &HashSet<&str>) -> String {
     let mut out = String::new();
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
@@ -133,7 +129,7 @@ pub(crate) fn emit_trait_bridge_wrapper<'a>(
         };
 
         // Build the call arguments — convert bridge types back to what the trait expects.
-        let call_args: Vec<String> = method.params.iter().map(|p| trait_call_arg(p)).collect();
+        let call_args: Vec<String> = method.params.iter().map(trait_call_arg).collect();
         let call_args_str = call_args.join(", ");
         let source_call = format!("this.0.{method_name}({call_args_str})");
 
@@ -248,7 +244,9 @@ pub(crate) fn emit_trait_method_body(
     // Handles JSON-bridged, String/Path, Named newtypes/enums, and plain cases.
     let map_result_expr = |base: String| -> String {
         if needs_json_bridge(&method.return_type) && !matches!(method.return_type, TypeRef::Unit) {
-            format!("{base}.map(|v| serde_json::to_string(&v).expect(\"serializable return\")).map_err(|e| e.to_string())")
+            format!(
+                "{base}.map(|v| serde_json::to_string(&v).expect(\"serializable return\")).map_err(|e| e.to_string())"
+            )
         } else if matches!(method.return_type, TypeRef::String | TypeRef::Path) {
             format!("{base}.map(|s| s.to_string()).map_err(|e| e.to_string())")
         } else if let TypeRef::Named(wrapper) = &method.return_type {
@@ -268,10 +266,14 @@ pub(crate) fn emit_trait_method_body(
         let await_expr = format!("{source_call}.await");
         if method.error_type.is_some() {
             let mapped = map_result_expr(await_expr);
-            format!("    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {mapped} }})\n")
+            format!(
+                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {mapped} }})\n"
+            )
         } else {
             let inner = wrap_return(await_expr);
-            format!("    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {inner} }})\n")
+            format!(
+                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {inner} }})\n"
+            )
         }
     } else if method.error_type.is_some() {
         let mapped = map_result_expr(source_call.to_string());

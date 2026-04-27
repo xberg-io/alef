@@ -99,8 +99,7 @@ pub fn main() {{
         gleam_app = gleam_app,
     );
 
-    let github_workflow = format!(
-        r#"name: Gleam
+    let github_workflow = r#"name: Gleam
 
 on:
   push:
@@ -127,7 +126,7 @@ jobs:
       - name: Run tests
         run: gleam test --working-dir=packages/gleam
 "#
-    );
+    .to_string();
 
     Ok(vec![
         GeneratedFile {

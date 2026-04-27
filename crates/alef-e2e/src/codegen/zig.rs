@@ -113,7 +113,10 @@ impl E2eCodegen for ZigE2eCodegen {
 
         // Generate build.zig with collected test files.
         files.insert(
-            files.iter().position(|f| f.path.file_name().is_some_and(|n| n == "build.zig.zon")).unwrap_or(1),
+            files
+                .iter()
+                .position(|f| f.path.file_name().is_some_and(|n| n == "build.zig.zon"))
+                .unwrap_or(1),
             GeneratedFile {
                 path: output_base.join("build.zig"),
                 content: render_build_zig(&test_filenames),
@@ -200,7 +203,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
 }
 "#
-            .to_string();
+        .to_string();
     }
 
     let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
@@ -211,28 +214,18 @@ pub fn build(b: *std.Build) void {
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
         let test_name = filename.trim_end_matches("_test.zig");
-        content.push_str(&format!(
-            "    const {test_name}_module = b.createModule(.{{\n"
-        ));
-        content.push_str(&format!(
-            "        .root_source_file = b.path(\"src/{filename}\"),\n"
-        ));
+        content.push_str(&format!("    const {test_name}_module = b.createModule(.{{\n"));
+        content.push_str(&format!("        .root_source_file = b.path(\"src/{filename}\"),\n"));
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
         content.push_str("    });\n");
-        content.push_str(&format!(
-            "    const {test_name}_tests = b.addTest(.{{\n"
-        ));
-        content.push_str(&format!(
-            "        .root_module = {test_name}_module,\n"
-        ));
+        content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
+        content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("    });\n");
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
         ));
-        content.push_str(&format!(
-            "    test_step.dependOn(&{test_name}_run.step);\n\n"
-        ));
+        content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
 
     content.push_str("}\n");
@@ -321,20 +314,20 @@ fn render_test_fn(
 
     if expects_error {
         let _ = writeln!(out, "    const result = {module_name}.{function_name}({args_str});");
-        let _ = writeln!(out, "    try testing.expect(@typeInfo(@TypeOf(result)) == .ErrorUnion);");
+        let _ = writeln!(
+            out,
+            "    try testing.expect(@typeInfo(@TypeOf(result)) == .ErrorUnion);"
+        );
         return;
     }
 
-    let _ = writeln!(out, "    const {result_var} = {module_name}.{function_name}({args_str});");
+    let _ = writeln!(
+        out,
+        "    const {result_var} = {module_name}.{function_name}({args_str});"
+    );
 
     for assertion in &fixture.assertions {
-        render_assertion(
-            out,
-            assertion,
-            result_var,
-            field_resolver,
-            enum_fields,
-        );
+        render_assertion(out, assertion, result_var, field_resolver, enum_fields);
     }
 
     let _ = writeln!(out, "}}");
@@ -451,16 +444,10 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "    try testing.expect({field_expr}.len > 0);"
-            );
+            let _ = writeln!(out, "    try testing.expect({field_expr}.len > 0);");
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "    try testing.expect({field_expr}.len == 0);"
-            );
+            let _ = writeln!(out, "    try testing.expect({field_expr}.len == 0);");
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
@@ -483,40 +470,28 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect({field_expr}.len >= {n});"
-                    );
+                    let _ = writeln!(out, "    try testing.expect({field_expr}.len >= {n});");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect({field_expr}.len <= {n});"
-                    );
+                    let _ = writeln!(out, "    try testing.expect({field_expr}.len <= {n});");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect({field_expr}.len >= {n});"
-                    );
+                    let _ = writeln!(out, "    try testing.expect({field_expr}.len >= {n});");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expectEqual({n}, {field_expr}.len);"
-                    );
+                    let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
                 }
             }
         }

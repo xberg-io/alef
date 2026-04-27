@@ -67,10 +67,7 @@ fn find_jar_in_dir(dir: &Path, version: &str) -> Option<std::path::PathBuf> {
         .ok()?
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .find(|p| {
-            p.extension().is_some_and(|ext| ext == "jar")
-                && p.to_string_lossy().contains(version)
-        })
+        .find(|p| p.extension().is_some_and(|ext| ext == "jar") && p.to_string_lossy().contains(version))
 }
 
 /// Find any JAR file in a directory (fallback).

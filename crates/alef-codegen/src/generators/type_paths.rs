@@ -32,7 +32,7 @@ pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
 /// If `name` is present in the lookup map the stored `rust_path` is returned.
 /// Otherwise falls back to `"{source_crate}::{name}"` for types that are
 /// available at the crate root (e.g. re-exported via `pub use`).
-pub fn resolve_type_path<'a>(name: &str, source_crate: &str, type_paths: &'a HashMap<String, String>) -> String {
+pub fn resolve_type_path(name: &str, source_crate: &str, type_paths: &HashMap<String, String>) -> String {
     match type_paths.get(name) {
         Some(path) => path.clone(),
         None => format!("{source_crate}::{name}"),

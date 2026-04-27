@@ -2,8 +2,8 @@ use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
 use heck::ToLowerCamelCase;
 
 use super::type_map::{
-    call_arg_name, dart_callable_return, dart_callable_type, dart_public_return, dart_wrapper_param,
-    native_param_type, native_return_type, unwrap_return_expr,
+    call_arg_name, dart_callable_return, dart_callable_type, dart_public_return, dart_wrapper_param, native_param_type,
+    native_return_type, unwrap_return_expr,
 };
 
 /// Emit a Dart function that resolves its C symbol via `_lib.lookupFunction`.

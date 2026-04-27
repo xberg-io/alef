@@ -2,10 +2,11 @@ use alef_backend_swift::SwiftBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType,
-    TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
 };
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -159,16 +160,8 @@ fn make_synthetic_api() -> ApiSurface {
     let mut types = Vec::new();
     for i in 1..=100 {
         let fields = vec![
-            make_field(
-                &format!("field_a{}", i),
-                TypeRef::String,
-                i % 3 == 0,
-            ),
-            make_field(
-                &format!("field_b{}", i),
-                TypeRef::Primitive(PrimitiveType::I32),
-                false,
-            ),
+            make_field(&format!("field_a{}", i), TypeRef::String, i % 3 == 0),
+            make_field(&format!("field_b{}", i), TypeRef::Primitive(PrimitiveType::I32), false),
             make_field(
                 &format!("field_c{}", i),
                 TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::I64))),
@@ -196,24 +189,15 @@ fn make_synthetic_api() -> ApiSurface {
     let mut functions = Vec::new();
     for i in 1..=200 {
         let params = vec![
-            make_param(
-                &format!("param_a{}", i),
-                TypeRef::String,
-            ),
-            make_param(
-                &format!("param_b{}", i),
-                TypeRef::Primitive(PrimitiveType::I32),
-            ),
+            make_param(&format!("param_a{}", i), TypeRef::String),
+            make_param(&format!("param_b{}", i), TypeRef::Primitive(PrimitiveType::I32)),
             if i % 2 == 0 {
                 make_param(
                     &format!("param_c{}", i),
                     TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Bool))),
                 )
             } else {
-                make_param(
-                    &format!("param_c{}", i),
-                    TypeRef::Vec(Box::new(TypeRef::String)),
-                )
+                make_param(&format!("param_c{}", i), TypeRef::Vec(Box::new(TypeRef::String)))
             },
         ];
 

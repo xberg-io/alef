@@ -1,7 +1,7 @@
 //! Gleam Hex package — archives the source tree for distribution.
 
-use super::util::copy_dir_recursive;
 use super::PackageArtifact;
+use super::util::copy_dir_recursive;
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
 use std::fs;
@@ -67,4 +67,3 @@ pub fn package_gleam(
         checksum: None,
     })
 }
-

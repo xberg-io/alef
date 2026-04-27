@@ -117,56 +117,45 @@ pub(crate) fn emit_type_wrapper(
             matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
         });
         let has_non_serde_string_field = !ty.has_serde
-            && ty.fields.iter().any(|f| {
-                matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char)
-            });
+            && ty
+                .fields
+                .iter()
+                .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
         let needs_default_construction = ty.has_serde
             || has_vec_non_primitive
             || has_non_serde_string_field
-            || ty.fields.iter().any(|f| {
-                needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))
-            });
+            || ty
+                .fields
+                .iter()
+                .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
 
         if needs_default_construction && !ty.has_default {
             // The struct needs mutable-default construction but doesn't impl Default.
             // Omit the constructor entirely — swift-bridge will not expose `init()` for
             // this type, which is correct: the host language can't construct it anyway.
         } else {
-        out.push_str(&format!(
-            "    pub fn new({}) -> {} {{\n",
-            params.join(", "),
-            ty.name
-        ));
+            out.push_str(&format!("    pub fn new({}) -> {} {{\n", params.join(", "), ty.name));
 
-        if needs_default_construction && ty.has_default {
-            let body = emit_default_construction_body(
-                ty,
-                &source_path,
-                type_paths,
-                enum_names,
-                no_serde_names,
-                exclude_fields,
-            );
-            out.push_str(&body);
-        } else {
-            let field_inits = emit_direct_field_inits(
-                ty,
-                type_paths,
-                enum_names,
-                no_serde_names,
-                exclude_fields,
-            );
-            out.push_str(&format!(
-                "        {}({} {{\n",
-                ty.name, source_path
-            ));
-            for init in &field_inits {
-                out.push_str(init);
-                out.push_str(",\n");
+            if needs_default_construction && ty.has_default {
+                let body = emit_default_construction_body(
+                    ty,
+                    &source_path,
+                    type_paths,
+                    enum_names,
+                    no_serde_names,
+                    exclude_fields,
+                );
+                out.push_str(&body);
+            } else {
+                let field_inits = emit_direct_field_inits(ty, type_paths, enum_names, no_serde_names, exclude_fields);
+                out.push_str(&format!("        {}({} {{\n", ty.name, source_path));
+                for init in &field_inits {
+                    out.push_str(init);
+                    out.push_str(",\n");
+                }
+                out.push_str("        })\n");
             }
-            out.push_str("        })\n");
-        }
-        out.push_str("    }\n");
+            out.push_str("    }\n");
         } // end else (constructor emitted)
 
         // Getters — return bridge types (String for JSON-bridged, wrappers for Named).
@@ -216,7 +205,10 @@ fn emit_getters(
             emit_named_getter(field, wrapper, &name, &getter_name, &bridge_ty_owned, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
             emit_vec_getter(ty, field, inner, &name, &getter_name, &bridge_ty_owned, enum_names, out);
-        } else if matches!(field.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json) {
+        } else if matches!(
+            field.ty,
+            TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json
+        ) {
             emit_string_like_getter(ty, field, &name, &getter_name, &bridge_ty_owned, out);
         } else if matches!(field.ty, TypeRef::Bytes) {
             // bytes::Bytes bridges as Vec<u8>; convert with .to_vec() for the return.
@@ -300,9 +292,7 @@ fn emit_named_getter(
         } else {
             format!("{wrapper}(self.0.{name}.clone())")
         };
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> {wrapper} {{ {expr} }}\n"
-        ));
+        out.push_str(&format!("    pub fn {getter_name}(&self) -> {wrapper} {{ {expr} }}\n"));
     }
 }
 
@@ -412,4 +402,3 @@ fn emit_string_like_getter(
         ));
     }
 }
-

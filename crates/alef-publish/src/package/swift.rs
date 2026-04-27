@@ -1,7 +1,7 @@
 //! Swift package — archives the swift-bridge source tree + XCFramework placeholder.
 
-use super::util::{copy_dir_recursive, copy_optional_file};
 use super::PackageArtifact;
+use super::util::{copy_dir_recursive, copy_optional_file};
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
 use std::fs;
@@ -149,14 +149,12 @@ pub fn package_swift(
     // Emit XCFramework placeholder.
     let xcframework_dir = staging.join("xcframework");
     fs::create_dir_all(&xcframework_dir).context("creating xcframework placeholder directory")?;
-    fs::write(xcframework_dir.join("BUILDING.md"), BUILDING_MD)
-        .context("writing xcframework/BUILDING.md")?;
+    fs::write(xcframework_dir.join("BUILDING.md"), BUILDING_MD).context("writing xcframework/BUILDING.md")?;
 
     // Emit Linux build instructions alongside the XCFramework guidance.
     let linux_dir = staging.join("linux");
     fs::create_dir_all(&linux_dir).context("creating linux build instructions directory")?;
-    fs::write(linux_dir.join("BUILDING.md"), LINUX_BUILDING_MD)
-        .context("writing linux/BUILDING.md")?;
+    fs::write(linux_dir.join("BUILDING.md"), LINUX_BUILDING_MD).context("writing linux/BUILDING.md")?;
 
     // Copy optional top-level docs into the staging root.
     for filename in ["README.md", "CHANGELOG.md", "LICENSE"] {
@@ -222,11 +220,7 @@ sources = []
         let swift_pkg = tmp.path().join("packages/swift");
         fs::create_dir_all(swift_pkg.join("Sources/MyLib")).unwrap();
         fs::write(swift_pkg.join("Package.swift"), "// swift-tools-version:5.9\n").unwrap();
-        fs::write(
-            swift_pkg.join("Sources/MyLib/MyLib.swift"),
-            "public struct MyLib {}\n",
-        )
-        .unwrap();
+        fs::write(swift_pkg.join("Sources/MyLib/MyLib.swift"), "public struct MyLib {}\n").unwrap();
 
         let output = tmp.path().join("out");
         fs::create_dir_all(&output).unwrap();

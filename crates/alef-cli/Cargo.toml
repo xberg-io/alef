@@ -36,8 +36,8 @@ alef-backend-napi = { workspace = true }
 alef-backend-php = { workspace = true }
 alef-backend-pyo3 = { workspace = true }
 alef-backend-rustler = { workspace = true }
-alef-backend-wasm = { workspace = true }
 alef-backend-swift = { workspace = true }
+alef-backend-wasm = { workspace = true }
 alef-backend-zig = { workspace = true }
 alef-core = { workspace = true }
 alef-docs = { workspace = true }

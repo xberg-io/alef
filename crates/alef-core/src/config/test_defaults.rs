@@ -205,10 +205,7 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
             }
         }
         Language::Swift => {
-            let cmd = wrap(
-                format!("swift test --package-path {output_dir}"),
-                ctx.run_wrapper,
-            );
+            let cmd = wrap(format!("swift test --package-path {output_dir}"), ctx.run_wrapper);
             TestConfig {
                 precondition: Some(require_tool("swift")),
                 before: None,
@@ -414,7 +411,10 @@ mod tests {
     fn kotlin_uses_gradle_test() {
         let c = cfg(Language::Kotlin, "packages/kotlin");
         let cmd = c.command.unwrap().commands().join(" ");
-        assert!(cmd.contains("gradle test"), "Kotlin test should use gradle test, got: {cmd}");
+        assert!(
+            cmd.contains("gradle test"),
+            "Kotlin test should use gradle test, got: {cmd}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
     }
 
@@ -422,8 +422,14 @@ mod tests {
     fn swift_uses_swift_test_with_package_path() {
         let c = cfg(Language::Swift, "packages/swift");
         let cmd = c.command.unwrap().commands().join(" ");
-        assert!(cmd.contains("swift test"), "Swift test should use swift test, got: {cmd}");
-        assert!(cmd.contains("--package-path packages/swift"), "Swift test should include package path, got: {cmd}");
+        assert!(
+            cmd.contains("swift test"),
+            "Swift test should use swift test, got: {cmd}"
+        );
+        assert!(
+            cmd.contains("--package-path packages/swift"),
+            "Swift test should include package path, got: {cmd}"
+        );
     }
 
     #[test]
@@ -438,7 +444,10 @@ mod tests {
     fn gleam_uses_gleam_test() {
         let c = cfg(Language::Gleam, "packages/gleam");
         let cmd = c.command.unwrap().commands().join(" ");
-        assert!(cmd.contains("gleam test"), "Gleam test should use gleam test, got: {cmd}");
+        assert!(
+            cmd.contains("gleam test"),
+            "Gleam test should use gleam test, got: {cmd}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
     }
 
@@ -446,7 +455,10 @@ mod tests {
     fn zig_uses_zig_build_test() {
         let c = cfg(Language::Zig, "packages/zig");
         let cmd = c.command.unwrap().commands().join(" ");
-        assert!(cmd.contains("zig build test"), "Zig test should use zig build test, got: {cmd}");
+        assert!(
+            cmd.contains("zig build test"),
+            "Zig test should use zig build test, got: {cmd}"
+        );
         assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

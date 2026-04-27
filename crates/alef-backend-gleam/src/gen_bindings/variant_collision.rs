@@ -6,8 +6,7 @@ use alef_core::ir::ApiSurface;
 /// that appears more than once across enums + error types, or that matches an
 /// existing top-level type name, must be prefixed with the parent type name.
 pub(crate) fn build_collision_set(api: &ApiSurface) -> std::collections::HashSet<String> {
-    let mut variant_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut variant_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for en in &api.enums {
         for v in &en.variants {
             *variant_counts.entry(v.name.clone()).or_insert(0) += 1;

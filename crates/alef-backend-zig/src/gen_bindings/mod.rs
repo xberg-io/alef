@@ -121,7 +121,11 @@ impl Backend for ZigBackend {
             })
             .flat_map(|snake| [format!("register_{snake}"), format!("unregister_{snake}")])
             .collect();
-        for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
+        for f in api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        {
             // Async functions are not supported — skip silently.
             if f.is_async {
                 continue;

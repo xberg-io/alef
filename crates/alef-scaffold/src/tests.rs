@@ -793,7 +793,11 @@ fn test_scaffold_dart() {
     assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
     assert!(pubspec.content.contains("name: my_lib"), "got: {}", pubspec.content);
     assert!(pubspec.content.contains("version: 0.1.0"), "got: {}", pubspec.content);
-    assert!(pubspec.content.contains("flutter_rust_bridge:"), "got: {}", pubspec.content);
+    assert!(
+        pubspec.content.contains("flutter_rust_bridge:"),
+        "got: {}",
+        pubspec.content
+    );
     assert!(pubspec.content.contains("sdk: '"), "got: {}", pubspec.content);
     assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
     assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
@@ -841,7 +845,9 @@ fn test_scaffold_dart() {
     let building_md = &files[4];
     assert_eq!(building_md.path, PathBuf::from("packages/dart/BUILDING.md"));
     assert!(
-        building_md.content.contains("cargo install flutter_rust_bridge_codegen"),
+        building_md
+            .content
+            .contains("cargo install flutter_rust_bridge_codegen"),
         "got: {}",
         building_md.content
     );
@@ -863,7 +869,10 @@ fn test_scaffold_dart() {
     assert_eq!(files[6].path, PathBuf::from("packages/dart/README.md"));
     assert!(files[6].content.contains("dart pub get"));
 
-    assert_eq!(files[7].path, PathBuf::from("packages/dart/example/my_lib_example.dart"));
+    assert_eq!(
+        files[7].path,
+        PathBuf::from("packages/dart/example/my_lib_example.dart")
+    );
     assert!(files[7].content.contains("void main"));
 
     assert_eq!(files[8].path, PathBuf::from(".github/workflows/dart.yml"));
@@ -1071,7 +1080,11 @@ fn test_scaffold_swift() {
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
     // Original 7 + new: .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml = 12
-    assert_eq!(files.len(), 12, "Expected 12 files for Swift scaffold (original 7 + 5 new)");
+    assert_eq!(
+        files.len(),
+        12,
+        "Expected 12 files for Swift scaffold (original 7 + 5 new)"
+    );
 
     let package_swift = &files[0];
     assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
@@ -1216,7 +1229,10 @@ fn test_scaffold_kotlin() {
     assert_eq!(files[5].path, PathBuf::from("packages/kotlin/README.md"));
     assert!(files[5].content.contains("my_lib"));
     assert!(files[5].content.contains("gradle build"));
-    assert_eq!(files[6].path, PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt"));
+    assert_eq!(
+        files[6].path,
+        PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt")
+    );
     assert!(files[6].content.contains("object"));
     assert_eq!(files[7].path, PathBuf::from(".github/workflows/kotlin.yml"));
     assert!(files[7].content.contains("gradle build"));
@@ -1233,8 +1249,14 @@ fn test_scaffold_gleam() {
 
     let gleam_toml = &files[0];
     assert_eq!(gleam_toml.path, PathBuf::from("packages/gleam/gleam.toml"));
-    assert!(gleam_toml.content.contains("description"), "gleam.toml should include description");
-    assert!(gleam_toml.content.contains("licences = [\"MIT\"]"), "gleam.toml should include licences");
+    assert!(
+        gleam_toml.content.contains("description"),
+        "gleam.toml should include description"
+    );
+    assert!(
+        gleam_toml.content.contains("licences = [\"MIT\"]"),
+        "gleam.toml should include licences"
+    );
 
     let manifest = &files[1];
     assert_eq!(manifest.path, PathBuf::from("packages/gleam/manifest.toml"));

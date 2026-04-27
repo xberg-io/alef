@@ -212,12 +212,9 @@ fn format_native_param(p: &ParamDef) -> String {
 /// String/Path are converted to `cstr`, Bytes/Vec/Map are passed as JSON strings).
 fn native_param_type_str(ty: &TypeRef, optional: bool) -> String {
     let inner = match ty {
-        TypeRef::String
-        | TypeRef::Path
-        | TypeRef::Char
-        | TypeRef::Json
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            "String".to_string()
+        }
         TypeRef::Bytes => "ByteArray".to_string(),
         TypeRef::Optional(inner) => return format!("{}?", native_param_type_str(inner, false)),
         other => native_type_str(other, false),
@@ -229,12 +226,7 @@ fn native_param_type_str(ty: &TypeRef, optional: bool) -> String {
 fn emit_native_param_conversion(p: &ParamDef, out: &mut String) {
     let name = to_lower_camel(&p.name);
     match &p.ty {
-        TypeRef::String
-        | TypeRef::Path
-        | TypeRef::Char
-        | TypeRef::Json
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => {
+        TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&format!("            val {name}C = {name}.cstr.ptr\n"));
         }
         TypeRef::Bytes => {
@@ -249,12 +241,9 @@ fn emit_native_param_conversion(p: &ParamDef, out: &mut String) {
 fn native_c_arg(p: &ParamDef) -> String {
     let name = to_lower_camel(&p.name);
     match &p.ty {
-        TypeRef::String
-        | TypeRef::Path
-        | TypeRef::Char
-        | TypeRef::Json
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => format!("{name}C"),
+        TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            format!("{name}C")
+        }
         TypeRef::Bytes => format!("{name}Pin.addressOf(0), {name}.size"),
         _ => name,
     }
@@ -267,12 +256,7 @@ fn native_c_arg(p: &ParamDef) -> String {
 /// Everything else: pass through unchanged.
 fn native_unwrap_return(raw: &str, ty: &TypeRef, free_sym: &str) -> String {
     match ty {
-        TypeRef::String
-        | TypeRef::Path
-        | TypeRef::Char
-        | TypeRef::Json
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => {
+        TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             format!("run {{ val _s = {raw}!!.toKString(); {free_sym}({raw}); _s }}")
         }
         TypeRef::Bytes => {
@@ -288,12 +272,9 @@ fn native_unwrap_return(raw: &str, ty: &TypeRef, free_sym: &str) -> String {
 fn native_return_type_str(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Unit => "Unit".to_string(),
-        TypeRef::String
-        | TypeRef::Path
-        | TypeRef::Char
-        | TypeRef::Json
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            "String".to_string()
+        }
         TypeRef::Bytes => "ByteArray".to_string(),
         other => native_type_str(other, false),
     }
@@ -309,9 +290,7 @@ pub(crate) fn native_type_str(ty: &TypeRef, optional: bool) -> String {
             PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
             PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
             PrimitiveType::U32 | PrimitiveType::I32 => "Int".to_string(),
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
-                "Long".to_string()
-            }
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
             PrimitiveType::F32 => "Float".to_string(),
             PrimitiveType::F64 => "Double".to_string(),
         },

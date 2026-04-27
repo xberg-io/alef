@@ -108,9 +108,7 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             // Pure shell `rm` — zig-out and cache dirs.
             precondition: None,
             before: None,
-            clean: Some(StringOrVec::Single(
-                "rm -rf zig-out zig-cache .zig-cache".to_string(),
-            )),
+            clean: Some(StringOrVec::Single("rm -rf zig-out zig-cache .zig-cache".to_string())),
         },
     }
 }

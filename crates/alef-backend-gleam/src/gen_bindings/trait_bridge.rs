@@ -58,9 +58,7 @@ pub(crate) fn emit_trait_bridge_shims(
     // Pid type; Dynamic lets callers pass the Erlang PID term directly.
     if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
         imports.insert("import gleam/dynamic.{type Dynamic}");
-        out.push_str(&format!(
-            "@external(erlang, \"{nif_module}\", \"{register_fn}\")\n"
-        ));
+        out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{register_fn}\")\n"));
         out.push_str(&format!(
             "pub fn register_{trait_snake}(pid: Dynamic, plugin_name: String) -> Nil\n"
         ));
@@ -119,9 +117,7 @@ pub(crate) fn emit_trait_bridge_shims(
             ));
 
             imports.insert("import gleam/dynamic.{type Dynamic}");
-            out.push_str(&format!(
-                "@external(erlang, \"{nif_module}\", \"{nif_fn_name}\")\n"
-            ));
+            out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{nif_fn_name}\")\n"));
             out.push_str(&format!(
                 "pub fn {nif_fn_name}(call_id: Dynamic, result: Result({ok_type}, {err_type})) -> Nil\n"
             ));
@@ -145,9 +141,7 @@ pub(crate) fn emit_trait_support_nifs(nif_module: &str, out: &mut String) {
 
     out.push_str("/// Fail a pending trait call with an error message.\n");
     out.push_str("/// Call this from your GenServer when processing a trait_call message fails.\n");
-    out.push_str(&format!(
-        "@external(erlang, \"{nif_module}\", \"fail_trait_call\")\n"
-    ));
+    out.push_str(&format!("@external(erlang, \"{nif_module}\", \"fail_trait_call\")\n"));
     out.push_str("pub fn fail_trait_call(reply_id: Int, error_message: String) -> Nil\n");
     out.push('\n');
 }

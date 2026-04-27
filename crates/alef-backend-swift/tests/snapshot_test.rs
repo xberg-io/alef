@@ -2,8 +2,8 @@ use alef_backend_swift::SwiftBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
-    ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -214,10 +214,7 @@ fn snapshot_basic_struct_function_enum_error() {
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
     for file in &files {
         insta::assert_snapshot!(
-            format!(
-                "snapshot_basic__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
+            format!("snapshot_basic__{}", file.path.display().to_string().replace('/', "__")),
             &file.content
         );
     }
@@ -234,9 +231,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 name: "Output".to_string(),
                 rust_path: "demo::Output".to_string(),
                 original_rust_path: String::new(),
-                fields: vec![
-                    make_field("result", TypeRef::Primitive(PrimitiveType::I32), false),
-                ],
+                fields: vec![make_field("result", TypeRef::Primitive(PrimitiveType::I32), false)],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
@@ -255,9 +250,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 name: "Wrapper".to_string(),
                 rust_path: "demo::Wrapper".to_string(),
                 original_rust_path: String::new(),
-                fields: vec![
-                    make_field("output", TypeRef::Named("Output".to_string()), false),
-                ],
+                fields: vec![make_field("output", TypeRef::Named("Output".to_string()), false)],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
@@ -312,29 +305,25 @@ fn snapshot_conversion_enum_with_data() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
-        types: vec![
-            TypeDef {
-                name: "Data".to_string(),
-                rust_path: "demo::Data".to_string(),
-                original_rust_path: String::new(),
-                fields: vec![
-                    make_field("value", TypeRef::Primitive(PrimitiveType::I32), false),
-                ],
-                methods: vec![],
-                is_opaque: false,
-                is_clone: true,
-                is_copy: false,
-                doc: "Data struct.".to_string(),
-                cfg: None,
-                is_trait: false,
-                has_default: false,
-                has_stripped_cfg_fields: false,
-                is_return_type: false,
-                serde_rename_all: None,
-                has_serde: false,
-                super_traits: vec![],
-            },
-        ],
+        types: vec![TypeDef {
+            name: "Data".to_string(),
+            rust_path: "demo::Data".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Data struct.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        }],
         functions: vec![],
         enums: vec![EnumDef {
             name: "Result".to_string(),
@@ -343,9 +332,7 @@ fn snapshot_conversion_enum_with_data() {
             variants: vec![
                 EnumVariant {
                     name: "Success".to_string(),
-                    fields: vec![
-                        make_field("data", TypeRef::Named("Data".to_string()), false),
-                    ],
+                    fields: vec![make_field("data", TypeRef::Named("Data".to_string()), false)],
                     is_tuple: false,
                     doc: "Success variant.".to_string(),
                     is_default: false,
@@ -353,9 +340,7 @@ fn snapshot_conversion_enum_with_data() {
                 },
                 EnumVariant {
                     name: "Error".to_string(),
-                    fields: vec![
-                        make_field("message", TypeRef::String, false),
-                    ],
+                    fields: vec![make_field("message", TypeRef::String, false)],
                     is_tuple: false,
                     doc: "Error variant.".to_string(),
                     is_default: false,
@@ -391,29 +376,25 @@ fn snapshot_conversion_vec_of_named() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
-        types: vec![
-            TypeDef {
-                name: "Item".to_string(),
-                rust_path: "demo::Item".to_string(),
-                original_rust_path: String::new(),
-                fields: vec![
-                    make_field("id", TypeRef::Primitive(PrimitiveType::U32), false),
-                ],
-                methods: vec![],
-                is_opaque: false,
-                is_clone: true,
-                is_copy: false,
-                doc: "Item struct.".to_string(),
-                cfg: None,
-                is_trait: false,
-                has_default: false,
-                has_stripped_cfg_fields: false,
-                is_return_type: false,
-                serde_rename_all: None,
-                has_serde: false,
-                super_traits: vec![],
-            },
-        ],
+        types: vec![TypeDef {
+            name: "Item".to_string(),
+            rust_path: "demo::Item".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("id", TypeRef::Primitive(PrimitiveType::U32), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Item struct.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        }],
         functions: vec![FunctionDef {
             name: "getItems".into(),
             rust_path: "demo::getItems".into(),

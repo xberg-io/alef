@@ -273,10 +273,10 @@ pub(crate) fn capitalize_first(s: &str) -> String {
 }
 
 use languages::{
-    scaffold_csharp, scaffold_dart, scaffold_elixir, scaffold_elixir_cargo, scaffold_ffi, scaffold_gleam,
-    scaffold_go, scaffold_java, scaffold_kotlin, scaffold_node, scaffold_node_cargo, scaffold_php,
-    scaffold_php_cargo, scaffold_pre_commit_config, scaffold_python, scaffold_python_cargo, scaffold_r,
-    scaffold_r_cargo, scaffold_ruby, scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
+    scaffold_csharp, scaffold_dart, scaffold_elixir, scaffold_elixir_cargo, scaffold_ffi, scaffold_gleam, scaffold_go,
+    scaffold_java, scaffold_kotlin, scaffold_node, scaffold_node_cargo, scaffold_php, scaffold_php_cargo,
+    scaffold_pre_commit_config, scaffold_python, scaffold_python_cargo, scaffold_r, scaffold_r_cargo, scaffold_ruby,
+    scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
 };
 
 fn scaffold_language(api: &ApiSurface, config: &AlefConfig, lang: Language) -> anyhow::Result<Vec<GeneratedFile>> {

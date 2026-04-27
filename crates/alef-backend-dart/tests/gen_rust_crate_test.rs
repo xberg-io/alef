@@ -122,8 +122,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -156,7 +156,10 @@ fn cargo_toml_contains_frb_version() {
     );
     assert!(cargo.contains("[package]"), "missing [package] section: {cargo}");
     assert!(cargo.contains("demo-crate-dart"), "missing crate name: {cargo}");
-    assert!(cargo.contains("flutter_rust_bridge"), "missing flutter_rust_bridge dep: {cargo}");
+    assert!(
+        cargo.contains("flutter_rust_bridge"),
+        "missing flutter_rust_bridge dep: {cargo}"
+    );
     assert!(
         cargo.contains(r#"path = "../../..""#),
         "missing relative path dep: {cargo}"
@@ -224,11 +227,17 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     // FRB v2: ordinary public functions need no annotation; bare `#[frb]` is rejected.
-    assert!(!lib.contains("#[frb]\npub fn"), "bare #[frb] on fn is invalid in v2: {lib}");
+    assert!(
+        !lib.contains("#[frb]\npub fn"),
+        "bare #[frb] on fn is invalid in v2: {lib}"
+    );
     assert!(lib.contains("pub fn greet_user"), "missing greet_user fn: {lib}");
     assert!(lib.contains("user_name: String"), "missing user_name param: {lib}");
     // rust_path resolution: call site uses the full module path, not the bare fn name.
-    assert!(lib.contains("demo::greet_user("), "should call demo::greet_user via rust_path: {lib}");
+    assert!(
+        lib.contains("demo::greet_user("),
+        "should call demo::greet_user via rust_path: {lib}"
+    );
 }
 
 #[test]
@@ -260,7 +269,10 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
-    assert!(lib.contains("pub async fn fetch_data"), "missing async fn keyword: {lib}");
+    assert!(
+        lib.contains("pub async fn fetch_data"),
+        "missing async fn keyword: {lib}"
+    );
 }
 
 #[test]
@@ -320,7 +332,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -328,7 +340,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
             ],
             doc: String::new(),
@@ -345,7 +357,10 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
-    assert!(lib.contains("#[frb(mirror(Status))]"), "missing mirror for Status: {lib}");
+    assert!(
+        lib.contains("#[frb(mirror(Status))]"),
+        "missing mirror for Status: {lib}"
+    );
     assert!(lib.contains("pub enum Status {"), "missing Status mirror enum: {lib}");
     assert!(lib.contains("Active,"), "missing Active variant: {lib}");
     assert!(lib.contains("Inactive,"), "missing Inactive variant: {lib}");
@@ -390,8 +405,14 @@ fn frb_yaml_is_emitted_with_module_name() {
         yaml.contains("demo_crate_bridge_generated"),
         "missing dart output path with module name: {yaml}"
     );
-    assert!(!yaml.contains("rust_input:"), "v1 rust_input key should not be emitted: {yaml}");
-    assert!(!yaml.contains("rust_output:"), "v1 rust_output key should not be emitted: {yaml}");
+    assert!(
+        !yaml.contains("rust_input:"),
+        "v1 rust_input key should not be emitted: {yaml}"
+    );
+    assert!(
+        !yaml.contains("rust_output:"),
+        "v1 rust_output key should not be emitted: {yaml}"
+    );
 }
 
 #[test]
@@ -410,7 +431,9 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
     // Should have: 1 .dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml = 5
     assert_eq!(files.len(), 5, "expected 5 generated files, got {}", files.len());
 
-    let has_dart = files.iter().any(|f| f.path.to_string_lossy().ends_with(".dart") && !f.path.to_string_lossy().contains("rust/"));
+    let has_dart = files
+        .iter()
+        .any(|f| f.path.to_string_lossy().ends_with(".dart") && !f.path.to_string_lossy().contains("rust/"));
     assert!(has_dart, "missing Dart wrapper file");
 }
 
@@ -499,8 +522,14 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
 
     // Opaque struct with DartFnFuture callback field
     assert!(lib.contains("#[frb(opaque)]"), "missing #[frb(opaque)]: {lib}");
-    assert!(lib.contains("pub struct ValidatorDartImpl"), "missing opaque struct: {lib}");
-    assert!(lib.contains("DartFnFuture"), "missing DartFnFuture callback type: {lib}");
+    assert!(
+        lib.contains("pub struct ValidatorDartImpl"),
+        "missing opaque struct: {lib}"
+    );
+    assert!(
+        lib.contains("DartFnFuture"),
+        "missing DartFnFuture callback type: {lib}"
+    );
     assert!(lib.contains("validate:"), "missing validate field: {lib}");
 
     // Trait impl block
@@ -512,7 +541,10 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
     assert!(lib.contains("block_on"), "missing block_on for async bridging: {lib}");
 
     // Factory function
-    assert!(lib.contains("pub fn create_validator_dart_impl("), "missing factory fn: {lib}");
+    assert!(
+        lib.contains("pub fn create_validator_dart_impl("),
+        "missing factory fn: {lib}"
+    );
 
     // Trait defs should NOT be emitted as mirror structs
     assert!(
@@ -548,8 +580,14 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
 
     // Opaque struct
     assert!(lib.contains("#[frb(opaque)]"), "missing #[frb(opaque)]: {lib}");
-    assert!(lib.contains("pub struct OcrBackendDartImpl"), "missing opaque struct: {lib}");
-    assert!(lib.contains("flutter_rust_bridge::DartFnFuture<String>"), "missing DartFnFuture<String>: {lib}");
+    assert!(
+        lib.contains("pub struct OcrBackendDartImpl"),
+        "missing opaque struct: {lib}"
+    );
+    assert!(
+        lib.contains("flutter_rust_bridge::DartFnFuture<String>"),
+        "missing DartFnFuture<String>: {lib}"
+    );
     assert!(lib.contains("extract_text:"), "missing extract_text field: {lib}");
 
     // Factory function exists
@@ -563,7 +601,13 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         lib.contains("impl demo_crate::OcrBackend for OcrBackendDartImpl"),
         "missing trait impl: {lib}"
     );
-    assert!(lib.contains("#[async_trait::async_trait]"), "async trait must use async_trait macro: {lib}");
-    assert!(lib.contains(".await"), "async method must await the DartFnFuture: {lib}");
+    assert!(
+        lib.contains("#[async_trait::async_trait]"),
+        "async trait must use async_trait macro: {lib}"
+    );
+    assert!(
+        lib.contains(".await"),
+        "async method must await the DartFnFuture: {lib}"
+    );
     assert!(lib.contains("fn extract_text("), "missing extract_text impl: {lib}");
 }

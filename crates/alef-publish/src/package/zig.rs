@@ -1,7 +1,7 @@
 //! Zig package — archives the source code + FFI shared library for distribution.
 
-use super::util::copy_dir_recursive;
 use super::PackageArtifact;
+use super::util::copy_dir_recursive;
 use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
@@ -80,4 +80,3 @@ pub fn package_zig(
         checksum: None,
     })
 }
-

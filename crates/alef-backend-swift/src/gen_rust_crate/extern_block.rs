@@ -28,17 +28,21 @@ pub(crate) fn emit_extern_block_for_type(
     // implement Default, wrappers.rs omits the impl entirely. We mirror that here by
     // also skipping the extern declaration — swift-bridge must not declare `fn new()`
     // without a corresponding Rust impl or linking will fail with E0599.
-    let has_vec_non_primitive = ty.fields.iter().any(|f| {
-        matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
-    });
+    let has_vec_non_primitive = ty.fields.iter().any(
+        |f| matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)),
+    );
     let has_non_serde_string_field = !ty.has_serde
-        && ty.fields.iter().any(|f| {
-            matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char)
-        });
+        && ty
+            .fields
+            .iter()
+            .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
     let needs_default_construction = ty.has_serde
         || has_vec_non_primitive
         || has_non_serde_string_field
-        || ty.fields.iter().any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
+        || ty
+            .fields
+            .iter()
+            .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
     let emit_constructor = !ty.fields.is_empty() && !(needs_default_construction && !ty.has_default);
 
     if emit_constructor {
@@ -64,11 +68,7 @@ pub(crate) fn emit_extern_block_for_type(
             })
             .collect();
         block.push_str("        #[swift_bridge(init)]\n");
-        block.push_str(&format!(
-            "        fn new({}) -> {};\n",
-            params.join(", "),
-            ty.name
-        ));
+        block.push_str(&format!("        fn new({}) -> {};\n", params.join(", "), ty.name));
     }
 
     // Getters — skip declaration entirely for fields whose impl would have to be
@@ -152,13 +152,9 @@ pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> Stri
         // identifier — which is what the wrapper emits for idiomatic Swift.
         let swift_name = swift_ident(&f.name.to_lower_camel_case());
         if swift_name != fn_name {
-            block.push_str(&format!(
-                "        #[swift_bridge(swift_name = \"{swift_name}\")]\n"
-            ));
+            block.push_str(&format!("        #[swift_bridge(swift_name = \"{swift_name}\")]\n"));
         }
-        block.push_str(&format!(
-            "        fn {fn_name}({params_str}) -> {return_ty};\n"
-        ));
+        block.push_str(&format!("        fn {fn_name}({params_str}) -> {return_ty};\n"));
     }
 
     block.push_str("    }\n\n");

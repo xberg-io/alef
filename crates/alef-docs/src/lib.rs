@@ -22,8 +22,8 @@ mod type_mapping;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
-pub use type_mapping::doc_type;
 pub use doc_cleaning::clean_doc;
+pub use type_mapping::doc_type;
 
 use descriptions::{
     generate_enum_variant_description, generate_error_variant_description, generate_field_description,
@@ -740,8 +740,8 @@ mod tests {
             java: None,
 
             kotlin: None,
-        dart: None,
-        swift: None,
+            dart: None,
+            swift: None,
             csharp: None,
             r: None,
 

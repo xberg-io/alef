@@ -75,24 +75,22 @@ fn test_zig_doc_emitted_for_function() {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
-        functions: vec![
-            FunctionDef {
-                name: "test_func".to_string(),
-                rust_path: "test::test_func".to_string(),
-                original_rust_path: String::new(),
-                params: vec![],
-                return_type: TypeRef::String,
-                is_async: false,
-                error_type: None,
-                doc: "A test function.".to_string(),
-                cfg: None,
-                sanitized: false,
-                return_sanitized: false,
-                returns_ref: false,
-                returns_cow: false,
-                return_newtype_wrapper: None,
-            }
-        ],
+        functions: vec![FunctionDef {
+            name: "test_func".to_string(),
+            rust_path: "test::test_func".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: "A test function.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
         enums: vec![],
         errors: vec![],
     };
@@ -100,8 +98,11 @@ fn test_zig_doc_emitted_for_function() {
     let config = make_config();
     let backend = ZigBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
-    
+
     assert!(!files.is_empty());
     let content = &files[0].content;
-    assert!(content.contains("/// A test function."), "Zig doc should appear in output");
+    assert!(
+        content.contains("/// A test function."),
+        "Zig doc should appear in output"
+    );
 }

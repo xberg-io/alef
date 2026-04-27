@@ -42,7 +42,14 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
 
     Ok(vec![
         emit_cargo_toml(&rust_dir, api, config, &source_crate_name),
-        emit_lib_rs(&rust_dir, api, config, &source_crate_name, &exclude_functions, &exclude_types),
+        emit_lib_rs(
+            &rust_dir,
+            api,
+            config,
+            &source_crate_name,
+            &exclude_functions,
+            &exclude_types,
+        ),
         emit_build_rs(&rust_dir),
         emit_frb_yaml(&rust_dir, &module_name),
     ])
@@ -82,7 +89,11 @@ fn emit_lib_rs(
     content.push_str(")]\n");
     content.push_str("use flutter_rust_bridge::frb;\n");
 
-    for ty in api.types.iter().filter(|t| !exclude_types.contains(&t.name) && !t.is_trait) {
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
+    {
         content.push('\n');
         emit_mirror_struct(&mut content, ty);
     }
@@ -93,7 +104,8 @@ fn emit_lib_rs(
     }
 
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
-    for f in api.functions
+    for f in api
+        .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .filter(|f| !has_unbridgeable_param(f))

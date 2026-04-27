@@ -2,8 +2,8 @@ use alef_backend_dart::DartBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
-    ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -214,10 +214,7 @@ fn snapshot_basic_struct_function_enum_error() {
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     for file in &files {
         insta::assert_snapshot!(
-            format!(
-                "snapshot_basic__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
+            format!("snapshot_basic__{}", file.path.display().to_string().replace('/', "__")),
             &file.content
         );
     }

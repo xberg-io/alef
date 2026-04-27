@@ -1,7 +1,7 @@
 //! Dart pub.dev package — archives the Flutter Rust Bridge source tree for distribution.
 
-use super::util::{copy_dir_recursive, copy_optional_file};
 use super::PackageArtifact;
+use super::util::{copy_dir_recursive, copy_optional_file};
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
 use std::fs;

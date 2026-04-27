@@ -44,9 +44,7 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str) {
 
 /// Escape C# XML doc line: handle XML special characters.
 fn escape_csharp_doc_line(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Emit Elixir documentation comments (@doc)

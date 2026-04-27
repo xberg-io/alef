@@ -2,8 +2,8 @@ use alef_backend_gleam::GleamBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, GleamConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef,
-    ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -121,8 +121,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -195,8 +195,8 @@ fn make_config_with_nif(nif_module: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -279,7 +279,7 @@ fn enum_emits_custom_type() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -287,7 +287,7 @@ fn enum_emits_custom_type() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                is_tuple: false,
+                    is_tuple: false,
                 },
             ],
             doc: String::new(),
@@ -398,7 +398,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
-            is_tuple: false,
+                is_tuple: false,
             }],
             doc: String::new(),
             cfg: None,
@@ -727,9 +727,7 @@ fn trait_bridge_emits_per_method_response_shim() {
 
     // The NIF shim name follows `{trait_snake}_{method_snake}_response`.
     assert!(
-        content.contains(
-            "@external(erlang, \"Elixir.Demo.Native\", \"ocr_backend_process_image_response\")"
-        ),
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"ocr_backend_process_image_response\")"),
         "missing response shim @external: {content}"
     );
     assert!(

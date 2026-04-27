@@ -160,12 +160,15 @@ object {module}Sample {{
         module = project_name
             .chars()
             .enumerate()
-            .map(|(i, c)| if i == 0 { c.to_uppercase().to_string() } else { c.to_string() })
+            .map(|(i, c)| if i == 0 {
+                c.to_uppercase().to_string()
+            } else {
+                c.to_string()
+            })
             .collect::<String>(),
     );
 
-    let github_workflow = format!(
-        r#"name: Kotlin
+    let github_workflow = r#"name: Kotlin
 
 on:
   push:
@@ -188,7 +191,7 @@ jobs:
       - name: Run Gradle tests
         run: gradle test --project-path packages/kotlin
 "#
-    );
+    .to_string();
 
     Ok(vec![
         GeneratedFile {

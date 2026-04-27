@@ -8,7 +8,5 @@ pub(super) fn emit_def_file(config: &AlefConfig) -> String {
     let lib_name = config.ffi_lib_name();
     let prefix = config.ffi_prefix();
 
-    format!(
-        "headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n"
-    )
+    format!("headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n")
 }

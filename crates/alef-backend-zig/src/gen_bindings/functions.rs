@@ -41,7 +41,11 @@ pub(crate) fn emit_function(
         .map(|e| resolve_zig_error_type(e, declared_errors));
 
     let return_ty = if let Some(error_type) = &zig_error_type {
-        format!("({}||error{{OutOfMemory}})!{}", error_type, zig_return_type(&f.return_type))
+        format!(
+            "({}||error{{OutOfMemory}})!{}",
+            error_type,
+            zig_return_type(&f.return_type)
+        )
     } else {
         zig_return_type(&f.return_type)
     };

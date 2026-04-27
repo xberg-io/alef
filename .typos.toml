@@ -1,0 +1,4 @@
+[default.extend-words]
+# Gradle property flag: `-P<name>` sets project property `<name>` to true.
+# Used in build defaults: `gradle build -Prelease`.
+Prelease = "Prelease"

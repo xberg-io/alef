@@ -507,8 +507,9 @@ nif_module = "Elixir.Kreuzberg.Native"
 ### Trait bridges
 
 For each `[[trait_bridges]]`, the backend emits:
-* `register_<trait>(pid, plugin_name) -> Nil` — registers the calling Erlang process as the trait implementor.
-* Per-method `<trait>_<method>_response(call_id, result)` shims — called from `handle_info/2` when Rust dispatches a callback.
+
+- `register_<trait>(pid, plugin_name) -> Nil` — registers the calling Erlang process as the trait implementor.
+- Per-method `<trait>_<method>_response(call_id, result)` shims — called from `handle_info/2` when Rust dispatches a callback.
 
 ---
 
@@ -540,9 +541,10 @@ exclude_fields     = []   # "TypeName.field_name" entries skip getter emission
 ### Trait bridges
 
 Each trait emits:
-* Opaque `*Box` Rust types in the `extern "Rust"` block (held in Swift as opaque handles)
-* Per-method trampolines that dispatch into a host-language callback
-* Phantom `fn alef_phantom_vec_<trait>() -> Vec<TraitBox>` to pin swift-bridge's `Vec<FooBox>` C symbols (workaround for swift-bridge 0.1.59)
+
+- Opaque `*Box` Rust types in the `extern "Rust"` block (held in Swift as opaque handles)
+- Per-method trampolines that dispatch into a host-language callback
+- Phantom `fn alef_phantom_vec_<trait>() -> Vec<TraitBox>` to pin swift-bridge's `Vec<FooBox>` C symbols (workaround for swift-bridge 0.1.59)
 
 ### Known limitations
 
@@ -578,9 +580,10 @@ frb_version  = "2"
 ### Trait bridges
 
 Each trait emits:
-* `*DartImpl` opaque struct + `impl Trait for *DartImpl` on the Rust side
-* Factory function `create_<trait>_dart_impl(...)` accepting `DartFnFuture<T>` callbacks
-* Dart-side `abstract class <Trait>` in `lib/src/traits.dart` with `Future<T>`-returning methods
+
+- `*DartImpl` opaque struct + `impl Trait for *DartImpl` on the Rust side
+- Factory function `create_<trait>_dart_impl(...)` accepting `DartFnFuture<T>` callbacks
+- Dart-side `abstract class <Trait>` in `lib/src/traits.dart` with `Future<T>`-returning methods
 
 ### Known limitations
 

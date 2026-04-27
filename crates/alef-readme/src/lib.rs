@@ -796,8 +796,8 @@ mod tests {
             java: None,
 
             kotlin: None,
-        dart: None,
-        swift: None,
+            dart: None,
+            swift: None,
             csharp: None,
             r: None,
 

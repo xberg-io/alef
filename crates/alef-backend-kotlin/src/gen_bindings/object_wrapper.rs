@@ -107,12 +107,7 @@ pub(crate) fn emit_error_type_with_imports(
 // ---------------------------------------------------------------------------
 
 /// Emit a JVM wrapper function body (delegates to Bridge) inside an `object` block.
-pub(crate) fn emit_function(
-    f: &FunctionDef,
-    out: &mut String,
-    imports: &mut BTreeSet<String>,
-    _java_package: &str,
-) {
+pub(crate) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>, _java_package: &str) {
     emit_cleaned_kdoc(out, &f.doc, "    ");
     let params: Vec<String> = f.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
     let return_ty = kotlin_type_with_string_imports(&f.return_type, false, imports);

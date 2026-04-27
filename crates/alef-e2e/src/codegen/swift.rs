@@ -92,10 +92,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 continue;
             }
 
-            let class_name = format!(
-                "{}Tests",
-                sanitize_filename(&group.category).to_upper_camel_case()
-            );
+            let class_name = format!("{}Tests", sanitize_filename(&group.category).to_upper_camel_case());
             let filename = format!("{class_name}.swift");
             let content = render_test_file(
                 &group.category,
@@ -266,34 +263,22 @@ fn render_test_method(
             // the throw actually happens. `await XCTAssertThrowsError(...)` is
             // not valid Swift — it evaluates `await` against a non-async expr.
             let _ = writeln!(out, "        do {{");
-            let _ = writeln!(
-                out,
-                "            _ = try await {function_name}({args_str})"
-            );
+            let _ = writeln!(out, "            _ = try await {function_name}({args_str})");
             let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
             let _ = writeln!(out, "        }} catch {{");
             let _ = writeln!(out, "            // success");
             let _ = writeln!(out, "        }}");
         } else {
-            let _ = writeln!(
-                out,
-                "        XCTAssertThrowsError(try {function_name}({args_str}))"
-            );
+            let _ = writeln!(out, "        XCTAssertThrowsError(try {function_name}({args_str}))");
         }
         let _ = writeln!(out, "    }}");
         return;
     }
 
     if is_async {
-        let _ = writeln!(
-            out,
-            "        let {result_var} = try await {function_name}({args_str})"
-        );
+        let _ = writeln!(out, "        let {result_var} = try await {function_name}({args_str})");
     } else {
-        let _ = writeln!(
-            out,
-            "        let {result_var} = try {function_name}({args_str})"
-        );
+        let _ = writeln!(out, "        let {result_var} = try {function_name}({args_str})");
     }
 
     for assertion in &fixture.assertions {
@@ -470,37 +455,25 @@ fn render_assertion(
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertGreaterThan({field_expr}, {swift_val})"
-                );
+                let _ = writeln!(out, "        XCTAssertGreaterThan({field_expr}, {swift_val})");
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertLessThan({field_expr}, {swift_val})"
-                );
+                let _ = writeln!(out, "        XCTAssertLessThan({field_expr}, {swift_val})");
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertGreaterThanOrEqual({field_expr}, {swift_val})"
-                );
+                let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({field_expr}, {swift_val})");
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertLessThanOrEqual({field_expr}, {swift_val})"
-                );
+                let _ = writeln!(out, "        XCTAssertLessThanOrEqual({field_expr}, {swift_val})");
             }
         }
         "starts_with" => {
@@ -524,30 +497,21 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})"
-                    );
+                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertLessThanOrEqual({field_expr}.count, {n})"
-                    );
+                    let _ = writeln!(out, "        XCTAssertLessThanOrEqual({field_expr}.count, {n})");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})"
-                    );
+                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})");
                 }
             }
         }
@@ -580,10 +544,7 @@ fn render_assertion(
             // Handled at the test method level.
         }
         "method_result" => {
-            let _ = writeln!(
-                out,
-                "        // method_result assertions not yet implemented for Swift"
-            );
+            let _ = writeln!(out, "        // method_result assertions not yet implemented for Swift");
         }
         other => {
             panic!("Swift e2e generator: unsupported assertion type: {other}");

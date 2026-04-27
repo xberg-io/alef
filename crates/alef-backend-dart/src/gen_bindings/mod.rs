@@ -111,11 +111,7 @@ impl Backend for DartBackend {
         }
         content.push_str(&body);
 
-        let dir = resolve_output_dir(
-            None,
-            &config.crate_config.name,
-            "packages/dart/lib/src",
-        );
+        let dir = resolve_output_dir(None, &config.crate_config.name, "packages/dart/lib/src");
         let path = PathBuf::from(dir).join(format!("{module_name}.dart"));
 
         let mut files = vec![GeneratedFile {
@@ -151,11 +147,7 @@ impl Backend for DartBackend {
                 }
                 traits_content.push_str(&traits_body);
 
-                let traits_dir = resolve_output_dir(
-                    None,
-                    &config.crate_config.name,
-                    "packages/dart/lib/src",
-                );
+                let traits_dir = resolve_output_dir(None, &config.crate_config.name, "packages/dart/lib/src");
                 let traits_path = PathBuf::from(traits_dir).join("traits.dart");
                 files.push(GeneratedFile {
                     path: traits_path,

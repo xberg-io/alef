@@ -37,7 +37,11 @@ pub(super) fn trait_impl_param_type(
         // Reference parameters: use the slice/ref form for Bytes/Vec, plain ref for others.
         match &p.ty {
             TypeRef::Bytes => {
-                if p.is_mut { "&mut [u8]".to_string() } else { "&[u8]".to_string() }
+                if p.is_mut {
+                    "&mut [u8]".to_string()
+                } else {
+                    "&[u8]".to_string()
+                }
             }
             TypeRef::Vec(inner) => {
                 let inner_ty = match inner.as_ref() {
@@ -48,17 +52,33 @@ pub(super) fn trait_impl_param_type(
                     },
                     _ => frb_rust_type_inner(inner),
                 };
-                if p.is_mut { format!("&mut [{inner_ty}]") } else { format!("&[{inner_ty}]") }
+                if p.is_mut {
+                    format!("&mut [{inner_ty}]")
+                } else {
+                    format!("&[{inner_ty}]")
+                }
             }
             TypeRef::String | TypeRef::Char => {
-                if p.is_mut { "&mut String".to_string() } else { "&str".to_string() }
+                if p.is_mut {
+                    "&mut String".to_string()
+                } else {
+                    "&str".to_string()
+                }
             }
             TypeRef::Path => {
-                if p.is_mut { "&mut std::path::Path".to_string() } else { "&std::path::Path".to_string() }
+                if p.is_mut {
+                    "&mut std::path::Path".to_string()
+                } else {
+                    "&std::path::Path".to_string()
+                }
             }
             _ => {
                 let base = owned_ty(&p.ty, source_crate_name, type_paths);
-                if p.is_mut { format!("&mut {base}") } else { format!("&{base}") }
+                if p.is_mut {
+                    format!("&mut {base}")
+                } else {
+                    format!("&{base}")
+                }
             }
         }
     } else if p.optional {
@@ -116,7 +136,11 @@ pub(super) fn trait_impl_return_conversion(ty: &TypeRef) -> String {
         TypeRef::Primitive(prim) => {
             let orig = primitive_name(prim);
             let widened = frb_rust_type_inner(ty);
-            if orig != widened { format!(" as {orig}") } else { String::new() }
+            if orig != widened {
+                format!(" as {orig}")
+            } else {
+                String::new()
+            }
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Vec(inner2) = inner.as_ref() {
@@ -163,7 +187,10 @@ pub(super) fn trait_impl_return_type(
         },
         TypeRef::Vec(inner) => format!("Vec<{}>", trait_impl_return_type(inner, source_crate_name, type_paths)),
         TypeRef::Optional(inner) => {
-            format!("Option<{}>", trait_impl_return_type(inner, source_crate_name, type_paths))
+            format!(
+                "Option<{}>",
+                trait_impl_return_type(inner, source_crate_name, type_paths)
+            )
         }
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",

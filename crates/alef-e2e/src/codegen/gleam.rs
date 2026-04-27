@@ -173,7 +173,8 @@ fn render_test_file(
     for fixture in fixtures {
         for assertion in &fixture.assertions {
             match assertion.assertion_type.as_str() {
-                "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with" | "min_length" | "max_length" | "contains_any" => {
+                "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with" | "min_length"
+                | "max_length" | "contains_any" => {
                     needed_modules.insert("string");
                 }
                 "not_empty" | "is_empty" | "count_min" | "count_equals" => {
@@ -254,28 +255,16 @@ fn render_test_case(
     }
 
     if expects_error {
-        let _ = writeln!(
-            out,
-            "  {module_path}.{function_name}({args_str}) |> should.be_error()"
-        );
+        let _ = writeln!(out, "  {module_path}.{function_name}({args_str}) |> should.be_error()");
         let _ = writeln!(out, "}}");
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "  let {result_var} = {module_path}.{function_name}({args_str})"
-    );
+    let _ = writeln!(out, "  let {result_var} = {module_path}.{function_name}({args_str})");
     let _ = writeln!(out, "  {result_var} |> should.be_ok()");
 
     for assertion in &fixture.assertions {
-        render_assertion(
-            out,
-            assertion,
-            result_var,
-            field_resolver,
-            enum_fields,
-        );
+        render_assertion(out, assertion, result_var, field_resolver, enum_fields);
     }
 
     let _ = writeln!(out, "}}");
@@ -448,10 +437,7 @@ fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "  {field_expr} |> list.length |> should.equal({n})"
-                    );
+                    let _ = writeln!(out, "  {field_expr} |> list.length |> should.equal({n})");
                 }
             }
         }
@@ -470,25 +456,37 @@ fn render_assertion(
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let gleam_val = json_to_gleam(val);
-                let _ = writeln!(out, "  {field_expr} |> int.is_strictly_greater_than({gleam_val}) |> should.equal(True)");
+                let _ = writeln!(
+                    out,
+                    "  {field_expr} |> int.is_strictly_greater_than({gleam_val}) |> should.equal(True)"
+                );
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let gleam_val = json_to_gleam(val);
-                let _ = writeln!(out, "  {field_expr} |> int.is_strictly_less_than({gleam_val}) |> should.equal(True)");
+                let _ = writeln!(
+                    out,
+                    "  {field_expr} |> int.is_strictly_less_than({gleam_val}) |> should.equal(True)"
+                );
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let gleam_val = json_to_gleam(val);
-                let _ = writeln!(out, "  {field_expr} |> int.is_at_least({gleam_val}) |> should.equal(True)");
+                let _ = writeln!(
+                    out,
+                    "  {field_expr} |> int.is_at_least({gleam_val}) |> should.equal(True)"
+                );
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let gleam_val = json_to_gleam(val);
-                let _ = writeln!(out, "  {field_expr} |> int.is_at_most({gleam_val}) |> should.equal(True)");
+                let _ = writeln!(
+                    out,
+                    "  {field_expr} |> int.is_at_most({gleam_val}) |> should.equal(True)"
+                );
             }
         }
         "contains_any" => {

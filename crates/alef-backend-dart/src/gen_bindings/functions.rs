@@ -35,10 +35,7 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         out.push_str("  }\n");
     } else {
         let return_ty = render_type(&f.return_type, imports);
-        out.push_str(&format!(
-            "  static {return_ty} {fn_name}({}) {{\n",
-            params.join(", ")
-        ));
+        out.push_str(&format!("  static {return_ty} {fn_name}({}) {{\n", params.join(", ")));
         out.push_str(&format!("    return rust_bridge.{fn_name}({call_args_str});\n"));
         out.push_str("  }\n");
     }

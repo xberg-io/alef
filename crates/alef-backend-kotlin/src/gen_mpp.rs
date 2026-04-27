@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::gen_bindings::{
-    emit_enum_pub, emit_error_type_pub, emit_type_pub, emit_function_jvm, format_param_pub, kotlin_type_str_pub,
+    emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_type_pub, format_param_pub, kotlin_type_str_pub,
     to_lower_camel, to_pascal_case,
 };
 use crate::gen_native::emit_native_function_pub;
@@ -152,11 +152,7 @@ fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSe
             out.push('\n');
         }
     }
-    let params: Vec<String> = f
-        .params
-        .iter()
-        .map(|p| format_param_pub(p, imports))
-        .collect();
+    let params: Vec<String> = f.params.iter().map(|p| format_param_pub(p, imports)).collect();
     let return_ty = kotlin_type_str_pub(&f.return_type, false, imports);
     let async_kw = if f.is_async { "suspend " } else { "" };
     let func_name_camel = to_lower_camel(&f.name);
@@ -258,9 +254,7 @@ fn emit_def_file(config: &AlefConfig) -> String {
     let lib_name = config.ffi_lib_name();
     let prefix = config.ffi_prefix();
 
-    format!(
-        "headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n"
-    )
+    format!("headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n")
 }
 
 // ---------------------------------------------------------------------------

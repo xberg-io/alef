@@ -9,18 +9,8 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &AlefConfig) -> anyhow::
     let module = config.swift_module();
     // Strip the minor version component: "13.0" → "13", "16.0" → "16".
     // Swift PackageDescription uses e.g. `.v13` and `.v16`.
-    let min_macos_major = config
-        .swift_min_macos()
-        .split('.')
-        .next()
-        .unwrap_or("13")
-        .to_string();
-    let min_ios_major = config
-        .swift_min_ios()
-        .split('.')
-        .next()
-        .unwrap_or("16")
-        .to_string();
+    let min_macos_major = config.swift_min_macos().split('.').next().unwrap_or("13").to_string();
+    let min_ios_major = config.swift_min_ios().split('.').next().unwrap_or("16").to_string();
 
     // crate_name is e.g. "kreuzberg", the Cargo crate being wrapped.
     // The swift-bridge output files are named after the *binding* crate, e.g. "kreuzberg-swift".
@@ -271,8 +261,7 @@ struct Demo {{
         module = module,
     );
 
-    let github_workflow = format!(
-        r#"name: Swift
+    let github_workflow = r#"name: Swift
 
 on:
   push:
@@ -294,7 +283,7 @@ jobs:
       - name: Run tests
         run: swift test --package-path packages/swift
 "#
-    );
+    .to_string();
 
     Ok(vec![
         GeneratedFile {

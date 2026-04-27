@@ -144,15 +144,11 @@ impl E2eCodegen for KotlinE2eCodegen {
 fn render_build_gradle(pkg_name: &str, pkg_version: &str, dep_mode: crate::config::DependencyMode) -> String {
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!(
-                r#"    testImplementation("{pkg_name}:{pkg_version}")"#
-            )
+            format!(r#"    testImplementation("{pkg_name}:{pkg_version}")"#)
         }
         crate::config::DependencyMode::Local => {
             // Local mode: reference local JAR or Maven build output.
-            format!(
-                r#"    testImplementation(files("../../packages/kotlin/build/libs/{pkg_name}-{pkg_version}.jar"))"#
-            )
+            format!(r#"    testImplementation(files("../../packages/kotlin/build/libs/{pkg_name}-{pkg_version}.jar"))"#)
         }
     };
 
@@ -285,10 +281,7 @@ fn render_test_file(
 
     if needs_object_mapper {
         let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "    companion object {{"
-        );
+        let _ = writeln!(out, "    companion object {{");
         let _ = writeln!(
             out,
             "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module())"
@@ -736,7 +729,10 @@ fn render_assertion(
         }
         "method_result" => {
             // Placeholder: Kotlin support for method_result would need tree-sitter integration.
-            let _ = writeln!(out, "        // method_result assertions not yet implemented for Kotlin");
+            let _ = writeln!(
+                out,
+                "        // method_result assertions not yet implemented for Kotlin"
+            );
         }
         other => {
             panic!("Kotlin e2e generator: unsupported assertion type: {other}");

@@ -139,9 +139,7 @@ fn render_pubspec(
             format!("  {pkg_name}: ^{pkg_version}")
         }
         crate::config::DependencyMode::Local => {
-            format!(
-                "  {pkg_name}:\n    path: {pkg_path}"
-            )
+            format!("  {pkg_name}:\n    path: {pkg_path}")
         }
     };
 
@@ -268,15 +266,9 @@ fn render_test_case(
     }
 
     if is_async {
-        let _ = writeln!(
-            out,
-            "    final {result_var} = await {function_name}({args_str});"
-        );
+        let _ = writeln!(out, "    final {result_var} = await {function_name}({args_str});");
     } else {
-        let _ = writeln!(
-            out,
-            "    final {result_var} = {function_name}({args_str});"
-        );
+        let _ = writeln!(out, "    final {result_var} = {function_name}({args_str});");
     }
 
     for assertion in &fixture.assertions {
@@ -408,10 +400,7 @@ fn render_assertion(
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = json_to_dart(expected);
-                let _ = writeln!(
-                    out,
-                    "    expect({string_expr}, isNot(contains({dart_val})));"
-                );
+                let _ = writeln!(out, "    expect({string_expr}, isNot(contains({dart_val})));");
             }
         }
         "not_empty" => {
@@ -451,76 +440,52 @@ fn render_assertion(
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let dart_val = json_to_dart(val);
-                let _ = writeln!(
-                    out,
-                    "    expect({field_expr}, greaterThanOrEqualTo({dart_val}));"
-                );
+                let _ = writeln!(out, "    expect({field_expr}, greaterThanOrEqualTo({dart_val}));");
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let dart_val = json_to_dart(val);
-                let _ = writeln!(
-                    out,
-                    "    expect({field_expr}, lessThanOrEqualTo({dart_val}));"
-                );
+                let _ = writeln!(out, "    expect({field_expr}, lessThanOrEqualTo({dart_val}));");
             }
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = json_to_dart(expected);
-                let _ = writeln!(
-                    out,
-                    "    expect({string_expr}, startsWith({dart_val}));"
-                );
+                let _ = writeln!(out, "    expect({string_expr}, startsWith({dart_val}));");
             }
         }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = json_to_dart(expected);
-                let _ = writeln!(
-                    out,
-                    "    expect({string_expr}, endsWith({dart_val}));"
-                );
+                let _ = writeln!(out, "    expect({string_expr}, endsWith({dart_val}));");
             }
         }
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length, greaterThanOrEqualTo({n}));"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length, greaterThanOrEqualTo({n}));");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length, lessThanOrEqualTo({n}));"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length, lessThanOrEqualTo({n}));");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length, greaterThanOrEqualTo({n}));"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length, greaterThanOrEqualTo({n}));");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length, equals({n}));"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length, equals({n}));");
                 }
             }
         }
@@ -533,10 +498,7 @@ fn render_assertion(
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = json_to_dart(expected);
-                let _ = writeln!(
-                    out,
-                    "    expect({string_expr}, matches({dart_val}));"
-                );
+                let _ = writeln!(out, "    expect({string_expr}, matches({dart_val}));");
             }
         }
         "not_error" => {

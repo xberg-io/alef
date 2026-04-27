@@ -1,27 +1,7 @@
 use alef_backend_dart::DartBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, DartConfig, DartStyle};
-use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef,
-};
-
-fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
-    FieldDef {
-        name: name.to_string(),
-        ty,
-        optional,
-        default: None,
-        doc: String::new(),
-        sanitized: false,
-        is_boxed: false,
-        type_rust_path: None,
-        cfg: None,
-        typed_default: None,
-        core_wrapper: CoreWrapper::None,
-        vec_inner_core_wrapper: CoreWrapper::None,
-        newtype_wrapper: None,
-    }
-}
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, FunctionDef, ParamDef, TypeRef};
 
 fn make_param(name: &str, ty: TypeRef) -> ParamDef {
     ParamDef {
@@ -35,29 +15,6 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
-    }
-}
-
-fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
-    TypeDef {
-        name: name.to_string(),
-        rust_path: format!("demo::{name}"),
-        original_rust_path: String::new(),
-        fields,
-        methods: vec![],
-        is_opaque: false,
-        is_clone: true,
-
-        is_copy: false,
-        doc: String::new(),
-        cfg: None,
-        is_trait: false,
-        has_default: false,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: false,
-        super_traits: vec![],
     }
 }
 
@@ -153,8 +110,8 @@ fn make_config_ffi() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
-    format: ::alef_core::config::FormatConfig::default(),
-    format_overrides: ::std::collections::HashMap::new(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -166,11 +123,20 @@ fn ffi_emits_library_load_helper_with_platform_branching() {
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
-    assert!(ffi_file.content.contains("DynamicLibrary.open(_libraryPath())"), "missing DynamicLibrary.open");
+    assert!(
+        ffi_file.content.contains("DynamicLibrary.open(_libraryPath())"),
+        "missing DynamicLibrary.open"
+    );
     assert!(ffi_file.content.contains("Platform.isMacOS"), "missing macOS branch");
-    assert!(ffi_file.content.contains("Platform.isWindows"), "missing Windows branch");
+    assert!(
+        ffi_file.content.contains("Platform.isWindows"),
+        "missing Windows branch"
+    );
     assert!(ffi_file.content.contains(".dylib"), "missing dylib extension");
     assert!(ffi_file.content.contains(".dll"), "missing dll extension");
     assert!(ffi_file.content.contains(".so"), "missing so extension");
@@ -181,7 +147,12 @@ fn ffi_emits_library_load_helper_with_platform_branching() {
 fn each_function_gets_lookup_function_call() {
     let api = ApiSurface {
         functions: vec![
-            make_function("process_text", vec![make_param("input", TypeRef::String)], TypeRef::String, None),
+            make_function(
+                "process_text",
+                vec![make_param("input", TypeRef::String)],
+                TypeRef::String,
+                None,
+            ),
             make_function("get_version", vec![], TypeRef::String, None),
         ],
         ..make_empty_api()
@@ -189,7 +160,10 @@ fn each_function_gets_lookup_function_call() {
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
     assert!(
         ffi_file.content.contains("lookupFunction"),
@@ -220,7 +194,10 @@ fn string_params_marshal_via_to_native_utf8_and_calloc_free() {
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
     assert!(
         ffi_file.content.contains("toNativeUtf8()"),
@@ -247,7 +224,10 @@ fn result_returning_functions_check_last_error_code() {
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
     assert!(ffi_file.content.contains("_checkError()"), "missing _checkError call");
     // The error helpers use the standard last-error symbols.
@@ -266,11 +246,17 @@ fn result_returning_functions_check_last_error_code() {
 fn async_functions_emit_todo_comment_in_ffi_mode() {
     let mut f = make_function("stream_data", vec![], TypeRef::Unit, None);
     f.is_async = true;
-    let api = ApiSurface { functions: vec![f], ..make_empty_api() };
+    let api = ApiSurface {
+        functions: vec![f],
+        ..make_empty_api()
+    };
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
     assert!(
         ffi_file.content.contains("// TODO: async function 'stream_data'"),
@@ -293,7 +279,7 @@ fn unit_enum_emits_dart_enum() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
-            is_tuple: false,
+                is_tuple: false,
             },
             EnumVariant {
                 name: "Inactive".to_string(),
@@ -301,7 +287,7 @@ fn unit_enum_emits_dart_enum() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
-            is_tuple: false,
+                is_tuple: false,
             },
         ],
         serde_rename_all: None,
@@ -310,13 +296,22 @@ fn unit_enum_emits_dart_enum() {
         is_copy: false,
         has_serde: false,
     };
-    let api = ApiSurface { enums: vec![en], ..make_empty_api() };
+    let api = ApiSurface {
+        enums: vec![en],
+        ..make_empty_api()
+    };
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    let ffi_file = files.iter().find(|f| f.path.to_string_lossy().ends_with("_ffi.dart")).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
 
-    assert!(ffi_file.content.contains("enum Status {"), "missing Dart enum declaration");
+    assert!(
+        ffi_file.content.contains("enum Status {"),
+        "missing Dart enum declaration"
+    );
     assert!(ffi_file.content.contains("active"), "missing active variant");
     assert!(ffi_file.content.contains("inactive"), "missing inactive variant");
 }
@@ -338,11 +333,17 @@ fn ffi_mode_emits_two_files_impl_and_reexport() {
     assert!(has_ffi, "missing _ffi.dart implementation file");
     assert!(has_wrapper, "missing .dart re-export wrapper file");
 
-    let wrapper = files.iter().find(|f| {
-        let name = f.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        name.ends_with(".dart") && !name.ends_with("_ffi.dart")
-    }).unwrap();
-    assert!(wrapper.content.contains("export"), "wrapper file should re-export the FFI module");
+    let wrapper = files
+        .iter()
+        .find(|f| {
+            let name = f.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            name.ends_with(".dart") && !name.ends_with("_ffi.dart")
+        })
+        .unwrap();
+    assert!(
+        wrapper.content.contains("export"),
+        "wrapper file should re-export the FFI module"
+    );
 }
 
 /// `build_config_for` returns `BuildDependency::Ffi` for FFI style
@@ -355,10 +356,21 @@ fn build_config_for_dispatches_on_dart_style() {
 
     let ffi_config = make_config_ffi();
     let bc_ffi = backend.build_config_for(&ffi_config).unwrap();
-    assert_eq!(bc_ffi.build_dep, BuildDependency::Ffi, "FFI style should use BuildDependency::Ffi");
+    assert_eq!(
+        bc_ffi.build_dep,
+        BuildDependency::Ffi,
+        "FFI style should use BuildDependency::Ffi"
+    );
 
     let mut frb_config = make_config_ffi();
-    frb_config.dart = Some(DartConfig { style: DartStyle::Frb, ..DartConfig::default() });
+    frb_config.dart = Some(DartConfig {
+        style: DartStyle::Frb,
+        ..DartConfig::default()
+    });
     let bc_frb = backend.build_config_for(&frb_config).unwrap();
-    assert_eq!(bc_frb.build_dep, BuildDependency::None, "FRB style should use BuildDependency::None");
+    assert_eq!(
+        bc_frb.build_dep,
+        BuildDependency::None,
+        "FRB style should use BuildDependency::None"
+    );
 }
