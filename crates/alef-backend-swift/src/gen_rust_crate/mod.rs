@@ -54,6 +54,11 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
         .as_ref()
         .map(|c| c.exclude_fields.iter().cloned().collect())
         .unwrap_or_default();
+    let license = config
+        .scaffold
+        .as_ref()
+        .and_then(|s| s.license.as_deref())
+        .unwrap_or("MIT");
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         version,
@@ -61,6 +66,7 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
         swift_bridge_build_ver,
         &core_path,
         features,
+        license,
     );
     let lib_rs = emit_lib_rs(
         api,

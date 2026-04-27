@@ -819,3 +819,78 @@ fn trait_bridge_async_method_emits_block_on() {
         lib.content
     );
 }
+
+#[test]
+fn cargo_toml_has_license_field() {
+    use alef_core::config::ScaffoldConfig;
+
+    let mut config = make_config();
+    config.scaffold = Some(ScaffoldConfig {
+        description: Some("Demo library".to_string()),
+        license: Some("Apache-2.0".to_string()),
+        repository: None,
+        homepage: None,
+        authors: vec![],
+        keywords: vec![],
+    });
+
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    assert!(
+        cargo.content.contains("license = \"Apache-2.0\""),
+        "Cargo.toml must include license field; got:\n{}",
+        cargo.content
+    );
+}
+
+#[test]
+fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    assert!(
+        cargo.content.contains("license = \"MIT\""),
+        "Cargo.toml must default license to MIT when scaffold config is absent; got:\n{}",
+        cargo.content
+    );
+}
+
+#[test]
+fn cargo_toml_does_not_include_serde_json() {
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    assert!(
+        !cargo.content.contains("serde_json"),
+        "Cargo.toml must not list serde_json (unused dep); got:\n{}",
+        cargo.content
+    );
+}

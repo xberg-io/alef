@@ -1,11 +1,13 @@
 ---
 source: crates/alef-backend-dart/tests/snapshot_test.rs
+assertion_line: 216
 expression: "&file.content"
 ---
 [package]
 name = "demo-dart"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
@@ -13,7 +15,6 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 demo = { path = "../../.." }
 flutter_rust_bridge = "2.12.0"
-serde_json = "1"
 
 [lints.rust]
 # flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.

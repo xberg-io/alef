@@ -8,6 +8,7 @@ pub(crate) fn emit_cargo_toml(
     swift_bridge_build_ver: &str,
     core_path: &str,
     features: &[String],
+    license: &str,
 ) -> String {
     let source_crate_name = crate_name.replace('-', "_");
     let features_block = if features.is_empty() {
@@ -26,13 +27,13 @@ pub(crate) fn emit_cargo_toml(
 name = "{crate_name}-swift"
 version = "{version}"
 edition = "2024"
+license = "{license}"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block} }}
-serde_json = "1"
 tokio = {{ version = "1", features = ["rt", "macros"] }}
 swift-bridge = "{swift_bridge_ver}"
 

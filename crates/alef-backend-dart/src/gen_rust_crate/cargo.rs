@@ -46,11 +46,18 @@ pub(crate) fn emit_cargo_toml(
         ""
     };
 
+    let license = config
+        .scaffold
+        .as_ref()
+        .and_then(|s| s.license.as_deref())
+        .unwrap_or("MIT");
+
     let content = format!(
         r#"[package]
 name = "{crate_name}-dart"
 version = "{version}"
 edition = "2024"
+license = "{license}"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
@@ -58,7 +65,6 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block} }}
 flutter_rust_bridge = "{frb_version}"
-serde_json = "1"
 {extra_deps}
 [lints.rust]
 # flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.

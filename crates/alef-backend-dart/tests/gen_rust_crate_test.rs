@@ -611,3 +611,75 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
     );
     assert!(lib.contains("fn extract_text("), "missing extract_text impl: {lib}");
 }
+
+#[test]
+fn cargo_toml_has_license_field() {
+    use alef_core::config::ScaffoldConfig;
+
+    let mut config = make_config();
+    config.scaffold = Some(ScaffoldConfig {
+        description: Some("Demo library".to_string()),
+        license: Some("Apache-2.0".to_string()),
+        repository: None,
+        homepage: None,
+        authors: vec![],
+        keywords: vec![],
+    });
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        cargo.contains("license = \"Apache-2.0\""),
+        "Cargo.toml must include license field; got:\n{cargo}"
+    );
+}
+
+#[test]
+fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        cargo.contains("license = \"MIT\""),
+        "Cargo.toml must default license to MIT when scaffold config is absent; got:\n{cargo}"
+    );
+}
+
+#[test]
+fn cargo_toml_does_not_include_serde_json() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        !cargo.contains("serde_json"),
+        "Cargo.toml must not list serde_json (unused dep); got:\n{cargo}"
+    );
+}
