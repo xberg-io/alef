@@ -4,7 +4,9 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^crates/alef-core/src/template_versions\\.rs$"],
+      "managerFilePatterns": [
+        "/^crates/alef-core/src/template_versions\\.rs$/"
+      ],
       "matchStrings": [
         "// renovate: datasource=(?<datasource>[^\\s]+)(?: packageName=(?<packageName>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\s*\\npub const [A-Z_]+: &str = \"(?<currentValue>[^\"]+)\";"
       ],
