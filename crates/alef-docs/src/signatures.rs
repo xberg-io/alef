@@ -213,12 +213,12 @@ pub(crate) fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> Stri
         } else {
             format!("{name}Async")
         };
-        format!(
-            "public static async Task<{}> {}({})",
-            ret,
-            async_name,
-            params.join(", ")
-        )
+        let task_ret = if ret == "void" {
+            "Task".to_string()
+        } else {
+            format!("Task<{ret}>")
+        };
+        format!("public static async {} {}({})", task_ret, async_name, params.join(", "))
     } else {
         format!("public static {} {}({})", ret, name, params.join(", "))
     }
@@ -384,7 +384,12 @@ pub(crate) fn render_method_signature(
                 } else {
                     format!("{name}Async")
                 };
-                format!("public async Task<{}> {}({})", ret, async_name, params.join(", "))
+                let task_ret = if ret == "void" {
+                    "Task".to_string()
+                } else {
+                    format!("Task<{ret}>")
+                };
+                format!("public async {} {}({})", task_ret, async_name, params.join(", "))
             } else {
                 format!("public {} {}({})", ret, name, params.join(", "))
             }

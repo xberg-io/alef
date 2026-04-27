@@ -4,6 +4,7 @@
 //! actual API struct paths (e.g., "metadata.document.title") and generates
 //! language-specific accessor expressions.
 
+use alef_codegen::naming::to_go_name;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
@@ -373,23 +374,26 @@ fn render_wasm(segments: &[PathSegment], result_var: &str) -> String {
     out
 }
 
-/// Go: `result.Foo.Bar.Baz` (PascalCase) or `result.Foo.Bar["key"]`
+/// Go: `result.Foo.Bar.HTML` (PascalCase with Go initialism uppercasing) or `result.Foo.Bar["key"]`
+///
+/// Uses `alef_codegen::naming::to_go_name` so that fields like `html`, `url`, `user_id`
+/// are rendered as `HTML`, `URL`, `UserID` — matching the Go binding generator.
 fn render_go(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
     for seg in segments {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(&f.to_pascal_case());
+                out.push_str(&to_go_name(f));
             }
             PathSegment::ArrayField(f) => {
                 out.push('.');
-                out.push_str(&f.to_pascal_case());
+                out.push_str(&to_go_name(f));
                 out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(&field.to_pascal_case());
+                out.push_str(&to_go_name(field));
                 out.push_str(&format!("[\"{key}\"]"));
             }
             PathSegment::Length => {
@@ -765,6 +769,26 @@ mod tests {
     fn test_accessor_go() {
         let r = make_resolver();
         assert_eq!(r.accessor("title", "go", "result"), "result.Metadata.Document.Title");
+    }
+
+    #[test]
+    fn test_accessor_go_initialism_fields() {
+        // Verifies that Go initialism uppercasing is applied consistently with the
+        // binding generator — `html` → `HTML`, `url` → `URL`, etc.
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("content".to_string(), "html".to_string());
+        fields.insert("link_url".to_string(), "links.url".to_string());
+        let r = FieldResolver::new(&fields, &HashSet::new(), &HashSet::new(), &HashSet::new());
+
+        assert_eq!(r.accessor("content", "go", "result"), "result.HTML");
+        assert_eq!(r.accessor("link_url", "go", "result"), "result.Links.URL");
+        // Direct field access without alias.
+        assert_eq!(r.accessor("html", "go", "result"), "result.HTML");
+        assert_eq!(r.accessor("url", "go", "result"), "result.URL");
+        assert_eq!(r.accessor("id", "go", "result"), "result.ID");
+        assert_eq!(r.accessor("user_id", "go", "result"), "result.UserID");
+        assert_eq!(r.accessor("request_url", "go", "result"), "result.RequestURL");
+        assert_eq!(r.accessor("links", "go", "result"), "result.Links");
     }
 
     #[test]

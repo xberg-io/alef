@@ -37,8 +37,8 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="../../../../LICENSE" Pack="true" PackagePath="/" />
-    <None Include="../runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
 "#,
@@ -52,12 +52,12 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 
     Ok(vec![
         GeneratedFile {
-            // Co-locate the csproj with the .cs files (which alef emits to
-            // packages/csharp/{Namespace}/*.cs). Keeping it at the package root
-            // would let MSBuild's default Compile glob also pick up the
-            // subdirectory sources, so a hand-maintained subdir csproj would
-            // conflict with this one (CS0579 duplicate AssemblyAttribute).
-            path: PathBuf::from(format!("packages/csharp/{0}/{0}.csproj", namespace)),
+            // Place the csproj at the package root (packages/csharp/<Namespace>.csproj)
+            // so that MSBuild's default Compile glob picks up the generated .cs files
+            // in the packages/csharp/<Namespace>/ subdirectory. This matches the layout
+            // expected by `dotnet format` / `dotnet build` invocations that reference
+            // the file by name (e.g. `dotnet format MyLib.csproj`).
+            path: PathBuf::from(format!("packages/csharp/{}.csproj", namespace)),
             content,
             // Scaffold-once so consumers can extend metadata (deps, runtime
             // configs, package metadata) without alef stomping on it.

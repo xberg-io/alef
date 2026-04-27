@@ -169,3 +169,74 @@ pub fn to_class_name(name: &str) -> String {
 pub fn to_constant_name(name: &str) -> String {
     name.to_shouty_snake_case()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- to_go_name (snake_case → Go PascalCase with initialism uppercasing) ---
+
+    #[test]
+    fn test_to_go_name_html_initialism() {
+        assert_eq!(to_go_name("html"), "HTML");
+    }
+
+    #[test]
+    fn test_to_go_name_url_initialism() {
+        assert_eq!(to_go_name("url"), "URL");
+    }
+
+    #[test]
+    fn test_to_go_name_id_initialism() {
+        assert_eq!(to_go_name("id"), "ID");
+    }
+
+    #[test]
+    fn test_to_go_name_plain_word() {
+        assert_eq!(to_go_name("links"), "Links");
+    }
+
+    #[test]
+    fn test_to_go_name_user_id() {
+        assert_eq!(to_go_name("user_id"), "UserID");
+    }
+
+    #[test]
+    fn test_to_go_name_request_url() {
+        assert_eq!(to_go_name("request_url"), "RequestURL");
+    }
+
+    // --- Additional cases ---
+
+    #[test]
+    fn test_to_go_name_http_status() {
+        assert_eq!(to_go_name("http_status"), "HTTPStatus");
+    }
+
+    #[test]
+    fn test_to_go_name_json_body() {
+        assert_eq!(to_go_name("json_body"), "JSONBody");
+    }
+
+    // --- go_param_name (snake_case → Go lowerCamelCase with initialism uppercasing) ---
+
+    #[test]
+    fn test_go_param_name_base_url() {
+        assert_eq!(go_param_name("base_url"), "baseURL");
+    }
+
+    #[test]
+    fn test_go_param_name_user_id() {
+        assert_eq!(go_param_name("user_id"), "userID");
+    }
+
+    #[test]
+    fn test_go_param_name_api_key() {
+        assert_eq!(go_param_name("api_key"), "apiKey");
+    }
+
+    #[test]
+    fn test_go_param_name_plain() {
+        assert_eq!(go_param_name("json"), "json");
+    }
+}

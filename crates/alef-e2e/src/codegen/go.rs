@@ -4,6 +4,7 @@ use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use alef_codegen::naming::go_param_name;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -379,7 +380,7 @@ fn render_test_function(
                         continue;
                     }
                     let field_expr = field_resolver.accessor(f, "go", result_var);
-                    let local_var = go_local_name(&resolved.replace(['.', '[', ']'], "_"));
+                    let local_var = go_param_name(&resolved.replace(['.', '[', ']'], "_"));
                     if field_resolver.has_map_access(f) {
                         // Go map access returns a value type (string), not a pointer.
                         // Use the value directly — empty string means not present.
@@ -1188,47 +1189,6 @@ fn build_go_method_call(
             }
         }
     }
-}
-
-/// Go common initialisms — words that must be all-caps in Go names.
-/// Sourced from revive's var-naming rule (github.com/mgechev/revive).
-const GO_INITIALISMS: &[&str] = &[
-    "ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IDS", "IP", "JSON",
-    "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP", "UI", "UID", "UUID",
-    "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS",
-];
-
-/// Convert a snake_case field name to a Go-idiomatic local variable name.
-/// Splits on `_`, applies Go initialism rules (HTML, URL, ID, etc.),
-/// and joins as lowerCamelCase.
-fn go_local_name(snake: &str) -> String {
-    let words: Vec<&str> = snake.split('_').filter(|w| !w.is_empty()).collect();
-    if words.is_empty() {
-        return String::new();
-    }
-    let mut result = String::new();
-    for (i, word) in words.iter().enumerate() {
-        let upper = word.to_uppercase();
-        if GO_INITIALISMS.contains(&upper.as_str()) {
-            if i == 0 {
-                // First word of a local var → all lowercase initialism
-                result.push_str(&upper.to_lowercase());
-            } else {
-                result.push_str(&upper);
-            }
-        } else if i == 0 {
-            // First word → all lowercase
-            result.push_str(&word.to_lowercase());
-        } else {
-            // Subsequent words → capitalize first letter
-            let mut chars = word.chars();
-            if let Some(c) = chars.next() {
-                result.extend(c.to_uppercase());
-                result.push_str(&chars.as_str().to_lowercase());
-            }
-        }
-    }
-    result
 }
 
 /// Convert a `serde_json::Value` to a Go literal string.
