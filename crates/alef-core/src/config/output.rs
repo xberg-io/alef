@@ -31,10 +31,15 @@ pub struct OutputConfig {
     pub elixir: Option<PathBuf>,
     pub wasm: Option<PathBuf>,
     pub ffi: Option<PathBuf>,
+    pub gleam: Option<PathBuf>,
     pub go: Option<PathBuf>,
     pub java: Option<PathBuf>,
+    pub kotlin: Option<PathBuf>,
+    pub dart: Option<PathBuf>,
+    pub swift: Option<PathBuf>,
     pub csharp: Option<PathBuf>,
     pub r: Option<PathBuf>,
+    pub zig: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

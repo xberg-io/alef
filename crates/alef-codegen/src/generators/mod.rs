@@ -6,6 +6,7 @@ pub mod functions;
 pub mod methods;
 pub mod structs;
 pub mod trait_bridge;
+pub mod type_paths;
 
 /// Map of adapter-generated method/function bodies.
 /// Key: "TypeName.method_name" for methods, "function_name" for free functions.

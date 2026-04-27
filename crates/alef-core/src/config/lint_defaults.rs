@@ -213,6 +213,91 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             )),
             typecheck: None,
         },
+        Language::Kotlin => {
+            let format_cmd = wrap(
+                format!("cd {output_dir} && gradle ktlintFormat"),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                format!("cd {output_dir} && gradle ktlintCheck"),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("gradle")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Swift => {
+            let format_cmd = wrap(
+                format!("cd {output_dir} && swift format --in-place --recursive Sources Tests"),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                format!("cd {output_dir} && swift format lint --recursive Sources Tests"),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("swift")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Dart => {
+            let format_cmd = wrap(
+                append_paths(format!("dart format {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                append_paths(format!("dart analyze {output_dir}"), ctx.extra_lint_paths),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("dart")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Gleam => {
+            let format_cmd = wrap(
+                format!("cd {output_dir} && gleam format"),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                format!("cd {output_dir} && gleam format --check"),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("gleam")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
+        Language::Zig => {
+            let format_cmd = wrap(
+                format!("cd {output_dir} && zig fmt src"),
+                ctx.run_wrapper,
+            );
+            let check_cmd = wrap(
+                format!("cd {output_dir} && zig fmt --check src"),
+                ctx.run_wrapper,
+            );
+            LintConfig {
+                precondition: Some(require_tool("zig")),
+                before: None,
+                format: Some(StringOrVec::Single(format_cmd)),
+                check: Some(StringOrVec::Single(check_cmd)),
+                typecheck: None,
+            }
+        }
     }
 }
 
@@ -235,6 +320,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -476,5 +566,55 @@ mod tests {
             fmt.contains("packages/go vendor"),
             "format should include extra paths: {fmt}"
         );
+    }
+
+    #[test]
+    fn kotlin_uses_gradle_ktlint() {
+        let c = cfg(Language::Kotlin, "packages/kotlin");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("gradle ktlintFormat"), "Kotlin format should use gradle ktlintFormat, got: {fmt}");
+        assert!(check.contains("gradle ktlintCheck"), "Kotlin check should use gradle ktlintCheck, got: {check}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn swift_uses_swift_format() {
+        let c = cfg(Language::Swift, "packages/swift");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("swift format --in-place"), "Swift format should use swift format --in-place, got: {fmt}");
+        assert!(check.contains("swift format lint"), "Swift check should use swift format lint, got: {check}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v swift >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn dart_uses_dart_format_and_analyze() {
+        let c = cfg(Language::Dart, "packages/dart");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("dart format"), "Dart format should use dart format, got: {fmt}");
+        assert!(check.contains("dart analyze"), "Dart check should use dart analyze, got: {check}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn gleam_uses_gleam_format() {
+        let c = cfg(Language::Gleam, "packages/gleam");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("gleam format"), "Gleam format should use gleam format, got: {fmt}");
+        assert!(check.contains("gleam format --check"), "Gleam check should use gleam format --check, got: {check}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn zig_uses_zig_fmt() {
+        let c = cfg(Language::Zig, "packages/zig");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("zig fmt src"), "Zig format should use zig fmt src, got: {fmt}");
+        assert!(check.contains("zig fmt --check src"), "Zig check should use zig fmt --check src, got: {check}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

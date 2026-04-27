@@ -248,6 +248,12 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 
 ### Added
 
+- **Backends**: Kotlin/JVM backend (`alef-backend-kotlin`) — emits `data class` for IR structs, `enum class` / `sealed class` for IR enums, and an `object` wrapping top-level functions. Consumes the same Java/Panama FFM `.so` produced by the Java backend. Function bodies are `TODO()` stubs; FFI bridge wiring lands in Phase 1C. Kotlin/Native and Multiplatform paths deferred to Phase 3.
+- **Backends**: Gleam backend (`alef-backend-gleam`) — emits `pub type Foo { Foo(field: T, ...) }` records and `@external(erlang, "<nif>", "<fn>")` declarations targeting the Rustler-emitted Erlang NIF. No new Rust crate generated; Gleam shims an existing Rustler NIF library.
+- **Backends**: Zig backend (`alef-backend-zig`) — emits `pub const T = struct {}` types, `pub const E = enum {}` / `union(enum)` enums, and thin wrappers calling into the C ABI via `pub const c = @cImport(@cInclude("<header>.h"))`. Marshalling for non-trivial return types lands in Phase 1C.
+- **Core**: `BuildDependency` enum (`None | Ffi | Rustler`) replaces `BuildConfig.depends_on_ffi: bool`. All 11 existing backends migrated; `BuildConfig::depends_on_ffi()` accessor preserved for callers.
+- **Core**: `PostBuildStep::RunCommand { cmd, args }` variant — needed by Phase 2 Dart's flutter_rust_bridge codegen step.
+- **Core**: Five new `Language` enum variants — `Kotlin`, `Swift`, `Dart`, `Gleam`, `Zig`. All per-language match arms across `crates/alef-core/src/config/` (build/clean/lint/setup/test/update defaults, naming, scaffold, publish, docs, adapters) wired with sensible defaults. `Swift` and `Dart` panic in the registry pending Phase 2.
 - **CLI**: `alef verify` now checks README freshness — regenerated READMEs are compared with on-disk files.
 - **Hooks**: `alef-readme` pre-commit hook to regenerate README files for all configured languages.
 - **Scaffold**: scaffolded `.pre-commit-config.yaml` includes `alef-readme` hook.

@@ -43,6 +43,20 @@ tasks:
     cmds:
       - cargo test --workspace
 
+  test:release:
+    desc: "Run all tests in release mode (catches release-only optimizer/lifetime issues)"
+    cmds:
+      - cargo test --release --workspace
+
+  bench:
+    desc: "Run codegen benchmarks (criterion) for new-language backends"
+    cmds:
+      - cargo bench -p alef-backend-kotlin
+      - cargo bench -p alef-backend-swift
+      - cargo bench -p alef-backend-dart
+      - cargo bench -p alef-backend-gleam
+      - cargo bench -p alef-backend-zig
+
   check:
     desc: "Type-check all crates"
     cmds:

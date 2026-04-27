@@ -132,6 +132,66 @@ pub(crate) fn default_build_config(
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-r"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-r"))),
         },
+        Language::Kotlin => BuildCommandConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gradle build"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gradle build -Prelease"),
+                ctx.run_wrapper,
+            ))),
+        },
+        Language::Swift => BuildCommandConfig {
+            precondition: Some(require_tool("swift")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("swift build --package-path {output_dir}"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("swift build --package-path {output_dir} --configuration release"),
+                ctx.run_wrapper,
+            ))),
+        },
+        Language::Dart => BuildCommandConfig {
+            precondition: Some(require_tool("dart")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && dart pub get"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && dart pub get"),
+                ctx.run_wrapper,
+            ))),
+        },
+        Language::Gleam => BuildCommandConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gleam build"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gleam build"),
+                ctx.run_wrapper,
+            ))),
+        },
+        Language::Zig => BuildCommandConfig {
+            precondition: Some(require_tool("zig")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && zig build"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && zig build --release=fast"),
+                ctx.run_wrapper,
+            ))),
+        },
     }
 }
 
@@ -154,6 +214,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -294,5 +359,51 @@ mod tests {
         let c = cfg(Language::Go, "my/custom/path", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("my/custom/path"));
+    }
+
+    #[test]
+    fn kotlin_uses_gradle_build() {
+        let c = cfg(Language::Kotlin, "packages/kotlin", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
+        assert!(build.contains("gradle build"), "Kotlin build should use gradle build, got: {build}");
+        assert!(release.contains("gradle build"), "Kotlin release should use gradle build, got: {release}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn swift_uses_swift_build_with_package_path() {
+        let c = cfg(Language::Swift, "packages/swift", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
+        assert!(build.contains("swift build"), "Swift build should use swift build, got: {build}");
+        assert!(build.contains("--package-path packages/swift"), "Swift build should include package path, got: {build}");
+        assert!(release.contains("--configuration release"), "Swift release should use --configuration release, got: {release}");
+    }
+
+    #[test]
+    fn dart_uses_dart_pub_get() {
+        let c = cfg(Language::Dart, "packages/dart", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        assert!(build.contains("dart pub get"), "Dart build should use dart pub get, got: {build}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn gleam_uses_gleam_build() {
+        let c = cfg(Language::Gleam, "packages/gleam", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        assert!(build.contains("gleam build"), "Gleam build should use gleam build, got: {build}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn zig_uses_zig_build() {
+        let c = cfg(Language::Zig, "packages/zig", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
+        assert!(build.contains("zig build"), "Zig build should use zig build, got: {build}");
+        assert!(release.contains("--release=fast"), "Zig release should use --release=fast, got: {release}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

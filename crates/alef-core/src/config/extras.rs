@@ -15,6 +15,11 @@ pub enum Language {
     Csharp,
     R,
     Rust,
+    Kotlin,
+    Swift,
+    Dart,
+    Gleam,
+    Zig,
 }
 
 impl std::fmt::Display for Language {
@@ -32,6 +37,11 @@ impl std::fmt::Display for Language {
             Self::Csharp => write!(f, "csharp"),
             Self::R => write!(f, "r"),
             Self::Rust => write!(f, "rust"),
+            Self::Kotlin => write!(f, "kotlin"),
+            Self::Swift => write!(f, "swift"),
+            Self::Dart => write!(f, "dart"),
+            Self::Gleam => write!(f, "gleam"),
+            Self::Zig => write!(f, "zig"),
         }
     }
 }

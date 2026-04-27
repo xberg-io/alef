@@ -32,10 +32,18 @@ fn test_config() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: Some(ScaffoldConfig {
             description: Some("Test library".to_string()),
             license: Some("MIT".to_string()),
@@ -773,6 +781,96 @@ fn test_scaffold_elixir_cargo_no_tokio_when_sync_only() {
 }
 
 #[test]
+fn test_scaffold_dart() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
+    let files = language_files(&all_files);
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test + BUILDING.md + .editorconfig + README.md + example + dart.yml
+    assert_eq!(files.len(), 9, "Expected 9 files for Dart scaffold");
+
+    let pubspec = &files[0];
+    assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
+    assert!(pubspec.content.contains("name: my_lib"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("version: 0.1.0"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("flutter_rust_bridge:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("sdk: '"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
+
+    let analysis_options = &files[1];
+    assert_eq!(
+        analysis_options.path,
+        PathBuf::from("packages/dart/analysis_options.yaml")
+    );
+    assert!(
+        analysis_options.content.contains("package:lints/recommended.yaml"),
+        "got: {}",
+        analysis_options.content
+    );
+    assert!(
+        analysis_options.content.contains("linter:"),
+        "analysis_options.yaml should include linter rules; got: {}",
+        analysis_options.content
+    );
+
+    let gitignore = &files[2];
+    assert_eq!(gitignore.path, PathBuf::from("packages/dart/.gitignore"));
+    assert!(gitignore.content.contains(".dart_tool/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("pubspec.lock"), "got: {}", gitignore.content);
+
+    let test_file = &files[3];
+    assert_eq!(test_file.path, PathBuf::from("packages/dart/test/my_lib_test.dart"));
+    assert!(
+        test_file.content.contains("import 'package:test/test.dart'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("test('placeholder'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("expect(1 + 1, equals(2))"),
+        "got: {}",
+        test_file.content
+    );
+
+    let building_md = &files[4];
+    assert_eq!(building_md.path, PathBuf::from("packages/dart/BUILDING.md"));
+    assert!(
+        building_md.content.contains("cargo install flutter_rust_bridge_codegen"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("flutter_rust_bridge_codegen generate"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("dart test"),
+        "got: {}",
+        building_md.content
+    );
+
+    // Check for new production files
+    assert_eq!(files[5].path, PathBuf::from("packages/dart/.editorconfig"));
+    assert!(files[5].content.contains("*.dart"));
+
+    assert_eq!(files[6].path, PathBuf::from("packages/dart/README.md"));
+    assert!(files[6].content.contains("dart pub get"));
+
+    assert_eq!(files[7].path, PathBuf::from("packages/dart/example/my_lib_example.dart"));
+    assert!(files[7].content.contains("void main"));
+
+    assert_eq!(files[8].path, PathBuf::from(".github/workflows/dart.yml"));
+    assert!(files[8].content.contains("dart-lang/setup-dart"));
+}
+
+#[test]
 fn test_scaffold_elixir_cargo_tokio_when_async_function() {
     use alef_core::ir::{FunctionDef, TypeRef};
     let mut config = test_config();
@@ -964,4 +1062,244 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         "tokio dep must include rt-multi-thread feature; content:\n{}",
         cargo_toml.content
     );
+}
+
+#[test]
+fn test_scaffold_swift() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
+    let files = language_files(&all_files);
+    // Original 7 + new: .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift + swift.yml = 12
+    assert_eq!(files.len(), 12, "Expected 12 files for Swift scaffold (original 7 + 5 new)");
+
+    let package_swift = &files[0];
+    assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
+    // Module name derives to PascalCase of "my-lib" → "MyLib"
+    assert!(
+        package_swift.content.contains("name: \"MyLib\""),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".macOS(.v13)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".iOS(.v16)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("swift-tools-version: 5.9"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Sources/MyLib"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Tests/MyLibTests"),
+        "got: {}",
+        package_swift.content
+    );
+    // Must declare RustBridge and RustBridgeC targets
+    assert!(
+        package_swift.content.contains("\"RustBridge\""),
+        "Package.swift must declare RustBridge target; got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("\"RustBridgeC\""),
+        "Package.swift must declare RustBridgeC target; got: {}",
+        package_swift.content
+    );
+    // RustBridge must link the static library
+    assert!(
+        package_swift.content.contains("linkedLibrary(\"my_lib_swift\")"),
+        "Package.swift must link my_lib_swift; got: {}",
+        package_swift.content
+    );
+
+    let gitignore = &files[1];
+    assert_eq!(gitignore.path, PathBuf::from("packages/swift/.gitignore"));
+    assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);
+
+    // RustBridgeC placeholder header (pure C target)
+    let header = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridgeC/RustBridgeC.h"))
+        .unwrap();
+    assert!(
+        header.content.contains("#ifndef RUST_BRIDGE_C_H"),
+        "got: {}",
+        header.content
+    );
+
+    // module.modulemap in RustBridge (kept as documentation comment)
+    let modulemap = files.iter().find(|f| f.path.ends_with("module.modulemap")).unwrap();
+    assert!(!modulemap.content.is_empty(), "module.modulemap must not be empty");
+
+    // RustBridge placeholder Swift source
+    let rust_bridge_swift = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridge/RustBridge.swift"))
+        .unwrap();
+    assert!(
+        !rust_bridge_swift.content.is_empty(),
+        "RustBridge.swift must not be empty"
+    );
+
+    // BUILDING.md documents the cargo-then-copy workflow
+    let building = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/BUILDING.md"))
+        .unwrap();
+    assert!(
+        building.content.contains("cargo build"),
+        "BUILDING.md must mention cargo build; got: {}",
+        building.content
+    );
+    assert!(
+        building.content.contains("Sources/RustBridgeC"),
+        "BUILDING.md must mention RustBridgeC copy destination; got: {}",
+        building.content
+    );
+    // Check for new production files
+    let readme = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/README.md"));
+    assert!(readme.is_some(), "README.md should be generated");
+    assert!(
+        readme.unwrap().content.contains("swift build"),
+        "README.md must document build process"
+    );
+    let editorconfig = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/.editorconfig"));
+    assert!(editorconfig.is_some(), ".editorconfig should be generated");
+    let swiftformat = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/.swiftformat"));
+    assert!(swiftformat.is_some(), ".swiftformat should be generated");
+    let demo = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Examples/Demo/main.swift"));
+    assert!(demo.is_some(), "Demo example should be generated");
+    let workflow = files
+        .iter()
+        .find(|f| f.path == PathBuf::from(".github/workflows/swift.yml"));
+    assert!(workflow.is_some(), "GitHub workflow should be generated");
+}
+
+#[test]
+fn test_scaffold_kotlin() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let files = language_files(&all_files);
+    // build.gradle.kts, settings.gradle.kts, .gitignore, .editorconfig, gradle.properties, README.md, Sample.kt, kotlin.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Kotlin scaffold");
+    assert_eq!(files[0].path, PathBuf::from("packages/kotlin/build.gradle.kts"));
+    assert!(files[0].content.contains("kotlin(\"jvm\")"));
+    assert!(files[0].content.contains("org.jlleitschuh.gradle.ktlint"));
+    assert_eq!(files[1].path, PathBuf::from("packages/kotlin/settings.gradle.kts"));
+    assert_eq!(files[2].path, PathBuf::from("packages/kotlin/.gitignore"));
+    assert_eq!(files[3].path, PathBuf::from("packages/kotlin/.editorconfig"));
+    assert!(files[3].content.contains("*.kt"));
+    assert_eq!(files[4].path, PathBuf::from("packages/kotlin/gradle.properties"));
+    assert!(files[4].content.contains("org.gradle.parallel=true"));
+    assert_eq!(files[5].path, PathBuf::from("packages/kotlin/README.md"));
+    assert!(files[5].content.contains("my_lib"));
+    assert!(files[5].content.contains("gradle build"));
+    assert_eq!(files[6].path, PathBuf::from("packages/kotlin/src/main/kotlin/sample/Sample.kt"));
+    assert!(files[6].content.contains("object"));
+    assert_eq!(files[7].path, PathBuf::from(".github/workflows/kotlin.yml"));
+    assert!(files[7].content.contains("gradle build"));
+}
+
+#[test]
+fn test_scaffold_gleam() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Gleam]).unwrap();
+    let files = language_files(&all_files);
+    // gleam.toml + manifest.toml + .gitignore + test + .editorconfig + README.md + example + gleam.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Gleam scaffold");
+
+    let gleam_toml = &files[0];
+    assert_eq!(gleam_toml.path, PathBuf::from("packages/gleam/gleam.toml"));
+    assert!(gleam_toml.content.contains("description"), "gleam.toml should include description");
+    assert!(gleam_toml.content.contains("licences = [\"MIT\"]"), "gleam.toml should include licences");
+
+    let manifest = &files[1];
+    assert_eq!(manifest.path, PathBuf::from("packages/gleam/manifest.toml"));
+
+    let gitignore = &files[2];
+    assert_eq!(gitignore.path, PathBuf::from("packages/gleam/.gitignore"));
+    assert!(gitignore.content.contains("build/"));
+
+    assert!(files[3].path.to_string_lossy().ends_with("_test.gleam"));
+
+    let editorconfig = &files[4];
+    assert_eq!(editorconfig.path, PathBuf::from("packages/gleam/.editorconfig"));
+    assert!(editorconfig.content.contains("*.gleam"));
+
+    let readme = &files[5];
+    assert_eq!(readme.path, PathBuf::from("packages/gleam/README.md"));
+    assert!(readme.content.contains("gleam build"));
+
+    assert!(files[6].path.to_string_lossy().ends_with("_example.gleam"));
+    assert!(files[6].content.contains("Nil"));
+
+    let workflow = &files[7];
+    assert_eq!(workflow.path, PathBuf::from(".github/workflows/gleam.yml"));
+    assert!(workflow.content.contains("erlef/setup-beam"));
+}
+
+#[test]
+fn test_scaffold_zig() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Zig]).unwrap();
+    let files = language_files(&all_files);
+    // build.zig + build.zig.zon + .gitignore + .editorconfig + README.md + example.zig + main.zig + zig.yml
+    assert_eq!(files.len(), 8, "Expected 8 files for Zig scaffold");
+
+    let build_zig = &files[0];
+    assert_eq!(build_zig.path, PathBuf::from("packages/zig/build.zig"));
+    assert!(build_zig.content.contains("addModule"));
+
+    let build_zig_zon = &files[1];
+    assert_eq!(build_zig_zon.path, PathBuf::from("packages/zig/build.zig.zon"));
+    assert!(build_zig_zon.content.contains(".fingerprint"));
+
+    let gitignore = &files[2];
+    assert_eq!(gitignore.path, PathBuf::from("packages/zig/.gitignore"));
+    assert!(gitignore.content.contains("zig-cache/"));
+
+    let editorconfig = &files[3];
+    assert_eq!(editorconfig.path, PathBuf::from("packages/zig/.editorconfig"));
+    assert!(editorconfig.content.contains("*.zig"));
+
+    let readme = &files[4];
+    assert_eq!(readme.path, PathBuf::from("packages/zig/README.md"));
+    assert!(readme.content.contains("zig build"));
+
+    let example = &files[5];
+    assert_eq!(example.path, PathBuf::from("packages/zig/examples/example.zig"));
+    assert!(example.content.contains("pub fn main"));
+
+    let main = &files[6];
+    assert_eq!(main.path, PathBuf::from("packages/zig/src/main.zig"));
+    assert!(main.content.contains("test"));
+    assert!(main.content.contains("pub fn add"));
+
+    let workflow = &files[7];
+    assert_eq!(workflow.path, PathBuf::from(".github/workflows/zig.yml"));
+    assert!(workflow.content.contains("mlugg/setup-zig"));
 }

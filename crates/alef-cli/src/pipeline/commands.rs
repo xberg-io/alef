@@ -653,6 +653,7 @@ fn output_path_for(lang: Language, config: &AlefConfig) -> Option<&Path> {
         Language::R => config.output.r.as_deref(),
         // Rust is the core language — no separate output path
         Language::Rust => None,
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
     }
 }
 

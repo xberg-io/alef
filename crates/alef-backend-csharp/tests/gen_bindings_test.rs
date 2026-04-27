@@ -129,6 +129,7 @@ fn test_basic_generation() {
             doc: "Available OCR backends".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],
@@ -175,8 +176,14 @@ fn test_basic_generation() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
             target_framework: None,
@@ -188,6 +195,8 @@ fn test_basic_generation() {
             project_file: None,
         }),
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -333,8 +342,14 @@ fn test_namespace_resolution() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: Some(CSharpConfig {
             namespace: Some("MyCompany.MyLib".to_string()),
             target_framework: None,
@@ -346,6 +361,8 @@ fn test_namespace_resolution() {
             project_file: None,
         }),
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -425,10 +442,18 @@ fn test_generated_header() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -592,10 +617,18 @@ fn test_type_mapping() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -734,10 +767,18 @@ fn test_tuple_struct_fields_skipped() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -869,10 +910,18 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -972,6 +1021,11 @@ fn minimal_csharp_config(crate_name: &str) -> AlefConfig {
             extra_lint_paths: Vec::new(),
             project_file: None,
         }),
+        kotlin: None,
+        swift: None,
+        dart: None,
+        gleam: None,
+        zig: None,
         r: None,
         scaffold: None,
         readme: None,
@@ -1197,6 +1251,7 @@ fn test_plain_enum_with_default_emits_single_nullable() {
             doc: String::new(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],

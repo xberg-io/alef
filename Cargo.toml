@@ -5,14 +5,19 @@ members = [
     "crates/alef-backend-csharp",
     "crates/alef-backend-extendr",
     "crates/alef-backend-ffi",
+    "crates/alef-backend-gleam",
     "crates/alef-backend-go",
     "crates/alef-backend-java",
+    "crates/alef-backend-dart",
+    "crates/alef-backend-kotlin",
     "crates/alef-backend-magnus",
     "crates/alef-backend-napi",
     "crates/alef-backend-php",
     "crates/alef-backend-pyo3",
     "crates/alef-backend-rustler",
     "crates/alef-backend-wasm",
+    "crates/alef-backend-swift",
+    "crates/alef-backend-zig",
     "crates/alef-cli",
     "crates/alef-codegen",
     "crates/alef-core",
@@ -38,16 +43,21 @@ categories = ["development-tools::ffi", "development-tools::build-utils"]
 ahash = "0.8"
 alef-adapters = { version = "0.9.2", path = "crates/alef-adapters" }
 alef-backend-csharp = { version = "0.9.2", path = "crates/alef-backend-csharp" }
+alef-backend-dart = { version = "0.9.2", path = "crates/alef-backend-dart" }
 alef-backend-extendr = { version = "0.9.2", path = "crates/alef-backend-extendr" }
 alef-backend-ffi = { version = "0.9.2", path = "crates/alef-backend-ffi" }
+alef-backend-gleam = { version = "0.9.2", path = "crates/alef-backend-gleam" }
 alef-backend-go = { version = "0.9.2", path = "crates/alef-backend-go" }
 alef-backend-java = { version = "0.9.2", path = "crates/alef-backend-java" }
+alef-backend-kotlin = { version = "0.9.2", path = "crates/alef-backend-kotlin" }
 alef-backend-magnus = { version = "0.9.2", path = "crates/alef-backend-magnus" }
 alef-backend-napi = { version = "0.9.2", path = "crates/alef-backend-napi" }
 alef-backend-php = { version = "0.9.2", path = "crates/alef-backend-php" }
 alef-backend-pyo3 = { version = "0.9.2", path = "crates/alef-backend-pyo3" }
 alef-backend-rustler = { version = "0.9.2", path = "crates/alef-backend-rustler" }
+alef-backend-swift = { version = "0.9.2", path = "crates/alef-backend-swift" }
 alef-backend-wasm = { version = "0.9.2", path = "crates/alef-backend-wasm" }
+alef-backend-zig = { version = "0.9.2", path = "crates/alef-backend-zig" }
 alef-codegen = { version = "0.9.2", path = "crates/alef-codegen" }
 alef-core = { version = "0.9.2", path = "crates/alef-core" }
 alef-docs = { version = "0.9.2", path = "crates/alef-docs" }
@@ -61,6 +71,7 @@ blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 heck = "0.5"
+insta = { version = "1.41", features = ["redactions"] }
 jsonschema = { version = "0.46", default-features = false, features = ["resolve-file"] }
 minijinja = "2"
 quote = "1"

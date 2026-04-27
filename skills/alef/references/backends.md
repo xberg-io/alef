@@ -1,6 +1,6 @@
 # Language Backend Reference
 
-Alef supports 11 language backends. Each backend implements the `Backend` trait from `alef-core` and generates binding code from the extracted IR (`ApiSurface`).
+Alef supports 16 language backends: Python (PyO3), TypeScript/Node (NAPI-RS), WebAssembly (wasm-bindgen), Ruby (Magnus), PHP (ext-php-rs), Go (cgo), Java/Kotlin (Panama FFM), C# (P/Invoke), Elixir (Rustler), Gleam (Rustler NIF + `@external`), R (extendr), Swift (swift-bridge), Dart (flutter_rust_bridge), Zig (C FFI), and C (cbindgen). Each backend implements the `Backend` trait from `alef-core` and generates binding code from the extracted IR (`ApiSurface`).
 
 ## Backend Trait
 
@@ -447,6 +447,176 @@ serde_rename_all = "snake_case"    # Field naming (default: snake_case)
 
 ---
 
+## Kotlin (Panama FFM)
+
+- **Framework**: [Panama FFM](https://openjdk.org/jeps/454) (shared with the Java backend)
+- **Crate**: `alef-backend-kotlin`
+- **Build tool**: `gradle`
+- **Crate suffix**: shares `-java` (no separate Rust crate emitted)
+- **Depends on FFI**: Yes — emits a Kotlin source layer over the Java Panama bindings
+
+### DTO styles
+
+| Style | TOML value | When to use |
+|-------|-----------|-------------|
+| `data class` | `"data-class"` (default) | Idiomatic Kotlin records with structural equality and copy semantics |
+| `sealed class` | `"sealed-class"` | Polymorphic enum-with-data shapes |
+
+### Generated output
+
+- `packages/kotlin/src/main/kotlin/{package}/{Module}.kt` — Kotlin object namespace + bridge calls
+- `packages/kotlin/build.gradle.kts` — gradle build file with kotlin-jvm + Panama deps
+
+### Key configuration
+
+```toml
+[kotlin]
+package = "dev.kreuzberg.kreuzberg"
+target  = "jvm"             # or "native" — Kotlin/Native via FFI (planned)
+exclude_functions = []
+exclude_types     = []
+```
+
+### Trait bridges
+
+Trait bridges emit a Kotlin `interface` plus a typealias to the Java FFI-managed bridge handle. Implement the interface in Kotlin and pass instances to the bridge factory function.
+
+---
+
+## Gleam (Rustler NIF + `@external`)
+
+- **Framework**: [Rustler](https://github.com/rusterlium/rustler) NIF, Gleam side via `@external(erlang, …)`
+- **Crate**: `alef-backend-gleam`
+- **Build tool**: `gleam`
+- **Crate suffix**: shares `-rustler` (Gleam emits Gleam source, not a separate crate)
+- **Depends on FFI**: No (rides on Rustler/BEAM)
+
+### Generated output
+
+- `packages/gleam/src/{module}.gleam` — record types, `@external` shims, per-trait callback response shims
+- `packages/gleam/gleam.toml` — Gleam package manifest
+
+### Key configuration
+
+```toml
+[gleam]
+app_name   = "kreuzberg"
+nif_module = "Elixir.Kreuzberg.Native"
+```
+
+### Trait bridges
+
+For each `[[trait_bridges]]`, the backend emits:
+* `register_<trait>(pid, plugin_name) -> Nil` — registers the calling Erlang process as the trait implementor.
+* Per-method `<trait>_<method>_response(call_id, result)` shims — called from `handle_info/2` when Rust dispatches a callback.
+
+---
+
+## Swift (swift-bridge)
+
+- **Framework**: [swift-bridge](https://github.com/chinedufn/swift-bridge) 0.1.59
+- **Crate**: `alef-backend-swift`
+- **Build tool**: `cargo` + `swift build`
+- **Crate suffix**: `-swift`
+- **Depends on FFI**: No (uses swift-bridge's C-compatible glue)
+
+### Generated output
+
+- `packages/swift/rust/` — full Rust crate (`Cargo.toml`, `build.rs`, `src/lib.rs` with `#[swift_bridge::bridge] mod ffi { … }`)
+- `packages/swift/Package.swift` — SwiftPM manifest with three targets: `RustBridgeC` (C headers), `RustBridge` (swift-bridge generated Swift), `Kreuzberg` (host wrapper)
+- `packages/swift/Sources/Kreuzberg/Kreuzberg.swift` — public Swift types (`Codable` structs and enums) + namespace
+- `packages/swift/BUILDING.md` — manual `cargo build` + copy-step instructions because SwiftPM cannot invoke Cargo directly
+
+### Key configuration
+
+```toml
+[swift]
+module_name        = "Kreuzberg"
+exclude_types      = []
+exclude_functions  = []
+exclude_fields     = []   # "TypeName.field_name" entries skip getter emission
+```
+
+### Trait bridges
+
+Each trait emits:
+* Opaque `*Box` Rust types in the `extern "Rust"` block (held in Swift as opaque handles)
+* Per-method trampolines that dispatch into a host-language callback
+* Phantom `fn alef_phantom_vec_<trait>() -> Vec<TraitBox>` to pin swift-bridge's `Vec<FooBox>` C symbols (workaround for swift-bridge 0.1.59)
+
+### Known limitations
+
+- swift-bridge 0.1.59 does not support `#[swift_bridge(async)]`; async functions block on `tokio::runtime::Runtime::new()` at the bridge boundary.
+- Functions whose params or returns require lossy bridging (e.g. `Vec<(Vec<u8>, T)>`, opaque enum wrappers, JSON returns of non-serde types) are skipped from the extern surface entirely rather than emitting panicking shims.
+- The host wrapper (`Kreuzberg.swift`) currently exposes Codable types; calling RustBridge directly is the recommended path until full type-conversion bridging lands.
+
+---
+
+## Dart (flutter_rust_bridge)
+
+- **Framework**: [flutter_rust_bridge](https://cjycode.com/flutter_rust_bridge/) v2
+- **Crate**: `alef-backend-dart`
+- **Build tool**: `cargo` + `flutter_rust_bridge_codegen`
+- **Crate suffix**: `-dart`
+- **Depends on FFI**: No
+
+### Generated output
+
+- `packages/dart/rust/` — Rust crate with `#[frb(mirror)]` struct/enum mirrors and bridge functions
+- `packages/dart/pubspec.yaml` — Dart package manifest
+- `packages/dart/lib/src/traits.dart` — abstract Dart classes for each `[[trait_bridges]]` entry
+- `packages/dart/test/{module}_test.dart` — placeholder so `dart test` succeeds before FRB codegen runs
+
+### Key configuration
+
+```toml
+[dart]
+pubspec_name = "kreuzberg"
+frb_version  = "2"
+```
+
+### Trait bridges
+
+Each trait emits:
+* `*DartImpl` opaque struct + `impl Trait for *DartImpl` on the Rust side
+* Factory function `create_<trait>_dart_impl(...)` accepting `DartFnFuture<T>` callbacks
+* Dart-side `abstract class <Trait>` in `lib/src/traits.dart` with `Future<T>`-returning methods
+
+### Known limitations
+
+- `flutter_rust_bridge_codegen generate` must be installed and run after `cargo build -p kreuzberg-dart` — see `packages/dart/BUILDING.md`.
+- Tuple-of-bytes containers like `Vec<(Vec<u8>, T)>` cannot survive FRB's JSON round-trip; affected functions are skipped from emission rather than emitting panicking shims.
+- Async-fn with non-trivial signatures may be deferred; check the generated `packages/dart/rust/src/lib.rs` for a `// TODO: async function` comment.
+
+---
+
+## Zig (C FFI)
+
+- **Framework**: C FFI via `@cImport` against the alef-emitted C header
+- **Crate**: `alef-backend-zig`
+- **Build tool**: `zig build`
+- **Crate suffix**: shares `-ffi` (Zig wraps the C FFI crate)
+- **Depends on FFI**: Yes (consumes the C header generated by `alef-backend-ffi`)
+
+### Generated output
+
+- `packages/zig/src/{module}.zig` — Zig structs, error sets, function shims, comptime vtable helpers
+- `packages/zig/build.zig` — build script with C FFI link flags
+- `packages/zig/build.zig.zon` — package manifest
+
+### Key configuration
+
+```toml
+[zig]
+module_name = "kreuzberg"
+```
+
+### Trait bridges
+
+For each trait, the backend emits a `pub fn make_<trait>_vtable(comptime T: type, instance: *T) I<Trait>` helper. The helper uses `comptime` reflection to produce `callconv(.C)` thunks from the Zig type's methods, eliminating the per-method boilerplate that hand-written Zig FFI usually requires.
+
+---
+
 ## Common Configuration
 
 ### Output directories
@@ -458,12 +628,17 @@ node = "crates/{name}-node/src/"
 ruby = "crates/{name}-rb/src/"
 php = "crates/{name}-php/src/"
 elixir = "crates/{name}-rustler/src/"
+gleam = "packages/gleam/src/"
 wasm = "crates/{name}-wasm/src/"
 ffi = "crates/{name}-ffi/src/"
 go = "packages/go/"
 java = "packages/java/src/main/java/"
+kotlin = "packages/kotlin/src/main/kotlin/"
 csharp = "packages/csharp/src/"
 r = "crates/{name}-extendr/src/"
+swift = "packages/swift/Sources/"
+dart = "packages/dart/lib/"
+zig = "packages/zig/src/"
 ```
 
 ### DTO config section
@@ -486,4 +661,4 @@ r = "list"
 
 | Default `camelCase` | Default `snake_case` |
 |---------------------|---------------------|
-| Node, WASM, Java, C# | Python, Ruby, PHP, Go, FFI, Elixir, R |
+| Node, WASM, Java, Kotlin, C#, Swift, Dart | Python, Ruby, PHP, Go, FFI, Elixir, Gleam, R, Zig |

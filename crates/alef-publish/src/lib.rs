@@ -196,7 +196,11 @@ pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Opt
         Language::Java => config.output.java.as_deref(),
         Language::Csharp => config.output.csharp.as_deref(),
         Language::R => config.output.r.as_deref(),
+        Language::Kotlin => config.output.kotlin.as_deref(),
+        Language::Gleam => config.output.gleam.as_deref(),
+        Language::Zig => config.output.zig.as_deref(),
         Language::Rust => None,
+        Language::Swift | Language::Dart => None,
     }?;
     let path = std::path::Path::new(output_path);
     // Strip trailing `src/` component if present.
@@ -259,6 +263,10 @@ fn build_command_for_lang(lang: Language, config: &AlefConfig, target: Option<&R
         }
         Language::Rust => {
             format!("{cargo} build --release --workspace{target_flag}")
+        }
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            eprintln!("Warning: Phase 1: {lang} backend build command not yet implemented");
+            String::new()
         }
     }
 }
@@ -326,6 +334,31 @@ pub fn package(
                 let artifact = package::go::package_go_ffi(config, t, ws_root, output_dir, version)?;
                 Some(artifact)
             }
+            Language::Kotlin => {
+                // Kotlin/JVM packaging is target-independent — Gradle produces a JVM jar.
+                let artifact = package::kotlin::package_kotlin(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Gleam => {
+                // Gleam source packaging is target-independent.
+                let artifact = package::gleam::package_gleam(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Zig => {
+                let t = target.context("--target required for Zig packaging")?;
+                let artifact = package::zig::package_zig(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Dart => {
+                // Dart source packaging is target-independent (FRB handles cross-compilation).
+                let artifact = package::dart::package_dart(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Swift => {
+                // Swift source packaging is target-independent; XCFramework requires xcodebuild.
+                let artifact = package::swift::package_swift(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
             Language::Rust => {
                 // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
                 eprintln!("  CLI (Rust) packaging handled separately");
@@ -388,6 +421,11 @@ pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<Strin
             Language::Csharp => vec![], // .csproj name varies
             Language::Wasm => vec![],
             Language::R => vec!["DESCRIPTION"],
+            Language::Kotlin => vec!["build.gradle.kts"],
+            Language::Gleam => vec!["gleam.toml"],
+            Language::Zig => vec!["build.zig"],
+            Language::Dart => vec!["pubspec.yaml"],
+            Language::Swift => vec!["Package.swift"],
             _ => vec![],
         };
 

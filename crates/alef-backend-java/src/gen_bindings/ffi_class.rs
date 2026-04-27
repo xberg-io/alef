@@ -135,13 +135,19 @@ pub(crate) fn gen_sync_function_method(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
 ) {
-    // Exclude bridge params from the public Java signature.
+    // Exclude bridge params from the public Java signature. Optional params
+    // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
+    // `null` to skip them.
     let params: Vec<String> = func
         .params
         .iter()
         .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .map(|p| {
-            let ptype = java_type(&p.ty);
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty)
+            } else {
+                java_type(&p.ty)
+            };
             format!("final {} {}", ptype, to_java_name(&p.name))
         })
         .collect();

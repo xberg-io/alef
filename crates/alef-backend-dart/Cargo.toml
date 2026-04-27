@@ -1,0 +1,24 @@
+[package]
+name = "alef-backend-dart"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Dart backend for alef"
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+alef-codegen = { workspace = true }
+alef-core = { workspace = true }
+alef-docs = { workspace = true }
+anyhow = { workspace = true }
+heck = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+insta = { workspace = true }
+
+[[bench]]
+name = "emit"
+harness = false

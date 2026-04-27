@@ -1,4 +1,5 @@
 use alef_codegen::builder::RustFileBuilder;
+use alef_codegen::doc_emission;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -244,9 +245,11 @@ impl Backend for ExtendrBackend {
 
         // Generate wrapper functions for all API functions
         for func in &api.functions {
-            let doc_line = func.doc.lines().next().unwrap_or("Function");
-            content.push_str(&format!("#' {}\n", doc_line));
+            // Emit roxygen documentation
+            doc_emission::emit_roxygen(&mut content, &func.doc);
+            // Add @export tag for public functions
             content.push_str("#' @export\n");
+
             content.push_str(&format!("{} <- function(", func.name));
 
             // Parameters with default values

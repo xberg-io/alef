@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 // Module declarations
 mod descriptions;
-mod doc_cleaning;
+pub mod doc_cleaning;
 mod formatting;
 mod naming;
 mod signatures;
@@ -23,12 +23,13 @@ mod type_mapping;
 pub(crate) mod test_helpers;
 
 pub use type_mapping::doc_type;
+pub use doc_cleaning::clean_doc;
 
 use descriptions::{
     generate_enum_variant_description, generate_error_variant_description, generate_field_description,
     generate_param_description,
 };
-use doc_cleaning::{clean_doc, clean_doc_inline, extract_param_docs, wrap_bare_urls};
+use doc_cleaning::{clean_doc_inline, extract_param_docs, wrap_bare_urls};
 use formatting::{doc_type_with_optional, format_error_phrase, format_field_default};
 use naming::{
     enum_variant_name, field_name, func_name, lang_code_fence, lang_display_name, lang_slug, to_camel_case, type_name,
@@ -733,10 +734,18 @@ mod tests {
             elixir: None,
             wasm: None,
             ffi: None,
+            gleam: None,
+
             go: None,
             java: None,
+
+            kotlin: None,
+        dart: None,
+        swift: None,
             csharp: None,
             r: None,
+
+            zig: None,
             scaffold: None,
             readme: None,
             lint: None,
@@ -886,6 +895,7 @@ mod tests {
                 doc: "The output format.".to_string(),
                 cfg: None,
                 is_copy: false,
+                has_serde: false,
                 serde_tag: None,
                 serde_rename_all: None,
             }],

@@ -194,6 +194,59 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
             e2e: None,
             coverage: None,
         },
+        Language::Kotlin => {
+            let cmd = wrap(format!("cd {output_dir} && gradle test"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("gradle")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd.clone())),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cmd)),
+            }
+        }
+        Language::Swift => {
+            let cmd = wrap(
+                format!("swift test --package-path {output_dir}"),
+                ctx.run_wrapper,
+            );
+            TestConfig {
+                precondition: Some(require_tool("swift")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd.clone())),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cmd)),
+            }
+        }
+        Language::Dart => {
+            let cmd = wrap(format!("cd {output_dir} && dart test"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("dart")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd.clone())),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cmd)),
+            }
+        }
+        Language::Gleam => {
+            let cmd = wrap(format!("cd {output_dir} && gleam test"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("gleam")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd.clone())),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cmd)),
+            }
+        }
+        Language::Zig => {
+            let cmd = wrap(format!("cd {output_dir} && zig build test"), ctx.run_wrapper);
+            TestConfig {
+                precondition: Some(require_tool("zig")),
+                before: None,
+                command: Some(StringOrVec::Single(cmd.clone())),
+                e2e: None,
+                coverage: Some(StringOrVec::Single(cmd)),
+            }
+        }
     }
 }
 
@@ -216,6 +269,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -236,7 +294,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_command_and_coverage() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -248,7 +306,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_default_precondition() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -350,5 +408,45 @@ mod tests {
         let c = cfg(Language::Python, "my/custom/dir");
         let cmd = c.command.unwrap().commands().join(" ");
         assert!(cmd.contains("my/custom/dir"));
+    }
+
+    #[test]
+    fn kotlin_uses_gradle_test() {
+        let c = cfg(Language::Kotlin, "packages/kotlin");
+        let cmd = c.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("gradle test"), "Kotlin test should use gradle test, got: {cmd}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn swift_uses_swift_test_with_package_path() {
+        let c = cfg(Language::Swift, "packages/swift");
+        let cmd = c.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("swift test"), "Swift test should use swift test, got: {cmd}");
+        assert!(cmd.contains("--package-path packages/swift"), "Swift test should include package path, got: {cmd}");
+    }
+
+    #[test]
+    fn dart_uses_dart_test() {
+        let c = cfg(Language::Dart, "packages/dart");
+        let cmd = c.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("dart test"), "Dart test should use dart test, got: {cmd}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn gleam_uses_gleam_test() {
+        let c = cfg(Language::Gleam, "packages/gleam");
+        let cmd = c.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("gleam test"), "Gleam test should use gleam test, got: {cmd}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn zig_uses_zig_build_test() {
+        let c = cfg(Language::Zig, "packages/zig");
+        let cmd = c.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("zig build test"), "Zig test should use zig build test, got: {cmd}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }

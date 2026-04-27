@@ -213,6 +213,7 @@ mod tests {
             doc: String::new(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }

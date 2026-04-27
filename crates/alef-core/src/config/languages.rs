@@ -350,6 +350,215 @@ fn default_java_ffi_style() -> String {
     "panama".to_string()
 }
 
+/// Target platform for Kotlin code generation.
+///
+/// - `"jvm"` (default): emits source consuming the Java/Panama FFM facade.
+/// - `"native"`: emits Kotlin/Native source consuming the cbindgen C FFI library.
+/// - `"multiplatform"`: reserved for the KMP stage (Phase 3 follow-up).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum KotlinTarget {
+    #[default]
+    Jvm,
+    Native,
+    // Multiplatform — Phase 3 KMP stage; placeholder so the enum is forward-compatible.
+    Multiplatform,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KotlinConfig {
+    pub package: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+    /// Functions to exclude from Kotlin binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Kotlin binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+    /// Target platform for Kotlin output. `"jvm"` (default) emits source consuming
+    /// the Java/Panama FFM facade; `"native"` emits Kotlin/Native source consuming
+    /// the cbindgen C FFI library. `"multiplatform"` is reserved for the KMP stage.
+    #[serde(default)]
+    pub target: KotlinTarget,
+}
+
+/// Dart bridging style: FRB (default) or raw `dart:ffi`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DartStyle {
+    /// flutter_rust_bridge — emits a Rust crate plus Dart wrappers using
+    /// FRB-generated bridge symbols. Default.
+    #[default]
+    Frb,
+    /// Raw `dart:ffi` over the cbindgen C ABI — emits Dart-only source that
+    /// loads the shared library at runtime. Cheaper to ship; loses FRB's
+    /// async ergonomics and freezed-style data classes.
+    Ffi,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DartConfig {
+    /// Dart pub.dev package name (e.g. `"my_package"`). Used as the `name` in
+    /// `pubspec.yaml`. Defaults to a snake_case derivation of the crate name.
+    #[serde(default)]
+    pub pubspec_name: Option<String>,
+    /// Dart library name (the `library` declaration). Defaults to the pubspec name.
+    #[serde(default)]
+    pub lib_name: Option<String>,
+    /// Dart package name override (e.g. for pub.dev scoped packages).
+    #[serde(default)]
+    pub package_name: Option<String>,
+    /// Bridging style. `"frb"` (default) uses flutter_rust_bridge; `"ffi"` emits
+    /// raw `dart:ffi` source over the cbindgen C library.
+    #[serde(default)]
+    pub style: DartStyle,
+    /// flutter_rust_bridge version to pin in generated pubspec.yaml.
+    /// Defaults to `template_versions::cargo::FLUTTER_RUST_BRIDGE` when unset.
+    #[serde(default)]
+    pub frb_version: Option<String>,
+    /// Cargo features to enable on the binding crate.
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+    /// Functions to exclude from Dart binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Dart binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SwiftConfig {
+    /// Swift module name (e.g. `"MyLibrary"`). Defaults to PascalCase of the crate name.
+    #[serde(default)]
+    pub module_name: Option<String>,
+    /// Swift package name. Defaults to the module name.
+    #[serde(default)]
+    pub package_name: Option<String>,
+    /// swift-bridge version. Defaults to `template_versions::cargo::SWIFT_BRIDGE` when unset.
+    #[serde(default)]
+    pub swift_bridge_version: Option<String>,
+    /// Minimum macOS deployment target. Defaults to `template_versions::toolchain::SWIFT_MIN_MACOS` when unset.
+    #[serde(default)]
+    pub min_macos_version: Option<String>,
+    /// Minimum iOS deployment target. Defaults to `template_versions::toolchain::SWIFT_MIN_IOS` when unset.
+    #[serde(default)]
+    pub min_ios_version: Option<String>,
+    /// Cargo features to enable on the binding crate.
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+    /// Functions to exclude from Swift binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Swift binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
+    /// Fields to exclude from Swift binding generation.
+    /// Format: `"TypeName.field_name"`.
+    #[serde(default)]
+    pub exclude_fields: Vec<String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GleamConfig {
+    pub app_name: Option<String>,
+    /// Erlang atom name for @external(erlang, "<nif>", ...) lookups (e.g., "my_app_nif").
+    /// Defaults to the app_name.
+    #[serde(default)]
+    pub nif_module: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+    /// Functions to exclude from Gleam binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Gleam binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZigConfig {
+    pub module_name: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+    /// Functions to exclude from Zig binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Zig binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CSharpConfig {
     pub namespace: Option<String>,
@@ -443,6 +652,7 @@ impl CustomModulesConfig {
             Language::Csharp => &self.csharp,
             Language::R => &self.r,
             Language::Rust => &[], // Rust doesn't need custom modules (no binding crate)
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => &[],
         }
     }
 }

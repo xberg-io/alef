@@ -87,6 +87,18 @@ pub mod cargo {
 
     // walkdir major-only; manual bump required
     pub const WALKDIR: &str = "2";
+
+    // renovate: datasource=crate depName=flutter_rust_bridge
+    pub const FLUTTER_RUST_BRIDGE: &str = "2.12.0";
+
+    // renovate: datasource=crate depName=flutter_rust_bridge_codegen
+    pub const FLUTTER_RUST_BRIDGE_CODEGEN: &str = "2.12.0";
+
+    // renovate: datasource=crate depName=swift-bridge
+    pub const SWIFT_BRIDGE: &str = "0.1.59";
+
+    // renovate: datasource=crate depName=swift-bridge-build
+    pub const SWIFT_BRIDGE_BUILD: &str = "0.1.59";
 }
 
 pub mod pypi {
@@ -231,6 +243,18 @@ pub mod maven {
 
     // renovate: datasource=maven depName=org.codehaus.mojo:build-helper-maven-plugin
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.0";
+
+    // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.1.10";
+
+    // renovate: datasource=maven depName=org.jetbrains.kotlinx:kotlinx-coroutines-core
+    pub const KOTLINX_COROUTINES_CORE: &str = "1.9.0";
+
+    // renovate: datasource=maven depName=net.java.dev.jna:jna
+    pub const JNA: &str = "5.14.0";
+
+    // renovate: datasource=maven depName=junit:junit
+    pub const JUNIT_LEGACY: &str = "4.13.2";
 }
 
 pub mod nuget {
@@ -262,6 +286,42 @@ pub mod hex {
 
     // renovate: datasource=hex depName=jason
     pub const JASON: &str = "~> 1.4";
+
+    // version range; manual bump required
+    pub const GLEAM_STDLIB_VERSION_RANGE: &str = ">= 0.34.0 and < 2.0.0";
+
+    // version range; manual bump required
+    pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
+}
+
+/// pub.dev (Dart) ecosystem.
+pub mod pub_dev {
+    // renovate: datasource=pub depName=test
+    pub const TEST_PACKAGE: &str = "^1.25.0";
+
+    // renovate: datasource=pub depName=lints
+    pub const LINTS: &str = "^5.0.0";
+
+    // renovate: datasource=pub depName=ffi
+    pub const FFI_PACKAGE: &str = "^2.1.0";
+}
+
+/// Platform / toolchain pins. None of these auto-bump; track manually.
+pub mod toolchain {
+    // minimum supported Zig; manual bump required
+    pub const MIN_ZIG_VERSION: &str = "0.16.0";
+
+    // version range; manual bump required
+    pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
+
+    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required
+    pub const JVM_TARGET: &str = "21";
+
+    // minimum macOS deployment target for swift-bridge bindings; manual bump required
+    pub const SWIFT_MIN_MACOS: &str = "13.0";
+
+    // minimum iOS deployment target for swift-bridge bindings; manual bump required
+    pub const SWIFT_MIN_IOS: &str = "16.0";
 }
 
 pub mod cran {

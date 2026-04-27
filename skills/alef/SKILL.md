@@ -4,8 +4,9 @@ description: >-
   Generate fully-typed polyglot language bindings for Rust libraries using Alef.
   Use when configuring alef.toml, running alef CLI commands, writing e2e test
   fixtures, debugging binding generation, or setting up CI/CD for multi-language
-  Rust libraries. Covers 11 language backends, DTO styles, adapter patterns,
-  version sync, and pre-commit hooks.
+  Rust libraries. Covers 16 language backends (Python, TypeScript, WASM, Ruby,
+  PHP, Go, Java, C#, Kotlin, Elixir, Gleam, R, Swift, Dart, Zig, C), DTO
+  styles, trait bridges, adapter patterns, version sync, and pre-commit hooks.
 license: MIT
 metadata:
   author: kreuzberg-dev
@@ -15,7 +16,7 @@ metadata:
 
 # Alef Polyglot Binding Generator
 
-Alef generates fully-typed, lint-clean language bindings for Rust libraries across 11 languages from a single TOML config file. It handles the entire pipeline: API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation.
+Alef generates fully-typed, lint-clean language bindings for Rust libraries across 16 languages from a single TOML config file. It handles the entire pipeline: API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation. Trait bridges (foreign-language objects implementing Rust traits) are emitted for all 16 backends.
 
 Use this skill when:
 

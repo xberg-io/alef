@@ -1,6 +1,7 @@
 use super::types::gen_rustler_wrap_return;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
+use alef_codegen::doc_emission;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
@@ -41,20 +42,14 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
             }
             TypeRef::Bytes => format!("&{}", p.name),
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-            TypeRef::Vec(inner) => {
+            TypeRef::Vec(_) => {
                 if p.is_ref {
-                    // Vec<String> binds to either &[String] or &[&str] in the core API. We
-                    // can't disambiguate from the IR, so emit a conversion that produces a
-                    // `Vec<&str>` and pass `&...` — accepted by both signatures via deref
-                    // coercion when possible.
-                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                        format!(
-                            "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                            p.name
-                        )
-                    } else {
-                        format!("&{}", p.name)
-                    }
+                    // `&Vec<T>` derefs to `&[T]`, which is the common case in kreuzberg
+                    // core (e.g., `&[String]`). Functions that want `&[&str]` can be
+                    // handled by an opt-in conversion in a future change — emitting the
+                    // unconditional `iter().map(String::as_str).collect::<Vec<&str>>()`
+                    // converted in the wrong direction for any `&[String]` signature.
+                    format!("&{}", p.name)
                 } else {
                     p.name.to_string()
                 }
@@ -189,22 +184,14 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // Vec<String>/Vec<Char>: core may expect &[&str] which doesn't
-                            // coerce from &Vec<String>; build a Vec<&str> slice ref instead.
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // &Vec<T> derefs to &[T] which matches kreuzberg core in all known sites.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
-                    }
+                        }
                     _ => p.name.clone(),
                 }
             })
@@ -298,16 +285,16 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
+                            // takes for every Vec param we've encountered so far. Rustler
+                            // previously force-converted `Vec<String>` to `Vec<&str>` —
+                            // that broke the `&[String]` callers (batch_reduce_tokens,
+                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
+                            // handle it via an explicit conversion override at the call
+                            // site rather than re-introducing the lossy default.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
@@ -337,11 +324,18 @@ pub(super) fn gen_nif_function(
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
-    format!(
-        "#[rustler::nif]\npub fn {}({params_str}) -> {return_annotation} {{\n    \
-         {body}\n}}",
-        func.name
-    )
+    let mut out = String::new();
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "");
+    out.push_str("#[rustler::nif]\npub fn ");
+    out.push_str(&func.name);
+    out.push('(');
+    out.push_str(&params_str);
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF async free function (sync wrapper scheduled on DirtyCpu).
@@ -455,16 +449,16 @@ pub(super) fn gen_nif_async_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
+                            // takes for every Vec param we've encountered so far. Rustler
+                            // previously force-converted `Vec<String>` to `Vec<&str>` —
+                            // that broke the `&[String]` callers (batch_reduce_tokens,
+                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
+                            // handle it via an explicit conversion override at the call
+                            // site rather than re-introducing the lossy default.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
@@ -507,12 +501,18 @@ pub(super) fn gen_nif_async_function(
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &format!("{}_async", func.name), true)
     };
-    format!(
-        "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}_async({params_str}) -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        func.name
-    )
+    let mut out = String::new();
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "");
+    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    out.push_str(&func.name);
+    out.push_str("_async(");
+    out.push_str(&params_str);
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF method for a struct using the shared TypeMapper.
@@ -637,13 +637,18 @@ pub(super) fn gen_nif_method(
             )
         }
     };
-    format!(
-        "#[rustler::nif]\npub fn {}({}) -> {} {{\n    \
-         {body}\n}}",
-        method_fn_name,
-        params.join(", "),
-        return_annotation
-    )
+    let mut out = String::new();
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "");
+    out.push_str("#[rustler::nif]\npub fn ");
+    out.push_str(&method_fn_name);
+    out.push('(');
+    out.push_str(&params.join(", "));
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }
 
 /// Generate a Rustler NIF async method for a struct (sync wrapper scheduled on DirtyCpu).
@@ -732,12 +737,16 @@ pub(super) fn gen_nif_async_method(
             super::helpers::gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, true)
         }
     };
-    format!(
-        "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}({}) -> {} {{\n    \
-         {body}\n\
-         }}",
-        method_fn_name,
-        params.join(", "),
-        return_annotation
-    )
+    let mut out = String::new();
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "");
+    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    out.push_str(&method_fn_name);
+    out.push('(');
+    out.push_str(&params.join(", "));
+    out.push_str(") -> ");
+    out.push_str(&return_annotation);
+    out.push_str(" {\n    ");
+    out.push_str(&body);
+    out.push_str("\n}");
+    out
 }

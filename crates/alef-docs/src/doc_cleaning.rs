@@ -37,7 +37,7 @@ pub(crate) fn wrap_bare_urls(text: &str) -> String {
 /// - Converts bare `` [`Foo`] `` → `` `Foo` ``
 /// - Converts `# Errors` / `# Returns` headings to bold inline text
 /// - Converts `Foo::bar()` Rust path syntax to `Foo.bar()` in prose
-pub(crate) fn clean_doc(doc: &str, lang: Language) -> String {
+pub fn clean_doc(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
     }
@@ -115,6 +115,7 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
         Language::Java | Language::Node | Language::Wasm | Language::Csharp | Language::Php => "`null`",
         Language::Python | Language::Rust => "`None`", // keep as-is for Python and Rust
         Language::R | Language::Ffi => "`NULL`",
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "`null`",
     };
     let doc = doc.replace("`None`", none_replacement);
 

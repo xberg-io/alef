@@ -127,6 +127,9 @@ impl RustTarget {
             Language::Php => self.go_java_platform(),
             Language::Wasm => "wasm32".to_string(),
             Language::R => self.triple.clone(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                self.triple.clone()
+            }
         }
     }
 

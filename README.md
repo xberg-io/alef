@@ -26,18 +26,18 @@
 
 # Alef
 
-Generate fully-typed, lint-clean language bindings for Rust libraries across 11 languages. Alef handles the entire pipeline -- API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation -- from a single TOML config file.
+Generate fully-typed, lint-clean language bindings for Rust libraries across 16 languages. Alef handles the entire pipeline -- API extraction, code generation, type stubs, package scaffolding, build orchestration, version sync, and e2e test generation -- from a single TOML config file.
 
 ## Key Features
 
 - **API extraction** -- Parses your Rust crate's public API via `syn` into a language-agnostic intermediate representation. Handles `pub use` re-exports across workspace crates, `#[cfg(feature)]` gating, serde `rename_all` metadata, doc comments, `Default` detection, and transparent newtype resolution.
-- **11 language backends** -- Each backend generates idiomatic, lint-clean binding code using the target language's native framework. See the [supported languages](#supported-languages) table below.
+- **16 language backends** -- Each backend generates idiomatic, lint-clean binding code using the target language's native framework. See the [supported languages](#supported-languages) table below.
 - **Configurable DTO styles** -- Choose how types are represented in each language: Python `dataclass` vs `TypedDict` vs `pydantic` vs `msgspec`, TypeScript `interface` vs `zod`, Ruby `Struct` vs `dry-struct` vs `Data`, and more. Input and output types can use different styles.
 - **Type stubs** -- Generates `.pyi` (Python), `.rbs` (Ruby), and `.d.ts` (TypeScript) type definition files for editor support and static analysis in consuming projects.
 - **Package scaffolding** -- Generates complete package manifests for each language: `pyproject.toml`, `package.json`, `.gemspec`, `composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION` (R), and `Cargo.toml` for binding crates.
 - **E2E test generation** -- Write test fixtures as JSON, get complete runnable test suites for all configured languages. Supports 40+ assertion types, field path aliases, per-language overrides, and skip conditions.
 - **Adapter patterns** -- Define custom FFI bridging patterns in config: `sync_function`, `async_method`, `callback_bridge`, `streaming`, and `server_lifecycle`. Alef generates the glue code for each backend.
-- **Trait bridges** -- Generate FFI bridges so foreign-language objects can implement Rust traits (plugin pattern). Configured via `[[trait_bridges]]`; supported across all 11 backends.
+- **Trait bridges** -- Generate FFI bridges so foreign-language objects can implement Rust traits (plugin pattern). Configured via `[[trait_bridges]]`; supported across all 16 backends including Kotlin, Swift, Dart, Gleam, and Zig.
 - **Version sync** -- Propagates the version from `Cargo.toml` to all package manifests, C headers, pkg-config files, and any custom file via regex text replacements.
 - **Build orchestration** -- Wraps `maturin`, `napi`, `wasm-pack`, and `cargo`+`cbindgen` with post-processing steps (e.g., patching `.d.ts` files for `verbatimModuleSyntax` compatibility).
 - **Pipeline commands with smart defaults** -- `alef lint`, `test`, `build`, `setup`, `update`, `clean` ship with built-in per-language defaults that dispatch on the configured package manager (`uv`/`pip`/`poetry` for Python; `pnpm`/`npm`/`yarn` for Node) via the top-level `[tools]` section. Every default carries a POSIX `command -v` precondition so missing tools warn-and-skip instead of failing the run.
@@ -62,7 +62,12 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 11 
 | C# | P/Invoke | NuGet (.nupkg) | xUnit | `record` |
 | Elixir | [Rustler](https://github.com/rusterlium/rustler) | Hex | ExUnit | `struct`, `typed-struct` |
 | R | [extendr](https://extendr.github.io/extendr/) | CRAN | testthat | `list`, `r6` |
+| Kotlin/JVM | [Panama FFM](https://openjdk.org/jeps/454) (shared with Java) | Maven (.jar) | JUnit | `data-class`, `sealed-class` |
+| Gleam | [Rustler](https://github.com/rusterlium/rustler) NIF + `@external` | Hex | gleeunit | record types |
+| Zig | C FFI via `@cImport` | tarball | `std.testing` | structs |
 | C | [cbindgen](https://github.com/mozilla/cbindgen) | Header (.h) | -- | -- |
+| Swift | [swift-bridge](https://github.com/chinedufn/swift-bridge) | SwiftPM (RustBridge + RustBridgeC targets) | XCTest | structs with `Codable` |
+| Dart | [flutter_rust_bridge](https://cjycode.com/flutter_rust_bridge/) v2 | pub.dev | `package:test` | classes |
 
 ## Quick Start
 

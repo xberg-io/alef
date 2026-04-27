@@ -150,6 +150,49 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: None,
             upgrade: None,
         },
+        Language::Kotlin => UpdateConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            update: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && gradle dependencyUpdates"
+            ))),
+            upgrade: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && gradle dependencyUpdates --refresh-dependencies"
+            ))),
+        },
+        Language::Swift => UpdateConfig {
+            precondition: Some(require_tool("swift")),
+            before: None,
+            update: Some(StringOrVec::Single(format!(
+                "swift package update --package-path {output_dir}"
+            ))),
+            upgrade: Some(StringOrVec::Single(format!(
+                "swift package update --package-path {output_dir}"
+            ))),
+        },
+        Language::Dart => UpdateConfig {
+            precondition: Some(require_tool("dart")),
+            before: None,
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && dart pub upgrade"))),
+            upgrade: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && dart pub upgrade --major-versions"
+            ))),
+        },
+        Language::Gleam => UpdateConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
+            upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps update"))),
+        },
+        Language::Zig => UpdateConfig {
+            // Zig uses zig fetch --save for individual dependency updates.
+            // There is no batch upgrade command; both update and upgrade resolve
+            // declared dependencies using the same mechanism.
+            precondition: Some(require_tool("zig")),
+            before: None,
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && zig build --fetch"))),
+            upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && zig build --fetch"))),
+        },
     }
 }
 
@@ -172,6 +215,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -191,7 +239,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_update_commands() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -203,7 +251,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_default_precondition() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -343,5 +391,46 @@ mod tests {
         let node_update = node.update.unwrap().commands().join(" ");
         let wasm_update = wasm.update.unwrap().commands().join(" ");
         assert_eq!(node_update, wasm_update);
+    }
+
+    #[test]
+    fn kotlin_uses_gradle_dependency_updates() {
+        let c = cfg(Language::Kotlin, "packages/kotlin");
+        let update = c.update.unwrap().commands().join(" ");
+        assert!(update.contains("gradle dependencyUpdates"), "Kotlin update should use gradle dependencyUpdates, got: {update}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn swift_uses_swift_package_update() {
+        let c = cfg(Language::Swift, "packages/swift");
+        let update = c.update.unwrap().commands().join(" ");
+        assert!(update.contains("swift package update"), "Swift update should use swift package update, got: {update}");
+        assert!(update.contains("--package-path packages/swift"), "Swift update should include package path, got: {update}");
+    }
+
+    #[test]
+    fn dart_uses_dart_pub_upgrade() {
+        let c = cfg(Language::Dart, "packages/dart");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
+        assert!(update.contains("dart pub upgrade"), "Dart update should use dart pub upgrade, got: {update}");
+        assert!(upgrade.contains("--major-versions"), "Dart upgrade should include --major-versions, got: {upgrade}");
+    }
+
+    #[test]
+    fn gleam_uses_gleam_deps_update() {
+        let c = cfg(Language::Gleam, "packages/gleam");
+        let update = c.update.unwrap().commands().join(" ");
+        assert!(update.contains("gleam deps update"), "Gleam update should use gleam deps update, got: {update}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v gleam >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn zig_uses_zig_build_fetch() {
+        let c = cfg(Language::Zig, "packages/zig");
+        let update = c.update.unwrap().commands().join(" ");
+        assert!(update.contains("zig build --fetch"), "Zig update should use zig build --fetch, got: {update}");
+        assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }
 }
