@@ -12,11 +12,3 @@ public typealias Output = RustBridge.Output
 
 /// Wrapper containing a named type.
 public typealias Wrapper = RustBridge.Wrapper
-
-public enum Demo {
-    /// Process and wrap result.
-    public static func processAndWrap(input: String) -> Wrapper {
-        return RustBridge.processAndWrap(input)
-    }
-
-}

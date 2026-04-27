@@ -9,11 +9,3 @@ import RustBridge
 
 /// Item struct.
 public typealias Item = RustBridge.Item
-
-public enum Demo {
-    /// Get all items.
-    public static func getItems() -> [Item] {
-        return Array(RustBridge.getItems())
-    }
-
-}

@@ -363,25 +363,14 @@ fn sync_function_emits_public_static_func() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Module namespace
+    // Function wrappers are disabled (Phase 2D). No module enum wrapper or static func emitted.
     assert!(
-        content.contains("public enum DemoCrate {"),
-        "missing module enum wrapper: {content}"
-    );
-    // Function signature
-    assert!(
-        content.contains("public static func greetUser(userName: String)"),
-        "missing function signature: {content}"
-    );
-    assert!(content.contains("-> Int32"), "missing return type: {content}");
-    // Bridge body delegates to RustBridge generated module
-    assert!(
-        content.contains("return RustBridge.greetUser("),
-        "missing RustBridge delegation: {content}"
+        !content.contains("public enum DemoCrate {"),
+        "function wrappers should be disabled, no module enum wrapper: {content}"
     );
     assert!(
-        content.contains("import RustBridge"),
-        "missing RustBridge import: {content}"
+        !content.contains("public static func greetUser(userName: String)"),
+        "function wrappers should be disabled, no static func: {content}"
     );
 }
 
@@ -414,11 +403,11 @@ fn async_function_emits_async_keyword() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
+    // Function wrappers are disabled (Phase 2D). Async qualifiers not emitted.
     assert!(
-        content.contains("public static func fetchData() async"),
-        "missing async qualifier: {content}"
+        !content.contains("public static func fetchData() async"),
+        "function wrappers disabled, no async static func: {content}"
     );
-    assert!(!content.contains("suspend"), "should not have Kotlin 'suspend': {content}");
 }
 
 #[test]
@@ -450,11 +439,11 @@ fn error_throwing_function_emits_throws() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
+    // Function wrappers are disabled (Phase 2D). Throws qualifiers not emitted.
     assert!(
-        content.contains("public static func parseInput(raw: String) throws"),
-        "missing throws qualifier: {content}"
+        !content.contains("public static func parseInput(raw: String) throws"),
+        "function wrappers disabled, no throws static func: {content}"
     );
-    assert!(content.contains("-> Int32"), "missing return type: {content}");
 }
 
 #[test]
@@ -486,9 +475,10 @@ fn async_throws_function_emits_both_qualifiers() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
+    // Function wrappers are disabled (Phase 2D). Async throws qualifiers not emitted.
     assert!(
-        content.contains("public static func load() async throws"),
-        "missing async throws: {content}"
+        !content.contains("public static func load() async throws"),
+        "function wrappers disabled, no async throws static func: {content}"
     );
 }
 

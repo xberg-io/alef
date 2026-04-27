@@ -20,11 +20,3 @@ public enum DemoError: Error {
     /// Processing encountered an error.
     case processingFailed(message: String)
 }
-
-public enum Demo {
-    /// Process input and return a result.
-    public static func process(input: String, count: UInt32) throws -> String {
-        return try RustBridge.process(input, count).toString()
-    }
-
-}
