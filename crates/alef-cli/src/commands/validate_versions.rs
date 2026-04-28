@@ -10,9 +10,30 @@
 //! - `kreuzberg/scripts/publish/verify-cargo-version.sh`
 
 use alef_core::config::AlefConfig;
+use alef_core::version::to_rubygems_prerelease;
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::path::Path;
+
+/// Convert a semver pre-release to PEP 440 form for comparison against
+/// `pyproject.toml` versions (e.g. "0.1.0-rc.1" → "0.1.0rc1").
+fn to_pep440(version: &str) -> String {
+    let Some((base, pre)) = version.split_once('-') else {
+        return version.to_string();
+    };
+    let pep = pre
+        .replace("alpha.", "a")
+        .replace("alpha", "a")
+        .replace("beta.", "b")
+        .replace("beta", "b")
+        .replace("rc.", "rc")
+        .replace('.', "");
+    format!("{base}{pep}")
+}
+
+fn identity(s: &str) -> String {
+    s.to_string()
+}
 
 /// A single manifest version check result.
 #[derive(Debug)]
@@ -80,14 +101,15 @@ pub fn run(config: &AlefConfig, workspace_root: &Path, output_json: bool) -> Res
 fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
     let mut checks = Vec::new();
 
-    // Python: pyproject.toml `version = "..."`
+    // Python: pyproject.toml `version = "..."` — PEP 440 normalised.
     let py_dir = config.package_dir(alef_core::config::extras::Language::Python);
-    push_check_if_exists(
+    push_check_with_transform(
         &mut checks,
         canonical,
         &format!("{py_dir}/pyproject.toml"),
         workspace_root,
         read_pyproject_version,
+        to_pep440,
     );
 
     // Node: package.json `"version": "..."`
@@ -102,12 +124,20 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
 
     // Ruby: version.rb files. Layout varies — look at the well-known locations
     // alef's sync-versions writes to (lib-based, ext-based, and ext-native-based).
+    // RubyGems requires the prerelease form (`X.Y.Z.pre.rc.N`).
     for pattern in [
         "packages/ruby/lib/*/version.rb",
         "packages/ruby/ext/*/src/*/version.rb",
         "packages/ruby/ext/*/native/src/*/version.rb",
     ] {
-        push_glob_checks(&mut checks, canonical, pattern, workspace_root, read_ruby_version);
+        push_glob_checks_with_transform(
+            &mut checks,
+            canonical,
+            pattern,
+            workspace_root,
+            read_ruby_version,
+            to_rubygems_prerelease,
+        );
     }
 
     // PHP: composer.json. Composer relies on git tags for version, so the file
@@ -206,8 +236,9 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
     checks
 }
 
-/// Push a check only when the file actually exists. Absent files are silently
-/// skipped — they're treated as "not configured for this repo" rather than
+/// Push a check only when the file actually exists and exposes a version
+/// field. Absent files / absent version fields are silently skipped —
+/// they're treated as "not configured for this repo" rather than
 /// "mismatch with no version".
 fn push_check_if_exists(
     checks: &mut Vec<VersionCheck>,
@@ -216,12 +247,35 @@ fn push_check_if_exists(
     workspace_root: &Path,
     reader: fn(&Path) -> Option<String>,
 ) {
+    push_check_with_transform(checks, canonical, rel_path, workspace_root, reader, identity);
+}
+
+/// Same as [`push_check_if_exists`] but applies a per-format transform
+/// (e.g. semver→PEP 440) to the canonical version before comparing. This
+/// keeps the JSON output's `expected` field equal to `canonical` so the
+/// reported mismatch shows raw values, while `matches` reflects the
+/// format-aware equality the manifest actually requires.
+fn push_check_with_transform(
+    checks: &mut Vec<VersionCheck>,
+    canonical: &str,
+    rel_path: &str,
+    workspace_root: &Path,
+    reader: fn(&Path) -> Option<String>,
+    transform: fn(&str) -> String,
+) {
     let full_path = workspace_root.join(rel_path);
     if !full_path.exists() {
         return;
     }
     let found = reader(&full_path);
-    let matches = found.as_deref() == Some(canonical);
+    // Skip files that exist but don't declare a version field (e.g. private
+    // pnpm workspace roots): the alternative is reporting `found: null` and
+    // failing every release, which is wrong.
+    let Some(ref found_value) = found else {
+        return;
+    };
+    let expected_in_format = transform(canonical);
+    let matches = found_value == &expected_in_format;
     checks.push(VersionCheck {
         label: rel_path.to_string(),
         found,
@@ -229,14 +283,18 @@ fn push_check_if_exists(
     });
 }
 
-/// Walk a glob pattern relative to `workspace_root` and push a check per match.
-/// Each match is treated as an existing file; reader is invoked unconditionally.
-fn push_glob_checks(
+/// Glob variant of [`push_check_with_transform`]. Walks `pattern`
+/// relative to `workspace_root`, applies `transform` to the canonical
+/// version, and pushes one check per match. Used for Ruby version.rb
+/// files where canonical semver must be normalised to the RubyGems
+/// prerelease form before comparison.
+fn push_glob_checks_with_transform(
     checks: &mut Vec<VersionCheck>,
     canonical: &str,
     pattern: &str,
     workspace_root: &Path,
     reader: fn(&Path) -> Option<String>,
+    transform: fn(&str) -> String,
 ) {
     let abs_pattern = workspace_root.join(pattern);
     let Some(pattern_str) = abs_pattern.to_str() else {
@@ -245,13 +303,17 @@ fn push_glob_checks(
     let Ok(entries) = glob::glob(pattern_str) else {
         return;
     };
+    let expected = transform(canonical);
     for entry in entries.flatten() {
         let label = entry
             .strip_prefix(workspace_root)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| entry.display().to_string());
         let found = reader(&entry);
-        let matches = found.as_deref() == Some(canonical);
+        let Some(ref found_value) = found else {
+            continue;
+        };
+        let matches = found_value == &expected;
         checks.push(VersionCheck { label, found, matches });
     }
 }
