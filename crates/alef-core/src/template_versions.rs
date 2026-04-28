@@ -164,7 +164,7 @@ pub mod packagist {
 
 pub mod maven {
     // renovate: datasource=maven depName=org.junit.jupiter:junit-jupiter
-    pub const JUNIT: &str = "5.11.4";
+    pub const JUNIT: &str = "5.14.4";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-compiler-plugin
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.15.0";
@@ -191,19 +191,19 @@ pub mod maven {
     pub const MAVEN_GPG_PLUGIN: &str = "3.2.8";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-clean-plugin
-    pub const MAVEN_CLEAN_PLUGIN: &str = "3.4.1";
+    pub const MAVEN_CLEAN_PLUGIN: &str = "3.5.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-resources-plugin
-    pub const MAVEN_RESOURCES_PLUGIN: &str = "3.3.1";
+    pub const MAVEN_RESOURCES_PLUGIN: &str = "3.5.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-jar-plugin
-    pub const MAVEN_JAR_PLUGIN: &str = "3.4.2";
+    pub const MAVEN_JAR_PLUGIN: &str = "3.5.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-install-plugin
-    pub const MAVEN_INSTALL_PLUGIN: &str = "3.1.3";
+    pub const MAVEN_INSTALL_PLUGIN: &str = "3.1.4";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-deploy-plugin
-    pub const MAVEN_DEPLOY_PLUGIN: &str = "3.1.3";
+    pub const MAVEN_DEPLOY_PLUGIN: &str = "3.1.4";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-site-plugin
     pub const MAVEN_SITE_PLUGIN: &str = "4.0.0-M16";
@@ -224,10 +224,10 @@ pub mod maven {
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.14";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "13.4.0";
+    pub const CHECKSTYLE: &str = "13.4.1";
 
     // renovate: datasource=maven depName=net.sourceforge.pmd:pmd-java
-    pub const PMD: &str = "7.19.0";
+    pub const PMD: &str = "7.24.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.0";
@@ -242,16 +242,16 @@ pub mod maven {
     pub const ASSERTJ: &str = "4.0.0-M1";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:build-helper-maven-plugin
-    pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.0";
+    pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
-    pub const KOTLIN_JVM_PLUGIN: &str = "2.1.10";
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.3.21";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlinx:kotlinx-coroutines-core
-    pub const KOTLINX_COROUTINES_CORE: &str = "1.9.0";
+    pub const KOTLINX_COROUTINES_CORE: &str = "1.10.2";
 
     // renovate: datasource=maven depName=net.java.dev.jna:jna
-    pub const JNA: &str = "5.14.0";
+    pub const JNA: &str = "5.18.1";
 
     // renovate: datasource=maven depName=junit:junit
     pub const JUNIT_LEGACY: &str = "4.13.2";
