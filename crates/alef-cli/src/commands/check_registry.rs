@@ -62,7 +62,13 @@ pub fn check(registry: Registry, package: &str, version: &str, extra: &ExtraPara
         Registry::Cratesio => check_cratesio(package, version)?,
         Registry::Hex => check_hex(package, version)?,
         Registry::Homebrew => check_homebrew(package, version, extra.tap_repo.as_deref())?,
-        Registry::GithubRelease => check_github_release(package, version, extra.repo.as_deref())?,
+        Registry::GithubRelease => check_github_release(
+            package,
+            version,
+            extra.repo.as_deref(),
+            extra.asset_prefix.as_deref(),
+            &extra.required_assets,
+        )?,
     };
 
     if output_json {
@@ -89,6 +95,11 @@ pub struct ExtraParams {
     pub tap_repo: Option<String>,
     /// GitHub repository (`owner/repo`) for GitHub Release check.
     pub repo: Option<String>,
+    /// Asset name prefix (github-release): require at least one asset whose
+    /// name starts with this prefix to consider the release "exists".
+    pub asset_prefix: Option<String>,
+    /// Required asset names (github-release): all must be present.
+    pub required_assets: Vec<String>,
 }
 
 // ---- HTTP helper ----
@@ -244,11 +255,16 @@ fn check_homebrew(package: &str, _version: &str, tap_repo: Option<&str>) -> Resu
     http_get_ok(&url)
 }
 
-fn check_github_release(package: &str, version: &str, repo: Option<&str>) -> Result<bool> {
+fn check_github_release(
+    package: &str,
+    version: &str,
+    repo: Option<&str>,
+    asset_prefix: Option<&str>,
+    required_assets: &[String],
+) -> Result<bool> {
     let repo = repo
         .filter(|r| !r.is_empty())
         .with_context(|| format!("--repo is required for github-release check of {package}"))?;
-    // Use the GitHub Releases API.
     let tag = if version.starts_with('v') {
         version.to_string()
     } else {
@@ -261,10 +277,38 @@ fn check_github_release(package: &str, version: &str, repo: Option<&str>) -> Res
         .header("User-Agent", "alef-publish/1.0")
         .header("Accept", "application/vnd.github+json")
         .call();
-    match classify(response).with_context(|| format!("GitHub API GET {url}"))? {
-        HttpOutcome::Ok(_) => Ok(true),
-        HttpOutcome::NotFound => Ok(false),
+    let resp = match classify(response).with_context(|| format!("GitHub API GET {url}"))? {
+        HttpOutcome::Ok(resp) => resp,
+        HttpOutcome::NotFound => return Ok(false),
+    };
+
+    let asset_prefix = asset_prefix.filter(|s| !s.is_empty());
+    let has_asset_filter = asset_prefix.is_some() || !required_assets.is_empty();
+    if !has_asset_filter {
+        return Ok(true);
     }
+
+    let body = resp
+        .into_body()
+        .read_to_string()
+        .with_context(|| format!("reading body from {url}"))?;
+    let json: serde_json::Value = serde_json::from_str(&body).with_context(|| format!("parsing JSON from {url}"))?;
+    let asset_names: Vec<&str> = json["assets"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    if let Some(prefix) = asset_prefix
+        && !asset_names.iter().any(|n| n.starts_with(prefix))
+    {
+        return Ok(false);
+    }
+    for required in required_assets {
+        if !asset_names.iter().any(|n| *n == required) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -300,11 +344,13 @@ mod tests {
         assert!(extra.nuget_source.is_none());
         assert!(extra.tap_repo.is_none());
         assert!(extra.repo.is_none());
+        assert!(extra.asset_prefix.is_none());
+        assert!(extra.required_assets.is_empty());
     }
 
     #[test]
     fn github_release_requires_repo() {
-        let result = check_github_release("alef", "1.0.0", None);
+        let result = check_github_release("alef", "1.0.0", None, None, &[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("--repo"));
     }

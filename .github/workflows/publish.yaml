@@ -315,6 +315,11 @@ jobs:
             alef-backend-go
             alef-backend-java
             alef-backend-csharp
+            alef-backend-dart
+            alef-backend-gleam
+            alef-backend-kotlin
+            alef-backend-swift
+            alef-backend-zig
             alef-cli
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}

@@ -234,6 +234,14 @@ enum Commands {
         /// NuGet source URL (defaults to https://api.nuget.org).
         #[arg(long)]
         source: Option<String>,
+        /// Asset name prefix (github-release): require at least one asset on
+        /// the release whose name starts with this prefix.
+        #[arg(long)]
+        asset_prefix: Option<String>,
+        /// Comma-separated list of required asset names (github-release): all
+        /// must be present on the release.
+        #[arg(long, value_delimiter = ',')]
+        required_assets: Vec<String>,
         /// Output machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -1241,12 +1249,16 @@ fn main() -> Result<()> {
             tap_repo,
             repo,
             source,
+            asset_prefix,
+            required_assets,
             json,
         } => {
             let extra = commands::check_registry::ExtraParams {
                 nuget_source: source,
                 tap_repo,
                 repo,
+                asset_prefix,
+                required_assets,
             };
             commands::check_registry::check(registry, &package, &version, &extra, json)?;
             Ok(())

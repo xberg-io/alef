@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-04-28
+
+A patch release that fixes the GitHub-release existence check so the publish pipeline no longer skips its own builds when only a release tag exists with no binaries attached.
+
+### Fixed
+
+- **`alef check-registry --registry github-release` now optionally verifies asset presence.** Two new flags — `--asset-prefix <STR>` and `--required-assets <a,b,c>` — make the check fail (return `exists=false`) when the release tag exists but the requested binaries have not been uploaded yet. Without this, alef's own `check-github-release` job returned `exists=true` for v0.11.4's empty release (the tag had been created by `gh release create` before the build matrix uploaded artifacts) and the dependent build jobs skipped — producing another tag with no binaries. The action wrapper (`kreuzberg-dev/actions/check-registry`) already exposed `asset-prefix` and `assets` inputs but was previously dropping them on the floor.
+
 ## [0.11.4] - 2026-04-28
 
 A patch release that ships v0.11.3's content plus a fix for alef's own publish pipeline. v0.11.3 tagged but never produced binaries because validate-versions aborted on a half-empty `alef.toml`.
