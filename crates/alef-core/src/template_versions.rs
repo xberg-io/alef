@@ -331,28 +331,28 @@ pub mod cran {
 
 pub mod precommit {
     // renovate: datasource=github-tags packageName=Goldziher/gitfluff
-    pub const GITFLUFF_REV: &str = "v0.7.10";
+    pub const GITFLUFF_REV: &str = "v0.8.0";
 
     // renovate: datasource=github-tags packageName=pre-commit/pre-commit-hooks
-    pub const PRE_COMMIT_HOOKS_REV: &str = "v0.7.10";
+    pub const PRE_COMMIT_HOOKS_REV: &str = "v0.9.5";
 
     // renovate: datasource=github-tags packageName=tox-dev/pyproject-fmt
     pub const PYPROJECT_FMT_REV: &str = "v2.21.1";
 
     // renovate: datasource=github-tags packageName=DevinR528/cargo-sort
-    pub const CARGO_SORT_REV: &str = "v2.1.3";
+    pub const CARGO_SORT_REV: &str = "v2.1.4";
 
     // renovate: datasource=github-tags packageName=AndrejOrsula/pre-commit-cargo
     pub const PRE_COMMIT_CARGO_REV: &str = "0.5.0";
 
     // renovate: datasource=github-tags packageName=bnjbvr/cargo-machete
-    pub const CARGO_MACHETE_REV: &str = "v0.7.10";
+    pub const CARGO_MACHETE_REV: &str = "v0.9.2";
 
     // renovate: datasource=github-tags packageName=EmbarkStudios/cargo-deny
     pub const CARGO_DENY_REV: &str = "0.19.4";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.81";
+    pub const RUMDL_REV: &str = "v0.1.83";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
     pub const TYPOS_REV: &str = "v0.7.10";
