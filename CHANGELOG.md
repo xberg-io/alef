@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-04-28
+
+A patch release that prevents the python e2e codegen from emitting test files for categories whose fixtures are 100% skipped for python.
+
+### Fixed
+
+- **Python e2e codegen no longer generates a `tests/test_<category>.py` file when every fixture in that category has `skip.languages` containing `"python"`.** Previously the emitter would still write the file with `@pytest.mark.skip` markers, but the file's `from kreuzberg import ...` line would then reference APIs that aren't bound in Python — failing at module import before pytest could honor the skip marker. The other language emitters (node, ruby, java, go, csharp, php, elixir, r, wasm, dart, gleam, kotlin, swift, zig, typescript) already filtered skipped fixtures upstream and were not affected.
+
 ## [0.11.5] - 2026-04-28
 
 A patch release that fixes the GitHub-release existence check so the publish pipeline no longer skips its own builds when only a release tag exists with no binaries attached.

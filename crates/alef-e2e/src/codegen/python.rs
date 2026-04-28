@@ -79,6 +79,14 @@ impl super::E2eCodegen for PythonE2eCodegen {
                 continue;
             }
 
+            // Skip emitting the file entirely when every fixture is skipped for
+            // python — there's nothing to run, and emitting imports of
+            // not-bound APIs causes module-level ImportError that masks the
+            // skip marker.
+            if fixtures.iter().all(|f| is_skipped(f, "python")) {
+                continue;
+            }
+
             let filename = format!("test_{}.py", sanitize_filename(&group.category));
             let content = render_test_file(&group.category, &fixtures, e2e_config);
 
