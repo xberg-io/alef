@@ -661,6 +661,15 @@ fn render_rust_arg(
     // String args are passed by reference in Rust.
     // Bytes args are strings passed as .as_bytes().
     let pass_by_ref = arg_type == "string" || arg_type == "bytes";
+    let optional_expr = |n: &str| {
+        if arg_type == "string" {
+            format!("{n}.as_deref()")
+        } else if arg_type == "bytes" {
+            format!("{n}.as_deref().map(|v| v.as_slice())")
+        } else {
+            format!("{n}.as_ref()")
+        }
+    };
     let expr = |n: &str| {
         if arg_type == "bytes" {
             format!("{n}.as_bytes()")
@@ -671,9 +680,14 @@ fn render_rust_arg(
         }
     };
     if optional && value.is_null() {
-        (vec![format!("let {name} = None;")], expr(name))
+        let none_decl = match arg_type {
+            "string" => format!("let {name}: Option<String> = None;"),
+            "bytes" => format!("let {name}: Option<Vec<u8>> = None;"),
+            _ => format!("let {name} = None;"),
+        };
+        (vec![none_decl], optional_expr(name))
     } else if optional {
-        (vec![format!("let {name} = Some({literal});")], expr(name))
+        (vec![format!("let {name} = Some({literal});")], optional_expr(name))
     } else {
         (vec![format!("let {name} = {literal};")], expr(name))
     }

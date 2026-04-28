@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.7] - 2026-04-28
+
+A patch release that fixes Rust e2e codegen so optional string/bytes args are passed via `.as_deref()` (yielding `Option<&str>`/`Option<&[u8]>`) rather than `&Option<...>`.
+
+### Fixed
+
+- **Rust e2e codegen no longer generates `&mime_type` for an `Option<String>` argument when the target signature expects `Option<&str>`.** Previously `let mime_type = None;` followed by `extract_file(&path, &mime_type, ...)` produced an `expected Option<&str>, found &Option<_>` E0308 mismatch on every fixture using the `extract_file` call. Optional string args now bind to a typed `Option<String>`/`Option<Vec<u8>>` (so `None` resolves) and pass via `.as_deref()` (or `.as_ref().map(|v| v.as_slice())` for bytes). Non-string optional non-string args use `.as_ref()` to avoid moving the binding.
+
 ## [0.11.6] - 2026-04-28
 
 A patch release that prevents the python e2e codegen from emitting test files for categories whose fixtures are 100% skipped for python.
