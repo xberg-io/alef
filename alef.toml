@@ -1,3 +1,10 @@
+version = "0.11.3"
+languages = []
+
+[crate]
+name = "alef-cli"
+sources = ["crates/alef-cli/src/main.rs"]
+version_from = "Cargo.toml"
 
 [dto]
 python = "dataclass"
