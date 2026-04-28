@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-04-28
+
+A patch release fixing path discovery and version-extraction edge cases in the new `alef validate versions` subcommand surfaced when running it against kreuzberg's repo layout.
+
+### Fixed
+
+- **`alef validate versions` now skips manifests that don't exist** rather than treating absence as a mismatch. Previously, every repo was flagged as having "missing" Ruby/Go/PHP manifests if it didn't follow alef's default lib-based layout. The check is opt-in per file: only manifests that physically exist are validated.
+- **Ruby version files are discovered via globs** matching the same patterns alef's `sync-versions` writes to: `packages/ruby/lib/*/version.rb`, `packages/ruby/ext/*/src/*/version.rb`, `packages/ruby/ext/*/native/src/*/version.rb`. Repos that ship the Ruby gem with rb-sys-style ext layout no longer produce false negatives.
+- **PHP composer.json is only validated when a `version` field is actually declared**. Composer relies on Git tags for versioning, and most polyglot manifests omit it; the validator no longer flags missing-by-design as a mismatch.
+- **`mix.exs` reader now accepts both `@version "X.Y.Z"` (module-attribute form) and `version: "X.Y.Z"` (keyword form inside `def project do`).** The previous reader only matched the `@version` constant style.
+- **Root `package.json` and `crates/{name}-{wasm,node}/package.json` are now part of the validation set.** Repos that ship a top-level npm package or per-crate package.json no longer silently bypass the check.
+
 ## [0.11.0] - 2026-04-28
 
 A minor release that absorbs a large slice of polyglot publish-pipeline machinery into alef so consumers (kreuzberg, html-to-markdown, liter-llm, …) can stop duplicating it across `kreuzberg-dev/actions` shims and per-repo `scripts/publish/` shell. `alef-publish` now owns end-to-end packaging for seven languages it previously didn't, and the `alef` binary gains four new top-level subcommands that consolidate cross-manifest validation, release-event metadata extraction, multi-registry version checks, and Go submodule tagging.

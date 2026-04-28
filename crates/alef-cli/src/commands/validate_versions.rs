@@ -82,7 +82,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
 
     // Python: pyproject.toml `version = "..."`
     let py_dir = config.package_dir(alef_core::config::extras::Language::Python);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{py_dir}/pyproject.toml"),
@@ -92,7 +92,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
 
     // Node: package.json `"version": "..."`
     let node_dir = config.package_dir(alef_core::config::extras::Language::Node);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{node_dir}/package.json"),
@@ -100,30 +100,34 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
         read_package_json_version,
     );
 
-    // Ruby: look for version.rb or gemspec
-    let ruby_dir = config.package_dir(alef_core::config::extras::Language::Ruby);
-    let gem_name = config.ruby_gem_name();
-    push_check(
-        &mut checks,
-        canonical,
-        &format!("{ruby_dir}/lib/{gem_name}/version.rb"),
-        workspace_root,
-        read_ruby_version,
-    );
+    // Ruby: version.rb files. Layout varies — look at the well-known locations
+    // alef's sync-versions writes to (lib-based, ext-based, and ext-native-based).
+    for pattern in [
+        "packages/ruby/lib/*/version.rb",
+        "packages/ruby/ext/*/src/*/version.rb",
+        "packages/ruby/ext/*/native/src/*/version.rb",
+    ] {
+        push_glob_checks(&mut checks, canonical, pattern, workspace_root, read_ruby_version);
+    }
 
-    // PHP: composer.json `"version": "..."`
+    // PHP: composer.json. Composer relies on git tags for version, so the file
+    // typically has no `version` field. Only validate if a value is actually
+    // declared in the manifest.
     let php_dir = config.package_dir(alef_core::config::extras::Language::Php);
-    push_check(
-        &mut checks,
-        canonical,
-        &format!("{php_dir}/composer.json"),
-        workspace_root,
-        read_package_json_version,
-    );
+    let php_path = format!("{php_dir}/composer.json");
+    if workspace_root.join(&php_path).exists() && read_package_json_version(&workspace_root.join(&php_path)).is_some() {
+        push_check_if_exists(
+            &mut checks,
+            canonical,
+            &php_path,
+            workspace_root,
+            read_package_json_version,
+        );
+    }
 
-    // Elixir: mix.exs `@version "..."`
+    // Elixir: mix.exs uses either `@version "..."` (constant) or `version: "..."` (keyword).
     let elixir_dir = config.package_dir(alef_core::config::extras::Language::Elixir);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{elixir_dir}/mix.exs"),
@@ -131,9 +135,10 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
         read_mix_exs_version,
     );
 
-    // Go: doc.go with `// kreuzberg v{version}`-style comment or module path.
+    // Go: doc.go is optional (binding comment-based versioning is convention,
+    // not requirement). Only check if the file exists.
     let go_dir = config.package_dir(alef_core::config::extras::Language::Go);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{go_dir}/doc.go"),
@@ -143,7 +148,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
 
     // Java: pom.xml `<version>...</version>`
     let java_dir = config.package_dir(alef_core::config::extras::Language::Java);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{java_dir}/pom.xml"),
@@ -154,7 +159,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
     // C#: .csproj `<Version>...</Version>`
     let csharp_dir = config.package_dir(alef_core::config::extras::Language::Csharp);
     let csharp_ns = config.csharp_namespace();
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{csharp_dir}/{csharp_ns}/{csharp_ns}.csproj"),
@@ -164,7 +169,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
 
     // R: DESCRIPTION `Version: ...`
     let r_dir = config.package_dir(alef_core::config::extras::Language::R);
-    push_check(
+    push_check_if_exists(
         &mut checks,
         canonical,
         &format!("{r_dir}/DESCRIPTION"),
@@ -172,23 +177,39 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
         read_description_version,
     );
 
-    // WASM: package.json (same reader as Node)
+    // WASM: package.json (same reader as Node).
     let wasm_dir = config.package_dir(alef_core::config::extras::Language::Wasm);
-    let wasm_pkg = workspace_root.join(&wasm_dir).join("package.json");
-    if wasm_pkg.exists() {
-        push_check(
-            &mut checks,
-            canonical,
-            &format!("{wasm_dir}/package.json"),
-            workspace_root,
-            read_package_json_version,
-        );
+    push_check_if_exists(
+        &mut checks,
+        canonical,
+        &format!("{wasm_dir}/package.json"),
+        workspace_root,
+        read_package_json_version,
+    );
+
+    // Root package.json (some repos publish a top-level npm package alongside the binding).
+    push_check_if_exists(
+        &mut checks,
+        canonical,
+        "package.json",
+        workspace_root,
+        read_package_json_version,
+    );
+
+    // crates/{name}-wasm/package.json and crates/{name}-node/package.json.
+    let crate_name = &config.crate_config.name;
+    for sub in ["wasm", "node"] {
+        let path = format!("crates/{crate_name}-{sub}/package.json");
+        push_check_if_exists(&mut checks, canonical, &path, workspace_root, read_package_json_version);
     }
 
     checks
 }
 
-fn push_check(
+/// Push a check only when the file actually exists. Absent files are silently
+/// skipped — they're treated as "not configured for this repo" rather than
+/// "mismatch with no version".
+fn push_check_if_exists(
     checks: &mut Vec<VersionCheck>,
     canonical: &str,
     rel_path: &str,
@@ -196,13 +217,43 @@ fn push_check(
     reader: fn(&Path) -> Option<String>,
 ) {
     let full_path = workspace_root.join(rel_path);
-    let found = if full_path.exists() { reader(&full_path) } else { None };
+    if !full_path.exists() {
+        return;
+    }
+    let found = reader(&full_path);
     let matches = found.as_deref() == Some(canonical);
     checks.push(VersionCheck {
         label: rel_path.to_string(),
         found,
         matches,
     });
+}
+
+/// Walk a glob pattern relative to `workspace_root` and push a check per match.
+/// Each match is treated as an existing file; reader is invoked unconditionally.
+fn push_glob_checks(
+    checks: &mut Vec<VersionCheck>,
+    canonical: &str,
+    pattern: &str,
+    workspace_root: &Path,
+    reader: fn(&Path) -> Option<String>,
+) {
+    let abs_pattern = workspace_root.join(pattern);
+    let Some(pattern_str) = abs_pattern.to_str() else {
+        return;
+    };
+    let Ok(entries) = glob::glob(pattern_str) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let label = entry
+            .strip_prefix(workspace_root)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| entry.display().to_string());
+        let found = reader(&entry);
+        let matches = found.as_deref() == Some(canonical);
+        checks.push(VersionCheck { label, found, matches });
+    }
 }
 
 // ---- per-format version readers ----
@@ -240,8 +291,15 @@ fn read_mix_exs_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     for line in content.lines() {
         let trimmed = line.trim();
+        // Module-attribute form: `@version "X.Y.Z"`.
         if trimmed.starts_with("@version") {
             let val = trimmed.split_once('"')?.1;
+            let val = val.split('"').next()?;
+            return Some(val.to_string());
+        }
+        // Keyword form inside `def project do ...`: `version: "X.Y.Z",`.
+        if let Some(rest) = trimmed.strip_prefix("version:") {
+            let val = rest.split_once('"')?.1;
             let val = val.split('"').next()?;
             return Some(val.to_string());
         }
