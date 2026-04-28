@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-28
+
+A minor release that absorbs a large slice of polyglot publish-pipeline machinery into alef so consumers (kreuzberg, html-to-markdown, liter-llm, …) can stop duplicating it across `kreuzberg-dev/actions` shims and per-repo `scripts/publish/` shell. `alef-publish` now owns end-to-end packaging for seven languages it previously didn't, and the `alef` binary gains four new top-level subcommands that consolidate cross-manifest validation, release-event metadata extraction, multi-registry version checks, and Go submodule tagging.
+
+### Added
+
+- **`alef-publish` end-to-end packagers for Python, Wasm, Node, Ruby, Elixir, Java, and C#.** Each adds a `package_<lang>` function under `crates/alef-publish/src/package/` and is dispatched from `alef publish package --lang <lang> --target <triple>`. Python invokes maturin for wheels and sdist; Wasm runs `wasm-pack` then `npm pack`; Node runs `napi build` and emits per-platform npm sub-packages following the `napi.triples.additional` convention (with the platform list configurable via the new `[publish.languages.node].npm_subpackage_platforms`); Ruby compiles via rb-sys/`bundle exec rake compile` and assembles a platform-tagged `.gem`; Elixir produces RustlerPrecompiled-style NIF tarballs (one per `nif_versions` × target combination) plus a `checksum-Elixir.{App}.exs` aggregator; Java stages the JNI shared library under `native/{classifier}/` and runs Maven to produce a classifier-suffixed JAR; C# stages `runtimes/{rid}/native/` and runs `dotnet pack`.
+
+- **`alef validate versions`** — cross-manifest version consistency checker. Reads `alef.toml` to discover each language's manifest location (Cargo.toml / pyproject.toml / package.json / gemspec / mix.exs / pom.xml / .csproj / composer.json / gleam.toml / build.zig / Package.swift / pubspec.yaml / build.gradle.kts / DESCRIPTION) and compares declared versions to the canonical Cargo.toml workspace version. Exits non-zero with a clear mismatch list; emits JSON with `--json`. Replaces the Python-based `kreuzberg-dev/actions/validate-versions` action and the per-repo shell scripts that did the same job.
+
+- **`alef release-metadata`** — emits release metadata JSON in the exact shape consumed by GitHub Actions matrix dispatch (`tag`, `version`, `npm_tag`, `is_tag`, `is_prerelease`, `release_<target>` flags, …). Args: `--tag`, `--targets`, `--git-ref`, `--event`, `--dry-run`, `--force-republish`, `--json`. The set of valid targets is discovered from `alef.toml`'s `languages` array. Replaces `kreuzberg-dev/actions/prepare-release-metadata`.
+
+- **`alef check-registry`** — version-existence check across PyPI, npm, crates.io, RubyGems, Hex, Maven Central, NuGet, Packagist, a Homebrew tap, and GitHub Releases. Output: `exists=true|false` (and JSON with `--json`). Replaces `kreuzberg-dev/actions/check-registry` plus the per-registry `scripts/publish/check_*.sh` scripts.
+
+- **`alef go-tag`** — creates and pushes the two Git tags Go's submodule-versioning convention requires (the top-level `vX.Y.Z` and the `packages/go/v<major>/vX.Y.Z` submodule tag). Supports `--dry-run` and `--remote`.
+
+- **`PublishLanguageConfig` schema additions** (all `Option<...>`, fully back-compatible): `npm_subpackage_platforms`, `cibuildwheel_environment`, `jni_classifier`, `csharp_rid`, `wheel`, `sdist`. Existing `[publish.languages.*]` tables continue to load unchanged.
+
 ### Fixed
 
 - **Scaffolded GitHub workflows for Swift, Dart, Gleam, Kotlin, and Zig were broken on first run.** The Swift workflow referenced `actions/setup-swift@v4`, which doesn't exist (the working action is `swift-actions/setup-swift@v2`). The Dart, Gleam, Kotlin, and Zig workflows passed unsupported flags to the per-language CLIs (`--working-dir`, `--project-path`, `--directory`) instead of `cd`-ing into the package directory. All five workflow templates now use `defaults.run.working-directory: packages/<lang>` and let each CLI run from its own root, and Swift uses `swift-actions/setup-swift@v2`.

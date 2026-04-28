@@ -37,6 +37,24 @@ pub struct PublishLanguageConfig {
     pub pkg_config: Option<bool>,
     /// Generate a CMake find module (C FFI only).
     pub cmake_config: Option<bool>,
+    // --- New fields added in Phase 1 ---
+    /// npm sub-package platform identifiers for Node.js NAPI builds.
+    /// Each entry is a napi-rs platform string like `"linux-x64-gnu"`.
+    /// Defaults to a standard set when absent.
+    pub npm_subpackage_platforms: Option<Vec<String>>,
+    /// Forward-looking: environment variables passed through to cibuildwheel
+    /// when orchestrating Python cross-compilation builds.
+    pub cibuildwheel_environment: Option<std::collections::HashMap<String, String>>,
+    /// JNI classifier override for Java packaging (e.g. `"linux-x86_64"`).
+    /// Derived from the target triple when absent.
+    pub jni_classifier: Option<String>,
+    /// NuGet RID override for C# packaging (e.g. `"linux-x64"`).
+    /// Derived from the target triple when absent.
+    pub csharp_rid: Option<String>,
+    /// Build and include a Python wheel for this target (default: `true`).
+    pub wheel: Option<bool>,
+    /// Build and include a Python sdist (default: `true`).
+    pub sdist: Option<bool>,
 }
 
 /// How to vendor the Rust core crate into a language package.

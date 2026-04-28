@@ -2,13 +2,20 @@
 
 pub mod c_ffi;
 pub mod cli;
+pub mod csharp;
 pub mod dart;
+pub mod elixir;
 pub mod gleam;
 pub mod go;
+pub mod java;
 pub mod kotlin;
+pub mod node;
 pub mod php;
+pub mod python;
+pub mod ruby;
 pub mod swift;
 pub mod util;
+pub mod wasm;
 pub mod zig;
 
 use anyhow::{Context, Result};

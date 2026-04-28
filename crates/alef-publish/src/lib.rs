@@ -272,11 +272,27 @@ fn build_command_for_lang(lang: Language, config: &AlefConfig, target: Option<&R
 }
 
 /// Run a shell command and return an error if it fails.
-fn run_shell_command(cmd: &str) -> Result<()> {
+pub(crate) fn run_shell_command(cmd: &str) -> Result<()> {
     eprintln!("  $ {cmd}");
     let status = std::process::Command::new("sh")
         .arg("-c")
         .arg(cmd)
+        .status()
+        .with_context(|| format!("running: {cmd}"))?;
+
+    if !status.success() {
+        anyhow::bail!("command failed with exit code {}: {cmd}", status.code().unwrap_or(-1));
+    }
+    Ok(())
+}
+
+/// Run a shell command in a specific working directory.
+pub(crate) fn run_shell_command_in(cmd: &str, dir: &std::path::Path) -> Result<()> {
+    eprintln!("  $ {cmd}  (in {})", dir.display());
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(dir)
         .status()
         .with_context(|| format!("running: {cmd}"))?;
 
@@ -322,42 +338,76 @@ pub fn package(
             Language::Ffi => {
                 let t = target.context("--target required for FFI packaging")?;
                 let artifact = package::c_ffi::package_c_ffi(config, t, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Php => {
                 let t = target.context("--target required for PHP packaging")?;
                 let artifact = package::php::package_php(config, t, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Go => {
                 let t = target.context("--target required for Go packaging")?;
                 let artifact = package::go::package_go_ffi(config, t, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
+            }
+            Language::Python => {
+                let t = target.context("--target required for Python packaging")?;
+                let artifacts = package::python::package_python(config, t, ws_root, output_dir, version)?;
+                Some(artifacts)
+            }
+            Language::Wasm => {
+                let artifacts = package::wasm::package_wasm(config, ws_root, output_dir, version)?;
+                Some(vec![artifacts])
+            }
+            Language::Node => {
+                let t = target.context("--target required for Node packaging")?;
+                let artifact = package::node::package_node(config, t, ws_root, output_dir, version)?;
+                Some(vec![artifact])
+            }
+            Language::Ruby => {
+                let t = target.context("--target required for Ruby packaging")?;
+                let artifact = package::ruby::package_ruby(config, t, ws_root, output_dir, version)?;
+                Some(vec![artifact])
+            }
+            Language::Elixir => {
+                let t = target.context("--target required for Elixir packaging")?;
+                let artifacts = package::elixir::package_elixir(config, t, ws_root, output_dir, version)?;
+                Some(artifacts)
+            }
+            Language::Java => {
+                let t = target.context("--target required for Java packaging")?;
+                let artifact = package::java::package_java(config, t, ws_root, output_dir, version)?;
+                Some(vec![artifact])
+            }
+            Language::Csharp => {
+                let t = target.context("--target required for C# packaging")?;
+                let artifact = package::csharp::package_csharp(config, t, ws_root, output_dir, version)?;
+                Some(vec![artifact])
             }
             Language::Kotlin => {
                 // Kotlin/JVM packaging is target-independent — Gradle produces a JVM jar.
                 let artifact = package::kotlin::package_kotlin(config, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Gleam => {
                 // Gleam source packaging is target-independent.
                 let artifact = package::gleam::package_gleam(config, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Zig => {
                 let t = target.context("--target required for Zig packaging")?;
                 let artifact = package::zig::package_zig(config, t, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Dart => {
                 // Dart source packaging is target-independent (FRB handles cross-compilation).
                 let artifact = package::dart::package_dart(config, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Swift => {
                 // Swift source packaging is target-independent; XCFramework requires xcodebuild.
                 let artifact = package::swift::package_swift(config, ws_root, output_dir, version)?;
-                Some(artifact)
+                Some(vec![artifact])
             }
             Language::Rust => {
                 // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
@@ -370,8 +420,10 @@ pub fn package(
             }
         };
 
-        if let Some(artifact) = result {
-            eprintln!("  produced {}", artifact.name);
+        if let Some(artifacts) = result {
+            for artifact in &artifacts {
+                eprintln!("  produced {}", artifact.name);
+            }
         }
 
         // Run after hooks on success.

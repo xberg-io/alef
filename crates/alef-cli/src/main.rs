@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process;
 
 mod cache;
+mod commands;
 mod pipeline;
 mod registry;
 
@@ -183,6 +184,74 @@ enum Commands {
         #[command(subcommand)]
         action: CacheAction,
     },
+    /// Cross-manifest version consistency checker and release utilities.
+    Validate {
+        #[command(subcommand)]
+        action: ValidateAction,
+    },
+    /// Emit release metadata JSON consumed by CI workflows.
+    ReleaseMetadata {
+        /// Release tag (e.g. v4.1.0 or v4.1.0-rc.1). Required.
+        #[arg(long, short)]
+        tag: String,
+        /// Comma-separated target list (e.g. "python,node") or "all" (default).
+        #[arg(long, default_value = "all")]
+        targets: String,
+        /// Git ref override (branch, tag, or commit SHA).
+        #[arg(long)]
+        git_ref: Option<String>,
+        /// GitHub event name (release/workflow_dispatch/repository_dispatch).
+        #[arg(long, default_value = "")]
+        event: String,
+        /// Dry-run flag — include in metadata without actually publishing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Force-republish flag — republish even if version already exists.
+        #[arg(long)]
+        force_republish: bool,
+        /// Output machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check whether a package version exists in a registry.
+    CheckRegistry {
+        /// Registry to check.
+        #[arg(long, value_enum)]
+        registry: commands::check_registry::Registry,
+        /// Package name (use `groupId:artifactId` for Maven).
+        #[arg(long)]
+        package: String,
+        /// Version to check.
+        #[arg(long)]
+        version: String,
+        /// Homebrew tap repository (`owner/repo`).
+        #[arg(long)]
+        tap_repo: Option<String>,
+        /// GitHub repository (`owner/repo`) for github-release check.
+        #[arg(long)]
+        repo: Option<String>,
+        /// NuGet source URL (defaults to https://api.nuget.org).
+        #[arg(long)]
+        source: Option<String>,
+        /// Output machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create and push Go module tags for a release.
+    GoTag {
+        /// Version string (e.g. "4.1.0" or "v4.1.0").
+        #[arg(long, short)]
+        version: String,
+        /// Git remote name (default: origin).
+        #[arg(long, default_value = "origin")]
+        remote: String,
+        /// Print tags that would be created without executing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Output machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -271,6 +340,19 @@ enum CacheAction {
     Clear,
     /// Show cache status.
     Status,
+}
+
+#[derive(Subcommand)]
+enum ValidateAction {
+    /// Check that all language manifest versions match the Cargo.toml workspace version.
+    Versions {
+        /// Output machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Exit with code 1 if any mismatch is found.
+        #[arg(long)]
+        exit_code: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -1099,6 +1181,82 @@ fn main() -> Result<()> {
                 Ok(())
             }
         },
+        Commands::Validate { action } => match action {
+            ValidateAction::Versions { json, exit_code } => {
+                let config = load_config(config_path)?;
+                let workspace_root = std::env::current_dir()?;
+                let checks = commands::validate_versions::run(&config, &workspace_root, json)?;
+                let has_mismatches = checks.iter().any(|c| !c.matches);
+                if has_mismatches && exit_code {
+                    process::exit(1);
+                }
+                Ok(())
+            }
+        },
+        Commands::ReleaseMetadata {
+            tag,
+            targets,
+            git_ref,
+            event,
+            dry_run,
+            force_republish,
+            json: _,
+        } => {
+            // Sniff event from env when not provided.
+            let effective_event = if event.is_empty() {
+                std::env::var("GITHUB_EVENT_NAME").unwrap_or_default()
+            } else {
+                event.clone()
+            };
+            let config = load_config(config_path).ok();
+            let meta = commands::release_metadata::compute(
+                &tag,
+                &targets,
+                git_ref.as_deref(),
+                &effective_event,
+                dry_run,
+                force_republish,
+                config.as_ref(),
+            )?;
+            println!("{}", meta.to_json()?);
+            Ok(())
+        }
+        Commands::CheckRegistry {
+            registry,
+            package,
+            version,
+            tap_repo,
+            repo,
+            source,
+            json,
+        } => {
+            let extra = commands::check_registry::ExtraParams {
+                nuget_source: source,
+                tap_repo,
+                repo,
+            };
+            commands::check_registry::check(registry, &package, &version, &extra, json)?;
+            Ok(())
+        }
+        Commands::GoTag {
+            version,
+            remote,
+            dry_run,
+            json,
+        } => {
+            let config = load_config(config_path)?;
+            let workspace_root = std::env::current_dir()?;
+            let params = commands::go_tag::GoTagParams {
+                version: &version,
+                remote: &remote,
+                dry_run,
+                output_json: json,
+                config: &config,
+                workspace_root: &workspace_root,
+            };
+            commands::go_tag::run(&params)?;
+            Ok(())
+        }
     }
 }
 
