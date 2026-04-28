@@ -259,7 +259,7 @@ pub mod maven {
 
 pub mod nuget {
     // renovate: datasource=nuget depName=Microsoft.NET.Test.Sdk
-    pub const MICROSOFT_NET_TEST_SDK: &str = "17.12.0";
+    pub const MICROSOFT_NET_TEST_SDK: &str = "17.14.1";
 
     // renovate: datasource=nuget depName=xunit
     pub const XUNIT: &str = "2.9.3";
