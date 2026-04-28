@@ -7,6 +7,7 @@ mod cache;
 mod commands;
 mod pipeline;
 mod registry;
+mod version_pin;
 
 #[derive(Parser)]
 #[command(name = "alef", about = "Opinionated polyglot binding generator")]
@@ -383,6 +384,7 @@ fn main() -> Result<()> {
         }
         Commands::Generate { lang, clean, no_format } => {
             let config = load_config(config_path)?;
+            version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Generating bindings for: {}", format_languages(&languages));
             let api = pipeline::extract(&config, config_path, clean)?;
@@ -509,6 +511,11 @@ fn main() -> Result<()> {
             // Always re-sync versions across user-owned manifests.
             if let Err(e) = pipeline::sync_versions(&config, config_path, None) {
                 tracing::warn!("version sync failed: {e}");
+            }
+
+            // Stamp alef.toml with the CLI version that produced this generate.
+            if let Err(e) = version_pin::write_alef_toml_version(config_path) {
+                tracing::warn!("could not update alef.toml version pin: {e}");
             }
 
             println!("Generated {total_written} files");
@@ -780,6 +787,7 @@ fn main() -> Result<()> {
         }
         Commands::All { clean } => {
             let config = load_config(config_path)?;
+            version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, None)?;
             eprintln!("Running all for: {}", format_languages(&languages));
 
@@ -936,6 +944,11 @@ fn main() -> Result<()> {
             // `alef verify` can recompute the same hash from on-disk content.
             eprintln!("Finalising hashes...");
             pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
+
+            // Stamp alef.toml with the CLI version that produced this run.
+            if let Err(e) = version_pin::write_alef_toml_version(config_path) {
+                tracing::warn!("could not update alef.toml version pin: {e}");
+            }
 
             println!(
                 "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files, {e2e_count} e2e files, {doc_count} doc files"

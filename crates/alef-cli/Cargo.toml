@@ -52,6 +52,7 @@ clap = { workspace = true }
 glob = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
+semver = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }

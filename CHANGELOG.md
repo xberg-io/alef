@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-04-28
+
+A patch release that turns alef.toml's `version` field into a real lifecycle pin: writes are stamped on every successful generate, and a config pointing to a future alef now refuses to run instead of silently producing stale output.
+
+### Added
+
+- **`alef generate` and `alef all` enforce alef.toml ↔ CLI version compatibility.** Before doing any work, both commands parse the top-level `version = "X.Y.Z"` field (if set) and compare it semver-style against the running CLI. If the pin is greater than the CLI, the command aborts with `alef.toml pins version = "..." but installed alef CLI is X.Y.Z. Upgrade alef ...`. This catches the case where a downstream repo bumps `alef.toml` and tries to regenerate against an older binary still on disk — the regenerate would otherwise quietly skip new emitters and corrupt the output.
+- **`alef generate` and `alef all` stamp alef.toml with the CLI version after a successful run.** The top-level `version = "..."` line is rewritten (or inserted if missing) to match `env!("CARGO_PKG_VERSION")`. Downstream consumers (install-alef, CI verify) now have an authoritative record of which alef produced the on-disk artifacts, so a mismatch between alef.toml and the headers in generated files becomes impossible. The rewrite is line-anchored, so dependency `version = "..."` specs inside inline tables are never touched.
+
 ## [0.11.2] - 2026-04-28
 
 A patch release fixing the alef self-publish bootstrap and rolling up several major dependency upgrades.
