@@ -456,8 +456,10 @@ fn test_package_default() {
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
         .unwrap();
 
-    // Should use default package
-    assert!(native_lib.content.contains("package dev.kreuzberg"));
+    // When neither [java].package nor [scaffold].repository is configured,
+    // alef emits a vendor-neutral placeholder so the build fails loudly
+    // instead of silently inheriting another organization's namespace.
+    assert!(native_lib.content.contains("package unconfigured.alef"));
 }
 
 #[test]

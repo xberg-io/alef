@@ -218,6 +218,84 @@ fn default_true() -> bool {
     true
 }
 
+/// Derive a reverse-DNS package name from a repository URL.
+///
+/// Recognises `https?://<host>/<org>/<rest>` and produces `<reversed-host>.<org>`,
+/// where the host is split into labels and reversed (so `github.com` → `com.github`),
+/// the org's hyphens become underscores (Java identifier rules), and the trailing
+/// path is ignored. Returns `None` when the URL is missing a host or path segment.
+///
+/// Examples:
+/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("com.github.kreuzberg_dev")`
+/// - `https://github.com/spikard-rs/spikard`     → `Some("com.github.spikard_rs")`
+/// - `https://gitlab.com/foo/bar`                → `Some("com.gitlab.foo")`
+/// - `https://example.invalid/x`                 → `Some("invalid.example.x")`
+/// - `https://github.com/`                       → `None` (no org segment)
+fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
+    let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);
+    let mut parts = after_scheme.split('/').filter(|s| !s.is_empty());
+    let host = parts.next()?;
+    let org = parts.next()?;
+
+    let host_reversed: Vec<String> = host
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .rev()
+        .map(|s| s.replace('-', "_"))
+        .collect();
+    if host_reversed.is_empty() {
+        return None;
+    }
+
+    let mut pkg = host_reversed.join(".");
+    pkg.push('.');
+    pkg.push_str(&org.replace('-', "_"));
+    Some(pkg)
+}
+
+#[cfg(test)]
+mod derive_reverse_dns_tests {
+    use super::derive_reverse_dns_package;
+
+    #[test]
+    fn github_org_with_hyphen_underscores_in_package() {
+        assert_eq!(
+            derive_reverse_dns_package("https://github.com/kreuzberg-dev/kreuzberg"),
+            Some("com.github.kreuzberg_dev".to_string())
+        );
+    }
+
+    #[test]
+    fn other_host_reverses_correctly() {
+        assert_eq!(
+            derive_reverse_dns_package("https://gitlab.com/foo/bar"),
+            Some("com.gitlab.foo".to_string())
+        );
+    }
+
+    #[test]
+    fn missing_org_returns_none() {
+        assert_eq!(derive_reverse_dns_package("https://github.com/"), None);
+        assert_eq!(derive_reverse_dns_package("https://github.com"), None);
+    }
+
+    #[test]
+    fn no_scheme_still_parses() {
+        assert_eq!(
+            derive_reverse_dns_package("github.com/foo/bar"),
+            Some("com.github.foo".to_string())
+        );
+    }
+
+    #[test]
+    fn placeholder_url_derives_predictably() {
+        assert_eq!(
+            derive_reverse_dns_package("https://example.invalid/my-lib"),
+            Some("invalid.example.my_lib".to_string())
+        );
+    }
+}
+
 /// Controls which generation passes alef runs.
 /// All flags default to `true`; set to `false` to skip a pass.
 /// Can be overridden per-language via `[generate_overrides.<lang>]`.
@@ -854,13 +932,38 @@ impl AlefConfig {
             .unwrap_or_else(|_| format!("https://example.invalid/{}", self.crate_config.name))
     }
 
-    /// Get the Java package name.
+    /// Get the Java package name, returning an error when neither `[java].package`
+    /// nor a derivable repository URL is configured.
+    ///
+    /// Resolution order:
+    /// 1. `[java].package`
+    /// 2. Reverse-DNS derived from `[scaffold] repository` /
+    ///    `[e2e.registry] github_repo` (e.g. `https://github.com/foo-org/bar`
+    ///    → `com.github.foo_org`).
+    pub fn try_java_package(&self) -> Result<String, String> {
+        if let Some(pkg) = self.java.as_ref().and_then(|j| j.package.as_ref()) {
+            return Ok(pkg.clone());
+        }
+        if let Ok(repo) = self.try_github_repo() {
+            if let Some(pkg) = derive_reverse_dns_package(&repo) {
+                return Ok(pkg);
+            }
+        }
+        Err(format!(
+            "no Java package configured — set `[java] package = \"...\"` or `[scaffold] repository = \"https://<host>/<org>/...\"` for crate `{}`",
+            self.crate_config.name
+        ))
+    }
+
+    /// Get the Java package name with a vendor-neutral placeholder fallback.
+    ///
+    /// Resolution order: see [`Self::try_java_package`]. When all sources are
+    /// missing, falls back to `unconfigured.alef` so the generated code fails
+    /// to compile loudly rather than silently inheriting another organization's
+    /// namespace.
     pub fn java_package(&self) -> String {
-        self.java
-            .as_ref()
-            .and_then(|j| j.package.as_ref())
-            .cloned()
-            .unwrap_or_else(|| "dev.kreuzberg".to_string())
+        self.try_java_package()
+            .unwrap_or_else(|_| "unconfigured.alef".to_string())
     }
 
     /// Get the Java Maven groupId.
@@ -871,13 +974,32 @@ impl AlefConfig {
         self.java_package()
     }
 
-    /// Get the Kotlin package name.
+    /// Get the Kotlin package name, returning an error when neither
+    /// `[kotlin].package` nor a derivable repository URL is configured.
+    ///
+    /// Resolution order:
+    /// 1. `[kotlin].package`
+    /// 2. Reverse-DNS derived from `[scaffold] repository` /
+    ///    `[e2e.registry] github_repo`.
+    pub fn try_kotlin_package(&self) -> Result<String, String> {
+        if let Some(pkg) = self.kotlin.as_ref().and_then(|k| k.package.as_ref()) {
+            return Ok(pkg.clone());
+        }
+        if let Ok(repo) = self.try_github_repo() {
+            if let Some(pkg) = derive_reverse_dns_package(&repo) {
+                return Ok(pkg);
+            }
+        }
+        Err(format!(
+            "no Kotlin package configured — set `[kotlin] package = \"...\"` or `[scaffold] repository = \"https://<host>/<org>/...\"` for crate `{}`",
+            self.crate_config.name
+        ))
+    }
+
+    /// Get the Kotlin package name with a vendor-neutral placeholder fallback.
     pub fn kotlin_package(&self) -> String {
-        self.kotlin
-            .as_ref()
-            .and_then(|k| k.package.as_ref())
-            .cloned()
-            .unwrap_or_else(|| "dev.kreuzberg".to_string())
+        self.try_kotlin_package()
+            .unwrap_or_else(|_| "unconfigured.alef".to_string())
     }
 
     /// Get the Kotlin target platform.
