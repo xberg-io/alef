@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.20] - 2026-04-29
+
 ### Fixed
 
 - **`alef sync-versions` no longer skips work based on a stale `.alef/last_synced_version` cache.** The previous warm-path short-circuit returned early whenever the cached version matched `Cargo.toml`'s, on the assumption that "same version → all manifests still in sync." That assumption breaks in three real cases: a manifest hand-edited to the wrong version, a *new* manifest added after the last sync (e.g. `e2e/rust/Cargo.toml` introduced by `alef e2e generate`), or a stale `alef:hash:` line whose content drifted. CI runs without the cache and re-derives the correct state, so the local hook stayed silent while the `alef-sync-versions` pre-commit hook failed in CI for downstream consumers (most recently: liter-llm rc.14, kreuzcrawl, html-to-markdown, tree-sitter-language-pack — all required `rm -rf .alef` to reproduce the diff). The function now always walks every manifest. The scan is sub-second on kreuzberg-sized repos and the underlying writes are idempotent when nothing is actually stale, so the cost is invisible. The `.alef/last_synced_version` stamp is still written for forward-compatible introspection but is no longer consulted as a gate. (`crates/alef-cli/src/pipeline/version.rs`)
