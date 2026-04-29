@@ -78,23 +78,62 @@ pub(crate) fn extract_cfg_condition(attrs: &[syn::Attribute]) -> Option<String> 
 
 /// Extract `rename_all` value from `#[serde(rename_all = "...")]` or
 /// `#[cfg_attr(..., serde(rename_all = "..."))]` attributes.
+///
+/// Uses `attr.parse_nested_meta` to walk the attribute tree without
+/// stringifying the token stream — the previous implementation called
+/// `format!("{}", list.tokens).to_string()` on every attribute, which
+/// allocates the full attribute representation per type/enum and then does
+/// O(n) string scanning. This implementation only allocates the matched
+/// literal value (if any).
 pub(crate) fn extract_serde_rename_all(attrs: &[syn::Attribute]) -> Option<String> {
-    for attr in attrs {
-        let tokens = if let Ok(list) = attr.meta.require_list() {
-            format!("{}", list.tokens)
-        } else {
-            continue;
-        };
-        if let Some(pos) = tokens.find("rename_all") {
-            let rest = &tokens[pos..];
-            if let Some(eq_pos) = rest.find('=') {
-                let after_eq = rest[eq_pos + 1..].trim();
-                if let Some(start) = after_eq.find('"') {
-                    let after_start = &after_eq[start + 1..];
-                    if let Some(end) = after_start.find('"') {
-                        return Some(after_start[..end].to_string());
+    fn extract_from_serde(attr: &syn::Attribute) -> Option<String> {
+        let mut found: Option<String> = None;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("rename_all") {
+                if let Ok(value) = meta.value() {
+                    if let Ok(s) = value.parse::<syn::LitStr>() {
+                        found = Some(s.value());
                     }
                 }
+            } else {
+                // Skip arbitrary nested values without erroring out the parse.
+                let _ = meta.value();
+            }
+            Ok(())
+        });
+        found
+    }
+
+    for attr in attrs {
+        if attr.path().is_ident("serde") {
+            if let Some(v) = extract_from_serde(attr) {
+                return Some(v);
+            }
+        } else if attr.path().is_ident("cfg_attr") {
+            // `cfg_attr(feature = "X", serde(rename_all = "..."))` — the
+            // serde inner attribute is the second argument. Walk and inspect.
+            let mut inner: Option<String> = None;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("serde") {
+                    let _ = meta.parse_nested_meta(|inner_meta| {
+                        if inner_meta.path.is_ident("rename_all") {
+                            if let Ok(value) = inner_meta.value() {
+                                if let Ok(s) = value.parse::<syn::LitStr>() {
+                                    inner = Some(s.value());
+                                }
+                            }
+                        } else {
+                            let _ = inner_meta.value();
+                        }
+                        Ok(())
+                    });
+                } else {
+                    let _ = meta.value();
+                }
+                Ok(())
+            });
+            if let Some(v) = inner {
+                return Some(v);
             }
         }
     }

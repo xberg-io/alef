@@ -80,33 +80,47 @@ pub fn type_to_string(ty: &syn::Type) -> String {
 /// - `& 'static [ & 'static str ]` → `&'static [&'static str]`
 /// - `Vec < String >`     → `Vec<String>`
 fn normalize_type_string(s: &str) -> String {
-    let is_punct = |c: char| matches!(c, '<' | '>' | '[' | ']' | '(' | ')' | ',' | '*' | '&' | ':');
+    // ASCII byte scan — type strings emitted by `quote` are pure ASCII, so we
+    // can avoid the `Vec<char>` allocation that the previous implementation
+    // paid per call. A few thousand types per extraction makes this matter on
+    // the cold path. If a non-ASCII byte ever appears (it shouldn't), we
+    // append it as a UTF-8 chunk via `from_utf8` for safety.
+    let bytes = s.as_bytes();
+    let n = bytes.len();
+    let mut out = String::with_capacity(n);
+    let is_punct = |b: u8| matches!(b, b'<' | b'>' | b'[' | b']' | b'(' | b')' | b',' | b'*' | b'&' | b':');
 
-    let mut out = String::with_capacity(s.len());
-    let chars: Vec<char> = s.chars().collect();
-    let n = chars.len();
     let mut i = 0;
-
     while i < n {
-        let c = chars[i];
-        if c == ' ' {
-            let prev_is_punct = out.chars().last().map(is_punct).unwrap_or(false);
-            let next_is_punct = chars[i + 1..]
-                .iter()
-                .find(|&&ch| ch != ' ')
-                .copied()
-                .map(is_punct)
-                .unwrap_or(false);
-            // Keep the space when the preceding token is a lifetime — stripping it would
-            // concatenate the lifetime with the following type token (e.g. `'staticstr`).
+        let c = bytes[i];
+        if c == b' ' {
+            let prev_is_punct = out.as_bytes().last().copied().map(is_punct).unwrap_or(false);
+            // Find next non-space byte without allocating.
+            let mut j = i + 1;
+            while j < n && bytes[j] == b' ' {
+                j += 1;
+            }
+            let next_is_punct = j < n && is_punct(bytes[j]);
             let prev_ends_lifetime = ends_with_lifetime(&out);
             if (prev_is_punct || next_is_punct) && !prev_ends_lifetime {
                 // Drop cosmetic space around punctuation.
             } else {
                 out.push(' ');
             }
+        } else if c.is_ascii() {
+            out.push(c as char);
         } else {
-            out.push(c);
+            // Non-ASCII fallthrough — copy the UTF-8 byte sequence verbatim.
+            // Find the end of the current scalar.
+            let mut j = i + 1;
+            while j < n && (bytes[j] & 0b1100_0000) == 0b1000_0000 {
+                j += 1;
+            }
+            if let Ok(slice) = std::str::from_utf8(&bytes[i..j]) {
+                out.push_str(slice);
+            }
+            i = j;
+            continue;
         }
         i += 1;
     }

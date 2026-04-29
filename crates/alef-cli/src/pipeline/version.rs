@@ -121,9 +121,26 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
     let expected_rubygems = to_rubygems_prerelease(&expected);
     let mut mismatches = Vec::new();
 
+    // Cache compiled regexes across calls within this verify pass — the same
+    // ~15 patterns get reused on every invocation, and `Regex::new` is the
+    // dominant cost when the function is called from a tight loop.
     fn extract_version(path: &str, pattern: &str) -> Option<String> {
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        use std::sync::OnceLock;
+        static CACHE: OnceLock<Mutex<HashMap<String, regex::Regex>>> = OnceLock::new();
         let content = std::fs::read_to_string(path).ok()?;
-        let re = regex::Regex::new(pattern).ok()?;
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut guard = cache.lock().ok()?;
+        let re = match guard.get(pattern) {
+            Some(re) => re.clone(),
+            None => {
+                let re = regex::Regex::new(pattern).ok()?;
+                guard.insert(pattern.to_string(), re.clone());
+                re
+            }
+        };
+        drop(guard);
         re.captures(&content)?.get(1).map(|m| m.as_str().to_string())
     }
 
