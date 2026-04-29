@@ -470,18 +470,44 @@ fn main() -> Result<()> {
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
             }
 
-            // Generate public API wrappers
+            // Generate public API wrappers — cache by content hash like
+            // bindings, otherwise we rewrite hundreds of files on every warm
+            // run for no net change.
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
-                    let api_count = pipeline::write_files(&public_api_files, &base_dir)?;
-                    eprintln!("Generated {api_count} public API files");
-                    any_written = true;
+                    let api_hashes: Vec<(String, String)> = public_api_files
+                        .iter()
+                        .flat_map(|(_, fs)| {
+                            fs.iter().map(|f| {
+                                let normalized = pipeline::normalize_content(&f.path, &f.content);
+                                (
+                                    base_dir.join(&f.path).display().to_string(),
+                                    cache::hash_content(&normalized),
+                                )
+                            })
+                        })
+                        .collect();
+                    let stored_api = cache::read_generation_hashes("public_api").unwrap_or_default();
+                    let api_match =
+                        !api_hashes.is_empty() && api_hashes.iter().all(|(p, h)| stored_api.get(p) == Some(h));
 
                     for (_, files) in &public_api_files {
                         for file in files {
                             current_gen_paths.insert(base_dir.join(&file.path));
                         }
+                    }
+
+                    if !api_match || clean {
+                        let api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+                        eprintln!("Generated {api_count} public API files");
+                        any_written = true;
+                        let _ = cache::write_generation_hashes("public_api", &api_hashes);
+                        for (lang, _) in &public_api_files {
+                            changed_languages.insert(*lang);
+                        }
+                    } else {
+                        eprintln!("  [public_api] up to date (skipping)");
                     }
                 }
             }

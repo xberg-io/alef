@@ -1492,6 +1492,10 @@ fn gen_api_py(
 
     // Import types used in function signatures at runtime (not under TYPE_CHECKING)
     // since they appear as parameter/return type annotations in generated wrapper functions.
+    // Sort for deterministic codegen — `all_type_imports` is an AHashSet, so iteration
+    // order changes between runs; without sorting, hash-based caching always misses.
+    native_imports.sort_unstable();
+    options_imports.sort_unstable();
     if !native_imports.is_empty() {
         out.push_str(&format!("\nfrom .{module_name} import {}\n", native_imports.join(", ")));
     }
