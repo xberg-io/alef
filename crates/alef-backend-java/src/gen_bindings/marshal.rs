@@ -225,9 +225,15 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     let needs_check_last_error = out.contains("checkLastError()");
     let needs_read_cstring = out.contains("readCString(");
     let needs_read_bytes = out.contains("readBytes(");
-    let needs_create_object_mapper = out.contains("createObjectMapper()");
+    let needs_read_json_list = out.contains("readJsonList(");
+    let needs_create_object_mapper = out.contains("createObjectMapper()") || needs_read_json_list;
 
-    if !needs_check_last_error && !needs_read_cstring && !needs_read_bytes && !needs_create_object_mapper {
+    if !needs_check_last_error
+        && !needs_read_cstring
+        && !needs_read_bytes
+        && !needs_read_json_list
+        && !needs_create_object_mapper
+    {
         return;
     }
 
@@ -320,6 +326,42 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         )
         .ok();
         writeln!(out, "        return bytes;").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
+
+    if needs_read_json_list {
+        // Single shared helper for the FFI Vec-return path. Consolidates the
+        // null-check → reinterpret → free → JSON-deserialize boilerplate that
+        // was previously inlined at every Vec-returning call site (and which
+        // CPD correctly flagged as duplication). Returns an empty list on a
+        // null pointer to mirror the previous inline behavior.
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(
+            out,
+            "    private static <T> java.util.List<T> readJsonList(MemorySegment resultPtr, com.fasterxml.jackson.core.type.TypeReference<java.util.List<T>> typeRef) throws {}Exception {{",
+            class_name
+        )
+        .ok();
+        writeln!(out, "        if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "            return java.util.List.of();").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(
+            out,
+            "            String json = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        writeln!(out, "            return createObjectMapper().readValue(json, typeRef);").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
     }
 }

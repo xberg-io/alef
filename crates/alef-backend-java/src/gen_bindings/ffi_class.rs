@@ -390,7 +390,9 @@ pub(crate) fn gen_sync_function_method(
         writeln!(out, "        }}").ok();
     } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
         // Vec return types: FFI returns a JSON string pointer; deserialize into List<T>.
-        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        // The body is delegated to a single `readJsonList` helper emitted by
+        // `gen_helper_methods` so the JSON-deserialize boilerplate isn't duplicated
+        // at every call site (which CPD flagged as copy-paste duplication).
         writeln!(
             out,
             "            var resultPtr = (MemorySegment) {}.invoke({});",
@@ -399,38 +401,23 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         emit_ffi_ptr_cleanup(out);
-        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        if is_optional_return {
-            writeln!(out, "                return Optional.of(java.util.List.of());").ok();
-        } else {
-            writeln!(out, "                return java.util.List.of();").ok();
-        }
-        writeln!(out, "            }}").ok();
-        writeln!(
-            out,
-            "            String json = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        // Determine the element type for deserialization (use boxed types for generics)
         let element_type = match &dispatch_return_type {
             TypeRef::Vec(inner) => java_boxed_type(inner),
             _ => unreachable!(),
         };
+        let type_ref = format!(
+            "new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }}",
+            element_type
+        );
         if is_optional_return {
             writeln!(
                 out,
-                "            return Optional.of(createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }}));",
-                element_type
+                "            return Optional.of(readJsonList(resultPtr, {}));",
+                type_ref
             )
             .ok();
         } else {
-            writeln!(
-                out,
-                "            return createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
-                element_type
-            )
-            .ok();
+            writeln!(out, "            return readJsonList(resultPtr, {});", type_ref).ok();
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
@@ -666,8 +653,12 @@ mod tests {
             &bridge_type_aliases,
         );
 
-        assert!(out.contains("return Optional.of(java.util.List.of());"));
-        assert!(out.contains("return Optional.of(createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"));
+        // Vec returns now go through the readJsonList helper to deduplicate
+        // the JSON-deserialize boilerplate (CPD was flagging multiple inline
+        // copies). The empty-list-on-null path lives inside the helper.
+        assert!(out.contains(
+            "return Optional.of(readJsonList(resultPtr, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"
+        ));
     }
 
     #[test]
@@ -777,7 +768,43 @@ mod tests {
             &bridge_type_aliases,
         );
 
-        assert!(out.contains("return java.util.List.of();"));
-        assert!(!out.contains("Optional.of(java.util.List.of())"));
+        // The Vec dispatch path now delegates to the readJsonList helper.
+        // Optional<List<T>> wrapping is added by the caller; non-optional
+        // is a bare call.
+        assert!(out.contains(
+            "return readJsonList(resultPtr, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"
+        ));
+        assert!(!out.contains("Optional.of(readJsonList"));
+    }
+
+    #[test]
+    fn vec_return_uses_helper_not_inline_json_deserialize() {
+        // CPD regression: every Vec-returning method previously inlined a
+        // ~15-line null-check + reinterpret + free + readValue block, which
+        // CPD (rightly) flagged as duplication. The helper extraction means
+        // the call site is one line and `readJsonList` appears exactly once
+        // in the helper section.
+        let func = create_test_function("list_items", TypeRef::Vec(Box::new(TypeRef::String)));
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        // The previously-duplicated JSON-deserialize line must NOT appear at
+        // the call site any more (it now lives only in the helper, which is
+        // emitted by gen_helper_methods at the bottom of the class).
+        assert!(
+            !out.contains("createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<")
+        );
     }
 }

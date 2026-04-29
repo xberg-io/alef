@@ -188,6 +188,27 @@ fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<Formatte
     }
 }
 
+/// Detect whether the consumer's Java package configures Spotless via
+/// `spotless-maven-plugin`. The walked pom is `<base>/<work_dir>/../pom.xml`
+/// (one level up from `packages/java/src/`, which is `packages/java/pom.xml`).
+///
+/// Returns the path to the pom when Spotless is configured, otherwise `None`.
+/// The check is conservative — a literal substring match on the plugin
+/// artifactId — because parsing a full pom is wildly out of scope for a
+/// formatter-selection heuristic.
+fn detect_spotless_pom(base_dir: &Path, java_work_dir: &str) -> Option<PathBuf> {
+    let pom = base_dir.join(java_work_dir).parent()?.join("pom.xml");
+    if !pom.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&pom).ok()?;
+    if content.contains("spotless-maven-plugin") {
+        Some(pom)
+    } else {
+        None
+    }
+}
+
 /// Collect all `.java` files under `dir` recursively (up to `limit` paths).
 /// Returns an empty vec if the directory does not exist or cannot be read.
 fn collect_java_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
@@ -206,6 +227,7 @@ pub fn format_generated(
     files: &[(Language, Vec<alef_core::backend::GeneratedFile>)],
     config: &AlefConfig,
     base_dir: &Path,
+    only_languages: Option<&std::collections::HashSet<Language>>,
 ) {
     let mut formatted_langs = std::collections::HashSet::new();
 
@@ -213,6 +235,12 @@ pub fn format_generated(
         // Skip if already formatted in this batch
         if formatted_langs.contains(lang) {
             continue;
+        }
+        // Skip languages outside the explicit filter (if provided).
+        if let Some(filter) = only_languages {
+            if !filter.contains(lang) {
+                continue;
+            }
         }
 
         // Resolve format config for this language (check overrides first)
@@ -237,7 +265,31 @@ pub fn format_generated(
             formatted_langs.insert(*lang);
             continue;
         } else if let Some(spec) = get_default_formatter(config, *lang) {
-            spec
+            // For Java, prefer the project's Spotless pipeline when configured in
+            // packages/java/pom.xml — running the same tool the project's prek
+            // hook would run keeps `alef-verify` stable. Falling back to
+            // google-java-format would produce different bytes than Spotless,
+            // and the embedded `alef:hash:` value would invalidate as soon as
+            // prek's `mvn spotless:apply` ran. See issue tslp/v1.8.0-rc.14.
+            if *lang == Language::Java
+                && let Some(pom) = detect_spotless_pom(base_dir, &spec.work_dir)
+            {
+                debug!("  [java] spotless detected at {}, using mvn spotless:apply", pom.display());
+                FormatterSpec {
+                    commands: vec![FormatterCommand {
+                        command: "mvn".to_owned(),
+                        args: vec![
+                            "-f".to_owned(),
+                            pom.to_string_lossy().into_owned(),
+                            "spotless:apply".to_owned(),
+                            "-q".to_owned(),
+                        ],
+                    }],
+                    work_dir: spec.work_dir,
+                }
+            } else {
+                spec
+            }
         } else {
             // No formatter for this language (e.g., Rust is formatted in-memory before writing)
             debug!("  [{lang_str}] no default formatter configured");
@@ -266,7 +318,9 @@ pub fn format_generated(
             }
 
             // For Java, google-java-format requires explicit file paths: collect them now.
-            let extra_args: Vec<String> = if *lang == Language::Java {
+            // Spotless and other Maven-driven formatters operate on the pom and don't
+            // take per-file arguments, so the collection is skipped for them.
+            let extra_args: Vec<String> = if *lang == Language::Java && step.command == "google-java-format" {
                 const JAVA_FILE_BATCH_LIMIT: usize = 200;
                 let java_files = collect_java_files(&work_dir, JAVA_FILE_BATCH_LIMIT);
                 if java_files.is_empty() {

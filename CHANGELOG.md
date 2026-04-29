@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+CLI ergonomics, generation performance, and live output for long-running commands.
+
+### Added
+
+- **Standard CLI affordances.** `alef --version` (and `-V`) prints the binary version. New global flags `--verbose` / `-v` (repeatable: `-v` info, `-vv` debug, `-vvv` trace), `--quiet` / `-q` (errors only), and `--no-color` (disable ANSI in log output). Tracing now defaults to `info`-level output on stderr — previously the CLI was effectively silent unless `RUST_LOG` was set, which meant users had no signal during long-running commands.
+- **Live streamed output for long-running commands.** `alef setup`, `alef update`, `alef update --latest`, `alef lint`, `alef fmt`, `alef test`, and `alef clean` now stream stdout/stderr to the terminal in real time, line-prefixed with `[<lang>] ` when multiple languages run in parallel. Previously output was captured and only re-emitted via `tracing::info!` after the command finished — producing a multi-minute blackout for `pnpm install` / `bundle install` / `cargo update`. Failures are now also surfaced via an explicit `✗ <command> failed: <lang> — <error>` summary line on stderr.
+
+### Changed
+
+- **`alef generate` no longer runs formatters by default.** Formatting was the dominant cost of `alef generate` on multi-language projects (e.g. `cargo fmt --all`, `ruff check --fix .`, `biome format --write .`, `dotnet format`) and ran on the full package directory every invocation — even when only one language regenerated. The behaviour is now opt-in: pass `--format` to `alef generate`, `alef all`, or `alef init` to run formatters. When `--format` is passed, formatters run *only* for languages that actually regenerated this run (other languages skip), making warm `alef generate --format` proportional to changed source files. The tradeoff: projects that previously relied on the implicit format pass to keep `alef verify` green should either (a) pass `--format`, (b) keep formatters in pre-commit hooks, or (c) run `alef fmt` explicitly after generate.
+
+## [0.11.13] - 2026-04-29
+
+A patch release that addresses two regressions surfaced by the tree-sitter-language-pack v1.8.0-rc.14 release: copy-paste duplication in generated Java FFI methods and Spotless/`alef-verify` hash drift.
+
+### Fixed
+
+- **Java backend deduplicates the FFI Vec-return path through a shared `readJsonList` helper.** Every Vec-returning method previously inlined an identical ~15-line null-check → reinterpret → free → JSON deserialize block, which `cpd` correctly flagged as duplication. The boilerplate now lives in a single private static helper emitted by the helper-emitter; per-method call sites collapse to one line.
+- **Java auto-format prefers Spotless when `packages/java/pom.xml` configures `spotless-maven-plugin`.** When detected, `alef generate` runs `mvn -f packages/java/pom.xml spotless:apply -q` instead of `google-java-format`, so the embedded `alef:hash:` value matches what the project's `mvn spotless:check` will see at verification time. Previously the hash drifted on every `alef generate` → prek cycle for any project whose Spotless config diverges from google-java-format defaults (e.g., Eclipse formatter).
+
 ## [0.11.12] - 2026-04-29
 
 A patch release that fixes the Java backend so functions returning `PathBuf` emit a properly-typed `java.nio.file.Path` value instead of a raw `String`.
