@@ -33,6 +33,10 @@ pub(crate) fn extract_doc_comments(attrs: &[syn::Attribute]) -> String {
 
 /// Check if a `#[derive(...)]` attribute contains a specific derive.
 /// Also checks `#[cfg_attr(..., derive(...))]` for conditional derives.
+///
+/// Matches both the bare-ident form `#[derive(Serialize)]` and the
+/// namespaced form `#[derive(serde::Serialize)]` — the latter is common
+/// when serde isn't in `use` scope.
 pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
@@ -40,7 +44,10 @@ pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
                 attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
             {
                 for path in &nested {
-                    if path.is_ident(derive_name) {
+                    // Accept both `Serialize` (single-segment) and
+                    // `serde::Serialize` (two-segment). The cfg_attr branch
+                    // below already does this — we mirror that here.
+                    if path.is_ident(derive_name) || path.segments.last().is_some_and(|seg| seg.ident == derive_name) {
                         return true;
                     }
                 }

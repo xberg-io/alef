@@ -388,6 +388,23 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
         }
     }
 
+    // Ruby: Gemfile.lock — update the path-gem version entries so bundler does not
+    // reject the lockfile with "frozen mode" errors on the next CI run.
+    // The lockfile contains the gem version in two places:
+    //   1. Under PATH > specs: `    <name> (<version>)` (4-space indent)
+    //   2. Under CHECKSUMS:    `  <name> (<version>)` (2-space indent, no sha256)
+    // We replace both textually, reusing the already-computed ruby_version.
+    let gemfile_lock_path = std::path::Path::new("packages/ruby/Gemfile.lock");
+    if gemfile_lock_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(gemfile_lock_path) {
+            if let Some(new_content) = sync_gemfile_lock(&content, &ruby_version) {
+                std::fs::write(gemfile_lock_path, &new_content)
+                    .context("failed to write packages/ruby/Gemfile.lock")?;
+                updated.push("packages/ruby/Gemfile.lock".to_string());
+            }
+        }
+    }
+
     // PHP: composer.json
     if let Ok(content) = std::fs::read_to_string("packages/php/composer.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
@@ -715,6 +732,108 @@ fn regenerate_readmes(config: &AlefConfig, config_path: &std::path::Path) -> any
     Ok(count)
 }
 
+/// Update all `<gem-name> (<old-version>)` entries in a Gemfile.lock to `new_ruby_version`.
+///
+/// Gemfile.lock records the path-gem version in two places:
+///
+/// 1. Under `PATH > specs:` — four-space indent, may include dependency lines below it.
+/// 2. Under `CHECKSUMS` — two-space indent, no sha256 suffix (path gems are not downloaded).
+///
+/// Both patterns look like `  <name> (<version>)` with varying indentation. We replace
+/// every occurrence of `<name> (<old>)` with `<name> (<new>)` regardless of indent, so
+/// the function handles any future Gemfile.lock layout changes automatically.
+///
+/// Returns `Some(new_content)` when at least one substitution was made, `None` when the
+/// lockfile already contains the target version everywhere (idempotent).
+fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
+    // Build a regex that matches `<gem-name> (<any-version>)` on a word boundary
+    // so we never accidentally match a gem whose name is a prefix of another.
+    // The gem name is captured from the first occurrence we find in the file
+    // (the PATH > specs block always appears first).
+    use std::sync::LazyLock;
+    static GEM_VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        // Matches: optional leading whitespace + gem-name + space + (version)
+        // Capture group 1 = gem name, group 2 = version inside parens.
+        regex::Regex::new(r"(?m)^([ \t]*)([A-Za-z0-9_-]+) \(([^)]+)\)$").expect("valid regex")
+    });
+
+    // Collect the set of gem names that appear in the PATH block (path gems).
+    // PATH block starts with "^PATH" and ends at the next blank line or new section.
+    let path_gem_names: std::collections::HashSet<String> = {
+        let mut names = std::collections::HashSet::new();
+        let mut in_specs = false;
+        for line in content.lines() {
+            if line.trim_start().starts_with("specs:") {
+                // Only enter specs-tracking mode when we are in a PATH block, which
+                // always appears before GEM. A simple heuristic: the PATH section
+                // starts with "^PATH" (no indent). Track whether we saw PATH before
+                // seeing GEM.
+            }
+            if line == "PATH" {
+                in_specs = true;
+                continue;
+            }
+            if in_specs && line.starts_with("  specs:") {
+                continue;
+            }
+            if in_specs && line.starts_with("    ") {
+                // Four-space indent — these are gem entries in the PATH specs block.
+                if let Some(caps) = GEM_VERSION_RE.captures(line) {
+                    let indent = &caps[1];
+                    let name = &caps[2];
+                    if indent.len() == 4 {
+                        names.insert(name.to_string());
+                    }
+                }
+                continue;
+            }
+            // A line without four-space indent ends the PATH > specs block.
+            if in_specs
+                && !line.starts_with("    ")
+                && !line.trim().is_empty()
+                && line != "PATH"
+                && !line.starts_with("  ")
+            {
+                // Top-level section header — PATH block is done.
+                in_specs = false;
+            }
+        }
+        names
+    };
+
+    if path_gem_names.is_empty() {
+        return None;
+    }
+
+    let mut changed = false;
+    let new_content = content
+        .lines()
+        .map(|line| {
+            if let Some(caps) = GEM_VERSION_RE.captures(line) {
+                let gem_name = &caps[2];
+                let current_version = &caps[3];
+                if path_gem_names.contains(gem_name) && current_version != new_ruby_version {
+                    changed = true;
+                    // Reconstruct the line with the new version, preserving indent.
+                    let indent = &caps[1];
+                    return format!("{indent}{gem_name} ({new_ruby_version})");
+                }
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Preserve trailing newline if the original had one.
+    let new_content = if content.ends_with('\n') {
+        format!("{new_content}\n")
+    } else {
+        new_content
+    };
+
+    if changed { Some(new_content) } else { None }
+}
+
 /// Replace version pattern in content. Returns `Some(new_content)` only when
 /// the regex match exists *and* the captured version string actually differs
 /// from the target. This is the idempotency guard against:
@@ -967,5 +1086,80 @@ end"#;
 
         let after_second = std::fs::read_to_string(&path).expect("read after second");
         assert_eq!(after_first, after_second, "content must not change on second finalize");
+    }
+
+    const GEMFILE_LOCK_SAMPLE: &str = "\
+PATH
+  remote: .
+  specs:
+    kreuzberg (4.10.0.pre.rc.13)
+      rb_sys (~> 0.9)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    rake (13.4.2)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  kreuzberg!
+
+CHECKSUMS
+  kreuzberg (4.10.0.pre.rc.13)
+  rake (13.4.2) sha256=abcdef
+
+BUNDLED WITH
+  4.0.7
+";
+
+    #[test]
+    fn sync_gemfile_lock_updates_both_occurrences() {
+        let result = sync_gemfile_lock(GEMFILE_LOCK_SAMPLE, "4.10.0.pre.rc.14");
+        assert!(result.is_some(), "expected Some when version changes");
+        let new = result.unwrap();
+        // PATH > specs entry updated
+        assert!(
+            new.contains("    kreuzberg (4.10.0.pre.rc.14)"),
+            "PATH specs entry not updated:\n{new}"
+        );
+        // CHECKSUMS entry updated
+        assert!(
+            new.contains("  kreuzberg (4.10.0.pre.rc.14)"),
+            "CHECKSUMS entry not updated:\n{new}"
+        );
+        // Other gem versions are unchanged
+        assert!(
+            new.contains("rake (13.4.2)"),
+            "non-path gem version must not change:\n{new}"
+        );
+        // Old version must be gone
+        assert!(!new.contains("4.10.0.pre.rc.13"), "old version must be removed:\n{new}");
+    }
+
+    #[test]
+    fn sync_gemfile_lock_is_idempotent() {
+        let first = sync_gemfile_lock(GEMFILE_LOCK_SAMPLE, "4.10.0.pre.rc.14").unwrap();
+        let second = sync_gemfile_lock(&first, "4.10.0.pre.rc.14");
+        assert!(
+            second.is_none(),
+            "second call with same version must return None (already in sync)"
+        );
+    }
+
+    #[test]
+    fn sync_gemfile_lock_preserves_trailing_newline() {
+        let with_newline = format!("{GEMFILE_LOCK_SAMPLE}\n");
+        let result = sync_gemfile_lock(&with_newline, "4.10.0.pre.rc.99").unwrap();
+        assert!(result.ends_with('\n'), "trailing newline must be preserved");
+    }
+
+    #[test]
+    fn sync_gemfile_lock_no_path_gem_returns_none() {
+        // A Gemfile.lock with no PATH block — nothing to sync.
+        let content = "GEM\n  remote: https://rubygems.org/\n  specs:\n    rake (13.4.2)\n";
+        let result = sync_gemfile_lock(content, "1.0.0");
+        assert!(result.is_none(), "no PATH gem means nothing to update");
     }
 }
