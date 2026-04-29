@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **FFI scaffold now merges `[crate.extra_dependencies]` into the generated `crates/<crate>-ffi/Cargo.toml`.** Previously the scaffold emitted only the umbrella crate (e.g. `kreuzberg = { path = "../kreuzberg" }`) plus `serde_json` and `tokio`, which worked when the public API surface lived in a single workspace crate. For multi-crate workspaces (e.g. spikard's `spikard-core`, `spikard-http`, `spikard-graphql`), the FFI bindings codegen emits qualified paths like `spikard_http::ServerConfig` and `spikard_graphql::QueryOnlyConfig` — the cdylib failed to compile because those crates were not direct dependencies. The scaffold now merges entries from `[crate.extra_dependencies]` (sorted, alphabetised) into the `[dependencies]` block, matching the behaviour of the wasm backend.
+
 ## [0.11.15] - 2026-04-29
 
 PHP backend: fix codegen errors in tagged data enum `From` impls.

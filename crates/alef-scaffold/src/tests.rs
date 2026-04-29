@@ -214,6 +214,51 @@ fn test_scaffold_ffi_deps_are_pinned() {
 }
 
 #[test]
+fn test_scaffold_ffi_merges_extra_dependencies() {
+    // Multi-crate workspaces (e.g. spikard's spikard-core/-http/-graphql) emit FFI
+    // bindings that reference qualified crate paths. The scaffold must merge
+    // [crate.extra_dependencies] from alef.toml so the generated cdylib can
+    // resolve those imports.
+    let mut config = test_config();
+    let mut deps: std::collections::HashMap<String, toml::Value> = Default::default();
+    deps.insert(
+        "my-lib-http".to_string(),
+        toml::Value::try_from(toml::Table::from_iter([(
+            "path".to_string(),
+            toml::Value::String("../my-lib-http".to_string()),
+        )]))
+        .unwrap(),
+    );
+    deps.insert(
+        "my-lib-graphql".to_string(),
+        toml::Value::try_from(toml::Table::from_iter([(
+            "path".to_string(),
+            toml::Value::String("../my-lib-graphql".to_string()),
+        )]))
+        .unwrap(),
+    );
+    deps.insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
+    config.crate_config.extra_dependencies = deps;
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+    assert!(
+        cargo_toml.contains("my-lib-http = { path = \"../my-lib-http\" }"),
+        "scaffold should emit my-lib-http path dep, got:\n{cargo_toml}"
+    );
+    assert!(
+        cargo_toml.contains("my-lib-graphql = { path = \"../my-lib-graphql\" }"),
+        "scaffold should emit my-lib-graphql path dep, got:\n{cargo_toml}"
+    );
+    assert!(
+        cargo_toml.contains("anyhow = \"1.0\""),
+        "scaffold should emit anyhow string dep, got:\n{cargo_toml}"
+    );
+}
+
+#[test]
 fn test_scaffold_go_production_format() {
     let config = test_config();
     let api = test_api();

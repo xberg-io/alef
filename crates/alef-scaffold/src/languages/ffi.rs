@@ -26,6 +26,29 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Res
     // - `cbindgen` is pinned to a specific minor since header generation
     //   output changes between minors and we want reproducible headers.
     //   Bump intentionally and verify generated headers in CI when updating.
+    // - `[crate.extra_dependencies]` from alef.toml is merged in. Required for
+    //   projects whose public surface spans multiple workspace crates (e.g.
+    //   spikard-core, spikard-http, spikard-graphql) — the FFI bindings codegen
+    //   emits qualified paths like `spikard_http::ServerConfig` and needs each
+    //   referenced crate as a direct dependency.
+    let extra_deps = config.extra_deps_for_language(Language::Ffi);
+    let mut extra_dep_lines: Vec<String> = extra_deps
+        .iter()
+        .map(|(name, value)| {
+            if let Some(s) = value.as_str() {
+                format!("{name} = \"{s}\"")
+            } else {
+                format!("{name} = {value}")
+            }
+        })
+        .collect();
+    extra_dep_lines.sort();
+    let extra_deps_block = if extra_dep_lines.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", extra_dep_lines.join("\n"))
+    };
+
     let content = format!(
         r#"{pkg_header}
 repository = "{repository}"
@@ -36,7 +59,7 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}
+tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
 
 [features]
 default = []
@@ -54,6 +77,7 @@ tempfile = "{tempfile}"
         features = core_dep_features(config, Language::Ffi),
         cbindgen = tv::cargo::CBINDGEN,
         tempfile = tv::cargo::TEMPFILE,
+        extra_deps_block = extra_deps_block,
     );
 
     let ffi_name = format!("{core_crate_dir}-ffi");
