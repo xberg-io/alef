@@ -1797,8 +1797,12 @@ fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
     let features_clause = if features.is_empty() {
         String::new()
     } else {
+        // When the consumer pinned an explicit feature set for wasm, also
+        // disable default features so "download" or similar host-only
+        // defaults don't sneak in (mio/getrandom can't compile to
+        // wasm32-unknown-unknown).
         let quoted: Vec<String> = features.iter().map(|f| format!("\"{f}\"")).collect();
-        format!(", features = [{}]", quoted.join(", "))
+        format!(", default-features = false, features = [{}]", quoted.join(", "))
     };
 
     let extra_deps = config.extra_deps_for_language(Language::Wasm);
