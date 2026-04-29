@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **README scaffolding no longer falls back to `https://github.com/kreuzberg-dev/<crate>` when no repository is configured.** Alef is meant to be vendor-neutral; consumers outside the kreuzberg-dev org were silently picking up that URL in 13 places across `alef-readme` (the README header link plus 12 per-language "See <repo> for usage examples." pointers). The 13 inline `format!("https://github.com/kreuzberg-dev/{name}")` calls now route through a single `AlefConfig::github_repo()` accessor whose fallback is `https://example.invalid/<crate>` — an obviously-broken URL that surfaces in code review instead of smuggling another organization's link into the output. Set `[scaffold] repository = "..."` (or `[e2e.registry] github_repo`) in your `alef.toml` to resolve. A new `AlefConfig::try_github_repo() -> Result<String, String>` accessor is available for callers that should fail hard on missing config.
+
 ### Fixed
 
 - **C# wrapper class methods now thread `IntPtr handle` for non-static methods.** `gen_pinvoke_for_method` and `gen_wrapper_method` previously only emitted the visible parameter list, ignoring the receiver. The cbindgen-emitted FFI signature for an instance method is `fn(this: *const T, ...)`, so the C# P/Invoke and the wrapper call site were one argument short — `dotnet build` failed with `CS7036: There is no argument given that corresponds to the required parameter 'ptr'`. Both functions now detect `!method.is_static && method.receiver.is_some()` and prepend `IntPtr handle` (P/Invoke signature) / `handle` (wrapper-to-native call argument) so the surfaces line up.

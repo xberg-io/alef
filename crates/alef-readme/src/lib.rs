@@ -158,11 +158,7 @@ fn try_template_readme(
         .as_ref()
         .and_then(|s| s.description.clone())
         .unwrap_or_else(|| format!("Bindings for {name}"));
-    let repository = config
-        .scaffold
-        .as_ref()
-        .and_then(|s| s.repository.clone())
-        .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{name}"));
+    let repository = config.github_repo();
     let license = config
         .scaffold
         .as_ref()
@@ -474,11 +470,8 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         .as_ref()
         .and_then(|s| s.description.clone())
         .unwrap_or_else(|| format!("Bindings for {}", name));
-    let repository = config
-        .scaffold
-        .as_ref()
-        .and_then(|s| s.repository.clone())
-        .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{}", name));
+    let repository = config.github_repo();
+    let example_pointer = format!("See {repository} for usage examples.");
 
     let (lang_display, install_instructions, example_code, dir_name) = match lang {
         // Examples are derived from the API surface so the snippet shows a real call
@@ -495,7 +488,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
                         name = f.name
                     )
                 })
-                .unwrap_or_else(|| format!("# See https://github.com/kreuzberg-dev/{name} for usage examples."));
+                .unwrap_or_else(|| format!("# {example_pointer}"));
             (
                 "Python",
                 format!("```bash\npip install {name}\n```"),
@@ -514,7 +507,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
                         fname = to_camel(&f.name)
                     )
                 })
-                .unwrap_or_else(|| format!("// See https://github.com/kreuzberg-dev/{name} for usage examples."));
+                .unwrap_or_else(|| format!("// {example_pointer}"));
             (
                 "Node.js",
                 format!("```bash\nnpm install {pkg}\n```"),
@@ -524,7 +517,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Ruby => {
             let gem = config.ruby_gem_name();
-            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("# {example_pointer}");
             (
                 "Ruby",
                 format!("```bash\ngem install {gem}\n```"),
@@ -534,10 +527,10 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Php => {
             let ext = config.php_extension_name();
-            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("// {example_pointer}");
             (
                 "PHP",
-                format!("```bash\ncomposer require kreuzberg-dev/{name}\n```"),
+                format!("```bash\ncomposer require {name}\n```"),
                 format!("```php\n<?php\n\nuse {ext};\n\n{example_body}\n```"),
                 "php",
             )
@@ -545,7 +538,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         Language::Elixir => {
             let app = config.elixir_app_name();
             let module = capitalize_first(&app);
-            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("# {example_pointer}");
             (
                 "Elixir",
                 format!(
@@ -558,7 +551,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Go => {
             let module = config.go_module();
-            let example_body = format!("\t// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("\t// {example_pointer}");
             (
                 "Go",
                 format!("```bash\ngo get {module}\n```"),
@@ -568,7 +561,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Java => {
             let package = config.java_package();
-            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("// {example_pointer}");
             (
                 "Java",
                 format!(
@@ -581,7 +574,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Csharp => {
             let ns = config.csharp_namespace();
-            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("// {example_pointer}");
             (
                 "C#",
                 format!("```bash\ndotnet add package {ns}\n```"),
@@ -591,7 +584,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Ffi => {
             let header = config.ffi_header_name();
-            let example_body = format!("    // See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("    // {example_pointer}");
             (
                 "FFI (C/C++)",
                 format!(
@@ -602,7 +595,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             )
         }
         Language::Wasm => {
-            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("// {example_pointer}");
             (
                 "WebAssembly",
                 format!("```bash\nnpm install {name}-wasm\n```"),
@@ -612,7 +605,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::R => {
             let pkg = config.r_package_name();
-            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("# {example_pointer}");
             (
                 "R",
                 format!("```r\ninstall.packages('{pkg}')\n```"),
@@ -622,7 +615,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         }
         Language::Rust => {
             let import = config.core_import();
-            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            let example_body = format!("// {example_pointer}");
             (
                 "Rust",
                 format!("```bash\ncargo add {name}\n```"),
@@ -1089,7 +1082,7 @@ mod tests {
     // --- hardcoded fallback: no scaffold config (default description/repository) ---
 
     #[test]
-    fn test_generate_readme_without_scaffold_uses_defaults() {
+    fn test_generate_readme_without_scaffold_uses_placeholder() {
         let mut config = test_config();
         config.scaffold = None;
         let api = test_api();
@@ -1100,9 +1093,12 @@ mod tests {
             "Expected default description, got: {}",
             files[0].content
         );
+        // When [scaffold] repository is unset, the README falls back to a
+        // vendor-neutral placeholder (`example.invalid`) rather than smuggling
+        // another organization's URL into the output.
         assert!(
-            files[0].content.contains("https://github.com/kreuzberg-dev/my-lib"),
-            "Expected default repository URL, got: {}",
+            files[0].content.contains("https://example.invalid/my-lib"),
+            "Expected vendor-neutral placeholder URL, got: {}",
             files[0].content
         );
     }
@@ -1454,7 +1450,7 @@ languages:
             files[0].content
         );
         assert!(
-            files[0].content.contains("https://github.com/kreuzberg-dev/my-lib"),
+            files[0].content.contains("https://example.invalid/my-lib"),
             "Got: {}",
             files[0].content
         );

@@ -818,23 +818,40 @@ impl AlefConfig {
             .unwrap_or_else(|| format!("github.com/kreuzberg-dev/{}", self.crate_config.name))
     }
 
-    /// Get the GitHub repository URL.
+    /// Get the GitHub repository URL, returning an error when no source has it set.
     ///
     /// Resolution order:
     /// 1. `[e2e.registry] github_repo`
     /// 2. `[scaffold] repository`
-    /// 3. Default: `https://github.com/kreuzberg-dev/{crate.name}`
-    pub fn github_repo(&self) -> String {
+    ///
+    /// Callers that can render meaningful output without a repository URL should
+    /// use [`Self::github_repo`] instead, which falls back to a vendor-neutral
+    /// placeholder (`https://example.invalid/{crate.name}`).
+    pub fn try_github_repo(&self) -> Result<String, String> {
         if let Some(e2e) = &self.e2e {
             if let Some(url) = &e2e.registry.github_repo {
-                return url.clone();
+                return Ok(url.clone());
             }
         }
-        self.scaffold
-            .as_ref()
-            .and_then(|s| s.repository.as_ref())
-            .cloned()
-            .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{}", self.crate_config.name))
+        if let Some(url) = self.scaffold.as_ref().and_then(|s| s.repository.as_ref()) {
+            return Ok(url.clone());
+        }
+        Err(format!(
+            "no repository URL configured — set `[scaffold] repository = \"...\"` (or `[e2e.registry] github_repo`) for crate `{}`",
+            self.crate_config.name
+        ))
+    }
+
+    /// Get the GitHub repository URL with a vendor-neutral placeholder fallback.
+    ///
+    /// Resolution order:
+    /// 1. `[e2e.registry] github_repo`
+    /// 2. `[scaffold] repository`
+    /// 3. Placeholder: `https://example.invalid/{crate.name}` — surfaces missing
+    ///    config in code review without smuggling another organization's URL.
+    pub fn github_repo(&self) -> String {
+        self.try_github_repo()
+            .unwrap_or_else(|_| format!("https://example.invalid/{}", self.crate_config.name))
     }
 
     /// Get the Java package name.
