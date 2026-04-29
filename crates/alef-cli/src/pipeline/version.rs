@@ -584,8 +584,10 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
         info!("  Updated: {file}");
     }
 
-    // Rebuild FFI to refresh C headers (cbindgen) if FFI language is configured.
-    if config.languages.contains(&Language::Ffi) {
+    // Rebuild FFI to refresh C headers (cbindgen) if FFI language is configured
+    // AND something actually changed. Skip when versions were already in sync —
+    // a warm rerun should not invoke cargo at all.
+    if !updated.is_empty() && config.languages.contains(&Language::Ffi) {
         let ffi_crate = config
             .output
             .ffi
@@ -603,12 +605,27 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
         let _ = run_command(&format!("cargo build -p {ffi_crate}"));
     }
 
-    // Invalidate the IR cache so that subsequent readme/docs generation picks up the new version.
-    // This ensures READMEs (which embed version strings) are regenerated with the new version.
-    info!("Invalidating IR cache to refresh version in documentation");
-    if let Err(e) = std::fs::remove_dir_all(".alef") {
-        // Log at debug level if cache doesn't exist yet (not an error)
-        debug!("Could not remove cache directory: {e}");
+    // If no manifest actually changed, nothing else needs refreshing — the
+    // generated README/docs/binding hashes still match. This is the warm-path
+    // fast exit: hundreds of files were already on disk with the right
+    // version, so we skip the cache wipe + README regeneration entirely.
+    if updated.is_empty() {
+        debug!("Versions already in sync — skipping README regeneration");
+        return Ok(());
+    }
+
+    // Selective cache invalidation: only README (and stage caches that embed
+    // version strings) are stale after a sync. Leave the IR cache and the
+    // per-language binding hashes in place so the next `alef generate` does
+    // not have to re-extract or re-emit unchanged backends.
+    let hashes_dir = std::path::Path::new(".alef").join("hashes");
+    for stem in ["readme", "docs", "scaffold"] {
+        for ext in [".hash", ".manifest", ".output_hashes"] {
+            let p = hashes_dir.join(format!("{stem}{ext}"));
+            if p.exists() {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
     }
 
     // Regenerate READMEs with the new version.

@@ -10,7 +10,12 @@ mod registry;
 mod version_pin;
 
 #[derive(Parser)]
-#[command(name = "alef", about = "Opinionated polyglot binding generator")]
+#[command(
+    name = "alef",
+    version,
+    about = "Opinionated polyglot binding generator",
+    long_about = None,
+)]
 struct Cli {
     /// Path to alef.toml config file.
     #[arg(long, default_value = "alef.toml")]
@@ -19,6 +24,18 @@ struct Cli {
     /// Maximum parallel jobs (0 = all cores, 1 = sequential).
     #[arg(short, long, default_value = "0", global = true)]
     jobs: usize,
+
+    /// Increase verbosity (-v info, -vv debug, -vvv trace). Overridden by RUST_LOG.
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    verbose: u8,
+
+    /// Suppress all output below `error`. Overridden by RUST_LOG.
+    #[arg(short, long, global = true, conflicts_with = "verbose")]
+    quiet: bool,
+
+    /// Disable ANSI colour in log output.
+    #[arg(long, global = true)]
+    no_color: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -40,9 +57,9 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
-        /// Skip post-generation formatting of emitted files.
+        /// Run post-generation formatters on emitted files (off by default).
         #[arg(long)]
-        no_format: bool,
+        format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -163,12 +180,18 @@ enum Commands {
         /// Ignore cache.
         #[arg(long)]
         clean: bool,
+        /// Run post-generation formatters on emitted files (off by default).
+        #[arg(long)]
+        format: bool,
     },
     /// Initialize a new alef.toml config.
     Init {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
+        /// Run post-generation formatters on emitted files (off by default).
+        #[arg(long)]
+        format: bool,
     },
     /// Generate e2e test suites from fixture files.
     E2e {
@@ -365,9 +388,8 @@ enum ValidateAction {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
+    init_tracing(cli.verbose, cli.quiet, cli.no_color);
 
     // Configure rayon thread pool based on --jobs flag
     if cli.jobs > 0 {
@@ -390,7 +412,7 @@ fn main() -> Result<()> {
             println!("Wrote IR to {}", output.display());
             Ok(())
         }
-        Commands::Generate { lang, clean, no_format } => {
+        Commands::Generate { lang, clean, format } => {
             let config = load_config(config_path)?;
             version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
@@ -406,6 +428,8 @@ fn main() -> Result<()> {
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
+            let mut changed_languages: std::collections::HashSet<alef_core::config::Language> =
+                std::collections::HashSet::new();
 
             let mut total_written: usize = 0;
             let mut any_written = false;
@@ -442,6 +466,7 @@ fn main() -> Result<()> {
                 let written = pipeline::write_files(&single, &base_dir)?;
                 total_written += written;
                 any_written = true;
+                changed_languages.insert(*lang);
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
             }
 
@@ -502,13 +527,11 @@ fn main() -> Result<()> {
                 }
             }
 
-            if any_written && !no_format {
+            if any_written && format && !changed_languages.is_empty() {
                 eprintln!("Formatting generated files...");
-                pipeline::format_generated(&files, &config, &base_dir);
-            }
-
-            if any_written {
-                pipeline::fmt_post_generate(&config, &languages);
+                pipeline::format_generated(&files, &config, &base_dir, Some(&changed_languages));
+                let changed_list: Vec<alef_core::config::Language> = changed_languages.iter().copied().collect();
+                pipeline::fmt_post_generate(&config, &changed_list);
             }
 
             // Finalise per-file hashes after all formatters have run, so the
@@ -793,7 +816,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::All { clean } => {
+        Commands::All { clean, format } => {
             let config = load_config(config_path)?;
             version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, None)?;
@@ -805,6 +828,8 @@ fn main() -> Result<()> {
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
+            let mut changed_languages: std::collections::HashSet<alef_core::config::Language> =
+                std::collections::HashSet::new();
 
             eprintln!("Generating bindings...");
             let bindings = pipeline::generate(&api, &config, &languages, clean)?;
@@ -838,6 +863,7 @@ fn main() -> Result<()> {
 
                 let single = vec![(*lang, lang_files.clone())];
                 binding_count += pipeline::write_files(&single, &base_dir)?;
+                changed_languages.insert(*lang);
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
             }
 
@@ -927,26 +953,23 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Format all generated files using configured formatters.
-            // Best-effort: a missing formatter or non-zero exit must not
-            // abort the orchestrated pipeline.
-            //
-            // Two distinct formatter passes:
+            // Formatters are opt-in via `--format`. They are best-effort: a
+            // missing formatter or non-zero exit must not abort the pipeline.
+            // Two passes when enabled:
             //  1. `format_generated` runs language-native defaults (cargo fmt,
             //     ruff format, mix format, biome format, etc.) on the freshly
-            //     emitted files so prek's check-mode formatting hooks see
-            //     already-clean output. Without this, alef-generated Elixir
-            //     `native.ex` files (and other languages with built-in
-            //     defaults) are written unformatted, then `mix format
-            //     --check-formatted` fails inside prek and the autofix
-            //     mutations break `alef verify`.
+            //     emitted files.
             //  2. `fmt_post_generate` runs any extra repo-configured
             //     `[lint.<lang>].format` commands (linters, custom passes).
-            eprintln!("Formatting generated files...");
-            pipeline::format_generated(&bindings, &config, &base_dir);
+            // Both are scoped to languages that actually regenerated this run.
+            if format && !changed_languages.is_empty() {
+                eprintln!("Formatting generated files...");
+                pipeline::format_generated(&bindings, &config, &base_dir, Some(&changed_languages));
 
-            eprintln!("Running formatters...");
-            pipeline::fmt_post_generate(&config, &languages);
+                eprintln!("Running formatters...");
+                let changed_list: Vec<alef_core::config::Language> = changed_languages.iter().copied().collect();
+                pipeline::fmt_post_generate(&config, &changed_list);
+            }
 
             // Finalise per-file hashes after every formatter has run, so
             // `alef verify` can recompute the same hash from on-disk content.
@@ -963,7 +986,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Commands::Init { lang } => {
+        Commands::Init { lang, format } => {
             eprintln!("Initializing alef project");
             if let Some(langs) = &lang {
                 eprintln!("  Languages: {}", langs.join(", "));
@@ -1001,9 +1024,11 @@ fn main() -> Result<()> {
                 all_paths.insert(base_dir.join(&file.path));
             }
 
-            // Format generated code (best-effort).
-            eprintln!("  Formatting...");
-            pipeline::fmt_post_generate(&config, &languages);
+            // Format generated code only when --format is requested.
+            if format {
+                eprintln!("  Formatting...");
+                pipeline::fmt_post_generate(&config, &languages);
+            }
 
             // Finalise per-file hashes after formatting.
             pipeline::finalize_hashes(&all_paths, &sources_hash)?;
@@ -1283,6 +1308,28 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn init_tracing(verbose: u8, quiet: bool, no_color: bool) {
+    use tracing_subscriber::EnvFilter;
+    let default_level = if quiet {
+        "error"
+    } else {
+        match verbose {
+            0 => "info",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        }
+    };
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(!no_color)
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .init();
 }
 
 fn load_config(path: &std::path::Path) -> Result<alef_core::config::AlefConfig> {

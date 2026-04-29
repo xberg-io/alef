@@ -13,6 +13,144 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run a shell command with stdout/stderr streamed to the parent's stderr in
+/// real time, optionally line-prefixed with `[label] `.
+///
+/// Use this for long-running, user-facing commands (`pnpm install`, `bundle
+/// install`, `cargo update`, formatters, linters) where blocking until exit
+/// to print output makes the CLI feel hung. When `label` is `None` the child's
+/// streams are inherited directly (zero overhead). When `label` is `Some`,
+/// stdout/stderr are piped and pumped to the parent's stderr by two reader
+/// threads so concurrent runs from different languages don't interleave
+/// per-line.
+pub(crate) fn run_command_streamed(cmd: &str, label: Option<&str>) -> anyhow::Result<()> {
+    info!("Running: {cmd}");
+    let mut command = std::process::Command::new("sh");
+    command.args(["-c", cmd]);
+
+    let Some(prefix) = label else {
+        let status = command
+            .status()
+            .with_context(|| format!("failed to spawn: {cmd}"))?;
+        if !status.success() {
+            anyhow::bail!("Command failed: {cmd}");
+        }
+        return Ok(());
+    };
+
+    let prefix = format!("[{prefix}] ");
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to spawn: {cmd}"))?;
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let p1 = prefix.clone();
+    let h_out = stdout.map(|s| std::thread::spawn(move || pump_lines(s, &p1)));
+    let p2 = prefix.clone();
+    let h_err = stderr.map(|s| std::thread::spawn(move || pump_lines(s, &p2)));
+
+    let status = child.wait().with_context(|| format!("failed to wait on: {cmd}"))?;
+    if let Some(h) = h_out {
+        let _ = h.join();
+    }
+    if let Some(h) = h_err {
+        let _ = h.join();
+    }
+    if !status.success() {
+        anyhow::bail!("Command failed: {cmd}");
+    }
+    Ok(())
+}
+
+fn pump_lines<R: std::io::Read>(reader: R, prefix: &str) {
+    use std::io::{BufRead, BufReader, Write};
+    let mut buf = BufReader::new(reader);
+    let mut line = String::new();
+    let stderr = std::io::stderr();
+    loop {
+        line.clear();
+        match buf.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let mut lock = stderr.lock();
+                let _ = lock.write_all(prefix.as_bytes());
+                let _ = lock.write_all(line.as_bytes());
+                if !line.ends_with('\n') {
+                    let _ = lock.write_all(b"\n");
+                }
+            }
+        }
+    }
+}
+
+/// Streamed variant of `run_command_captured_with_timeout`. Output is piped to
+/// the parent's stderr live (line-prefixed when `label` is set), and the child
+/// is killed if the deadline elapses.
+pub(crate) fn run_command_streamed_with_timeout(
+    cmd: &str,
+    label: Option<&str>,
+    timeout_secs: Option<u64>,
+) -> anyhow::Result<()> {
+    let Some(secs) = timeout_secs else {
+        return run_command_streamed(cmd, label);
+    };
+    info!("Running (timeout {secs}s): {cmd}");
+    let prefix = label.map(|l| format!("[{l}] "));
+
+    let mut command = std::process::Command::new("sh");
+    command.args(["-c", cmd]);
+
+    let mut child = if prefix.is_some() {
+        command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .with_context(|| format!("failed to spawn: {cmd}"))?
+    } else {
+        command.spawn().with_context(|| format!("failed to spawn: {cmd}"))?
+    };
+
+    let h_out = if let (Some(p), Some(s)) = (prefix.clone(), child.stdout.take()) {
+        Some(std::thread::spawn(move || pump_lines(s, &p)))
+    } else {
+        None
+    };
+    let h_err = if let (Some(p), Some(s)) = (prefix.clone(), child.stderr.take()) {
+        Some(std::thread::spawn(move || pump_lines(s, &p)))
+    } else {
+        None
+    };
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        match child.try_wait()? {
+            Some(status) => {
+                if let Some(h) = h_out {
+                    let _ = h.join();
+                }
+                if let Some(h) = h_err {
+                    let _ = h.join();
+                }
+                if !status.success() {
+                    anyhow::bail!("Command failed: {cmd}");
+                }
+                return Ok(());
+            }
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    anyhow::bail!("Command timed out after {secs}s: {cmd}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+}
+
 /// Run a shell command with an optional timeout.
 ///
 /// If `timeout_secs` is `Some(n)`, kills the child process after `n` seconds and

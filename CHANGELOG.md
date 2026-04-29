@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.14] - 2026-04-29
+
 CLI ergonomics, generation performance, and live output for long-running commands.
 
 ### Added

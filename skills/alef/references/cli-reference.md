@@ -1,9 +1,19 @@
 # Alef CLI Reference
 
-All commands accept a global `--config <path>` flag (default: `alef.toml`) to specify the configuration file.
+All commands accept these global flags:
+
+| Flag | Description |
+|------|-------------|
+| `--config <path>` | Path to `alef.toml` (default: `alef.toml`) |
+| `-j`, `--jobs <n>` | Maximum parallel jobs (`0` = all cores, `1` = sequential, default `0`) |
+| `-v`, `--verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace). Overridden by `RUST_LOG`. |
+| `-q`, `--quiet` | Suppress everything below `error`. Overridden by `RUST_LOG`. |
+| `--no-color` | Disable ANSI colour in log output |
+| `-V`, `--version` | Print the alef CLI version and exit |
+| `-h`, `--help` | Print help |
 
 ```text
-alef [--config <path>] <command> [options]
+alef [GLOBAL OPTIONS] <command> [OPTIONS]
 ```
 
 ---
@@ -33,15 +43,17 @@ Generate language bindings from the extracted IR. Also generates type stubs and 
 |------|------|---------|-------------|
 | `--lang` | string (comma-separated) | all from config | Languages to generate bindings for |
 | `--clean` | bool | `false` | Ignore cache and regenerate everything |
+| `--format` | bool | `false` | Run post-generation formatters on emitted files (off by default) |
 
 ```bash
 alef generate
 alef generate --lang python,node
 alef generate --clean
+alef generate --format          # also run language formatters after generation
 alef generate --lang ruby --clean
 ```
 
-Generated Rust files are auto-formatted with `cargo fmt`. After Rust formatting, alef invokes per-language formatters (`ruff format`, `oxfmt`, `gofmt`, etc.) on the generated output as a best-effort post-generation step: a missing tool, a failing `before` hook, or a non-zero formatter exit emits a warning and the run continues. Formatters are *expected* to modify generated files, so non-zero exits there must not abort `alef generate` / `alef all`. The dedicated `alef fmt` command keeps strict failure semantics.
+Formatters are **opt-in via `--format`**. With `--format`, alef invokes language-native formatters (`cargo fmt`, `ruff format`, `biome format`, `gofmt`, etc.) plus any repo-configured `[lint.<lang>].format` commands as a best-effort post-generation step: a missing tool, a failing `before` hook, or a non-zero formatter exit emits a warning and the run continues. Without `--format`, generated files are written exactly as the codegen emits them (already whitespace-normalised). Formatters run **only for languages whose bindings actually regenerated this run** — unchanged languages skip the formatter pass entirely.
 
 Caching is based on blake3 content hashing of source files and config -- use `--clean` to force regeneration.
 
@@ -223,6 +235,8 @@ alef update --latest
 alef update --lang rust --latest
 ```
 
+Output is streamed live to the terminal, prefixed with `[<lang>] ` when multiple languages run in parallel. Failures surface as `✗ update failed: <lang> — <error>`.
+
 ---
 
 ## `alef setup`
@@ -237,6 +251,8 @@ Install dependencies for each language using per-language defaults or `[setup.<l
 alef setup
 alef setup --lang python,node
 ```
+
+Output is streamed live to the terminal, prefixed with `[<lang>] ` when multiple languages run in parallel — installers like `pnpm install`, `bundle install`, and `uv sync` print progress immediately instead of buffering until the command exits. Failures surface as `✗ setup failed: <lang> — <error>`.
 
 ---
 
@@ -351,13 +367,15 @@ Run the full pipeline: generate + stubs + public API + scaffold + readme + docs 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--clean` | bool | `false` | Ignore cache and regenerate everything |
+| `--format` | bool | `false` | Run post-generation formatters on emitted files (off by default) |
 
 ```bash
 alef all
 alef all --clean
+alef all --format
 ```
 
-Always operates on all configured languages.
+Always operates on all configured languages. Like `alef generate`, formatting is opt-in via `--format` and only runs for languages that actually regenerated this run.
 
 ---
 
@@ -368,10 +386,12 @@ Initialize a new `alef.toml` configuration file in the current directory.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--lang` | string (comma-separated) | -- | Languages to include in the generated config |
+| `--format` | bool | `false` | Run post-generation formatters on emitted files (off by default) |
 
 ```bash
 alef init
 alef init --lang python,node,ruby,go
+alef init --format
 ```
 
 ---

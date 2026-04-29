@@ -213,7 +213,7 @@ alef:hash:<hex> = blake3( sources_hash || file_content_without_hash_line )
 sources_hash    = blake3( sorted(rust_source_files) )
 ```
 
-`alef generate` finalises the hash *after* every formatter has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes.
+`alef generate` writes whitespace-normalised codegen output and finalises the hash *after* the optional formatter pass (`--format`) has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes. Without `--format`, `alef generate` does not invoke any formatter; if you keep formatters in pre-commit hooks, run `alef fmt` (or `alef generate --format`) before committing so the hash matches the formatted bytes.
 
 The hash deliberately does **not** include the alef CLI version or `alef.toml`. Bumping the alef CLI on a tagged repo does not by itself flag any file as stale; verify only goes red when (a) a `[crate].sources` rust file changed, (b) an alef-generated file was edited or mutated by something post-format, or (c) `alef generate` would now produce a different file body. The IR cache (`.alef/ir.json`) keys on `sources_hash` alone — pass `--clean` to bust it when the alef extractor itself has changed.
 

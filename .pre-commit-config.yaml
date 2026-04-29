@@ -5,7 +5,7 @@ exclude: ^target/|\.alef/
 
 repos:
   - repo: https://github.com/Goldziher/ai-rulez
-    rev: v4.0.8
+    rev: v4.1.0
     hooks:
       - id: ai-rulez-generate
 
@@ -77,7 +77,7 @@ repos:
 
   # Markdown linting
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.83"
+    rev: "v0.1.84"
     hooks:
       - id: rumdl-fmt
 

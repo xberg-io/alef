@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use crate::registry;
 
-use super::helpers::{check_precondition, run_before, run_command, run_command_captured};
+use super::helpers::{check_precondition, run_before, run_command, run_command_captured, run_command_streamed};
 
 /// Which lint phases to execute.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,29 +56,16 @@ fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> a
         .flatten()
         .collect();
 
-    let results: Vec<anyhow::Result<(String, String, String)>> = tasks
+    let results: Vec<anyhow::Result<()>> = tasks
         .par_iter()
-        .map(|(_, cmd)| {
-            let (stdout, stderr) = run_command_captured(cmd)?;
-            Ok((cmd.clone(), stdout, stderr))
-        })
+        .map(|(lang, cmd)| run_command_streamed(cmd, Some(&lang.to_string())))
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
     for result in results {
-        match result {
-            Ok((cmd, stdout, stderr)) => {
-                if !stdout.is_empty() {
-                    info!("[{cmd}] stdout:\n{stdout}");
-                }
-                if !stderr.is_empty() {
-                    info!("[{cmd}] stderr:\n{stderr}");
-                }
-            }
-            Err(e) => {
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
+        if let Err(e) = result {
+            if first_error.is_none() {
+                first_error = Some(e);
             }
         }
     }
@@ -132,18 +119,8 @@ pub fn fmt_post_generate(config: &AlefConfig, languages: &[Language]) {
             continue;
         };
         for cmd in cmd_list.commands() {
-            match run_command_captured(cmd) {
-                Ok((stdout, stderr)) => {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
-                }
-                Err(e) => {
-                    warn!("[{lang}] post-generation format command failed (continuing): {e:#}");
-                }
+            if let Err(e) = run_command_streamed(cmd, Some(&lang.to_string())) {
+                warn!("[{lang}] post-generation format command failed (continuing): {e:#}");
             }
         }
     }
@@ -196,40 +173,26 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
     // Deduplicate shared commands (e.g. pnpm workspace commands shared by Node and Wasm).
     let plans = dedupe_plans(plans);
 
-    type LangOutputs = Vec<(String, String, String)>;
-
-    // Phase 2 (parallel): run each language's deduped command list.
-    let results: Vec<(Language, anyhow::Result<LangOutputs>)> = plans
+    // Phase 2 (parallel): run each language's deduped command list with live output.
+    let results: Vec<(Language, anyhow::Result<()>)> = plans
         .par_iter()
         .map(|(lang, cmds)| {
-            let mut outputs = Vec::new();
+            let label = lang.to_string();
             for cmd in cmds {
-                match run_command_captured(cmd) {
-                    Ok((stdout, stderr)) => outputs.push((cmd.clone(), stdout, stderr)),
-                    Err(e) => return (*lang, Err(e)),
+                if let Err(e) = run_command_streamed(cmd, Some(&label)) {
+                    return (*lang, Err(e));
                 }
             }
-            (*lang, Ok(outputs))
+            (*lang, Ok(()))
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
-    for (_lang, result) in results {
-        match result {
-            Ok(outputs) => {
-                for (cmd, stdout, stderr) in outputs {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
-                }
-            }
-            Err(e) => {
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
+    for (lang, result) in results {
+        if let Err(e) = result {
+            eprintln!("✗ update failed: {lang} — {e}");
+            if first_error.is_none() {
+                first_error = Some(e);
             }
         }
     }
@@ -245,15 +208,17 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
 /// When `coverage` is true, runs coverage commands instead of regular test commands.
 /// When `e2e` is true, also runs e2e test commands.
 pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
-    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+    let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
+            let label = lang.to_string();
             let lang_test = config.test_config_for_language(*lang);
             if !check_precondition(*lang, lang_test.precondition.as_deref()) {
-                return Ok(Vec::new());
+                return (*lang, Ok(()));
             }
-            run_before(*lang, lang_test.before.as_ref())?;
-            let mut outputs = Vec::new();
+            if let Err(e) = run_before(*lang, lang_test.before.as_ref()) {
+                return (*lang, Err(e));
+            }
 
             // Use coverage commands when --coverage flag is set, fall back to regular test
             let test_cmds = if coverage {
@@ -264,40 +229,30 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
 
             if let Some(cmd_list) = test_cmds {
                 for cmd in cmd_list.commands() {
-                    let (stdout, stderr) = run_command_captured(cmd)?;
-                    outputs.push((cmd.to_string(), stdout, stderr));
+                    if let Err(e) = run_command_streamed(cmd, Some(&label)) {
+                        return (*lang, Err(e));
+                    }
                 }
             }
             if e2e {
                 if let Some(e2e_cmd_list) = &lang_test.e2e {
                     for cmd in e2e_cmd_list.commands() {
-                        let (stdout, stderr) = run_command_captured(cmd)?;
-                        outputs.push((cmd.to_string(), stdout, stderr));
+                        if let Err(e) = run_command_streamed(cmd, Some(&label)) {
+                            return (*lang, Err(e));
+                        }
                     }
                 }
             }
-
-            Ok(outputs)
+            (*lang, Ok(()))
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
-    for result in results {
-        match result {
-            Ok(outputs) => {
-                for (cmd, stdout, stderr) in outputs {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
-                }
-            }
-            Err(e) => {
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
+    for (lang, result) in results {
+        if let Err(e) = result {
+            eprintln!("✗ test failed: {lang} — {e}");
+            if first_error.is_none() {
+                first_error = Some(e);
             }
         }
     }
@@ -312,54 +267,38 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
 ///
 /// If `timeout_override` is Some, all languages use that timeout; otherwise each
 /// language uses its configured `timeout_seconds` (defaulting to 600 seconds).
-#[allow(clippy::type_complexity)]
 pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Option<u64>) -> anyhow::Result<()> {
-    let results: Vec<(Language, anyhow::Result<Vec<(String, String, String)>>)> = languages
+    let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
+            let label = lang.to_string();
             let setup_cfg = config.setup_config_for_language(*lang);
             let timeout_secs = timeout_override.unwrap_or(setup_cfg.timeout_seconds);
 
-            let result: anyhow::Result<Vec<(String, String, String)>> =
-                if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
-                    Ok(Vec::new())
-                } else {
-                    (|| {
-                        run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
-                        let mut outputs = Vec::new();
-                        if let Some(cmd_list) = &setup_cfg.install {
-                            for cmd in cmd_list.commands() {
-                                let (stdout, stderr) =
-                                    super::helpers::run_command_captured_with_timeout(cmd, Some(timeout_secs))
-                                        .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
-                                outputs.push((cmd.to_string(), stdout, stderr));
-                            }
-                        }
-                        Ok(outputs)
-                    })()
-                };
+            if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
+                return (*lang, Ok(()));
+            }
+            let result: anyhow::Result<()> = (|| {
+                run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
+                if let Some(cmd_list) = &setup_cfg.install {
+                    for cmd in cmd_list.commands() {
+                        super::helpers::run_command_streamed_with_timeout(cmd, Some(&label), Some(timeout_secs))
+                            .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
+                    }
+                }
+                Ok(())
+            })();
             (*lang, result)
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
     for (lang, result) in results {
-        match result {
-            Ok(outputs) => {
-                for (cmd, stdout, stderr) in outputs {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("Setup failed for {lang}: {e}");
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
+        if let Err(e) = result {
+            eprintln!("✗ setup failed: {lang} — {e}");
+            warn!("Setup failed for {lang}: {e}");
+            if first_error.is_none() {
+                first_error = Some(e);
             }
         }
     }
@@ -391,42 +330,34 @@ fn run_before_with_timeout(lang: Language, before: Option<&StringOrVec>, timeout
 
 /// Clean build artifacts for each language.
 pub fn clean(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+    let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
+            let label = lang.to_string();
             let clean_cfg = config.clean_config_for_language(*lang);
             if !check_precondition(*lang, clean_cfg.precondition.as_deref()) {
-                return Ok(Vec::new());
+                return (*lang, Ok(()));
             }
-            run_before(*lang, clean_cfg.before.as_ref())?;
-            let mut outputs = Vec::new();
+            if let Err(e) = run_before(*lang, clean_cfg.before.as_ref()) {
+                return (*lang, Err(e));
+            }
             if let Some(cmd_list) = &clean_cfg.clean {
                 for cmd in cmd_list.commands() {
-                    let (stdout, stderr) = run_command_captured(cmd)?;
-                    outputs.push((cmd.to_string(), stdout, stderr));
+                    if let Err(e) = run_command_streamed(cmd, Some(&label)) {
+                        return (*lang, Err(e));
+                    }
                 }
             }
-            Ok(outputs)
+            (*lang, Ok(()))
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
-    for result in results {
-        match result {
-            Ok(outputs) => {
-                for (cmd, stdout, stderr) in outputs {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
-                }
-            }
-            Err(e) => {
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
+    for (lang, result) in results {
+        if let Err(e) = result {
+            eprintln!("✗ clean failed: {lang} — {e}");
+            if first_error.is_none() {
+                first_error = Some(e);
             }
         }
     }
