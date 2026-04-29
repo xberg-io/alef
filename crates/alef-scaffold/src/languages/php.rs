@@ -110,11 +110,11 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
   }},
   "scripts": {{
     "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
-    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src tests",
-    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php --dry-run src tests",
+    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src",
+    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php --dry-run src",
     "test": "php vendor/bin/phpunit",
     "lint": "@phpstan",
-    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src tests && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
+    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
   }},
   "extra": {{
     "ext-name": "{ext_name}"
