@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.16] - 2026-04-29
+
+WASM trait bridges and FFI multi-crate codegen fixes.
+
+### Added
+
+- **`[wasm.extra_dependencies]` table in `alef.toml`.** Mirrors `[crate.extra_dependencies]` but applies only to the WASM binding `Cargo.toml`. Initial use case: `async-trait = "0.1"` so generated wasm bridges can use `#[async_trait::async_trait(?Send)]` without callers having to declare it manually.
+
 ### Fixed
 
+- **WASM trait bridge async impls now correctly emit `#[async_trait::async_trait(?Send)]`.** `gen_bridge_trait_impl` in `alef-codegen` always emitted `#[async_trait::async_trait]` (the default `+ Send` variant), which produced `error[E0053]: method ... has an incompatible type for trait` on `wasm32-unknown-unknown`: the underlying trait future was not `Send`-bounded but the macro-rewritten impl signature was. Added `async_trait_is_send() -> bool` (default: `true`) on the `TraitBridgeGenerator` trait; the wasm backend overrides it to `false`, and `gen_bridge_trait_impl` selects between `#[async_trait::async_trait]` and `#[async_trait::async_trait(?Send)]` accordingly. WASM bindings (kreuzberg-wasm and any other wasm-target generator) now compile clean for `OcrBackend`, `PostProcessor`, `Validator`, and `EmbeddingBackend` bridges.
 - **FFI scaffold now merges `[crate.extra_dependencies]` into the generated `crates/<crate>-ffi/Cargo.toml`.** Previously the scaffold emitted only the umbrella crate (e.g. `kreuzberg = { path = "../kreuzberg" }`) plus `serde_json` and `tokio`, which worked when the public API surface lived in a single workspace crate. For multi-crate workspaces (e.g. spikard's `spikard-core`, `spikard-http`, `spikard-graphql`), the FFI bindings codegen emits qualified paths like `spikard_http::ServerConfig` and `spikard_graphql::QueryOnlyConfig` — the cdylib failed to compile because those crates were not direct dependencies. The scaffold now merges entries from `[crate.extra_dependencies]` (sorted, alphabetised) into the `[dependencies]` block, matching the behaviour of the wasm backend.
 - **FFI codegen no longer double-prefixes sibling-crate paths in field accessors.** The path-qualification logic in `gen_field_accessor` previously only treated `module_prefix` as already-qualified when it equalled `core_import` or started with `core_import::`. For sibling workspace crates whose names share the project's prefix (e.g. `core_import = "spikard"`, sibling crate `spikard_http`), `module_prefix.starts_with("spikard::")` was false and the codegen emitted `spikard::spikard_http::openapi::OpenApiConfig` — a path that doesn't exist. The check now also accepts `{core_import}_` as a sibling-crate marker, so sibling-crate paths render verbatim.
 - **FFI field accessors now look up Named types in the per-binding `path_map`.** When a struct field's `type_rust_path` is `None` in the IR (which alef emits when the type is referenced by short name), the field accessor previously fell back to `core_import` and produced paths like `spikard::ContactInfo` — which fails when the type lives in a sibling crate (`spikard_http::ContactInfo`) and is not re-exported through the umbrella crate. `gen_field_accessor` now threads the `path_map` built in `gen_bindings::generate` and uses `c_return_type_with_paths`, matching the behaviour of `gen_method_wrapper` and `gen_free_function`.
