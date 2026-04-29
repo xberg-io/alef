@@ -253,14 +253,14 @@ pub(crate) fn run_before(lang: Language, before: Option<&StringOrVec>) -> anyhow
 
 /// Initialize a new alef.toml config file.
 pub fn init(config_path: &std::path::Path, languages: Option<Vec<String>>) -> anyhow::Result<()> {
-    // Read crate name and version from Cargo.toml
-    let (crate_name, crate_version) = read_crate_metadata()?;
+    // Read crate name, version, and repository from Cargo.toml
+    let metadata = read_crate_metadata()?;
 
     // Use provided languages or default to ["python", "node", "ffi"]
     let langs = languages.unwrap_or_else(|| vec!["python".to_string(), "node".to_string(), "ffi".to_string()]);
 
     // Generate config content
-    let config_content = generate_init_config(&crate_name, &crate_version, &langs);
+    let config_content = generate_init_config(&metadata, &langs);
 
     // Write to alef.toml
     std::fs::write(config_path, config_content)
@@ -270,46 +270,44 @@ pub fn init(config_path: &std::path::Path, languages: Option<Vec<String>>) -> an
     Ok(())
 }
 
-fn read_crate_metadata() -> anyhow::Result<(String, String)> {
+struct CrateMetadata {
+    name: String,
+    #[allow(dead_code)]
+    version: String,
+    repository: Option<String>,
+}
+
+fn read_crate_metadata() -> anyhow::Result<CrateMetadata> {
     let content = std::fs::read_to_string("Cargo.toml").context("failed to read Cargo.toml")?;
     let value: toml::Value = toml::from_str(&content).context("failed to parse Cargo.toml")?;
 
-    // Try workspace.package first
-    if let Some(name) = value
-        .get("workspace")
-        .and_then(|w| w.get("package"))
-        .and_then(|p| p.get("name"))
-        .and_then(|v| v.as_str())
-    {
-        if let Some(version) = value
-            .get("workspace")
-            .and_then(|w| w.get("package"))
-            .and_then(|p| p.get("version"))
-            .and_then(|v| v.as_str())
-        {
-            return Ok((name.to_string(), version.to_string()));
-        }
-    }
+    let extract = |table: &toml::Value| -> Option<CrateMetadata> {
+        let name = table.get("name").and_then(|v| v.as_str())?.to_string();
+        let version = table.get("version").and_then(|v| v.as_str())?.to_string();
+        let repository = table.get("repository").and_then(|v| v.as_str()).map(|s| s.to_string());
+        Some(CrateMetadata {
+            name,
+            version,
+            repository,
+        })
+    };
 
-    // Try package directly
-    if let Some(name) = value
-        .get("package")
-        .and_then(|p| p.get("name"))
-        .and_then(|v| v.as_str())
+    if let Some(workspace_pkg) = value.get("workspace").and_then(|w| w.get("package"))
+        && let Some(meta) = extract(workspace_pkg)
     {
-        if let Some(version) = value
-            .get("package")
-            .and_then(|p| p.get("version"))
-            .and_then(|v| v.as_str())
-        {
-            return Ok((name.to_string(), version.to_string()));
-        }
+        return Ok(meta);
+    }
+    if let Some(pkg) = value.get("package")
+        && let Some(meta) = extract(pkg)
+    {
+        return Ok(meta);
     }
 
     anyhow::bail!("Could not find package name and version in Cargo.toml")
 }
 
-fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[String]) -> String {
+fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> String {
+    let crate_name = metadata.name.as_str();
     let source_path = format!("crates/{}/src/lib.rs", crate_name);
 
     let mut config = format!("version = \"{}\"\n", env!("CARGO_PKG_VERSION"));
@@ -331,6 +329,12 @@ fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[Str
         crate_name, source_path
     ));
 
+    // Optionally seed [scaffold].repository from Cargo.toml's package.repository
+    // — alef's [java]/[kotlin]/[go] accessors derive their defaults from this URL.
+    if let Some(repo) = metadata.repository.as_deref() {
+        config.push_str(&format!("\n[scaffold]\nrepository = \"{repo}\"\n"));
+    }
+
     // Add language-specific configs
     if languages.contains(&"python".to_string()) {
         config.push_str(&format!(
@@ -348,10 +352,14 @@ fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[Str
     }
 
     if languages.contains(&"go".to_string()) {
-        config.push_str(&format!(
-            "\n[go]\nmodule = \"github.com/kreuzberg-dev/{}\"\n",
-            crate_name
-        ));
+        match metadata
+            .repository
+            .as_deref()
+            .and_then(alef_core::config::derive_go_module_from_repo)
+        {
+            Some(module) => config.push_str(&format!("\n[go]\nmodule = \"{module}\"\n")),
+            None => config.push_str("\n[go]\n# module = \"github.com/<org>/<repo>\"  # TODO: set the Go module path\n"),
+        }
     }
 
     if languages.contains(&"ruby".to_string()) {
@@ -359,7 +367,14 @@ fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[Str
     }
 
     if languages.contains(&"java".to_string()) {
-        config.push_str("\n[java]\npackage = \"dev.kreuzberg\"\n");
+        match metadata
+            .repository
+            .as_deref()
+            .and_then(alef_core::config::derive_reverse_dns_package)
+        {
+            Some(pkg) => config.push_str(&format!("\n[java]\npackage = \"{pkg}\"\n")),
+            None => config.push_str("\n[java]\n# package = \"com.example.<org>\"  # TODO: set the Java package\n"),
+        }
     }
 
     if languages.contains(&"csharp".to_string()) {
@@ -469,20 +484,66 @@ mod tests {
         );
     }
 
+    fn fixture_metadata(name: &str, repository: Option<&str>) -> CrateMetadata {
+        CrateMetadata {
+            name: name.to_string(),
+            version: "1.0.0".to_string(),
+            repository: repository.map(|s| s.to_string()),
+        }
+    }
+
     #[test]
     fn generate_init_config_includes_version() {
-        let config = generate_init_config("my-lib", "1.0.0", &["python".to_string()]);
+        let config = generate_init_config(&fixture_metadata("my-lib", None), &["python".to_string()]);
         let expected = format!("version = \"{}\"", env!("CARGO_PKG_VERSION"));
         assert!(config.starts_with(&expected), "config should start with version key");
     }
 
     #[test]
     fn generate_init_config_parses_as_valid_alef_config() {
-        let config_str = generate_init_config("my-lib", "1.0.0", &["python".to_string()]);
+        let config_str = generate_init_config(&fixture_metadata("my-lib", None), &["python".to_string()]);
         let config: alef_core::config::AlefConfig =
             toml::from_str(&config_str).expect("generated config should parse as valid AlefConfig");
         assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(config.crate_config.name, "my-lib");
+    }
+
+    #[test]
+    fn generate_init_config_derives_java_and_go_from_repository() {
+        let meta = fixture_metadata("my-lib", Some("https://github.com/foo-org/my-lib"));
+        let config = generate_init_config(&meta, &["java".to_string(), "go".to_string()]);
+        assert!(
+            config.contains("repository = \"https://github.com/foo-org/my-lib\""),
+            "expected scaffold.repository: {config}"
+        );
+        assert!(
+            config.contains("module = \"github.com/foo-org/my-lib\""),
+            "expected derived go.module: {config}"
+        );
+        assert!(
+            config.contains("package = \"com.github.foo_org\""),
+            "expected derived java.package: {config}"
+        );
+    }
+
+    #[test]
+    fn generate_init_config_emits_todo_when_repository_missing() {
+        let config = generate_init_config(
+            &fixture_metadata("my-lib", None),
+            &["java".to_string(), "go".to_string()],
+        );
+        assert!(
+            !config.contains("kreuzberg-dev"),
+            "config must not leak kreuzberg-dev defaults: {config}"
+        );
+        assert!(
+            config.contains("# module ="),
+            "expected commented-out go.module placeholder: {config}"
+        );
+        assert!(
+            config.contains("# package ="),
+            "expected commented-out java.package placeholder: {config}"
+        );
     }
 
     #[test]

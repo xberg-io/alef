@@ -231,7 +231,7 @@ fn default_true() -> bool {
 /// - `https://gitlab.com/foo/bar`                → `Some("com.gitlab.foo")`
 /// - `https://example.invalid/x`                 → `Some("invalid.example.x")`
 /// - `https://github.com/`                       → `None` (no org segment)
-fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
+pub fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
     let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);
     let mut parts = after_scheme.split('/').filter(|s| !s.is_empty());
     let host = parts.next()?;
@@ -262,7 +262,7 @@ fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
 /// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("github.com/kreuzberg-dev/kreuzberg")`
 /// - `https://github.com/foo/bar/` → `Some("github.com/foo/bar")`
 /// - `https://github.com/` → `None`
-fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
+pub fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
     let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);
     let trimmed = after_scheme.trim_end_matches('/');
     let mut parts = trimmed.split('/');
