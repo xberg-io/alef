@@ -2,13 +2,103 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const CACHE_DIR: &str = ".alef";
+const PER_FILE_CACHE_NAME: &str = "sources_hash.cache";
 
 /// Compute the per-run sources hash that drives both the IR cache and the
 /// embedded `alef:hash:` value. Pure function of the rust source files
 /// (paths + content); independent of `alef.toml` and the alef CLI version, so
 /// that `alef verify` is idempotent across alef upgrades.
+///
+/// Warm-run optimisation: stat every source and check `(mtime_nanos, size)`
+/// against an on-disk memo (`.alef/sources_hash.cache`). When **every** file's
+/// stat is unchanged we return the cached aggregate hash directly — no file
+/// reads, no blake3 work. Any change to any file falls back to the canonical
+/// [`alef_core::hash::compute_sources_hash`] (which reads + hashes everything)
+/// and refreshes the memo. The output is always equivalent to the canonical
+/// function; the memo only elides redundant reads on no-change runs.
 pub fn sources_hash(sources: &[PathBuf]) -> anyhow::Result<String> {
-    Ok(alef_core::hash::compute_sources_hash(sources)?)
+    let mut sorted: Vec<&PathBuf> = sources.iter().collect();
+    sorted.sort();
+
+    let memo = read_per_file_memo();
+    let mut current: Vec<(String, u64, u64)> = Vec::with_capacity(sorted.len());
+    let mut all_match = !memo.entries.is_empty() && memo.aggregate.is_some();
+    for source in &sorted {
+        let metadata = fs::metadata(source)
+            .map_err(|e| anyhow::anyhow!("failed to stat source {}: {e}", source.display()))?;
+        let mtime_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let size = metadata.len();
+        let path_str = source.to_string_lossy().to_string();
+        if all_match {
+            match memo.entries.get(&path_str) {
+                Some((m, s)) if *m == mtime_nanos && *s == size => {}
+                _ => all_match = false,
+            }
+        }
+        current.push((path_str, mtime_nanos, size));
+    }
+
+    // If the memo also tracks the same number of files (no rename / removal),
+    // the cached aggregate is valid.
+    if all_match && current.len() == memo.entries.len() {
+        if let Some(agg) = memo.aggregate {
+            return Ok(agg);
+        }
+    }
+
+    // Cold path / change detected: read+hash every file via the canonical
+    // function so the result remains bit-identical with what existing
+    // alef:hash lines were derived from.
+    let aggregate = alef_core::hash::compute_sources_hash(sources)?;
+    let _ = write_per_file_memo(&current, &aggregate);
+    Ok(aggregate)
+}
+
+struct PerFileMemo {
+    aggregate: Option<String>,
+    entries: std::collections::HashMap<String, (u64, u64)>,
+}
+
+fn read_per_file_memo() -> PerFileMemo {
+    let path = Path::new(CACHE_DIR).join(PER_FILE_CACHE_NAME);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return PerFileMemo {
+            aggregate: None,
+            entries: std::collections::HashMap::new(),
+        };
+    };
+    let mut aggregate: Option<String> = None;
+    let mut entries = std::collections::HashMap::new();
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("aggregate\t") {
+            aggregate = Some(rest.to_string());
+            continue;
+        }
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let mtime_nanos = parts[1].parse::<u64>().unwrap_or(0);
+        let size = parts[2].parse::<u64>().unwrap_or(0);
+        entries.insert(parts[0].to_string(), (mtime_nanos, size));
+    }
+    PerFileMemo { aggregate, entries }
+}
+
+fn write_per_file_memo(entries: &[(String, u64, u64)], aggregate: &str) -> anyhow::Result<()> {
+    let dir = Path::new(CACHE_DIR);
+    fs::create_dir_all(dir)?;
+    let mut content = format!("aggregate\t{aggregate}\n");
+    for (path, mtime, size) in entries {
+        content.push_str(&format!("{path}\t{mtime}\t{size}\n"));
+    }
+    fs::write(dir.join(PER_FILE_CACHE_NAME), content)?;
+    Ok(())
 }
 
 /// Check if cached IR is still valid.
