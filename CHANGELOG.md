@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gleam scaffold emits a valid `manifest.toml`.** Previous output was a comment-only stub, which gleam's TOML parser rejects with `missing field 'requirements'` on every `gleam check` / `gleam build` invocation. The scaffolded manifest now contains the minimum gleam expects (`packages = []` plus an empty `[requirements]` table); `gleam build` repopulates it on the first run.
+- **Java scaffold's checkstyle config now resolves `${checkstyle.suppressions.file}`.** The pom.xml `<configuration>` block references a checkstyle config that requires the `checkstyle.suppressions.file` property to be set, but the config never told maven-checkstyle-plugin where to load that property from. Adds `<propertiesLocation>${project.basedir}/checkstyle.properties</propertiesLocation>` to the plugin config. Also fixes the property's value in `checkstyle.properties` to be relative to packages/java/ (the maven cwd) rather than to repo root.
+
 ## [0.11.19] - 2026-04-29
 
 ### Fixed

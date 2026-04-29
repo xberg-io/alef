@@ -290,6 +290,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
                 </dependencies>
                 <configuration>
                     <configLocation>${{project.basedir}}/checkstyle.xml</configLocation>
+                    <propertiesLocation>${{project.basedir}}/checkstyle.properties</propertiesLocation>
                     <consoleOutput>true</consoleOutput>
                     <failsOnError>true</failsOnError>
                     <violationSeverity>warning</violationSeverity>
@@ -513,7 +514,9 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
 </module>
 "#;
 
-    let checkstyle_properties = "checkstyle.suppressions.file=packages/java/checkstyle-suppressions.xml\n";
+    // maven-checkstyle-plugin runs from packages/java/, so the suppressions
+    // file path is relative to that working directory, not the repo root.
+    let checkstyle_properties = "checkstyle.suppressions.file=checkstyle-suppressions.xml\n";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE suppressions PUBLIC
