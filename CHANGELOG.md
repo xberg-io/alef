@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Python e2e codegen no longer triggers ruff `F401` on `import pytest`.** When `e2e.call.async = true` (or any test in the file is async/skipped/has error assertions), the python e2e generator emits `import pytest` at module level. Pytest is needed for `pytest.fixture` / `pytest.mark.*` decorators, but ruff's `F401` rule strips the import when no symbol is statically referenced in the file body — which then causes `alef verify` to fail on subsequent runs because the file's hash no longer matches the generated content. The import is now suppressed with `# noqa: F401`.
+
 ## [0.11.16] - 2026-04-29
 
 WASM trait bridges and FFI multi-crate codegen fixes.

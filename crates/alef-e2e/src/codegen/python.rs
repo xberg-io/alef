@@ -382,7 +382,11 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     }
 
     if needs_pytest {
-        thirdparty_bare.push("import pytest".to_string());
+        // F401 (unused-import) suppression: pytest is needed at module level for
+        // its fixture decorators and `pytest.mark.*` annotations, but ruff cannot
+        // statically tell whether a generated test file references those — so we
+        // hint to ruff that the import is intentional.
+        thirdparty_bare.push("import pytest  # noqa: F401".to_string());
     }
 
     // For non-HTTP fixtures, build the normal function imports.
