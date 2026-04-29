@@ -203,6 +203,14 @@ pub fn emit_zig_doc(out: &mut String, doc: &str, indent: &str) {
 }
 
 /// Escape Javadoc line: handle XML special chars and backtick code blocks.
+///
+/// HTML entities (`<`, `>`, `&`) are also escaped *inside* `{@code …}` blocks.
+/// Without that, content like `` `<pre><code>` `` would emit raw `<pre>`
+/// inside the Javadoc tag — Eclipse-formatter Spotless then treats it as a
+/// real `<pre>` block element and shatters the line across multiple `* `
+/// rows, breaking `alef-verify`'s embedded hash. Escaped content is
+/// rendered identically by Javadoc readers (the `{@code}` tag shows literal
+/// characters) and is stable under any post-formatter pass.
 fn escape_javadoc_line(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -216,7 +224,7 @@ fn escape_javadoc_line(s: &str) -> String {
                 code.push(c);
             }
             result.push_str("{@code ");
-            result.push_str(&code);
+            result.push_str(&escape_javadoc_html_entities(&code));
             result.push('}');
         } else if ch == '<' {
             result.push_str("&lt;");
@@ -229,6 +237,21 @@ fn escape_javadoc_line(s: &str) -> String {
         }
     }
     result
+}
+
+/// Escape only the HTML special characters that would otherwise be parsed by
+/// downstream Javadoc/Eclipse formatters as block-level HTML (e.g. `<pre>`).
+fn escape_javadoc_html_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

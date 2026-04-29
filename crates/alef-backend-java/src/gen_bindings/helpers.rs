@@ -24,6 +24,11 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
 /// real JSON keys and must not be used as Java identifiers.
 /// Escape a string for use inside a Javadoc comment.
 /// Replaces `*/` (which would close the comment) and `@` (which starts a tag).
+///
+/// HTML entities (`<`, `>`, `&`) are also escaped *inside* `{@code …}` blocks.
+/// Leaving them raw lets Eclipse-formatter Spotless interpret content like
+/// `<pre>` as a block-level HTML element and shatter the line across
+/// multiple `* ` rows, which then breaks `alef-verify`'s embedded hash.
 pub(crate) fn escape_javadoc_line(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -37,7 +42,14 @@ pub(crate) fn escape_javadoc_line(s: &str) -> String {
                 code.push(c);
             }
             result.push_str("{@code ");
-            result.push_str(&code);
+            for code_ch in code.chars() {
+                match code_ch {
+                    '<' => result.push_str("&lt;"),
+                    '>' => result.push_str("&gt;"),
+                    '&' => result.push_str("&amp;"),
+                    other => result.push(other),
+                }
+            }
             result.push('}');
         } else if ch == '<' {
             result.push_str("&lt;");

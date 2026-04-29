@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.18] - 2026-04-29
+
+A patch release that fixes Javadoc emission so HTML inside backticks survives the Eclipse-formatter Spotless pipeline.
+
+### Fixed
+
+- **Javadoc `{@code …}` content now HTML-escapes its inner `<`, `>`, `&` characters.** A Rust doc comment like `` /// Determines how code blocks (`<pre><code>`) are rendered `` previously emitted `{@code <pre><code>}` with raw HTML inside the tag. Eclipse-formatter Spotless (used by html-to-markdown's `packages/java/pom.xml`) interprets the inner `<pre>` as a real block-level HTML element and shatters the doc comment across multiple `* ` rows — which then breaks `alef-verify` on the very next prek run. The codegen now emits `{@code &lt;pre&gt;&lt;code&gt;}` so Spotless leaves the line alone; readers see the same text since Javadoc renders `{@code}` literally regardless. Both `alef-codegen::doc_emission::escape_javadoc_line` and `alef-backend-java::gen_bindings::helpers::escape_javadoc_line` carry the fix.
+
 ### Fixed
 
 - **Python e2e codegen no longer triggers ruff `F401` on `import pytest`.**
