@@ -17,59 +17,74 @@ pub(crate) fn gen_record_type(
     complex_enums: &AHashSet<String>,
     lang_rename_all: &str,
 ) -> String {
-    // Generate the record body first, then scan for needed imports.
-    // For each field, if the language uses camelCase but the JSON key is snake_case
-    // (the Rust default), annotate with @JsonProperty so Jackson maps correctly.
-    // Also collect per-field doc strings for Javadoc emission.
-    let (field_list, field_docs): (Vec<String>, Vec<String>) = typ
-        .fields
-        .iter()
-        .map(|f| {
-            // Complex enums (tagged unions with data) can't be simple Java enums.
-            // Use Object for flexible Jackson deserialization.
-            let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
-            let ftype = if is_complex {
-                "Object".to_string()
-            } else if f.optional {
-                format!("Optional<{}>", java_boxed_type(&f.ty))
-            } else {
-                java_type(&f.ty).to_string()
-            };
-            let jname = safe_java_field_name(&f.name);
-            // When the language convention is camelCase but the JSON wire format uses
-            // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
-            // so Jackson serialises/deserialises using the correct snake_case key.
-            let decl = if lang_rename_all == "camelCase" && f.name.contains('_') {
-                format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname)
-            } else {
-                format!("{} {}", ftype, jname)
-            };
-            (decl, f.doc.clone())
-        })
-        .unzip();
+    // Single pass: build per-field (decl, doc) pairs and the comma-joined declaration
+    // string simultaneously.  This avoids the map+unzip double-allocation and the
+    // second .join(", ") that previously rebuilt the same content for emission.
+    //
+    // `fields_joined` holds the comma-separated parameter list used both for the
+    // single-line length probe AND for the final single-line emit path — no rebuild.
+    struct FieldEntry {
+        decl: String,
+        doc: String,
+    }
+
+    let mut field_entries: Vec<FieldEntry> = Vec::with_capacity(typ.fields.len());
+    // Pre-size: average field decl ≈ 40 chars + 2 for ", " separator.
+    let mut fields_joined = String::with_capacity(typ.fields.len().saturating_mul(42));
+
+    for (i, f) in typ.fields.iter().enumerate() {
+        // Complex enums (tagged unions with data) can't be simple Java enums.
+        // Use Object for flexible Jackson deserialization.
+        let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
+        let ftype = if is_complex {
+            "Object".to_string()
+        } else if f.optional {
+            format!("Optional<{}>", java_boxed_type(&f.ty))
+        } else {
+            java_type(&f.ty).to_string()
+        };
+        let jname = safe_java_field_name(&f.name);
+        // When the language convention is camelCase but the JSON wire format uses
+        // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
+        // so Jackson serialises/deserialises using the correct snake_case key.
+        let decl = if lang_rename_all == "camelCase" && f.name.contains('_') {
+            format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname)
+        } else {
+            format!("{} {}", ftype, jname)
+        };
+
+        if i > 0 {
+            fields_joined.push_str(", ");
+        }
+        fields_joined.push_str(&decl);
+
+        field_entries.push(FieldEntry { decl, doc: f.doc.clone() });
+    }
 
     // Build the single-line form to check length and scan for imports.
     // Doc strings are intentionally excluded from this check so the threshold
     // stays stable regardless of documentation presence.
-    let single_line = format!("public record {}({}) {{ }}", typ.name, field_list.join(", "));
+    let single_line_len =
+        "public record ".len() + typ.name.len() + 1 + fields_joined.len() + ") { }".len();
 
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
-    if single_line.len() > RECORD_LINE_WRAP_THRESHOLD && field_list.len() > 1 {
+    if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
-        for (i, (field, doc)) in field_list.iter().zip(field_docs.iter()).enumerate() {
-            let comma = if i < field_list.len() - 1 { "," } else { "" };
-            if !doc.is_empty() {
+        for (i, entry) in field_entries.iter().enumerate() {
+            let comma = if i < field_entries.len() - 1 { "," } else { "" };
+            if !entry.doc.is_empty() {
                 // Inline single-line doc for record components in multi-line form.
-                let doc_summary = escape_javadoc_line(doc.lines().next().unwrap_or("").trim());
+                let doc_summary = escape_javadoc_line(entry.doc.lines().next().unwrap_or("").trim());
                 writeln!(record_block, "    /** {doc_summary} */").ok();
             }
-            writeln!(record_block, "    {}{}", field, comma).ok();
+            writeln!(record_block, "    {}{}", entry.decl, comma).ok();
         }
         writeln!(record_block, ") {{").ok();
     } else {
-        writeln!(record_block, "public record {}({}) {{", typ.name, field_list.join(", ")).ok();
+        // Reuse fields_joined — no second allocation.
+        writeln!(record_block, "public record {}({}) {{", typ.name, fields_joined).ok();
     }
 
     // Add builder() factory method if type has defaults
@@ -81,19 +96,19 @@ pub(crate) fn gen_record_type(
 
     writeln!(record_block, "}}").ok();
 
-    // Scan the single-line form to determine which imports are needed
-    let needs_json_property = field_list.iter().any(|f| f.contains("@JsonProperty("));
+    // Scan fields_joined (the joined field declarations) to determine which imports are needed.
+    let needs_json_property = fields_joined.contains("@JsonProperty(");
     let mut out = String::with_capacity(record_block.len() + 512);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     writeln!(out, "package {};", package).ok();
     writeln!(out).ok();
-    if single_line.contains("List<") {
+    if fields_joined.contains("List<") {
         writeln!(out, "import java.util.List;").ok();
     }
-    if single_line.contains("Map<") {
+    if fields_joined.contains("Map<") {
         writeln!(out, "import java.util.Map;").ok();
     }
-    if single_line.contains("Optional<") {
+    if fields_joined.contains("Optional<") {
         writeln!(out, "import java.util.Optional;").ok();
     }
     if needs_json_property {
@@ -325,18 +340,21 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 })
                 .collect();
 
-            let single = format!(
-                "    record {}({}) implements {} {{ }}",
-                variant.name,
-                field_parts.join(", "),
-                enum_def.name
-            );
+            // Join once; reuse for both the length probe and the single-line emit path.
+            let fields_joined: String = field_parts.join(", ");
+            let single_len = "    record ".len()
+                + variant.name.len()
+                + 1
+                + fields_joined.len()
+                + ") implements ".len()
+                + enum_def.name.len()
+                + " { }".len();
 
             if !variant.doc.is_empty() {
                 let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
                 writeln!(out, "    /** {doc_summary} */").ok();
             }
-            if single.len() > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
+            if single_len > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
                 writeln!(out, "    record {}(", variant.name).ok();
                 for (i, fp) in field_parts.iter().enumerate() {
                     let comma = if i < field_parts.len() - 1 { "," } else { "" };
@@ -348,9 +366,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 writeln!(
                     out,
                     "    record {}({}) implements {} {{ }}",
-                    variant.name,
-                    field_parts.join(", "),
-                    enum_def.name
+                    variant.name, fields_joined, enum_def.name
                 )
                 .ok();
             }
