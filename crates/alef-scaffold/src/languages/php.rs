@@ -77,15 +77,17 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     };
 
     // Derive vendor from the GitHub owner in the repository URL.
-    // e.g. "https://github.com/acme/my-lib" -> "acme"
-    // Falls back to the crate name when the URL is absent or unparsable.
+    // e.g. "https://github.com/Acme/my-lib" -> "acme" (composer requires the
+    // vendor to be all-lowercase per the package-name regex; mixed-case orgs
+    // like `Goldziher` get folded down here).
     let vendor = meta
         .repository
         .strip_prefix("https://github.com/")
         .or_else(|| meta.repository.strip_prefix("http://github.com/"))
         .and_then(|rest| rest.split('/').next())
         .filter(|s| !s.is_empty())
-        .unwrap_or(name.as_str());
+        .map(|s| s.to_lowercase())
+        .unwrap_or_else(|| name.clone());
 
     let content = format!(
         r#"{{
