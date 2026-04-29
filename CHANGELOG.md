@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.14] - 2026-04-29
 
-CLI ergonomics, generation performance, and live output for long-running commands.
+CLI ergonomics, generation performance, and live output for long-running commands. Warm `alef generate` on a 16-language consumer (kreuzberg) drops from ~14s to ~1s.
 
 ### Added
 
@@ -19,6 +19,18 @@ CLI ergonomics, generation performance, and live output for long-running command
 ### Changed
 
 - **`alef generate` no longer runs formatters by default.** Formatting was the dominant cost of `alef generate` on multi-language projects (e.g. `cargo fmt --all`, `ruff check --fix .`, `biome format --write .`, `dotnet format`) and ran on the full package directory every invocation — even when only one language regenerated. The behaviour is now opt-in: pass `--format` to `alef generate`, `alef all`, or `alef init` to run formatters. When `--format` is passed, formatters run *only* for languages that actually regenerated this run (other languages skip), making warm `alef generate --format` proportional to changed source files. The tradeoff: projects that previously relied on the implicit format pass to keep `alef verify` green should either (a) pass `--format`, (b) keep formatters in pre-commit hooks, or (c) run `alef fmt` explicitly after generate.
+
+### Performance
+
+- **Public API codegen is now cached.** `pipeline::generate_public_api` output is hashed and skip-written like binding files; previously every warm run rewrote 200+ Python `api.py` / `options.py` / `__init__.py` files for no net change.
+- **Deterministic Python public-API imports.** The PyO3 backend's `gen_api_py` collected import names into an `AHashSet` then emitted them via `.join(", ")` — `AHashSet` iteration order is non-deterministic, so the codegen output flipped between runs and the content-hash cache always missed. Imports are now sorted before emit.
+- **Idempotent `sync_versions`.** `replace_version_pattern` previously returned `Some(new_content)` whenever its regex matched, even when the rewrite was byte-identical (e.g. when Magnus emits `VERSION = "x"` with double-quotes and the replacement template uses single-quotes). Each `alef generate` then ping-pong-rewrote `version.rb`, marked it as drifted, and triggered a full README regeneration. The function now extracts the version literal from the match and short-circuits when it already equals the target — quote style irrelevant.
+- **`sync_versions` short-circuits on warm runs.** Stamps `.alef/last_synced_version` after each successful sync; the next warm run with no `--bump` and an unchanged canonical version skips the entire glob+regex+stat pass over package manifests. When a sync does run, only `readme/docs/scaffold` stage caches are invalidated; the IR cache and per-language binding hashes are preserved.
+- **`sources_hash` mtime-prefilter.** A per-source `(mtime_nanos, size)` memo at `.alef/sources_hash.cache` lets warm runs return the previous aggregate hash directly when nothing in the source tree has changed — skipping the read+blake3 pass over every `[crate].sources` file.
+- **Hot extractor optimisations.** `extract_serde_rename_all` parses with `attr.parse_nested_meta` instead of stringifying the entire token stream and substring-scanning. `normalize_type_string` now scans bytes directly instead of materialising a `Vec<char>` per call. Combined, these halve allocations on the cold extraction path for large API surfaces.
+- **Single-pass `to_pep440`.** Rewritten to build the output in one pre-allocated `String` instead of chaining five `.replace()` calls, each of which allocates a fresh intermediate.
+- **`extract_version` regex cache.** The verify path's `extract_version` helper now caches compiled regexes in `OnceLock<Mutex<HashMap>>` so the ~15 verify patterns aren't recompiled per file.
+- **Gleam variant collision map** uses `ahash::AHashMap` with `&str` keys; only colliding names allocate owned `String`s (was: `HashMap<String, _>` with per-variant clone).
 
 ## [0.11.13] - 2026-04-29
 
