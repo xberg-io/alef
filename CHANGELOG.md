@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.8] - 2026-04-29
+
+A patch release that fixes the PHP and Rustler/Elixir backends to preserve struct-variant fields when lowering tagged enums, plus two smaller release-pipeline fixes.
+
+### Fixed
+
+- **PHP backend now generates a real wrapper class for tagged enums with struct variants instead of emitting only string constants.** Previously `pub enum SecuritySchemeInfo { Http { scheme, bearer_format }, ApiKey { location, name } }` was lowered to a few `pub const` strings, the surrounding struct field was demoted to `HashMap<String, String>`, and the generated `From<core::Outer> for php::Outer` impl emitted `(k, v.into())` against the original enum value — which fails to compile with `the trait bound \`String: From<SecuritySchemeInfo>\` is not satisfied`. The backend now emits a flat php_class with a`type_tag` discriminator plus optional fields for every variant, full `#[php_impl]` getters, a `from_json` constructor, and proper `From` impls in both directions. Fixes spikard-php builds with `--features extension-module`.
+- **Rustler/Elixir backend now preserves struct-variant fields in tagged enums instead of silently dropping them.** Previously every enum was lowered to `rustler::NifUnitEnum`, so `SecuritySchemeInfo::Http { scheme, bearer_format }` became unit variants `Http`/`ApiKey` with the inner fields gone, and the generated `From` impls fabricated `Default::default()` for every missing field — round-tripping any real value through Elixir produced empty defaults (silent data corruption). The backend now detects struct-variant enums and lowers them to `rustler::NifTaggedEnum` with the original variant fields preserved; the From impls now destructure variants instead of fabricating defaults. Unit-only enums continue to use `NifUnitEnum`.
+- **WASM binding crate generation now sets `default-features = false` on the core dep when `[wasm].features` is configured.** Cargo would otherwise OR the explicit feature set with the core crate's defaults, sneaking host-only defaults like `download` back into the `wasm32-unknown-unknown` build and failing on `getrandom`/`mio`.
+- **`alef validate-versions` now normalizes per-format before comparing.** It applies `to_pep440` to the canonical version when reading `pyproject.toml`, applies `to_rubygems_prerelease` for Ruby `version.rb`, and skips manifests that exist but don't declare a `version` field (e.g. private pnpm workspace roots). Eliminates spurious mismatches like canonical `1.4.0rc8` vs Python `1.4.0rc8` vs Ruby `1.4.0.pre.rc.8`.
+
 ## [0.11.7] - 2026-04-28
 
 A patch release that fixes Rust e2e codegen so optional string/bytes args are passed via `.as_deref()` (yielding `Option<&str>`/`Option<&[u8]>`) rather than `&Option<...>`.

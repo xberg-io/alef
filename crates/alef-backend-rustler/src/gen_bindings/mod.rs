@@ -288,16 +288,26 @@ impl Backend for RustlerBackend {
             }
         }
         for e in &api.enums {
+            // Data enums (any variant has fields) are generated as NifTaggedEnum with real fields.
+            // Set binding_enums_have_data so the From impls destructure fields instead of
+            // fabricating Default::default() for every field (which would silently corrupt data).
+            let has_data = e.variants.iter().any(|v| !v.fields.is_empty());
+            let rustler_conv_config = alef_codegen::conversions::ConversionConfig {
+                binding_enums_have_data: has_data,
+                ..Default::default()
+            };
             if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                     e,
                     &core_import,
+                    &rustler_conv_config,
                 ));
             }
             if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding(
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
                     e,
                     &core_import,
+                    &rustler_conv_config,
                 ));
             }
         }

@@ -9,8 +9,11 @@ use std::borrow::Cow;
 /// Enum named types map to String (ext-php-rs does not support Rust enums as PHP
 /// types; they are represented as string constants instead).
 pub struct PhpMapper {
-    /// Names of enum types in the API surface. These are mapped to String.
+    /// Names of unit-variant enum types. These are mapped to `String`.
     pub enum_names: AHashSet<String>,
+    /// Names of tagged data enums (struct-variant). These are mapped to their own
+    /// flat PHP class (same name) instead of `String`.
+    pub data_enum_names: AHashSet<String>,
 }
 
 impl TypeMapper for PhpMapper {
@@ -36,12 +39,15 @@ impl TypeMapper for PhpMapper {
         Cow::Borrowed("String")
     }
 
-    /// Map enum types to String for PHP.
-    /// ext-php-rs does not support Rust enums as PHP types; enum fields are
-    /// represented as strings and paired with the generated string constants.
-    /// Struct (class) types pass through unchanged so PHP can pass objects.
+    /// Map enum types to their PHP representation.
+    /// - Unit-variant enums → `String` (paired with generated string constants).
+    /// - Tagged data enums (struct variants) → their own flat PHP class name.
+    /// - Struct (class) types pass through unchanged.
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        if self.enum_names.contains(name) {
+        if self.data_enum_names.contains(name) {
+            // Data enum: maps to the flat PHP class with the same name.
+            Cow::Borrowed(name)
+        } else if self.enum_names.contains(name) {
             Cow::Borrowed("String")
         } else {
             Cow::Borrowed(name)

@@ -1,6 +1,6 @@
 use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{EnumDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 
 /// Generate a Rustler opaque resource wrapper for a type.
 pub(super) fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSet<String>) -> String {
@@ -81,29 +81,121 @@ pub(super) fn gen_rustler_config_impl(typ: &TypeDef, mapper: &crate::type_map::R
     out
 }
 
-/// Generate a Rustler NIF enum definition (unit enum).
-pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
-    let mut lines = vec![
-        "#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, rustler::NifUnitEnum)]".to_string(),
-        format!("pub enum {} {{", enum_def.name),
-    ];
-
-    for variant in &enum_def.variants {
-        lines.push(format!("    {},", variant.name));
+/// Map a field's TypeRef to a Rust type string suitable for use in a Rustler NifTaggedEnum variant.
+/// Named types are emitted by short name (the binding-layer mirror struct).
+/// Vec<Named> recurses so JSON arrays round-trip as actual arrays.
+/// Map and complex types collapse to String for JSON round-trip.
+fn field_type_for_rustler(field: &FieldDef) -> String {
+    let base = field_type_for_rustler_inner(&field.ty);
+    if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+        format!("Option<{base}>")
+    } else {
+        base
     }
+}
 
-    lines.push("}".to_string());
+fn field_type_for_rustler_inner(ty: &TypeRef) -> String {
+    use alef_core::ir::PrimitiveType;
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "String".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
+        TypeRef::Primitive(PrimitiveType::U8) => "u8".to_string(),
+        TypeRef::Primitive(PrimitiveType::U16) => "u16".to_string(),
+        TypeRef::Primitive(PrimitiveType::U32) => "u32".to_string(),
+        TypeRef::Primitive(PrimitiveType::U64) => "u64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Usize) => "usize".to_string(),
+        TypeRef::Primitive(PrimitiveType::I8) => "i8".to_string(),
+        TypeRef::Primitive(PrimitiveType::I16) => "i16".to_string(),
+        TypeRef::Primitive(PrimitiveType::I32) => "i32".to_string(),
+        TypeRef::Primitive(PrimitiveType::I64) => "i64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Isize) => "isize".to_string(),
+        TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
+        TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Named(n) => n.clone(),
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_rustler_inner(inner)),
+        TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_rustler_inner(inner)),
+        TypeRef::Unit => "()".to_string(),
+    }
+}
+
+/// Generate a Rustler NIF enum definition.
+///
+/// Unit enums (all variants have no fields) use `NifUnitEnum` — they encode as atoms.
+/// Data enums (one or more variants have fields) use `NifTaggedEnum` — they encode as
+/// `{:VariantName, field_map}` tagged tuples, preserving all inner fields faithfully.
+pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
+    use std::fmt::Write;
+    let name = &enum_def.name;
+    let mut out = String::with_capacity(512);
+
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    if has_data {
+        // NifTaggedEnum: supports unit variants (atoms) and struct variants (tagged tuples).
+        // Cannot be Copy when variants have fields.
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifTaggedEnum)]"
+        )
+        .ok();
+        if let Some(tag) = &enum_def.serde_tag {
+            writeln!(out, r#"#[serde(tag = "{tag}")]"#).ok();
+        }
+        writeln!(out, "pub enum {name} {{").ok();
+        for variant in &enum_def.variants {
+            if variant.fields.is_empty() {
+                writeln!(out, "    {},", variant.name).ok();
+            } else {
+                let fields: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| format!("    {}: {},", f.name, field_type_for_rustler(f)))
+                    .collect();
+                writeln!(out, "    {} {{", variant.name).ok();
+                for field_line in &fields {
+                    writeln!(out, "    {field_line}").ok();
+                }
+                writeln!(out, "    }},").ok();
+            }
+        }
+        writeln!(out, "}}").ok();
+    } else {
+        // All unit variants: NifUnitEnum encodes as atoms.
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, rustler::NifUnitEnum)]"
+        )
+        .ok();
+        writeln!(out, "pub enum {name} {{").ok();
+        for variant in &enum_def.variants {
+            writeln!(out, "    {},", variant.name).ok();
+        }
+        writeln!(out, "}}").ok();
+    }
 
     // Default impl for config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
-        lines.push(String::new());
-        lines.push("#[allow(clippy::derivable_impls)]".to_string());
-        lines.push(format!("impl Default for {} {{", enum_def.name));
-        lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
-        lines.push("}".to_string());
+        write!(
+            out,
+            "\n#[allow(clippy::derivable_impls)]\nimpl Default for {name} {{\n    fn default() -> Self {{"
+        )
+        .ok();
+        if has_data && !first.fields.is_empty() {
+            let field_defaults: Vec<String> = first
+                .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            write!(out, " Self::{} {{ {} }} }}\n}}", first.name, field_defaults.join(", ")).ok();
+        } else {
+            write!(out, " Self::{} }}\n}}", first.name).ok();
+        }
     }
 
-    lines.join("\n")
+    out
 }
 
 /// Wrap a return expression for Rustler (opaque types get ResourceArc wrapping).
@@ -188,5 +280,252 @@ pub(super) fn gen_rustler_wrap_return(
             _ => expr.to_string(),
         },
         _ => expr.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{EnumVariant, FieldDef, PrimitiveType};
+
+    fn unit_enum() -> EnumDef {
+        EnumDef {
+            name: "Color".to_string(),
+            rust_path: "my_crate::Color".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Red".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Blue".into(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_rename_all: None,
+        }
+    }
+
+    fn data_enum() -> EnumDef {
+        EnumDef {
+            name: "SecuritySchemeInfo".to_string(),
+            rust_path: "my_crate::SecuritySchemeInfo".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Http".into(),
+                    fields: vec![
+                        FieldDef {
+                            name: "scheme".into(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                        },
+                        FieldDef {
+                            name: "bearer_format".into(),
+                            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                        },
+                    ],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "ApiKey".into(),
+                    fields: vec![
+                        FieldDef {
+                            name: "location".into(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                        },
+                        FieldDef {
+                            name: "name".into(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: alef_core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                        },
+                    ],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_rename_all: None,
+        }
+    }
+
+    /// Unit enums must still lower to NifUnitEnum (atoms on the Elixir side).
+    #[test]
+    fn test_gen_enum_unit_uses_nif_unit_enum() {
+        let result = gen_enum(&unit_enum());
+        assert!(
+            result.contains("NifUnitEnum"),
+            "unit enum should use NifUnitEnum; got:\n{result}"
+        );
+        assert!(
+            !result.contains("NifTaggedEnum"),
+            "unit enum must not use NifTaggedEnum; got:\n{result}"
+        );
+        assert!(result.contains("Red,"), "should contain Red variant; got:\n{result}");
+        assert!(result.contains("Blue,"), "should contain Blue variant; got:\n{result}");
+    }
+
+    /// Data enums must lower to NifTaggedEnum and preserve all variant fields.
+    #[test]
+    fn test_gen_enum_data_uses_nif_tagged_enum() {
+        let result = gen_enum(&data_enum());
+        assert!(
+            result.contains("NifTaggedEnum"),
+            "data enum should use NifTaggedEnum; got:\n{result}"
+        );
+        assert!(
+            !result.contains("NifUnitEnum"),
+            "data enum must not use NifUnitEnum; got:\n{result}"
+        );
+        // Http variant must have its fields
+        assert!(
+            result.contains("scheme"),
+            "Http variant must preserve `scheme` field; got:\n{result}"
+        );
+        assert!(
+            result.contains("bearer_format"),
+            "Http variant must preserve `bearer_format` field; got:\n{result}"
+        );
+        // ApiKey variant must have its fields
+        assert!(
+            result.contains("location"),
+            "ApiKey variant must preserve `location` field; got:\n{result}"
+        );
+        assert!(
+            result.contains("name"),
+            "ApiKey variant must preserve `name` field; got:\n{result}"
+        );
+    }
+
+    /// Data enum From impls must destructure fields, not use Default::default().
+    #[test]
+    fn test_data_enum_from_impls_destructure_fields() {
+        let e = data_enum();
+        let cfg = alef_codegen::conversions::ConversionConfig {
+            binding_enums_have_data: true,
+            ..Default::default()
+        };
+        let binding_to_core = alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(&e, "my_crate", &cfg);
+        // Must destructure, not Default::default()
+        assert!(
+            !binding_to_core.contains("Default::default()"),
+            "binding->core From must not use Default::default() for data enum fields; got:\n{binding_to_core}"
+        );
+        assert!(
+            binding_to_core.contains("scheme"),
+            "binding->core From must destructure `scheme`; got:\n{binding_to_core}"
+        );
+        assert!(
+            binding_to_core.contains("bearer_format"),
+            "binding->core From must destructure `bearer_format`; got:\n{binding_to_core}"
+        );
+
+        let core_to_binding = alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(&e, "my_crate", &cfg);
+        assert!(
+            core_to_binding.contains("scheme"),
+            "core->binding From must destructure `scheme`; got:\n{core_to_binding}"
+        );
+        assert!(
+            !core_to_binding.contains(".."),
+            "core->binding From must not discard fields with `..`; got:\n{core_to_binding}"
+        );
+    }
+
+    /// Primitive field type mapping for NifTaggedEnum variants.
+    #[test]
+    fn test_field_type_for_rustler_primitives() {
+        let bool_field = FieldDef {
+            name: "flag".into(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: alef_core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+        assert_eq!(field_type_for_rustler(&bool_field), "bool");
+        let str_field = FieldDef {
+            name: "s".into(),
+            ty: TypeRef::String,
+            ..bool_field.clone()
+        };
+        assert_eq!(field_type_for_rustler(&str_field), "String");
+        let opt_field = FieldDef {
+            name: "o".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            ..bool_field
+        };
+        assert_eq!(field_type_for_rustler(&opt_field), "Option<String>");
     }
 }

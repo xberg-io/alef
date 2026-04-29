@@ -21,7 +21,10 @@ use helpers::{
     gen_enum_tainted_from_binding_to_core, gen_serde_bridge_from, gen_tokio_runtime, has_enum_named_field,
     references_named_type,
 };
-use types::{gen_enum_constants, gen_opaque_struct_methods, gen_php_struct};
+use types::{
+    gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
+    gen_opaque_struct_methods, gen_php_struct, is_tagged_data_enum,
+};
 
 pub struct PhpBackend;
 
@@ -71,8 +74,23 @@ impl Backend for PhpBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let enum_names = api.enums.iter().map(|e| e.name.clone()).collect();
-        let mapper = PhpMapper { enum_names };
+        // Separate unit-variant enums (→ String) from tagged data enums (→ flat PHP class).
+        let data_enum_names: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_tagged_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+        let enum_names: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| !is_tagged_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+        let mapper = PhpMapper {
+            enum_names: enum_names.clone(),
+            data_enum_names: data_enum_names.clone(),
+        };
         let core_import = config.core_import();
 
         // Get exclusion lists from PHP config
@@ -141,10 +159,6 @@ impl Backend for PhpBackend {
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
         }
-
-        // Enum names for PHP property classification — enums are mapped as String,
-        // so Named(enum) fields should be treated as scalar props not getters.
-        let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
         // Compute the PHP namespace for namespaced class registration.
         // Uses the same logic as `generate_public_api` / `generate_type_stubs`.
@@ -225,7 +239,13 @@ impl Backend for PhpBackend {
         }
 
         for enum_def in &api.enums {
-            builder.add_item(&gen_enum_constants(enum_def));
+            if is_tagged_data_enum(enum_def) {
+                // Tagged data enums (struct variants) are lowered to a flat PHP class.
+                builder.add_item(&gen_flat_data_enum(enum_def, &mapper, Some(&php_namespace)));
+                builder.add_item(&gen_flat_data_enum_methods(enum_def, &mapper));
+            } else {
+                builder.add_item(&gen_enum_constants(enum_def));
+            }
         }
 
         // Generate free functions as static methods on a facade class rather than standalone
@@ -395,6 +415,11 @@ impl Backend for PhpBackend {
             }
         }
 
+        // From impls for tagged data enums lowered to flat PHP classes.
+        for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
+            builder.add_item(&gen_flat_data_enum_from_impls(enum_def, &core_import));
+        }
+
         // Error converter functions
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
@@ -424,8 +449,11 @@ impl Backend for PhpBackend {
             let facade_class_name = extension_name.to_pascal_case();
             class_registrations.push_str(&format!("\n    .class::<{facade_class_name}Api>()"));
         }
-        // Note: enums are represented as PHP string-backed enums, not Rust structs,
-        // so they don't need .class::<T>() registration.
+        // Tagged data enums are lowered to flat PHP classes — register them like other classes.
+        // Unit-variant enums remain as string constants and don't need .class::<T>() registration.
+        for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
+            class_registrations.push_str(&format!("\n    .class::<{}>()", enum_def.name));
+        }
         builder.add_item(&format!(
             "#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{\n    module{class_registrations}\n}}"
         ));

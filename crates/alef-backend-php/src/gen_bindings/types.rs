@@ -5,7 +5,7 @@ use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{constructor_parts, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
@@ -350,4 +350,224 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef) -> String {
     }
 
     lines.join("\n")
+}
+
+/// Return true if an enum is a "tagged data enum" — has a serde tag AND at least one variant
+/// with named fields. These are lowered to flat PHP classes rather than string constants.
+pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
+    enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty())
+}
+
+/// Generate a flat `#[php_class]` struct for a tagged data enum.
+///
+/// The struct unions all variant fields as `Option<T>` plus a string discriminator named
+/// after the serde tag (defaulting to `"type"`). This lets `HashMap<String, SecuritySchemeInfo>`
+/// stay as `HashMap<String, SecuritySchemeInfo>` (the flat PHP class) with working `From` impls.
+pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_namespace: Option<&str>) -> String {
+    use std::fmt::Write as _;
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+
+    let php_attrs: String = if let Some(ns) = php_namespace {
+        let ns_escaped = ns.replace('\\', "\\\\");
+        let php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped, enum_def.name);
+        format!("#[php_class]\n#[{php_name_attr}]")
+    } else {
+        "#[php_class]".to_string()
+    };
+
+    let mut out = String::new();
+    writeln!(out, "{php_attrs}").ok();
+    writeln!(out, "#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]").ok();
+    writeln!(out, "pub struct {} {{", enum_def.name).ok();
+    // Discriminator field
+    writeln!(out, "    #[php(prop, name = \"{tag_field}\")]").ok();
+    writeln!(out, "    #[serde(rename = \"{tag_field}\")]").ok();
+    writeln!(out, "    pub {tag_field}_tag: String,").ok();
+
+    // Collect all unique fields across variants, all made Optional.
+    // Note: field.optional (bool) indicates `Option<T>` at the Rust level; the
+    // ty itself is the inner type (e.g. TypeRef::String for Option<String>).
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if seen.insert(field.name.clone()) {
+                let mapped = mapper.map_type(&field.ty).to_string();
+                // All variant fields become Option in the flat struct. If the core
+                // field is already optional (field.optional == true), the mapped type
+                // is the inner type and we still wrap it in Option.
+                let field_ty = format!("Option<{mapped}>");
+                writeln!(out, "    #[serde(skip_serializing_if = \"Option::is_none\")]").ok();
+                writeln!(out, "    pub {}: {field_ty},", field.name).ok();
+            }
+        }
+    }
+    out.push('}');
+    out
+}
+
+/// Generate `#[php_impl]` accessor methods and a `from_json` constructor for the flat data enum.
+pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper) -> String {
+    use std::fmt::Write as _;
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+    let mut impl_builder = ImplBuilder::new(&enum_def.name);
+    impl_builder.add_attr("php_impl");
+
+    // from_json constructor so PHP can construct the value.
+    let from_json = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
+        serde_json::from_str(&json)\n        \
+        .map_err(|e| PhpException::default(e.to_string()))\n\
+        }"
+    .to_string();
+    impl_builder.add_method(&from_json);
+
+    // Getter for the tag discriminator field
+    let tag_getter =
+        format!("#[php(getter)]\npub fn get_{tag_field}_tag(&self) -> String {{\n    self.{tag_field}_tag.clone()\n}}");
+    impl_builder.add_method(&tag_getter);
+
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if seen.insert(field.name.clone()) {
+                let mapped = mapper.map_type(&field.ty).to_string();
+                // Getter returns Option<T> for every variant field (all are optional in flat struct).
+                let field_ty = format!("Option<{mapped}>");
+                let getter_body = format!(
+                    "#[php(getter)]\npub fn get_{name}(&self) -> {field_ty} {{\n    self.{name}.clone()\n}}",
+                    name = field.name,
+                );
+                impl_builder.add_method(&getter_body);
+            }
+        }
+    }
+
+    let mut out = String::new();
+    writeln!(out, "{}", impl_builder.build()).ok();
+    out
+}
+
+/// Returns the serde-renamed tag string for a variant.
+fn variant_tag_value(variant: &EnumVariant, enum_def: &EnumDef) -> String {
+    if let Some(rename) = &variant.serde_rename {
+        return rename.clone();
+    }
+    if let Some(rename_all) = &enum_def.serde_rename_all {
+        return apply_rename_all(&variant.name, rename_all);
+    }
+    variant.name.clone()
+}
+
+fn apply_rename_all(name: &str, strategy: &str) -> String {
+    use heck::{ToKebabCase, ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
+    match strategy {
+        "lowercase" => name.to_lowercase(),
+        "UPPERCASE" => name.to_uppercase(),
+        "camelCase" => name.to_lower_camel_case(),
+        "PascalCase" => name.to_upper_camel_case(),
+        "snake_case" => name.to_snake_case(),
+        "SCREAMING_SNAKE_CASE" => name.to_shouty_snake_case(),
+        "kebab-case" => name.to_kebab_case(),
+        _ => name.to_string(),
+    }
+}
+
+/// Generate `From<core::DataEnum> for PhpDataEnum` and `From<PhpDataEnum> for core::DataEnum`
+/// for a tagged data enum lowered to a flat PHP class.
+pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &str) -> String {
+    use std::fmt::Write as _;
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+    let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
+    let binding_name = &enum_def.name;
+
+    let mut out = String::new();
+
+    // --- core → binding ---
+    writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        match val {{").ok();
+    for variant in &enum_def.variants {
+        let tag_val = variant_tag_value(variant, enum_def);
+        if variant.fields.is_empty() {
+            writeln!(
+                out,
+                "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string(), ..Default::default() }},",
+                name = variant.name,
+            ).ok();
+        } else {
+            let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
+            let pattern = field_names.join(", ");
+            write!(
+                out,
+                "            {core_path}::{}{{ {pattern} }} => Self {{",
+                variant.name
+            )
+            .ok();
+            write!(out, " {tag_field}_tag: \"{tag_val}\".to_string(),").ok();
+            for f in &variant.fields {
+                // f.optional == true means the core field is Option<T>; the binding struct
+                // field is always Option<T> for flat data enums.
+                if f.optional {
+                    // Core field is Option<T>: keep as Option, map inner value via Into.
+                    write!(out, " {name}: {name}.map(Into::into),", name = f.name).ok();
+                } else {
+                    // Core field is T: wrap in Some and convert via Into.
+                    write!(out, " {name}: Some({name}.into()),", name = f.name).ok();
+                }
+            }
+            writeln!(out, " ..Default::default() }},").ok();
+        }
+    }
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+
+    writeln!(out).ok();
+
+    // --- binding → core: match on the tag field to reconstruct the correct variant ---
+    // We use tag-value matching rather than serde round-trip to avoid serde field rename
+    // mismatches between the flat struct (uses Rust snake_case names) and the core type
+    // (may have #[serde(rename = "camelCase")] on individual variant fields).
+    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
+    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
+    writeln!(out, "        match val.{tag_field}_tag.as_str() {{").ok();
+    for variant in &enum_def.variants {
+        let tag_val = variant_tag_value(variant, enum_def);
+        if variant.fields.is_empty() {
+            writeln!(out, "            \"{tag_val}\" => {core_path}::{},", variant.name).ok();
+        } else {
+            write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
+            for f in &variant.fields {
+                if f.optional {
+                    // Core field is Option<T>, binding field is Option<T>: direct assign.
+                    write!(out, " {name}: val.{name}.map(Into::into),", name = f.name).ok();
+                } else {
+                    // Core field is T, binding field is Option<T>: unwrap or default.
+                    write!(
+                        out,
+                        " {name}: val.{name}.map(Into::into).unwrap_or_default(),",
+                        name = f.name
+                    )
+                    .ok();
+                }
+            }
+            writeln!(out, " }},").ok();
+        }
+    }
+    // Fallback to first variant (with all fields defaulted) for unrecognised tags.
+    if let Some(first) = enum_def.variants.first() {
+        if first.fields.is_empty() {
+            writeln!(out, "            _ => {core_path}::{},", first.name).ok();
+        } else {
+            write!(out, "            _ => {core_path}::{}{{", first.name).ok();
+            for f in &first.fields {
+                write!(out, " {name}: Default::default(),", name = f.name).ok();
+            }
+            writeln!(out, " }},").ok();
+        }
+    }
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+
+    out
 }

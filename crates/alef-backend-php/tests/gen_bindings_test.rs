@@ -1641,3 +1641,134 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
         "PHP visitor bridge must implement Sync"
     );
 }
+
+/// Regression test: tagged data enums (struct variants) must be lowered to flat PHP classes,
+/// not string constants.  A `HashMap<String, DataEnum>` field on a struct must compile:
+/// there must be a `From<core::DataEnum> for DataEnum` impl (not `From<DataEnum> for String`).
+#[test]
+fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
+    let backend = PhpBackend;
+
+    let data_enum = EnumDef {
+        name: "SecuritySchemeInfo".to_string(),
+        rust_path: "test_lib::SecuritySchemeInfo".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Http".to_string(),
+                fields: vec![
+                    make_field("scheme", TypeRef::String, false),
+                    make_field("bearer_format", TypeRef::String, true),
+                ],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("http".to_string()),
+            },
+            EnumVariant {
+                name: "ApiKey".to_string(),
+                fields: vec![
+                    make_field("location", TypeRef::String, false),
+                    make_field("name", TypeRef::String, false),
+                ],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("apiKey".to_string()),
+            },
+        ],
+        doc: "Security scheme types".to_string(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_rename_all: Some("lowercase".to_string()),
+    };
+
+    let config_type = TypeDef {
+        name: "OpenApiConfig".to_string(),
+        rust_path: "test_lib::OpenApiConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field(
+            "security_schemes",
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("SecuritySchemeInfo".to_string())),
+            ),
+            false,
+        )],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![config_type],
+        functions: vec![],
+        enums: vec![data_enum],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // Must NOT emit string constants for the data enum
+    assert!(
+        !content.contains("pub const SECURITYSCHEMEINFO_HTTP"),
+        "Data enum must not generate string constants"
+    );
+
+    // Must emit a flat PHP class struct
+    assert!(
+        content.contains("pub struct SecuritySchemeInfo"),
+        "Data enum must generate a flat PHP class struct"
+    );
+
+    // The struct must have a discriminator field named after the serde tag
+    assert!(
+        content.contains("type_tag"),
+        "Flat struct must have a type_tag discriminator field"
+    );
+
+    // The struct must have variant fields
+    assert!(content.contains("scheme"), "Flat struct must have scheme field");
+    assert!(content.contains("location"), "Flat struct must have location field");
+
+    // Must emit From<core::SecuritySchemeInfo> for SecuritySchemeInfo
+    assert!(
+        content.contains("impl From<test_lib::SecuritySchemeInfo> for SecuritySchemeInfo"),
+        "Must emit core→binding From impl"
+    );
+
+    // Must emit From<SecuritySchemeInfo> for core::SecuritySchemeInfo
+    assert!(
+        content.contains("impl From<SecuritySchemeInfo> for test_lib::SecuritySchemeInfo"),
+        "Must emit binding→core From impl"
+    );
+
+    // The HashMap field on OpenApiConfig must use the PHP class, not String
+    assert!(
+        content.contains("HashMap<String, SecuritySchemeInfo>"),
+        "HashMap field must use the flat PHP class type, not String"
+    );
+}
