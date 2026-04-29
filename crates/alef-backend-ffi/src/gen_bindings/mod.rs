@@ -216,11 +216,18 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         // Note: sanitized fields do NOT block from_json/to_json generation because these
         // functions use serde for the full core type (bypassing field-level type mapping).
         if !typ.is_opaque && typ.has_serde {
-            builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
-            // Generate to_json for types that support serialization.
-            // Update types (partial update structs) typically only implement Deserialize,
-            // not Serialize, so skip them.
-            if !typ.name.ends_with("Update") {
+            // Skip auto-from_json when the type defines its own `from_json`/`from_str`
+            // method — the method wrapper produces the same FFI export name and would
+            // collide.
+            let has_from_json_method = typ.methods.iter().any(|m| m.name == "from_json");
+            if !has_from_json_method {
+                builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
+            }
+            // Generate to_json for types that support serialization. Skip Update types
+            // (partial update structs typically derive Deserialize only) and skip when
+            // the type already exposes a `to_json` method (would collide on FFI name).
+            let has_to_json_method = typ.methods.iter().any(|m| m.name == "to_json");
+            if !typ.name.ends_with("Update") && !has_to_json_method {
                 builder.add_item(&gen_type_to_json(typ, prefix, &core_import));
             }
         }
@@ -234,6 +241,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
                     field,
                     prefix,
                     &core_import,
+                    &path_map,
                     &enum_names,
                     &clone_names,
                 ));

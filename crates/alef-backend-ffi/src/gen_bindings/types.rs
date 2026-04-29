@@ -1,5 +1,5 @@
-use crate::type_map::c_return_type;
-use ahash::AHashSet;
+use crate::type_map::c_return_type_with_paths;
+use ahash::{AHashMap, AHashSet};
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -166,6 +166,7 @@ pub(super) fn gen_field_accessor(
     field: &FieldDef,
     prefix: &str,
     core_import: &str,
+    path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
     clone_names: &AHashSet<String>,
 ) -> String {
@@ -184,16 +185,24 @@ pub(super) fn gen_field_accessor(
     // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
         // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
-        // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix).
+        // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix)
+        // or "spikard_http::openapi::OpenApiConfig" (sibling workspace crate, common in
+        // multi-crate workspaces where the umbrella crate re-exports types).
         // We need the module path prefix without the type name itself.
         // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
         // but Rust source code requires crate names (underscores).
         let rust_path_norm = rust_path.replace('-', "_");
         if let Some(pos) = rust_path_norm.rfind("::") {
             let module_prefix = &rust_path_norm[..pos];
-            // Avoid double-prefixing: if rust_path already starts with core_import,
-            // use it as-is. Otherwise prepend core_import.
-            if module_prefix == core_import || module_prefix.starts_with(&format!("{core_import}::")) {
+            // Avoid double-prefixing: detect when module_prefix is already crate-qualified
+            // — either with core_import directly, or with a sibling workspace crate whose
+            // name starts with the same prefix (e.g. core_import "spikard" → "spikard_http",
+            // "spikard_core", "spikard_graphql"). The trailing `::` and `_` checks ensure
+            // we only match crate-name segments, not unrelated identifiers like "spikardly".
+            if module_prefix == core_import
+                || module_prefix.starts_with(&format!("{core_import}::"))
+                || module_prefix.starts_with(&format!("{core_import}_"))
+            {
                 module_prefix.to_string()
             } else {
                 format!("{core_import}::{module_prefix}")
@@ -205,7 +214,11 @@ pub(super) fn gen_field_accessor(
         core_import.to_string()
     };
 
-    let mut ret_type = c_return_type(&effective_ty, &field_core_import).into_owned();
+    // Use path_map for Named types — it knows where the type actually lives
+    // (e.g. spikard_http::ContactInfo) even when field.type_rust_path is None.
+    // For non-Named types path_map is irrelevant and the call falls through to
+    // the standard c_return_type behaviour.
+    let mut ret_type = c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned();
     // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);

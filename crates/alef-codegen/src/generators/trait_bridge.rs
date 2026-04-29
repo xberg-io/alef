@@ -110,6 +110,14 @@ pub trait TraitBridgeGenerator {
     /// NAPI takes `#[napi]` with JS params, FFI takes `extern "C"` with raw pointers),
     /// so the generator owns the full function.
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String;
+
+    /// Whether the `#[async_trait]` macro should require `Send` on its futures.
+    ///
+    /// Returns `true` (default) for most targets. WASM is single-threaded so its
+    /// trait bounds don't include `Send`; implementors should return `false` there.
+    fn async_trait_is_send(&self) -> bool {
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,14 +280,19 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
     let trait_path = spec.trait_path();
     let mut out = String::with_capacity(2048);
 
-    // Add #[async_trait] when the trait has async methods (needed for async_trait macro compatibility)
+    // Add #[async_trait] when the trait has async methods (needed for async_trait macro compatibility).
+    // On non-Send targets (e.g. WASM), use `(?Send)` to drop the `Send` bound on futures.
     let has_async_methods = spec
         .trait_def
         .methods
         .iter()
         .any(|m| m.is_async && m.trait_source.is_none());
     if has_async_methods {
-        writeln!(out, "#[async_trait::async_trait]").ok();
+        if generator.async_trait_is_send() {
+            writeln!(out, "#[async_trait::async_trait]").ok();
+        } else {
+            writeln!(out, "#[async_trait::async_trait(?Send)]").ok();
+        }
     }
     writeln!(out, "impl {trait_path} for {wrapper} {{").ok();
 

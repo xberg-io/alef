@@ -34,6 +34,11 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         "wasm_bindgen::JsValue"
     }
 
+    /// WASM is single-threaded; trait futures must not require `Send`.
+    fn async_trait_is_send(&self) -> bool {
+        false
+    }
+
     fn bridge_imports(&self) -> Vec<String> {
         vec![
             "wasm_bindgen::prelude::*".to_string(),

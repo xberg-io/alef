@@ -434,7 +434,12 @@ pub(super) fn gen_method_wrapper(
     // This must happen before passing to gen_owned_value_to_c.
     if method.returns_ref && !has_error {
         match &method.return_type {
-            TypeRef::String | TypeRef::Char => {
+            // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
+            // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
+            TypeRef::String => {
+                writeln!(out, "    let result = result.to_owned();").ok();
+            }
+            TypeRef::Char => {
                 writeln!(out, "    let result = result.clone();").ok();
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -444,7 +449,12 @@ pub(super) fn gen_method_wrapper(
                 writeln!(out, "    let result = result.clone();").ok();
             }
             TypeRef::Optional(inner) => match inner.as_ref() {
-                TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
+                // .map(str::to_owned) to convert Option<&str> -> Option<String>.
+                TypeRef::String => {
+                    writeln!(out, "    let result = result.map(str::to_owned);").ok();
+                }
+                TypeRef::Named(_) | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     writeln!(out, "    let result = result.cloned();").ok();
                 }
                 _ => {}
