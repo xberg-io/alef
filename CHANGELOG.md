@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-04-30
+
 ### Fixed
 
 - fix(e2e/rust): `not_empty` / `is_empty` assertions on a field that is BOTH `fields_optional` AND `fields_array` now emit `as_ref().is_some_and(|v| !v.is_empty())` and `as_ref().is_none_or(|v| v.is_empty())` respectively, so `Option<Vec<T>>` struct fields (e.g. `chunks`, `images`, `pages`, `extracted_keywords`) compile against the assertion. Previously the codegen emitted `result.<field>.is_empty()` against the bare `Option<Vec<_>>`, which failed `E0599`.

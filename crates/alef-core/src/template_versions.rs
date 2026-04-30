@@ -358,5 +358,5 @@ pub mod precommit {
     pub const TYPOS_REV: &str = "v1.45.2";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.12.1";
+    pub const ALEF_REV: &str = "v0.12.2";
 }
