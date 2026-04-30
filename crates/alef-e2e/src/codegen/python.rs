@@ -40,14 +40,14 @@ impl super::E2eCodegen for PythonE2eCodegen {
         // Root __init__.py (prevents ruff INP001).
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),
-            content: String::new(),
+            content: "\n".to_string(),
             generated_header: false,
         });
 
         // tests/__init__.py
         files.push(GeneratedFile {
             path: output_base.join("tests").join("__init__.py"),
-            content: String::new(),
+            content: "\n".to_string(),
             generated_header: false,
         });
 
