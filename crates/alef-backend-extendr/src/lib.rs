@@ -2,6 +2,5 @@
 
 mod gen_bindings;
 pub mod trait_bridge;
-mod type_map;
 
 pub use gen_bindings::ExtendrBackend;
