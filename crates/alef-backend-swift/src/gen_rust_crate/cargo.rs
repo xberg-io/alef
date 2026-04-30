@@ -1,8 +1,10 @@
 //! Emits `Cargo.toml` and `build.rs` for the swift-bridge crate.
 
 /// Emit the `Cargo.toml` content for the generated swift crate.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cargo_toml(
     crate_name: &str,
+    core_dep_key: &str,
     version: &str,
     swift_bridge_ver: &str,
     swift_bridge_build_ver: &str,
@@ -10,7 +12,7 @@ pub(crate) fn emit_cargo_toml(
     features: &[String],
     license: &str,
 ) -> String {
-    let source_crate_name = crate_name.replace('-', "_");
+    let source_crate_name = core_dep_key;
     let features_block = if features.is_empty() {
         String::new()
     } else {

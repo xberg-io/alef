@@ -66,6 +66,8 @@ fn make_config() -> AlefConfig {
             rename_fields: Default::default(),
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
+            core_crate_override: None,
+            exclude_extra_dependencies: Vec::new(),
         }),
         ffi: None,
         gleam: None,
@@ -1642,6 +1644,63 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         "static from_update() must wrap core call with .into() to return binding wrapper;\n\
          actual content around fn from_update:\n{}",
         extract_fn_snippet(content, "fn from_update")
+    );
+}
+
+/// `[wasm].core_crate_override` must redirect the Rust core dep to the named crate, and
+/// `[wasm].exclude_extra_dependencies` must filter the listed keys out of the merged
+/// `[crate.extra_dependencies]` set so the wasm binding can target a wasm-safe sub-crate
+/// while siblings (e.g. http-only crates) are kept off the link line.
+#[test]
+fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
+    let backend = WasmBackend;
+    let api = ApiSurface {
+        crate_name: "spikard".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let mut config = make_config();
+    config.crate_config.name = "spikard".to_string();
+    let mut crate_extras = std::collections::HashMap::new();
+    crate_extras.insert("spikard-http".to_string(), toml::Value::String("1".to_string()));
+    crate_extras.insert("spikard-graphql".to_string(), toml::Value::String("1".to_string()));
+    config.crate_config.extra_dependencies = crate_extras;
+    let wasm = config.wasm.as_mut().expect("wasm config seeded");
+    wasm.core_crate_override = Some("spikard-core".to_string());
+    wasm.exclude_extra_dependencies = vec!["spikard-http".to_string(), "spikard-graphql".to_string()];
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let cargo_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Cargo.toml"))
+        .expect("generate_bindings must include a Cargo.toml");
+    let content = &cargo_file.content;
+
+    assert!(
+        content.contains(r#"spikard-core = { path = "../spikard-core""#),
+        "wasm Cargo.toml must depend on the override crate via path = \"../spikard-core\";\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains(r#"spikard = { path = "../spikard""#),
+        "wasm Cargo.toml must not also depend on the umbrella crate when override is set;\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains("spikard-http"),
+        "wasm Cargo.toml must filter out excluded extra dep `spikard-http`;\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains("spikard-graphql"),
+        "wasm Cargo.toml must filter out excluded extra dep `spikard-graphql`;\nactual:\n{content}"
+    );
+    // The published package name must remain `<crate.name>-wasm` regardless of override.
+    assert!(
+        content.contains(r#"name = "spikard-wasm""#),
+        "wasm Cargo.toml package name must remain `spikard-wasm` when override is set;\nactual:\n{content}"
     );
 }
 

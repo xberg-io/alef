@@ -15,3 +15,6 @@ alef-adapters = { workspace = true }
 alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

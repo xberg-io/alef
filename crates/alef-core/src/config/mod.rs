@@ -509,6 +509,27 @@ impl AlefConfig {
         if let Some(lang_deps) = lang_deps {
             deps.extend(lang_deps.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
+        let exclude: &[String] = match lang {
+            extras::Language::Wasm => self
+                .wasm
+                .as_ref()
+                .map(|c| c.exclude_extra_dependencies.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Dart => self
+                .dart
+                .as_ref()
+                .map(|c| c.exclude_extra_dependencies.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Swift => self
+                .swift
+                .as_ref()
+                .map(|c| c.exclude_extra_dependencies.as_slice())
+                .unwrap_or(&[]),
+            _ => &[],
+        };
+        for key in exclude {
+            deps.remove(key);
+        }
         deps
     }
 
@@ -1225,6 +1246,23 @@ impl AlefConfig {
             }
         }
         self.crate_config.name.clone()
+    }
+
+    /// Resolve the core Cargo dependency name (and matching directory) for a
+    /// language's binding crate. Returns `[<lang>].core_crate_override` when set
+    /// (currently honored for `wasm`, `dart`, `swift`), otherwise falls back to
+    /// [`Self::core_crate_dir`].
+    pub fn core_crate_for_language(&self, lang: extras::Language) -> String {
+        let override_name = match lang {
+            extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            _ => None,
+        };
+        match override_name {
+            Some(name) => name.to_string(),
+            None => self.core_crate_dir(),
+        }
     }
 
     /// Get the WASM type name prefix (e.g. "Wasm" produces `WasmConversionOptions`).

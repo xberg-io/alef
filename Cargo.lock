@@ -216,6 +216,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "toml",
 ]
 
 [[package]]

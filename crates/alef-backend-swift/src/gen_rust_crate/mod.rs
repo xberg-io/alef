@@ -30,12 +30,20 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
 
     let swift_bridge_ver = template_versions::cargo::SWIFT_BRIDGE;
     let swift_bridge_build_ver = template_versions::cargo::SWIFT_BRIDGE_BUILD;
-    let core_crate_dir = config.core_crate_dir();
-    let same_as_workspace = core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+    let core_crate_dir = config.core_crate_for_language(alef_core::config::extras::Language::Swift);
+    let swift_override = config.swift.as_ref().and_then(|c| c.core_crate_override.as_deref());
+    let same_as_workspace =
+        swift_override.is_none() && core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
     let core_path = if same_as_workspace {
         "../../..".to_string()
     } else {
         format!("../../../crates/{core_crate_dir}")
+    };
+    // Cargo dep KEY: when override is set, use it as-is; otherwise preserve
+    // the historical behaviour (Rust-ident form of the umbrella crate name).
+    let core_dep_key: String = match swift_override {
+        Some(name) => name.to_string(),
+        None => crate_name.replace('-', "_"),
     };
 
     let features = config.features_for_language(alef_core::config::extras::Language::Swift);
@@ -61,6 +69,7 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
         .unwrap_or("MIT");
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
+        &core_dep_key,
         version,
         swift_bridge_ver,
         swift_bridge_build_ver,

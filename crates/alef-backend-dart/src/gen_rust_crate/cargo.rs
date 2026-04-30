@@ -13,8 +13,17 @@ pub(crate) fn emit_cargo_toml(
     let crate_name = config.crate_config.name.as_str();
     let version = &api_version(config);
     let frb_version = tv::FLUTTER_RUST_BRIDGE;
-    let core_crate_dir = config.core_crate_dir();
-    let same_as_workspace = core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+    let core_crate_dir = config.core_crate_for_language(alef_core::config::extras::Language::Dart);
+    let dart_override = config.dart.as_ref().and_then(|c| c.core_crate_override.as_deref());
+    // Cargo dep KEY: when an override is set, use it as-is; otherwise preserve
+    // the historical behaviour (`source_crate_name`, the Rust-ident form of
+    // the umbrella crate name) so existing configs produce identical output.
+    let core_dep_key: String = match dart_override {
+        Some(name) => name.to_string(),
+        None => source_crate_name.to_string(),
+    };
+    let same_as_workspace =
+        dart_override.is_none() && core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
     let core_path = if same_as_workspace {
         "../../..".to_string()
     } else {
@@ -79,7 +88,7 @@ pub(crate) fn emit_cargo_toml(
     // crate from [crate.extra_dependencies]. flutter_rust_bridge resolves types
     // across all of them, but the generated Rust wrapper only `use`s a subset —
     // cargo-machete would otherwise flag the rest.
-    let mut machete_ignored: Vec<String> = std::iter::once(source_crate_name.to_string())
+    let mut machete_ignored: Vec<String> = std::iter::once(core_dep_key.clone())
         .chain(workspace_extra.keys().cloned())
         .collect();
     machete_ignored.sort();
@@ -106,7 +115,7 @@ ignored = [{machete_ignored_list}]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{source_crate_name} = {{ path = "{core_path}"{features_block} }}
+{core_dep_key} = {{ path = "{core_path}"{features_block} }}
 flutter_rust_bridge = "{frb_version}"
 {extra_deps}
 [lints.rust]

@@ -1774,8 +1774,31 @@ fn wasm_wrap_return_fn(
 /// code is always present, even in projects whose `Cargo.toml` was created
 /// before `js-sys` was added to the scaffold template.
 fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
-    let core_crate_dir = config.core_crate_dir();
+    let core_crate_dir = config.core_crate_for_language(Language::Wasm);
     let crate_name = &config.crate_config.name;
+    // Package-name prefix for `<prefix>-wasm`. Preserves prior behaviour
+    // (derived from sources) when no override is set; switches to the
+    // umbrella crate name when an override redirects the core dep elsewhere
+    // so the binding crate keeps its original published name.
+    let pkg_prefix: String = if config
+        .wasm
+        .as_ref()
+        .and_then(|c| c.core_crate_override.as_deref())
+        .is_some()
+    {
+        crate_name.clone()
+    } else {
+        core_crate_dir.clone()
+    };
+    // Cargo dep KEY for the core dependency: the override when set, otherwise
+    // the umbrella crate name. Must match `core_crate_dir` so
+    // `path = "../{core_crate_dir}"` resolves to a crate whose Cargo.toml
+    // `name` equals the dep key.
+    let core_dep_key: String = config
+        .wasm
+        .as_ref()
+        .and_then(|c| c.core_crate_override.clone())
+        .unwrap_or_else(|| crate_name.clone());
     let version = &api.version;
 
     let scaffold = config.scaffold.as_ref();
@@ -1830,7 +1853,7 @@ fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
     // file post-generate and breaks the alef hash header.
     let mut deps: Vec<(String, String)> = vec![
         (
-            crate_name.to_string(),
+            core_dep_key.clone(),
             format!(r#"{{ path = "../{core_crate_dir}"{features_clause} }}"#),
         ),
         ("futures-util".to_string(), format!(r#""{}""#, tv::cargo::FUTURES_UTIL)),
@@ -1863,7 +1886,7 @@ fn gen_cargo_toml(api: &ApiSurface, config: &AlefConfig) -> String {
     format!(
         r#"{header}
 [package]
-name = "{core_crate_dir}-wasm"
+name = "{pkg_prefix}-wasm"
 version = "{version}"
 edition = "2024"
 license = "{license}"
@@ -1886,7 +1909,7 @@ crate-type = ["cdylib"]
 getrandom = {{ version = "0.3", features = ["wasm_js"] }}
 "#,
         header = header,
-        core_crate_dir = core_crate_dir,
+        pkg_prefix = pkg_prefix,
         version = version,
         license = license,
         description = description,

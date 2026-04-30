@@ -256,6 +256,18 @@ pub struct WasmConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Override the core Cargo dependency name and path for the WASM binding crate.
+    /// When set, the binding `Cargo.toml` depends on this crate (resolved as
+    /// `../<override>`) instead of the umbrella `[crate.name]`. Use this to point
+    /// the WASM binding at a wasm-safe sub-crate while other languages keep the
+    /// facade. Defaults to unset.
+    #[serde(default)]
+    pub core_crate_override: Option<String>,
+    /// Keys to subtract from the merged `extra_dependencies` set for this
+    /// language only. Useful when `[crate.extra_dependencies]` lists sibling
+    /// crates that the WASM target cannot link.
+    #[serde(default)]
+    pub exclude_extra_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -454,6 +466,16 @@ pub struct DartConfig {
     /// Extra paths to append to default lint commands.
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Override the core Cargo dependency name and path for the Dart binding crate.
+    /// When set, the binding `Cargo.toml` depends on this crate (resolved as
+    /// `../../../crates/<override>`) instead of the umbrella `[crate.name]`.
+    /// Defaults to unset.
+    #[serde(default)]
+    pub core_crate_override: Option<String>,
+    /// Keys to subtract from the merged `extra_dependencies` set for this
+    /// language only.
+    #[serde(default)]
+    pub exclude_extra_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -499,6 +521,16 @@ pub struct SwiftConfig {
     /// Extra paths to append to default lint commands.
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Override the core Cargo dependency name and path for the Swift binding crate.
+    /// When set, the binding `Cargo.toml` depends on this crate (resolved as
+    /// `../../../crates/<override>`) instead of the umbrella `[crate.name]`.
+    /// Defaults to unset.
+    #[serde(default)]
+    pub core_crate_override: Option<String>,
+    /// Keys to subtract from the merged `extra_dependencies` set for this
+    /// language only.
+    #[serde(default)]
+    pub exclude_extra_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
