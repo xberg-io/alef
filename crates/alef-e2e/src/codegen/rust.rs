@@ -207,7 +207,14 @@ pub fn render_cargo_toml(
             }
         }
     };
-    let serde_line = if needs_serde_json { "\nserde_json = \"1\"" } else { "" };
+    // serde_json is needed either when args use json_object/handle, or when the
+    // mock server binary is present (it uses serde_json::Value for fixture bodies).
+    let effective_needs_serde_json = needs_serde_json || needs_mock_server;
+    let serde_line = if effective_needs_serde_json {
+        "\nserde_json = \"1\""
+    } else {
+        ""
+    };
     // An empty `[workspace]` table makes the e2e crate its own workspace root, so
     // it never gets pulled into a parent crate's workspace. This means consumers
     // don't have to remember to add `e2e/rust` to `workspace.exclude`, and
@@ -226,7 +233,7 @@ pub fn render_cargo_toml(
         String::new()
     };
     let mut machete_ignored: Vec<&str> = Vec::new();
-    if needs_serde_json {
+    if effective_needs_serde_json {
         machete_ignored.push("\"serde_json\"");
     }
     if needs_mock_server {
