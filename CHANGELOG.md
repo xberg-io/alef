@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(codegen/core-to-binding): emit explicit arms for `Map<K, Named>`, `Option<Map<K, Named>>`, `Vec<Named>`, `Option<Vec<Named>>` instead of falling through to the binding-to-core helper (was emitting wrong-direction conversions; broke every backend that uses the shared converter for high-level `Option<Map<Named>>` fields).
+
 ### Added
 
 - **Per-language `core_crate_override`.** `[wasm].core_crate_override`, `[dart].core_crate_override`, and `[swift].core_crate_override` let a Rust binding crate point at a sub-crate other than `[crate.name]` (e.g. a wasm-safe `spikard-core` instead of the umbrella `spikard` facade). When set, the binding's generated `Cargo.toml` depends on `<override> = { path = "../<override>" }` (wasm) or the equivalent `crates/<override>` path (dart/swift) and the override key replaces the umbrella crate as the core dep. (`crates/alef-core/src/config/languages.rs`, `crates/alef-core/src/config/mod.rs`, `crates/alef-backend-wasm/src/gen_bindings.rs`, `crates/alef-backend-dart/src/gen_rust_crate/cargo.rs`, `crates/alef-backend-swift/src/gen_rust_crate/`)

@@ -363,6 +363,32 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v)).collect()")
             }
         }
+        // Map<K, Named>: each value needs .into() to convert core→binding
+        TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v.into())).collect()")
+            }
+        }
+        // Optional(Map<K, Named>): same but wrapped in Option
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_))) =>
+        {
+            format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+        }
+        // Vec<Named>: each element needs .into() to convert core→binding
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(Into::into).collect()")
+            }
+        }
+        // Optional(Vec<Named>): same but wrapped in Option
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_))) =>
+        {
+            format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+        }
         // Everything else is symmetric
         _ => field_conversion_to_core(name, ty, optional),
     }

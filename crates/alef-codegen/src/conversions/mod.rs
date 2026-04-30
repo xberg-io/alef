@@ -317,4 +317,68 @@ mod tests {
         // cfg-gated field should NOT be in the struct literal
         assert!(!result.contains("layout:"));
     }
+
+    #[test]
+    fn test_field_conversion_from_core_map_named_non_optional() {
+        // Map<K, Named> non-optional: each value needs .into() core→binding
+        let result = field_conversion_from_core(
+            "tags",
+            &TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Tag".into()))),
+            false,
+            false,
+            &AHashSet::new(),
+        );
+        assert_eq!(
+            result,
+            "tags: val.tags.into_iter().map(|(k, v)| (k, v.into())).collect()"
+        );
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_option_map_named() {
+        // Option<Map<K, Named>>: .map() wrapper + per-element .into()
+        let result = field_conversion_from_core(
+            "tags",
+            &TypeRef::Optional(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("Tag".into())),
+            ))),
+            false,
+            false,
+            &AHashSet::new(),
+        );
+        assert_eq!(
+            result,
+            "tags: val.tags.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+        );
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_vec_named_non_optional() {
+        // Vec<Named> non-optional: each element needs .into() core→binding
+        let result = field_conversion_from_core(
+            "items",
+            &TypeRef::Vec(Box::new(TypeRef::Named("Item".into()))),
+            false,
+            false,
+            &AHashSet::new(),
+        );
+        assert_eq!(result, "items: val.items.into_iter().map(Into::into).collect()");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_option_vec_named() {
+        // Option<Vec<Named>>: .map() wrapper + per-element .into()
+        let result = field_conversion_from_core(
+            "items",
+            &TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into()))))),
+            false,
+            false,
+            &AHashSet::new(),
+        );
+        assert_eq!(
+            result,
+            "items: val.items.map(|v| v.into_iter().map(Into::into).collect())"
+        );
+    }
 }
