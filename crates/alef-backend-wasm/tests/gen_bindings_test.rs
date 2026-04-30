@@ -1704,6 +1704,182 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
     );
 }
 
+/// Lock in the contract for `Map<String, NamedStruct>` fields in the WASM backend.
+///
+/// The WASM backend sets `map_uses_jsvalue = true`, which causes the entire
+/// `HashMap<K, V>` to round-trip through `serde_wasm_bindgen` as a `JsValue`.
+/// This is intentional: wasm-bindgen cannot pass a Rust `HashMap` across the
+/// JS/Wasm boundary directly.  The consequence is that Named types used as map
+/// values MUST have symmetric `Serialize`/`Deserialize` impls; explicit `.into()`
+/// is deliberately skipped because `serde_wasm_bindgen` serialises the whole map
+/// as an opaque `JsValue`.  This test locks in that emission so a future refactor
+/// cannot silently switch to a `.into_iter().map(|(k, v)| (k, v.into())).collect()`
+/// pattern, which would fail to compile (the binding-wrapper type does not
+/// implement `Serialize`/`Deserialize` in the generated code).
+#[test]
+fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
+    let backend = WasmBackend;
+
+    // ChildStruct: a Named type whose values appear inside the Map.
+    let child = TypeDef {
+        name: "ChildStruct".to_string(),
+        rust_path: "test_lib::ChildStruct".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("label", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "A named child type used as map values.".to_string(),
+        cfg: None,
+    };
+
+    // ParentStruct: has Map<String, ChildStruct> and Option<Map<String, ChildStruct>> fields.
+    let parent = TypeDef {
+        name: "ParentStruct".to_string(),
+        rust_path: "test_lib::ParentStruct".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field(
+                "children",
+                TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("ChildStruct".to_string())),
+                ),
+                false,
+            ),
+            make_field(
+                "opt_children",
+                TypeRef::Optional(Box::new(TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("ChildStruct".to_string())),
+                ))),
+                true,
+            ),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "A struct with Map<String, NamedStruct> fields.".to_string(),
+        cfg: None,
+    };
+
+    // A function that accepts ParentStruct as a parameter forces the codegen to emit a
+    // binding→core From impl for ParentStruct (only input types receive From<WasmX> for X).
+    let process_fn = FunctionDef {
+        name: "process_parent".to_string(),
+        rust_path: "test_lib::process_parent".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "parent".to_string(),
+            ty: TypeRef::Named("ParentStruct".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![child, parent],
+        functions: vec![process_fn],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed for Map<String, Named> types");
+
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must include lib.rs");
+
+    let content = &lib_file.content;
+
+    // The generated From impl for ParentStruct → WasmParentStruct (core→binding) must use
+    // serde_wasm_bindgen::to_value for the Map fields, NOT an iterator/into pattern.
+    assert!(
+        content.contains("serde_wasm_bindgen::to_value"),
+        "Map<String, Named> core→binding conversion must use serde_wasm_bindgen::to_value;\n\
+         actual content around 'children':\n{}",
+        extract_field_snippet(content, "children")
+    );
+
+    // The generated From impl for WasmParentStruct → ParentStruct (binding→core) must use
+    // serde_wasm_bindgen::from_value for the Map fields.
+    assert!(
+        content.contains("serde_wasm_bindgen::from_value"),
+        "Map<String, Named> binding→core conversion must use serde_wasm_bindgen::from_value;\n\
+         actual content around 'children':\n{}",
+        extract_field_snippet(content, "children")
+    );
+
+    // Confirm the Map field is typed as JsValue in the binding struct, not HashMap.
+    // The WasmParentStruct struct definition must not reference HashMap.
+    let wasm_struct_start = content.find("pub struct WasmParentStruct").unwrap_or(0);
+    let wasm_struct_end = content[wasm_struct_start..]
+        .find('}')
+        .map(|i| wasm_struct_start + i + 1)
+        .unwrap_or(content.len());
+    let struct_body = &content[wasm_struct_start..wasm_struct_end];
+    assert!(
+        !struct_body.contains("HashMap"),
+        "WasmParentStruct must use JsValue for Map fields, not HashMap;\nstruct body:\n{struct_body}"
+    );
+
+    // Must not use an iterator-based pattern (.into_iter().collect()) for Map fields, as that
+    // would require the binding-wrapper type to implement Into<CoreType> which it does not for
+    // types converted via serde_wasm_bindgen.
+    assert!(
+        !content.contains("into_iter().collect()"),
+        "Map<String, Named> conversion must not use into_iter().collect() — \
+         Named values inside a Map must be converted via serde_wasm_bindgen as whole JsValue, \
+         not per-element .into();\nactual content snippet:\n{}",
+        extract_field_snippet(content, "children")
+    );
+}
+
+/// Extract a ~300-char snippet around the first occurrence of `marker` for assertion messages.
+fn extract_field_snippet<'a>(content: &'a str, marker: &str) -> &'a str {
+    let start = content.find(marker).unwrap_or(0);
+    let end = (start + 300).min(content.len());
+    &content[start..end]
+}
+
 /// Extract a ~200-char snippet around the first occurrence of `marker` for assertion messages.
 fn extract_fn_snippet<'a>(content: &'a str, marker: &str) -> &'a str {
     let start = content.find(marker).unwrap_or(0);
