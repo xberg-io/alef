@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump templated `ext-php-rs` pin to `0.15.12` for PHP 8.5 compatibility (downstream consumers regenerate to pick up upstream's PHP 8.5 build fixes).
 - **BREAKING: `[e2e.calls.X].returns_result` default flipped from `true` to `false`.** Most e2e fixture call configs target functions whose Rust signatures do not return `Result<T, E>` (e.g. `String`, `Cow<'_, str>`, `bool`, builder types). The previous default emitted `.expect("should succeed")` unconditionally, producing `no method named expect` compile errors against non-Result returns. Existing configs that genuinely call Result-returning functions (`extract_*`, `batch_extract_*`, `chunk_*`, `render_*`, `validate_*`, `detect_languages`, `blake3_hash_*`, `compute_hash`, etc.) must now set `returns_result = true` explicitly. (`crates/alef-core/src/config/e2e.rs`)
 
 ### Added
