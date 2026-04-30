@@ -31,6 +31,7 @@ Both fields default to unset/empty so existing configs produce byte-identical ou
 ### Changed
 
 - BREAKING(cli): `alef generate` now runs language formatters by default; pass `--no-format` to skip. The previous `--format` flag is removed (was opt-in and easily forgotten, causing generated output to fail downstream linters like `mix format`). `alef all` behaves the same way — pass `--no-format` to suppress formatters.
+- refactor(codegen): introduce `TypeMapper` trait in `alef-codegen`; every backend now implements it with exhaustive `TypeRef` matching. The Go, Java, C#, and FFI backends have been migrated to `GoMapper`, `JavaMapper`/`JavaBoxedMapper`, `CsharpMapper`, and `FfiParamMapper`/`FfiReturnMapper` structs respectively — all implementing `TypeMapper`. Adding a new `TypeRef` variant now produces a compile error in every backend that hasn't handled it, retiring the silent-fallthrough bug class that previously hid `AHashMap` as `Named("AHashMap")`. The dead `extendr/type_map.rs` stub (comment-only file) has been removed; `ExtendrBackend` already implemented `TypeMapper` in `gen_bindings.rs`.
 
 ## [0.12.1] - 2026-04-30
 
