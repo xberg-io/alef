@@ -866,6 +866,7 @@ fn render_test_function(
         }
 
         // For json_object args, use the configured options_via strategy.
+        // A1 fix: when optional=true and value is non-null, pass T directly (not Optional[T]).
         if arg.arg_type == "json_object" && !value.is_null() {
             match options_via {
                 "dict" => {
@@ -916,6 +917,12 @@ fn render_test_function(
                     }
                 }
             }
+        }
+
+        // When optional=true but fixture value is null, skip the argument entirely.
+        // The function signature expects Optional[T] — Python's default keyword behavior handles None.
+        if arg.optional && value.is_null() {
+            continue;
         }
 
         // For required args with no fixture value, use a language-appropriate default.
@@ -985,6 +992,7 @@ fn render_test_function(
     }
 
     // Non-error path.
+    // A2 fix: respect returns_result=false (non-Result returns don't need error handling).
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
@@ -1004,6 +1012,11 @@ fn render_test_function(
     let fields_enum = &e2e_config.fields_enum;
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {
+            // A2: When returns_result=false, the call doesn't return Result<T, E>,
+            // so there's no error to check. Skip the assertion entirely.
+            if !call_config.returns_result {
+                continue;
+            }
             // The call already raises on error in Python.
             continue;
         }

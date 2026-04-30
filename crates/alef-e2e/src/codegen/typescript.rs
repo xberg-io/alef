@@ -679,6 +679,10 @@ fn render_test_case(
 
     // Emit assertions.
     for assertion in &fixture.assertions {
+        // A2: skip not_error assertions when returns_result=false (non-Result calls don't return errors).
+        if assertion.assertion_type == "not_error" && !call_config.returns_result {
+            continue;
+        }
         render_assertion(out, assertion, result_var, field_resolver);
     }
 

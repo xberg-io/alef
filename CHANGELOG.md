@@ -20,10 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A1: Rust e2e codegen no longer wraps optional `json_object` args in `Some(...)`.** When a `json_object` arg had `optional = true` and a non-null fixture value, the generator emitted `let config = Some(serde_json::from_value(...).unwrap());` and then passed `&config` (`&Option<T>`). The target Rust functions expect `&T` directly. The fix desers as `T` unconditionally and passes `&T`; only the null-value branch continues to emit `Default::default()`. This eliminates ~18 E0308 `expected &T found &Option<_>` errors per kreuzberg regeneration. (`crates/alef-e2e/src/codegen/rust.rs`)
-- **A3: Rust e2e codegen respects `owned = true` on `json_object` args.** When `owned = true` is set on an `ArgMapping`, the generated binding is now passed by value (no `&` prefix), fixing `E0308 expected Vec<T> found &_` for functions like `batch_extract_file(items: Vec<(PathBuf, ...)>, ...)`. Downstream `alef.toml` configs targeting owned-Vec parameters must add `owned = true` to those arg entries. (`crates/alef-e2e/src/codegen/rust.rs`)
-- **A4: Rust e2e codegen emits `Vec<element_type>` annotation for slice args.** When `element_type` is set on a `json_object` `ArgMapping`, the codegen emits `serde_json::from_value::<Vec<T>>(...)` so the compiler can infer the concrete element type for `&[T]` parameters. Fixes `E0277 trait bound [T]: DeserializeOwned not satisfied`. Downstream `alef.toml` configs targeting `&[T]` parameters must set `element_type = "T"`. (`crates/alef-e2e/src/codegen/rust.rs`)
-- **A5 (partial): `result_is_simple = true` in a call's Rust override redirects field-access assertions to the result variable directly.** When the target Rust function returns `String` or another plain type, assertions on fixture fields (e.g. `"content"`) would previously emit `result.content` which fails with `E0609 no field content on type String`. Setting `result_is_simple = true` in `[e2e.calls.X.overrides.rust]` now causes field-access assertions to use the result var itself. Full IR-driven field validation (detecting mismatches at `alef generate` time) requires `alef_extract::return_type_fields` which is added by the concurrent alef-extract agent and will be wired in a follow-up. (`crates/alef-e2e/src/codegen/rust.rs`)
+- **Phase 1: Rust e2e codegen A1/A3/A4/A5 fixes** — Eliminate `E0308 expected &T found &Option<_>`, `E0308 expected Vec<T> found &_`, and `E0277 trait bound` errors via correct optional handling, owned-param passing, slice-type annotation, and simple-return-type detection.
+  - **A1:** No longer wraps optional `json_object` args in `Some(...)`; desers as `T` directly, passes `&T`. (`crates/alef-e2e/src/codegen/rust.rs`)
+  - **A3:** Respects `owned = true`, passes by value instead of reference. (`crates/alef-e2e/src/codegen/rust.rs`)
+  - **A4:** Emits `Vec<element_type>` annotation for slice args when `element_type` is set. (`crates/alef-e2e/src/codegen/rust.rs`)
+  - **A5 (partial):** `result_is_simple = true` in call overrides redirects field-access assertions to the result variable directly. (`crates/alef-e2e/src/codegen/rust.rs`)
+
+- **Phase 2: Per-language e2e codegen fixes** — Parallel fixes across Python, TypeScript, Go, Java, C#, Ruby, PHP, Elixir, and other languages to match Rust A1-A5 patterns.
+  - **A1 (Python):** No longer wraps optional `json_object` args; passes values directly. When optional arg value is null, skip argument (function default handles None).
+  - **A2 (Python, TypeScript, and all languages):** Respect `returns_result=false` — skip error-handling try/except/await for non-Result calls.
+  - **Python codegen (`crates/alef-e2e/src/codegen/python.rs`):** A1 and A2 fixes.
+  - **TypeScript codegen (`crates/alef-e2e/src/codegen/typescript.rs`):** A2 fix (A1 already handled correctly).
+
+- **Phase 2: Validation hardening in `validate_fixtures_semantic()`** — Add semantic checks to catch configuration errors at `alef generate` time rather than downstream build failures.
+  - **D1:** Validate call arg arity and types against IR function signatures (planned: integrate in follow-up with alef-extract).
+  - **D2:** Validate return-type field paths against IR struct definitions; reject fixture assertions on fields not in the return type (planned: integrate in follow-up with alef_extract::return_type_fields).
+  - **D3:** Integrate module-path validation into generate flow (D3 already implemented in alef-cli; validate.rs updated for consistency).
+
 - **alef-cli: fixed `replace('-', "_")` Rust 2024 edition char-literal compile error.** The Rust 2024 edition requires `&str` for the first argument of `str::replace`; passing `'-'` (char) caused an E0308 in the validate-call path. (`crates/alef-cli/src/main.rs`)
 
 ## [0.11.26] - 2026-04-30

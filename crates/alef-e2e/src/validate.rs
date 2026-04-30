@@ -63,6 +63,8 @@ pub fn validate_fixtures(fixtures_dir: &Path) -> Result<Vec<ValidationError>> {
 /// 2. Unknown call references not in `[e2e.calls.*]`
 /// 3. Categories where all fixtures are skipped (produces 0 test functions)
 /// 4. Missing required input fields for the resolved call config
+/// 5. (D1) Argument arity and type mismatches in call configs
+/// 6. (D2) Field path assertions against simple return types
 pub fn validate_fixtures_semantic(
     fixtures: &[Fixture],
     e2e_config: &E2eConfig,
