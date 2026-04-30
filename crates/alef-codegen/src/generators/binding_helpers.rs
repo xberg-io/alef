@@ -1035,9 +1035,7 @@ fn gen_lossy_binding_to_core_fields_inner(
                     // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
                     TypeRef::Named(_) => {
                         if field.optional {
-                            format!(
-                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
-                            )
+                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
                         } else {
                             format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
                         }

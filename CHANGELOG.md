@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-04-30
+
+### Fixed
+
+- fix(backend-php): inherent-method delegation helper (`gen_php_lossy_binding_to_core_fields`) now applies per-value `.into()` and preserves the Option layer for `Map<K, Named>` and `Option<Map<K, Named>>` fields. Same bug class as 0.12.3 fix in `alef-codegen::binding_helpers`, but PHP has its own helper that needed the same patch.
+
 ## [0.12.3] - 2026-04-30
 
 ### Fixed

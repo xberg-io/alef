@@ -709,9 +709,26 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                     // Map with Json values: PHP stores String but core expects serde_json::Value.
                     // Can't recover original Values, so fall back to an empty map.
                     TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Json) => "Default::default()".to_string(),
-                    // Map<K, V> where V is not Json: PHP uses HashMap but core may use BTreeMap.
+                    // Map<K, Named>: each value needs Into conversion to bridge the binding wrapper
+                    // type into the core type (e.g. PhpExtractionPattern → ExtractionPattern).
+                    TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
+                        if field.optional {
+                            format!(
+                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+                            )
+                        } else {
+                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
+                        }
+                    }
+                    // Map<K, V> where V is not Json/Named: PHP uses HashMap but core may use BTreeMap.
                     // Use into_iter().collect() to allow coercion to the target map type.
-                    TypeRef::Map(_, _) => format!("self.{name}.clone().into_iter().collect()"),
+                    TypeRef::Map(_, _) => {
+                        if field.optional {
+                            format!("self.{name}.clone().map(|m| m.into_iter().collect())")
+                        } else {
+                            format!("self.{name}.clone().into_iter().collect()")
+                        }
+                    }
                     TypeRef::Unit => format!("self.{name}.clone()"),
                     // Json maps to String in PHP -- can't directly assign to serde_json::Value
                     TypeRef::Json => "Default::default()".to_string(),
