@@ -317,6 +317,10 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     let return_type = python_type(&method.return_type);
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
+    // pyo3 async methods return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`).
+    // Emit `async def` in the .pyi stub so the `await _rust.method(...)` calls in the generated
+    // `api.py` wrapper type-check correctly.
+    let def_kw = if method.is_async { "async def" } else { "def" };
 
     // Force multi-line wrapping whenever a param shadows a Python builtin so we can
     // append `# noqa: A002` on those lines (the suppression is invalid on a single-line def).
@@ -341,25 +345,27 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     if is_static {
         if params.is_empty() {
             format!(
-                "{}@staticmethod\n{}def {}() -> {}: ...",
-                indent, indent, safe_name, return_type
+                "{}@staticmethod\n{}{} {}() -> {}: ...",
+                indent, indent, def_kw, safe_name, return_type
             )
         } else {
-            let prefix = format!("{}@staticmethod\n{}def {}(", indent, indent, safe_name);
+            let prefix = format!("{}@staticmethod\n{}{} {}(", indent, indent, def_kw, safe_name);
             let suffix = format!("{}) -> {}: ...", indent, return_type);
             // Check the def line (second line) for length
             let def_line = format!(
-                "{}def {}({}) -> {}: ...",
+                "{}{} {}({}) -> {}: ...",
                 indent,
+                def_kw,
                 safe_name,
                 params.join(", "),
                 return_type
             );
             if def_line.len() <= 100 && !has_builtin_param {
                 format!(
-                    "{}@staticmethod\n{}def {}({}) -> {}: ...",
+                    "{}@staticmethod\n{}{} {}({}) -> {}: ...",
                     indent,
                     indent,
+                    def_kw,
                     safe_name,
                     params.join(", "),
                     return_type
@@ -369,11 +375,12 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
             }
         }
     } else if params.is_empty() {
-        format!("{}def {}(self) -> {}: ...", indent, safe_name, return_type)
+        format!("{}{} {}(self) -> {}: ...", indent, def_kw, safe_name, return_type)
     } else {
         let single_line = format!(
-            "{}def {}(self, {}) -> {}: ...",
+            "{}{} {}(self, {}) -> {}: ...",
             indent,
+            def_kw,
             safe_name,
             params.join(", "),
             return_type
@@ -381,7 +388,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
         if single_line.len() <= 100 && !has_builtin_param {
             single_line
         } else {
-            let prefix = format!("{}def {}(\n{}    self,", indent, safe_name, indent);
+            let prefix = format!("{}{} {}(\n{}    self,", indent, def_kw, safe_name, indent);
             let suffix = format!("{}) -> {}: ...", indent, return_type);
             emit_params_wrapped(&prefix, &suffix)
         }
@@ -536,15 +543,25 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
 
     let return_type = python_type(&func.return_type);
     let safe_name = python_safe_name(&func.name);
+    // pyo3 async functions return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`),
+    // not the bare value. The .pyi stub must reflect that with `async def` so callers using the
+    // generated `api.py` wrapper (which `await`s the underlying pyo3 call) type-check correctly.
+    let def_kw = if func.is_async { "async def" } else { "def" };
 
     let has_builtin_param = params
         .iter()
         .any(|p| is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
-    let single_line = format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
+    let single_line = format!(
+        "{} {}({}) -> {}: ...",
+        def_kw,
+        safe_name,
+        params.join(", "),
+        return_type
+    );
     if single_line.len() <= 100 && !has_builtin_param {
         single_line
     } else {
-        let mut wrapped = format!("def {}(\n", safe_name);
+        let mut wrapped = format!("{} {}(\n", def_kw, safe_name);
         for param in &params {
             let name = param.split(':').next().unwrap_or("").trim();
             if is_python_builtin_name(name) {

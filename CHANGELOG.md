@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.26] - 2026-04-30
+
 ### Fixed
 
+- **PyO3 stubs now emit `async def` for async functions and methods so mypy accepts the `await` in the generated `api.py` wrapper.** The 0.11.24 fix changed `api.py` to use `async def fn(...): return await _rust.fn(...)` for pyo3-async functions, but the corresponding `.pyi` stub kept declaring the underlying `_rust.fn` as plain `def fn(...) -> T`. mypy then errored at every wrapper call site with `Incompatible types in "await" (actual type "T", expected type "Awaitable[Any]")`. The stub generator now reads `FunctionDef.is_async` / `MethodDef.is_async` and emits `async def` so the underlying `_rust` symbol is typed as a coroutine; the generated `api.py` wrapper's `await` then type-checks. Both free functions and instance methods (including static methods) are covered. (`crates/alef-backend-pyo3/src/gen_stubs.rs`)
 - **E2E TypeScript generator now auto-produces `globalSetup.ts` for HTTP test fixtures.** The generator was only creating `globalSetup.ts` when `client_factory` was configured, leaving HTTP test suites without proper mock server setup. Tests would fail with "app is not defined" at runtime. The generator now checks `has_http_fixtures` and generates `globalSetup.ts` unconditionally when HTTP tests are present (regardless of `client_factory`). The setup creates a fetch-wrapped HTTP client (`createApp`) and exposes it as `global.app` to all test suites. Vitest's `globalSetup` config is also auto-enabled whenever `needs_global_setup` is true. (`crates/alef-e2e/src/codegen/typescript.rs`)
 
 ## [0.11.25] - 2026-04-30

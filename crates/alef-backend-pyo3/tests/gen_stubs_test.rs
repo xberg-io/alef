@@ -1100,3 +1100,119 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         "format field should be present with str type"
     );
 }
+
+#[test]
+fn test_async_function_stub_uses_async_def() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "fetch".to_string(),
+            rust_path: "test_lib::fetch".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "url".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    assert!(
+        content.contains("async def fetch(url: str) -> str: ..."),
+        "async function stub must use `async def`, got: {}",
+        content
+    );
+}
+
+#[test]
+fn test_async_method_stub_uses_async_def() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Client".to_string(),
+            rust_path: "test_lib::Client".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![alef_core::ir::MethodDef {
+                name: "send".to_string(),
+                params: vec![ParamDef {
+                    name: "msg".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::String,
+                is_async: true,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(alef_core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+            }],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    assert!(
+        content.contains("async def send(self, msg: str) -> str: ..."),
+        "async method stub must use `async def`, got: {}",
+        content
+    );
+}
