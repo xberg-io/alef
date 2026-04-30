@@ -682,15 +682,33 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
             "    _req = urllib.request.Request(url, headers=_headers, method=\"{method}\")"
         );
     }
+    // Determine which response variables are actually needed.
+    let needs_body = http.expected_response.body.is_some()
+        || http.expected_response.body_partial.is_some()
+        || http
+            .expected_response
+            .validation_errors
+            .as_ref()
+            .is_some_and(|v| !v.is_empty());
+    let needs_headers = !http.expected_response.headers.is_empty();
+
     let _ = writeln!(out, "    try:");
     let _ = writeln!(out, "        response = urllib.request.urlopen(_req)  # noqa: S310");
     let _ = writeln!(out, "        status_code = response.status");
-    let _ = writeln!(out, "        resp_body = response.read()");
-    let _ = writeln!(out, "        resp_headers = dict(response.headers)");
+    if needs_body {
+        let _ = writeln!(out, "        resp_body = response.read()");
+    }
+    if needs_headers {
+        let _ = writeln!(out, "        resp_headers = dict(response.headers)");
+    }
     let _ = writeln!(out, "    except urllib.error.HTTPError as _exc:");
     let _ = writeln!(out, "        status_code = _exc.code");
-    let _ = writeln!(out, "        resp_body = _exc.read()");
-    let _ = writeln!(out, "        resp_headers = dict(_exc.headers)");
+    if needs_body {
+        let _ = writeln!(out, "        resp_body = _exc.read()");
+    }
+    if needs_headers {
+        let _ = writeln!(out, "        resp_headers = dict(_exc.headers)");
+    }
 
     // Status code assertion.
     let status = http.expected_response.status_code;
