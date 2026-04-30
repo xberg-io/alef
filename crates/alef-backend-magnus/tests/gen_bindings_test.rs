@@ -873,6 +873,114 @@ fn test_default_config() {
     assert!(content.contains("magnus::wrap"), "Should have magnus::wrap");
 }
 
+/// Verify that a function with an `Option<Named>` parameter emits `magnus::Value` in its
+/// signature and uses `funcall("to_json", ())` + `serde_json::from_str` in the body, so
+/// callers can pass a plain Ruby Hash without manually serializing it to JSON first.
+#[test]
+fn test_named_option_param_emits_magnus_value_with_to_json() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("debug", TypeRef::Primitive(PrimitiveType::Bool), true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "test_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "input".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Named("ConversionOptions".to_string()),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("ConversionError".to_string()),
+            doc: "Convert input".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // Signature must accept magnus::Value, not String, for the Named param
+    assert!(
+        content.contains("options: Option<magnus::Value>"),
+        "Option<Named> param must be typed as Option<magnus::Value> in the binding signature, got:\n{content}"
+    );
+
+    // Body must call to_json via funcall before serde_json deserialization
+    assert!(
+        content.contains("funcall(\"to_json\", ())"),
+        "Binding body must call funcall(\"to_json\", ()) to obtain JSON string, got:\n{content}"
+    );
+    assert!(
+        content.contains("serde_json::from_str"),
+        "Binding body must use serde_json::from_str to deserialize, got:\n{content}"
+    );
+
+    // Must not use the old as_deref pattern (which assumed a String input)
+    assert!(
+        !content.contains("options.as_deref()"),
+        "Must not use as_deref on options — options is now magnus::Value, got:\n{content}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Trait bridge tests (Magnus plugin bridge via gen_trait_bridge)
 // ---------------------------------------------------------------------------

@@ -1084,12 +1084,12 @@ fn gen_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    // For non-opaque Named params, use magnus::Value and serde_magnus deserialization
+    // For non-opaque Named params, accept magnus::Value so a plain Ruby Hash works directly.
+    // The binding calls to_json internally before serde_json deserialization.
     let params = function_params(&func.params, &|ty| {
         if let TypeRef::Named(name) = ty {
             if !opaque_types.contains(name.as_str()) {
-                // Accept JSON string for non-opaque Named types (Ruby hashes → JSON → deserialize)
-                return "String".to_string();
+                return "magnus::Value".to_string();
             }
         }
         mapper.map_type(ty)
@@ -1118,11 +1118,11 @@ fn gen_function(
                     let binding_ty = &p.name;
                     if p.optional {
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                            "let {binding_ty}: Option<{name}> = if {binding_ty}.is_nil() {{ None }} else {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }};"
                         ));
                     } else {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                            "let {binding_ty}: {name} = {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
                         ));
                     }
                 }
@@ -1257,12 +1257,12 @@ fn magnus_serde_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     out.push(format!(
-                        "let {n}_core: Option<{core_import}::{name}> = {n}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str::<{core_import}::{name}>(s).map_err(|e| {err})).transpose()?;",
+                        "let {n}_core: Option<{core_import}::{name}> = if {n}.is_nil() {{ None }} else {{ let s: String = {n}.funcall(\"to_json\", ())?; Some(serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})?) }};",
                         n = p.name,
                     ));
                 } else {
                     out.push(format!(
-                        "let {n}_core: {core_import}::{name} = serde_json::from_str(&{n}).map_err(|e| {err})?;",
+                        "let {n}_core: {core_import}::{name} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
                         n = p.name,
                     ));
                 }
@@ -1295,12 +1295,12 @@ fn gen_async_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    // For non-opaque Named params, use magnus::Value and serde_magnus deserialization
+    // For non-opaque Named params, accept magnus::Value so a plain Ruby Hash works directly.
+    // The binding calls to_json internally before serde_json deserialization.
     let params = function_params(&func.params, &|ty| {
         if let TypeRef::Named(name) = ty {
             if !opaque_types.contains(name.as_str()) {
-                // Accept JSON string for non-opaque Named types (Ruby hashes → JSON → deserialize)
-                return "String".to_string();
+                return "magnus::Value".to_string();
             }
         }
         mapper.map_type(ty)
@@ -1324,11 +1324,11 @@ fn gen_async_function(
                     let binding_ty = &p.name;
                     if p.optional {
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                            "let {binding_ty}: Option<{name}> = if {binding_ty}.is_nil() {{ None }} else {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }};"
                         ));
                     } else {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                            "let {binding_ty}: {name} = {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
                         ));
                     }
                 }

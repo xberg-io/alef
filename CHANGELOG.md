@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Magnus backend: typed-options params now accept `magnus::Value`.** Functions/methods with `Option<Named>` (or `Named`) parameters previously generated a `Option<String>` ABI that forced Ruby callers to `Hash#to_json` explicitly — and any failure to do so raised `TypeError`. The binding now accepts `magnus::Value` and calls `to_json` internally before `serde_json` deserialization, so a plain Ruby Hash works directly. Closes the upstream regression in `kreuzberg-dev/html-to-markdown#334`.
+
 - **Phase 1: Rust e2e codegen A1/A3/A4/A5 fixes** — Eliminate `E0308 expected &T found &Option<_>`, `E0308 expected Vec<T> found &_`, and `E0277 trait bound` errors via correct optional handling, owned-param passing, slice-type annotation, and simple-return-type detection.
   - **A1:** No longer wraps optional `json_object` args in `Some(...)`; desers as `T` directly, passes `&T`. (`crates/alef-e2e/src/codegen/rust.rs`)
   - **A3:** Respects `owned = true`, passes by value instead of reference. (`crates/alef-e2e/src/codegen/rust.rs`)
