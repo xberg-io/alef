@@ -840,6 +840,56 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
     );
 }
 
+/// The `force_build:` keyword in the generated `native.ex` must not exceed Elixir's
+/// 98-character default formatter line width, otherwise `mix format` rewrites the file.
+#[test]
+fn test_native_ex_force_build_line_within_98_chars() {
+    let backend = RustlerBackend;
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config("my_lib");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let native = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
+        .expect("native.ex should be generated");
+
+    // Only check lines related to force_build — the ~w(...) targets line is a pre-existing
+    // separate issue outside this fix's scope.
+    let long_force_build_lines: Vec<(usize, &str)> = native
+        .content
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("force_build") && line.len() > 98)
+        .collect();
+
+    assert!(
+        long_force_build_lines.is_empty(),
+        "native.ex force_build lines exceed 98 chars (mix format limit):\n{}",
+        long_force_build_lines
+            .iter()
+            .map(|(n, l)| format!("  line {}: {} chars: {l}", n + 1, l.len()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // Also assert the force_build keyword is present and uses the three-line form.
+    assert!(
+        native.content.contains("force_build:\n"),
+        "force_build: should use multi-line form with newline after colon; content:\n{}",
+        &native.content
+    );
+}
+
 /// A simple-enum variant named `Doc` snake-cases to `doc`, which is a reserved Elixir
 /// module attribute. Emitting `@doc :doc` causes a compiler error. The generator must
 /// use `@doc_attr :doc` and `def doc, do: @doc_attr` instead.
