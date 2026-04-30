@@ -84,15 +84,18 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
-        // Generate vitest.config.ts — include globalSetup when client_factory is used.
+        // Check if we need global setup (either for client_factory or HTTP tests).
+        let needs_global_setup = client_factory.is_some() || has_http_fixtures;
+
+        // Generate vitest.config.ts — include globalSetup when needed.
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
-            content: render_vitest_config(client_factory.is_some()),
+            content: render_vitest_config(needs_global_setup),
             generated_header: true,
         });
 
-        // Generate globalSetup.ts when client_factory is used (needs mock server).
-        if client_factory.is_some() {
+        // Generate globalSetup.ts when needed (for mock server or HTTP tests).
+        if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
                 content: render_global_setup(),
@@ -231,7 +234,15 @@ fn render_global_setup() -> String {
         + r#"import { spawn } from 'child_process';
 import { resolve } from 'path';
 
-let serverProcess;
+let serverProcess: any;
+
+// HTTP client wrapper for making requests to mock server
+const createApp = (baseUrl: string) => ({
+  async request(path: string, init?: RequestInit): Promise<Response> {
+    const url = new URL(path, baseUrl);
+    return fetch(url.toString(), init);
+  },
+});
 
 export async function setup() {
   // Mock server binary must be pre-built (e.g. by CI or `cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release`)
@@ -241,8 +252,8 @@ export async function setup() {
     { stdio: ['pipe', 'pipe', 'inherit'] }
   );
 
-  const url = await new Promise((resolve, reject) => {
-    serverProcess.stdout.on('data', (data) => {
+  const url = await new Promise<string>((resolve, reject) => {
+    serverProcess.stdout.on('data', (data: any) => {
       const match = data.toString().match(/MOCK_SERVER_URL=(.*)/);
       if (match) resolve(match[1].trim());
     });
@@ -250,6 +261,9 @@ export async function setup() {
   });
 
   process.env.MOCK_SERVER_URL = url;
+
+  // Make app available globally to all tests
+  (globalThis as any).app = createApp(url);
 }
 
 export async function teardown() {
