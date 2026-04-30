@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `[e2e.calls.X].returns_result` default flipped from `true` to `false`.** Most e2e fixture call configs target functions whose Rust signatures do not return `Result<T, E>` (e.g. `String`, `Cow<'_, str>`, `bool`, builder types). The previous default emitted `.expect("should succeed")` unconditionally, producing `no method named expect` compile errors against non-Result returns. Existing configs that genuinely call Result-returning functions (`extract_*`, `batch_extract_*`, `chunk_*`, `render_*`, `validate_*`, `detect_languages`, `blake3_hash_*`, `compute_hash`, etc.) must now set `returns_result = true` explicitly. (`crates/alef-core/src/config/e2e.rs`)
+
+### Added
+
+- **`[e2e.calls.X].args[].owned` flag.** When `true`, the Rust codegen emits the argument as an owned binding and passes it by value rather than by reference. Use for parameters whose Rust signature is `Vec<T>` (not `&Vec<T>` / `&[T]`) — for example `batch_extract_file(items: Vec<(PathBuf, Option<FileExtractionConfig>)>, config: &ExtractionConfig)`. Defaults to `false`. (`crates/alef-core/src/config/e2e.rs`)
+- **`[e2e.calls.X].args[].element_type` field.** For `json_object` args whose Rust target is `&[T]`, set to the element type literal (`"String"`, `"f32"`, etc.) so the codegen emits `let name: Vec<element_type> = serde_json::from_value(...).unwrap();`. Without this annotation `serde_json::from_value` cannot infer the unsized slice type and the generated test fails to compile with E0277. (`crates/alef-core/src/config/e2e.rs`)
+
 ## [0.11.26] - 2026-04-30
 
 ### Fixed

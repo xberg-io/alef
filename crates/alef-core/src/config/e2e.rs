@@ -245,7 +245,7 @@ fn default_result_var() -> String {
 }
 
 fn default_returns_result() -> bool {
-    true
+    false
 }
 
 /// Maps a fixture input field to a function argument.
@@ -261,6 +261,14 @@ pub struct ArgMapping {
     /// Whether this argument is optional.
     #[serde(default)]
     pub optional: bool,
+    /// When `true`, the Rust codegen passes this argument by value (owned) rather than
+    /// by reference. Use for `Vec<T>` parameters that do not accept `&Vec<T>`.
+    #[serde(default)]
+    pub owned: bool,
+    /// For `json_object` args targeting `&[T]` Rust parameters, set to the element type
+    /// (e.g. `"f32"`, `"String"`) so the codegen emits `Vec<element_type>` annotation.
+    #[serde(default)]
+    pub element_type: Option<String>,
 }
 
 fn default_arg_type() -> String {
