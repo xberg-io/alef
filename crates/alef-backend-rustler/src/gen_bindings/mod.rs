@@ -274,16 +274,25 @@ impl Backend for RustlerBackend {
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
         {
+            let rustler_struct_cfg = alef_codegen::conversions::ConversionConfig {
+                map_as_string: true,
+                ..Default::default()
+            };
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                    typ,
+                    &core_import,
+                    &rustler_struct_cfg,
+                ));
             }
             if alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
-                builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding(
+                builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
                     &opaque_types,
+                    &rustler_struct_cfg,
                 ));
             }
         }

@@ -431,6 +431,10 @@ fn render_test_method(
         .or_else(|| options_type.map(|s| s.to_string()));
     let effective_options_type = effective_options_type.as_deref();
 
+    // Resolve per-fixture result_is_simple and result_is_bytes from the call override.
+    let effective_result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
+    let effective_result_is_bytes = call_overrides.is_some_and(|o| o.result_is_bytes);
+
     // Check if this test needs ObjectMapper deserialization for json_object args.
     // Strip "input." prefix when looking up field in fixture.input.
     let needs_deser = effective_options_type.is_some()
@@ -529,7 +533,8 @@ fn render_test_method(
             result_var,
             class_name,
             field_resolver,
-            result_is_simple,
+            effective_result_is_simple,
+            effective_result_is_bytes,
             enum_fields,
         );
     }
@@ -621,8 +626,10 @@ fn build_args_and_setup(
             Some(v) => {
                 if arg.arg_type == "json_object" {
                     // Array json_object args: emit inline Java list expression.
+                    // Use element_type to emit the correct numeric literal suffix (f vs d).
                     if v.is_array() {
-                        parts.push(json_to_java(v));
+                        let elem_type = arg.element_type.as_deref();
+                        parts.push(json_to_java_typed(v, elem_type));
                         continue;
                     }
                     // Object json_object args with options_type: use pre-deserialized variable.
@@ -660,6 +667,7 @@ fn render_assertion(
     class_name: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_bytes: bool,
     enum_fields: &HashSet<String>,
 ) {
     // Handle synthetic/virtual fields that are computed rather than direct record accessors.
@@ -688,7 +696,7 @@ fn render_assertion(
             }
             "chunks_have_heading_context" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.headingContext() != null)"
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext().isPresent())"
                 );
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
@@ -728,7 +736,7 @@ fn render_assertion(
             }
             "first_chunk_starts_with_heading" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().findFirst().map(c -> c.headingContext() != null && !c.headingContext().isBlank()).orElse(false)"
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext().isPresent()).orElse(false)"
                 );
                 match assertion.assertion_type.as_str() {
                     "is_true" => {
@@ -747,9 +755,16 @@ fn render_assertion(
                 return;
             }
             // ---- EmbedResponse virtual fields ----
+            // When result_is_simple=true the result IS List<List<Float>> (the raw embeddings list).
+            // When result_is_simple=false the result has an .embeddings() accessor.
             "embedding_dimensions" => {
-                // Maps to the actual record accessor dimensions().
-                let expr = format!("{result_var}.dimensions()");
+                // Dimension = size of the first embedding vector in the list.
+                let embed_list = if result_is_simple {
+                    result_var.to_string()
+                } else {
+                    format!("{result_var}.embeddings()")
+                };
+                let expr = format!("({embed_list}.isEmpty() ? 0 : {embed_list}.get(0).size())");
                 match assertion.assertion_type.as_str() {
                     "equals" => {
                         if let Some(val) = &assertion.value {
@@ -774,19 +789,23 @@ fn render_assertion(
             }
             "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
                 // These are validation predicates that require iterating the embedding matrix.
-                // Emit inline Java predicates rather than calling non-existent methods.
+                let embed_list = if result_is_simple {
+                    result_var.to_string()
+                } else {
+                    format!("{result_var}.embeddings()")
+                };
                 let pred = match f.as_str() {
                     "embeddings_valid" => {
-                        format!("{result_var}.embeddings().stream().allMatch(e -> e != null && !e.isEmpty())")
+                        format!("{embed_list}.stream().allMatch(e -> e != null && !e.isEmpty())")
                     }
-                    "embeddings_finite" => format!(
-                        "{result_var}.embeddings().stream().flatMap(java.util.Collection::stream).allMatch(Float::isFinite)"
-                    ),
+                    "embeddings_finite" => {
+                        format!("{embed_list}.stream().flatMap(java.util.Collection::stream).allMatch(Float::isFinite)")
+                    }
                     "embeddings_non_zero" => {
-                        format!("{result_var}.embeddings().stream().allMatch(e -> e.stream().anyMatch(v -> v != 0.0f))")
+                        format!("{embed_list}.stream().allMatch(e -> e.stream().anyMatch(v -> v != 0.0f))")
                     }
                     "embeddings_normalized" => format!(
-                        "{result_var}.embeddings().stream().allMatch(e -> {{ double n = e.stream().mapToDouble(v -> v * v).sum(); return Math.abs(n - 1.0) < 1e-3; }})"
+                        "{embed_list}.stream().allMatch(e -> {{ double n = e.stream().mapToDouble(v -> v * v).sum(); return Math.abs(n - 1.0) < 1e-3; }})"
                     ),
                     _ => unreachable!(),
                 };
@@ -812,14 +831,20 @@ fn render_assertion(
                 return;
             }
             // ---- metadata not_empty / is_empty: Metadata is a required record, not Optional ----
+            // Metadata has no .isEmpty() method; check that at least one optional field is present.
             "metadata" => {
                 match assertion.assertion_type.as_str() {
-                    "not_empty" | "is_empty" => {
-                        let negate = assertion.assertion_type == "not_empty";
-                        let method = if negate { "assertFalse" } else { "assertTrue" };
+                    "not_empty" => {
                         let _ = writeln!(
                             out,
-                            "        {method}({result_var}.metadata().content().isEmpty(), \"expected non-empty value\");"
+                            "        assertTrue({result_var}.metadata().title().isPresent() || {result_var}.metadata().subject().isPresent() || !{result_var}.metadata().additional().isEmpty(), \"expected non-empty value\");"
+                        );
+                        return;
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "        assertFalse({result_var}.metadata().title().isPresent() || {result_var}.metadata().subject().isPresent() || !{result_var}.metadata().additional().isEmpty(), \"expected empty value\");"
                         );
                         return;
                     }
@@ -1021,9 +1046,15 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
+                    // byte[] uses `.length` (array field), String uses `.length()` (method).
+                    let len_expr = if result_is_bytes {
+                        format!("{field_expr}.length")
+                    } else {
+                        format!("{field_expr}.length()")
+                    };
                     let _ = writeln!(
                         out,
-                        "        assertTrue({field_expr}.length() >= {n}, \"expected length >= {n}\");"
+                        "        assertTrue({len_expr} >= {n}, \"expected length >= {n}\");"
                     );
                 }
             }
@@ -1031,9 +1062,14 @@ fn render_assertion(
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
+                    let len_expr = if result_is_bytes {
+                        format!("{field_expr}.length")
+                    } else {
+                        format!("{field_expr}.length()")
+                    };
                     let _ = writeln!(
                         out,
-                        "        assertTrue({field_expr}.length() <= {n}, \"expected length <= {n}\");"
+                        "        assertTrue({len_expr} <= {n}, \"expected length <= {n}\");"
                     );
                 }
             }
@@ -1201,19 +1237,28 @@ fn build_java_method_call(
 
 /// Convert a `serde_json::Value` to a Java literal string.
 fn json_to_java(value: &serde_json::Value) -> String {
+    json_to_java_typed(value, None)
+}
+
+/// Convert a JSON value to a Java literal, optionally overriding number type for array elements.
+/// `element_type` controls how numeric array elements are emitted: "f32" → `1.0f`, otherwise `1.0d`.
+fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> String {
     match value {
         serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Number(n) => {
             if n.is_f64() {
-                format!("{}d", n)
+                match element_type {
+                    Some("f32" | "float" | "Float") => format!("{}f", n),
+                    _ => format!("{}d", n),
+                }
             } else {
                 n.to_string()
             }
         }
         serde_json::Value::Null => "null".to_string(),
         serde_json::Value::Array(arr) => {
-            let items: Vec<String> = arr.iter().map(json_to_java).collect();
+            let items: Vec<String> = arr.iter().map(|v| json_to_java_typed(v, element_type)).collect();
             format!("java.util.List.of({})", items.join(", "))
         }
         serde_json::Value::Object(_) => {

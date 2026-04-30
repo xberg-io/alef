@@ -51,6 +51,10 @@ pub struct ConversionConfig<'a> {
     /// Used by Magnus (Ruby) where Vec<Named> cannot cross the FFI boundary directly and
     /// is collapsed to String by `field_type_for_serde`'s catch-all arm.
     pub vec_named_to_string: bool,
+    /// When true, all Map(K, V) fields are stored as a plain `String` in the binding layer.
+    /// Core→binding uses `format!("{:?}", val.field)`, binding→core uses `Default::default()` (lossy).
+    /// Used by Rustler (Elixir NIFs) where `HashMap` cannot cross the NIF boundary directly.
+    pub map_as_string: bool,
     /// Set of opaque type names in the binding layer.
     /// When a field has `CoreWrapper::Arc` and its type is an opaque Named type,
     /// the binding wrapper holds `inner: Arc<CoreT>` and the conversion must extract

@@ -346,6 +346,11 @@ pub struct CallOverride {
     /// every element is checked. (Rust generator.)
     #[serde(default)]
     pub result_is_vec: bool,
+    /// When `true`, the function returns a raw byte array (e.g., `byte[]` in Java,
+    /// `[]byte` in Go). Used by generators to select the correct length accessor
+    /// (field `.length` vs method `.length()`).
+    #[serde(default)]
+    pub result_is_bytes: bool,
     /// When `true`, the function returns `Option<T>`. The result is unwrapped
     /// before any non-`is_none`/`is_some` assertion runs; `is_empty`/`not_empty`
     /// assertions map to `is_none()`/`is_some()`. (Rust generator.)

@@ -449,6 +449,22 @@ pub fn field_conversion_from_core_cfg(
         }
     }
 
+    // Map→String core→binding: binding holds Debug-formatted string, core has HashMap.
+    // Used by Rustler (Elixir NIFs) where HashMap cannot cross the NIF boundary directly.
+    if config.map_as_string && matches!(ty, TypeRef::Map(_, _)) {
+        if optional {
+            return format!("{name}: val.{name}.as_ref().map(|m| format!(\"{{m:?}}\"))");
+        }
+        return format!("{name}: format!(\"{{:?}}\", val.{name})");
+    }
+    if config.map_as_string {
+        if let TypeRef::Optional(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Map(_, _)) {
+                return format!("{name}: val.{name}.as_ref().map(|m| format!(\"{{m:?}}\"))");
+            }
+        }
+    }
+
     // WASM JsValue: use serde_wasm_bindgen for Map and nested Vec types
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));

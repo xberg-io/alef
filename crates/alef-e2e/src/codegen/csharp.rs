@@ -354,6 +354,8 @@ fn render_test_method(
         return;
     }
 
+    let result_is_vec = cs_overrides.is_some_and(|o| o.result_is_vec);
+
     if returns_void {
         let _ = writeln!(out, "        {await_kw}{class_name}.{function_name}({final_args});");
     } else {
@@ -370,6 +372,7 @@ fn render_test_method(
                 exception_class,
                 field_resolver,
                 effective_result_is_simple,
+                result_is_vec,
             );
         }
     }
@@ -396,6 +399,26 @@ fn build_args_and_setup(
     let mut parts: Vec<String> = Vec::new();
 
     for arg in args {
+        if arg.arg_type == "bytes" {
+            // bytes args must be passed as byte[] in C#.
+            // Treat the fixture value as a UTF-8 string and convert to bytes.
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
+            match val {
+                None | Some(serde_json::Value::Null) if arg.optional => {
+                    parts.push("null".to_string());
+                }
+                None | Some(serde_json::Value::Null) => {
+                    parts.push("System.Array.Empty<byte>()".to_string());
+                }
+                Some(v) => {
+                    let cs_str = json_to_csharp(v);
+                    parts.push(format!("System.Text.Encoding.UTF8.GetBytes({cs_str})"));
+                }
+            }
+            continue;
+        }
+
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
                 "var {} = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
@@ -522,6 +545,7 @@ fn render_assertion(
     exception_class: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_vec: bool,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
@@ -531,12 +555,19 @@ fn render_assertion(
         }
     }
 
-    let field_expr = if result_is_simple {
+    // When the result is a List<T>, index into the first element for field access.
+    let effective_result_var: String = if result_is_vec {
+        format!("{result_var}[0]")
+    } else {
         result_var.to_string()
+    };
+
+    let field_expr = if result_is_simple {
+        effective_result_var.clone()
     } else {
         match &assertion.field {
-            Some(f) if !f.is_empty() => field_resolver.accessor(f, "csharp", result_var),
-            _ => result_var.to_string(),
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "csharp", &effective_result_var),
+            _ => effective_result_var.clone(),
         }
     };
 
@@ -547,6 +578,12 @@ fn render_assertion(
                 if expected.is_string() {
                     // Only call .Trim() on string fields.
                     let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}.Trim());");
+                } else if expected.as_bool() == Some(true) {
+                    // Boolean true: use Assert.True to avoid xUnit2004 warning.
+                    let _ = writeln!(out, "        Assert.True({field_expr});");
+                } else if expected.as_bool() == Some(false) {
+                    // Boolean false: use Assert.False to avoid xUnit2004 warning.
+                    let _ = writeln!(out, "        Assert.False({field_expr});");
                 } else if expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0) {
                     // Integer values: use Assert.True(x == n) to avoid xUnit overload
                     // resolution ambiguity (int vs uint vs long vs DateTime).

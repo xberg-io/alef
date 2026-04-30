@@ -578,6 +578,17 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
     }
+    // Map→String binding→core: use Default::default() (lossy — can't reconstruct HashMap from Debug string)
+    if config.map_as_string && matches!(ty, TypeRef::Map(_, _)) {
+        return format!("{name}: Default::default()");
+    }
+    if config.map_as_string {
+        if let TypeRef::Optional(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Map(_, _)) {
+                return format!("{name}: Default::default()");
+            }
+        }
+    }
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)
     if config.json_to_string && matches!(ty, TypeRef::Json) {
         return format!("{name}: Default::default()");
@@ -593,6 +604,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         && !config.cast_f32_to_f64
         && !config.json_to_string
         && !config.vec_named_to_string
+        && !config.map_as_string
     {
         return field_conversion_to_core(name, ty, optional);
     }

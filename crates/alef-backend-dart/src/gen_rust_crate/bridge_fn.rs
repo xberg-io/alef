@@ -98,6 +98,22 @@ pub(crate) fn emit_bridge_fn(
             TypeRef::String | TypeRef::Path | TypeRef::Char => {
                 ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string()
             }
+            // Vec<Vec<f32>> → Vec<Vec<f64>> (and similar nested primitive widening)
+            TypeRef::Vec(inner2) => {
+                if let TypeRef::Primitive(prim) = inner2.as_ref() {
+                    let target = primitive_name(prim);
+                    let frb_target = frb_rust_type_inner(inner2);
+                    if target != frb_target.as_str() {
+                        format!(
+                            ".into_iter().map(|row| row.into_iter().map(|x| x as {frb_target}).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                        )
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            }
             _ => String::new(),
         },
         TypeRef::Optional(inner) => match inner.as_ref() {
