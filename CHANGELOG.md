@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **E2E TypeScript generator now auto-produces `globalSetup.ts` for HTTP test fixtures.** The generator was only creating `globalSetup.ts` when `client_factory` was configured, leaving HTTP test suites without proper mock server setup. Tests would fail with "app is not defined" at runtime. The generator now checks `has_http_fixtures` and generates `globalSetup.ts` unconditionally when HTTP tests are present (regardless of `client_factory`). The setup creates a fetch-wrapped HTTP client (`createApp`) and exposes it as `global.app` to all test suites. Vitest's `globalSetup` config is also auto-enabled whenever `needs_global_setup` is true. (`crates/alef-e2e/src/codegen/typescript.rs`)
+
 ## [0.11.25] - 2026-04-30
 
 ### Fixed
