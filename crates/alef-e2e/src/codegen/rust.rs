@@ -399,6 +399,11 @@ fn render_test_function(
     // Check if any assertion is an error assertion.
     let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // Resolve Rust-specific overrides for argument shaping.
+    let rust_overrides = call_config.overrides.get("rust");
+    let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
+    let extra_args: Vec<String> = rust_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+
     // Emit input variable bindings from args config.
     let mut arg_exprs: Vec<String> = Vec::new();
     for arg in &call_config.args {
@@ -422,7 +427,19 @@ fn render_test_function(
         for binding in &bindings {
             let _ = writeln!(out, "    {binding}");
         }
-        arg_exprs.push(expr);
+        // For functions whose options slot is owned `Option<T>` rather than `&T`,
+        // wrap the json_object expression in `Some(...).clone()` so it matches
+        // the parameter shape. Other arg types pass through unchanged.
+        let final_expr = if wrap_options_in_some && arg.arg_type == "json_object" {
+            if let Some(rest) = expr.strip_prefix('&') {
+                format!("Some({rest}.clone())")
+            } else {
+                format!("Some({expr})")
+            }
+        } else {
+            expr
+        };
+        arg_exprs.push(final_expr);
     }
 
     // Emit visitor if present in fixture.
@@ -438,6 +455,10 @@ fn render_test_function(
             "    let visitor = std::rc::Rc::new(std::cell::RefCell::new(_TestVisitor));"
         );
         arg_exprs.push("Some(visitor)".to_string());
+    } else {
+        // No fixture-supplied visitor: append any extra positional args declared in
+        // the rust override (e.g. trailing `None` for an Option<VisitorParam> slot).
+        arg_exprs.extend(extra_args);
     }
 
     let args_str = arg_exprs.join(", ");
@@ -447,7 +468,13 @@ fn render_test_function(
     let result_is_tree = call_config.result_var == "tree";
     // When the rust override sets result_is_simple, the function returns a plain type
     // (String, Vec<T>, etc.) — field-access assertions use the result var directly.
-    let result_is_simple = call_config.overrides.get("rust").is_some_and(|o| o.result_is_simple);
+    let result_is_simple = rust_overrides.is_some_and(|o| o.result_is_simple);
+    // When result_is_vec is set, the function returns Vec<T>. Field-path assertions
+    // are wrapped in `.iter().all(|r| ...)` so every element is checked.
+    let result_is_vec = rust_overrides.is_some_and(|o| o.result_is_vec);
+    // When result_is_option is set, the function returns Option<T>. Field-path
+    // assertions unwrap first via `.as_ref().expect("Option should be Some")`.
+    let result_is_option = rust_overrides.is_some_and(|o| o.result_is_option);
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
@@ -464,6 +491,8 @@ fn render_test_function(
                 field_resolver,
                 result_is_tree,
                 result_is_simple,
+                false,
+                false,
             );
         }
         let _ = writeln!(out, "}}");
@@ -526,12 +555,18 @@ fn render_test_function(
             )
         });
 
-    let unwrap_suffix = if call_config.returns_result {
+    // Per-rust override of the call-level `returns_result`. When set, takes
+    // precedence over `CallConfig.returns_result` for the Rust generator only.
+    let returns_result = rust_overrides
+        .and_then(|o| o.returns_result)
+        .unwrap_or(call_config.returns_result);
+
+    let unwrap_suffix = if returns_result {
         ".expect(\"should succeed\")"
     } else {
         ""
     };
-    if only_emptiness_checks || !call_config.returns_result {
+    if only_emptiness_checks || !returns_result {
         // Option-returning or non-Result-returning: bind raw value, no unwrap.
         let _ = writeln!(
             out,
@@ -601,6 +636,8 @@ fn render_test_function(
             field_resolver,
             result_is_tree,
             result_is_simple,
+            result_is_vec,
+            result_is_option,
         );
     }
 
@@ -1328,13 +1365,79 @@ fn render_assertion(
     assertion: &Assertion,
     result_var: &str,
     module: &str,
-    _dep_name: &str,
+    dep_name: &str,
     is_error_context: bool,
     unwrapped_fields: &[(String, String)], // (fixture_field, local_var)
     field_resolver: &FieldResolver,
     result_is_tree: bool,
     result_is_simple: bool,
+    result_is_vec: bool,
+    result_is_option: bool,
 ) {
+    // Vec<T> result: iterate per-element so each assertion checks every element.
+    // Field-path assertions become `for r in &{result} { <assert using r> }`.
+    // Length-style assertions on the Vec itself (no field path) operate on the
+    // Vec directly.
+    let has_field = assertion.field.as_ref().is_some_and(|f| !f.is_empty());
+    if result_is_vec && has_field && !is_error_context {
+        let _ = writeln!(out, "    for r in &{result_var} {{");
+        render_assertion(
+            out,
+            assertion,
+            "r",
+            module,
+            dep_name,
+            is_error_context,
+            unwrapped_fields,
+            field_resolver,
+            result_is_tree,
+            result_is_simple,
+            false, // already inside loop
+            result_is_option,
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+    // Option<T> result: map `is_empty`/`not_empty` to `is_none()`/`is_some()`,
+    // and unwrap the inner value before any other assertion runs.
+    if result_is_option && !is_error_context {
+        let assertion_type = assertion.assertion_type.as_str();
+        if !has_field && (assertion_type == "is_empty" || assertion_type == "not_empty") {
+            let check = if assertion_type == "is_empty" {
+                "is_none"
+            } else {
+                "is_some"
+            };
+            let _ = writeln!(
+                out,
+                "    assert!({result_var}.{check}(), \"expected Option to be {check}\");"
+            );
+            return;
+        }
+        // For any other assertion shape, unwrap the Option and recurse with a
+        // bare reference variable so the rest of the renderer treats the inner
+        // value as the result.
+        let _ = writeln!(
+            out,
+            "    let r = {result_var}.as_ref().expect(\"Option<T> should be Some\");"
+        );
+        render_assertion(
+            out,
+            assertion,
+            "r",
+            module,
+            dep_name,
+            is_error_context,
+            unwrapped_fields,
+            field_resolver,
+            result_is_tree,
+            result_is_simple,
+            result_is_vec,
+            false, // already unwrapped
+        );
+        return;
+    }
+    let _ = dep_name;
     // Handle synthetic fields like chunks_have_content (derived assertions)
     if let Some(f) = &assertion.field {
         if f == "chunks_have_content" {

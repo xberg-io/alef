@@ -117,7 +117,7 @@ impl E2eCodegen for TypeScriptCodegen {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
-                .filter(|f| !f.should_skip_for_language("node"))
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip("node")))
                 .collect();
 
             if active.is_empty() {

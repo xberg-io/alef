@@ -84,7 +84,7 @@ impl E2eCodegen for ZigE2eCodegen {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
-                .filter(|f| !f.should_skip_for_language(lang))
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
                 .collect();
 
             if active.is_empty() {

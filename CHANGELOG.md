@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Auto-skip HTTP fixtures in wasm e2e codegen + `skip.platform` metadata.** Fixtures that exercise an HTTP request/response cycle (`mock_response` populated, or `http.expected_response` populated) are now automatically skipped when generating wasm e2e tests, so consumers can include `wasm` in `[e2e].languages` without manually annotating every HTTP fixture. A new `skip.platform: ["wasm", ...]` field (alias `skip.binding`) on `SkipDirective` lets fixture authors override the auto-detection or skip on additional binding targets without affecting the broader `skip.languages` semantics. `Fixture::is_http_fixture()` exposes the auto-detection rule and `Fixture::should_skip_for_language()` is the single helper now used by every per-language codegen module to decide whether a fixture is in scope. (`crates/alef-e2e/src/fixture.rs`, every module under `crates/alef-e2e/src/codegen/`, `crates/alef-e2e/src/validate.rs`)
+## [0.12.1] - 2026-04-30
 
 ### Fixed
 
 - **e2e mock-server respects fixture `expected_response.headers`.** The alef-generated mock HTTP server (both the test-embedded `mock_server` module and the standalone `mock-server` binary used by cross-language e2e suites) now applies fixture-declared response headers to the served response. Previously, headers from `http.expected_response.headers` (spikard schema) and `mock_response.headers` (liter-llm schema) were silently dropped, causing consumer header assertions (CORS, request-id, auth challenge, compression, etc.) to come back as `null`. `MockResponse` gained a `headers: HashMap<String, String>` field, `Fixture::as_mock_response()` bridges headers from both schemas, and the mock-server route handlers iterate the map and apply each entry via `Response::builder().header(name, value)`. Repeated `.header()` calls preserve multi-value semantics for headers like `Set-Cookie`. (`crates/alef-e2e/src/fixture.rs`, `crates/alef-e2e/src/codegen/rust.rs`)
 
 - **go: skip method emission on opaque error types.** When a `TypeDef` is both opaque and registered as an error, `gen_go_error_struct` already emits it as a value-type struct with `Code`/`Message` fields (no `ptr`). Previously the codegen still tried to emit method bodies that dispatch through `h.ptr`, producing uncompilable Go (e.g. `GraphQLError.StatusCode` referencing `h.ptr` against a value struct). Methods on these types are now skipped. (`crates/alef-backend-go/src/gen_bindings.rs`)
+
+### Added
+
+- **Rust e2e call-override fields.** `[e2e.call.overrides.rust]` learns `wrap_options_in_some`, `extra_args`, `returns_result`, `result_is_vec`, and `result_is_option` to support fallible signatures whose options slot is owned `Option<T>` and which take additional trailing positional args. (`crates/alef-core/src/config/e2e.rs`, `crates/alef-e2e/src/codegen/rust.rs`)
+
+### Reverted
+
+- **Wasm HTTP-fixture auto-skip** (introduced in fa2d03b1 then reverted in d8ff34c7). The wasm e2e target needs a real fix — a wasm-safe dispatch entrypoint that exercises HTTP fixtures in-process — rather than skipping them.
 
 ## [0.12.0] - 2026-04-30
 

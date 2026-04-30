@@ -251,7 +251,7 @@ fn resolve_handle_dict_types(e2e_config: &E2eConfig) -> &std::collections::HashS
 }
 
 fn is_skipped(fixture: &Fixture, language: &str) -> bool {
-    fixture.should_skip_for_language(language)
+    fixture.skip.as_ref().is_some_and(|s| s.should_skip(language))
 }
 
 // ---------------------------------------------------------------------------

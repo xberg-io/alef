@@ -325,6 +325,31 @@ pub struct CallOverride {
     /// (or equivalent field access) will use the result variable directly.
     #[serde(default)]
     pub result_is_simple: bool,
+    /// When `true`, the function returns `Vec<T>` rather than a single value.
+    /// Field-path assertions are emitted as `.iter().all(|r| <accessor>)` so
+    /// every element is checked. (Rust generator.)
+    #[serde(default)]
+    pub result_is_vec: bool,
+    /// When `true`, the function returns `Option<T>`. The result is unwrapped
+    /// before any non-`is_none`/`is_some` assertion runs; `is_empty`/`not_empty`
+    /// assertions map to `is_none()`/`is_some()`. (Rust generator.)
+    #[serde(default)]
+    pub result_is_option: bool,
+    /// When `true`, the Rust generator wraps the `json_object` argument expression
+    /// in `Some(...).clone()` to match an owned `Option<T>` parameter slot rather
+    /// than passing `&options`. (Rust generator only.)
+    #[serde(default)]
+    pub wrap_options_in_some: bool,
+    /// Trailing positional arguments appended verbatim after the configured
+    /// `args`. Used when the target function takes additional positional slots
+    /// (e.g. visitor) the fixture cannot supply directly. (Rust generator only.)
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Per-rust override of the call-level `returns_result`. When set, takes
+    /// precedence over `CallConfig.returns_result` for the Rust generator only.
+    /// Useful when one binding is fallible while others are not.
+    #[serde(default)]
+    pub returns_result: Option<bool>,
     /// Maps handle config field names to their Python type constructor names.
     ///
     /// When the handle config object contains a nested dict-valued field, the

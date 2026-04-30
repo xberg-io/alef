@@ -194,42 +194,11 @@ impl Fixture {
         self.http.is_some()
     }
 
-    /// Returns true if this fixture exercises an HTTP request/response cycle.
-    ///
-    /// A fixture is HTTP-shaped when it carries either:
-    /// - a `mock_response` (liter-llm shape used to mock an upstream service), or
-    /// - an `http.expected_response` block (spikard shape that drives the
-    ///   in-process HTTP handler).
-    ///
-    /// Pure schema/validation fixtures (e.g. JSON Schema validation, Problem
-    /// Details builders, OpenAPI/AsyncAPI parsing) carry neither and return
-    /// `false`. Code generators for runtimes that don't expose an HTTP surface
-    /// (notably wasm) use this to auto-skip HTTP fixtures.
-    pub fn is_http_fixture(&self) -> bool {
-        self.mock_response.is_some() || self.http.is_some()
-    }
-
     /// Returns true if this fixture requires a mock HTTP server.
     /// This is true when either `mock_response` (liter-llm shape) or
     /// `http.expected_response` (spikard shape) is present.
     pub fn needs_mock_server(&self) -> bool {
         self.mock_response.is_some() || self.http.is_some()
-    }
-
-    /// Returns true if this fixture should be skipped for the given language /
-    /// binding target. Combines the explicit `skip` directive with auto-skip
-    /// rules baked into the generator (e.g. wasm cannot exercise HTTP
-    /// fixtures because the wasm binding does not expose an HTTP adapter).
-    pub fn should_skip_for_language(&self, language: &str) -> bool {
-        if self.skip.as_ref().is_some_and(|s| s.should_skip(language)) {
-            return true;
-        }
-        // Auto-skip: wasm has no HTTP adapter, so any HTTP-shaped fixture is
-        // unrunnable on the wasm target without a manual annotation.
-        if language == "wasm" && self.is_http_fixture() {
-            return true;
-        }
-        false
     }
 
     /// Returns the effective mock response for this fixture, bridging both schemas:
@@ -275,36 +244,20 @@ impl Fixture {
 }
 
 /// Skip directive for conditionally excluding fixtures.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkipDirective {
-    /// Languages to skip (empty means skip all when no `platform` filter is set).
+    /// Languages to skip (empty means skip all).
     #[serde(default)]
     pub languages: Vec<String>,
-    /// Platforms / binding targets to skip (e.g. `["wasm"]`). This is matched
-    /// against the same identifier used as `language_name()` in the codegen
-    /// trait, so generators can rely on a single source of truth.
-    ///
-    /// `binding` is accepted as an alias for `platform` to keep fixture authors
-    /// happy regardless of which mental model they prefer.
-    #[serde(default, alias = "binding")]
-    pub platform: Vec<String>,
     /// Human-readable reason for skipping.
     #[serde(default)]
     pub reason: Option<String>,
 }
 
 impl SkipDirective {
-    /// Check if this fixture should be skipped for a given language/platform.
-    ///
-    /// A fixture is skipped when either:
-    /// - the language matches an entry in `languages`, or
-    /// - the language matches an entry in `platform`, or
-    /// - both `languages` and `platform` are empty (skip everywhere).
+    /// Check if this fixture should be skipped for a given language.
     pub fn should_skip(&self, language: &str) -> bool {
-        if self.languages.is_empty() && self.platform.is_empty() {
-            return true;
-        }
-        self.languages.iter().any(|l| l == language) || self.platform.iter().any(|p| p == language)
+        self.languages.is_empty() || self.languages.iter().any(|l| l == language)
     }
 }
 
@@ -494,96 +447,6 @@ mod tests {
         let fixture: Fixture = serde_json::from_str(json).unwrap();
         assert!(fixture.needs_mock_server());
         assert!(fixture.is_streaming_mock());
-    }
-
-    #[test]
-    fn test_wasm_auto_skips_http_fixtures() {
-        let json = r#"{
-            "id": "http_fixture",
-            "description": "HTTP fixture",
-            "input": {},
-            "http": {
-                "handler": {"route": "/x", "method": "GET"},
-                "request": {"method": "GET", "path": "/x"},
-                "expected_response": {"status_code": 200}
-            }
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(fixture.is_http_fixture());
-        assert!(fixture.should_skip_for_language("wasm"));
-        assert!(!fixture.should_skip_for_language("python"));
-        assert!(!fixture.should_skip_for_language("node"));
-    }
-
-    #[test]
-    fn test_wasm_runs_non_http_fixtures() {
-        let json = r#"{
-            "id": "schema_fixture",
-            "description": "Schema validation fixture",
-            "input": {"schema": {}, "data": {}},
-            "assertions": []
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(!fixture.is_http_fixture());
-        assert!(!fixture.should_skip_for_language("wasm"));
-    }
-
-    #[test]
-    fn test_skip_platform_field_honored() {
-        let json = r#"{
-            "id": "platform_skip",
-            "description": "Manually skipped on wasm",
-            "input": {},
-            "assertions": [],
-            "skip": {"platform": ["wasm"], "reason": "uses Node-only API"}
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(fixture.should_skip_for_language("wasm"));
-        assert!(!fixture.should_skip_for_language("node"));
-        assert!(!fixture.should_skip_for_language("python"));
-    }
-
-    #[test]
-    fn test_skip_binding_alias_honored() {
-        let json = r#"{
-            "id": "binding_alias",
-            "description": "Manually skipped via binding alias",
-            "input": {},
-            "assertions": [],
-            "skip": {"binding": ["wasm"]}
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(fixture.should_skip_for_language("wasm"));
-        assert!(!fixture.should_skip_for_language("python"));
-    }
-
-    #[test]
-    fn test_skip_languages_still_works() {
-        let json = r#"{
-            "id": "lang_skip",
-            "description": "Skip on python only",
-            "input": {},
-            "assertions": [],
-            "skip": {"languages": ["python"]}
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(fixture.should_skip_for_language("python"));
-        assert!(!fixture.should_skip_for_language("node"));
-    }
-
-    #[test]
-    fn test_skip_empty_directive_skips_all() {
-        let json = r#"{
-            "id": "skip_all",
-            "description": "Skip everywhere",
-            "input": {},
-            "assertions": [],
-            "skip": {"reason": "broken"}
-        }"#;
-        let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(fixture.should_skip_for_language("python"));
-        assert!(fixture.should_skip_for_language("node"));
-        assert!(fixture.should_skip_for_language("wasm"));
     }
 
     #[test]
