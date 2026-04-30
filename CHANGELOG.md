@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-language `core_import` derivation.** When `[wasm|dart|swift].core_crate_override` is set, the wasm backend now also routes generated Rust `use` paths and `From`/`Into` impls through the override (e.g. `spikard_core::ProblemDetails` instead of `spikard::ProblemDetails`). Without this, the override only flipped the Cargo dep key but left source paths pointing at the umbrella crate, producing E0433 unresolved-crate errors at compile time. New helper: `AlefConfig::core_import_for_language(lang)` in `crates/alef-core/src/config/mod.rs`. Defaults to `core_import()` when no override is set, so existing configs are unaffected.
+- **Wasm backend respects `exclude_types` for error converters.** `gen_wasm_error_converter` calls and the WASM exports list now skip any error whose `name` is listed in `[wasm].exclude_types`, mirroring the existing exclusion behavior for structs/enums/functions. Lets a wasm-safe surface (e.g. schema validation only) drop sibling-crate errors like `GraphQLError` or `SchemaError` without the binding referencing the unlinked crate.
+
 ## [0.12.4] - 2026-04-30
 
 ### Fixed

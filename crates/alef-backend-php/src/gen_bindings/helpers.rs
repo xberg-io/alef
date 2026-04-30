@@ -713,9 +713,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                     // type into the core type (e.g. PhpExtractionPattern → ExtractionPattern).
                     TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
                         if field.optional {
-                            format!(
-                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
-                            )
+                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
                         } else {
                             format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
                         }

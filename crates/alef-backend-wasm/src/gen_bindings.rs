@@ -133,7 +133,7 @@ impl Backend for WasmBackend {
         }
 
         let mapper = WasmMapper::new(type_overrides, prefix.clone());
-        let core_import = config.core_import();
+        let core_import = config.core_import_for_language(Language::Wasm);
 
         // Note: custom modules and registrations handled below after builder creation
 
@@ -344,8 +344,11 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Error converter functions
+        // Error converter functions (skip excluded errors)
         for error in &api.errors {
+            if exclude_types.contains(&error.name) {
+                continue;
+            }
             builder.add_item(&alef_codegen::error_gen::gen_wasm_error_converter(error, &core_import));
         }
 
@@ -409,8 +412,11 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Collect all error types (exported from WASM module)
+        // Collect all error types (exported from WASM module), skipping excluded
         for error in &api.errors {
+            if exclude_types.contains(&error.name) {
+                continue;
+            }
             exports.push(error.name.clone());
         }
 

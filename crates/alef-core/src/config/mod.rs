@@ -1265,6 +1265,24 @@ impl AlefConfig {
         }
     }
 
+    /// Resolve the core crate Rust import path for a language's binding crate.
+    /// When `[<lang>].core_crate_override` is set, the override name (with `-`
+    /// translated to `_`) is used so that generated `use` paths and `From`
+    /// impls reference the overridden crate. Otherwise falls back to
+    /// [`Self::core_import`].
+    pub fn core_import_for_language(&self, lang: extras::Language) -> String {
+        let override_name = match lang {
+            extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.core_crate_override.as_deref()),
+            _ => None,
+        };
+        match override_name {
+            Some(name) => name.replace('-', "_"),
+            None => self.core_import(),
+        }
+    }
+
     /// Get the WASM type name prefix (e.g. "Wasm" produces `WasmConversionOptions`).
     /// Defaults to `"Wasm"`.
     pub fn wasm_type_prefix(&self) -> String {
