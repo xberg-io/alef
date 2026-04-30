@@ -586,6 +586,9 @@ fn render_test_function(
 
     // Emit Option field unwrap bindings for any fields accessed in assertions.
     // Use FieldResolver to handle optional fields, including nested/aliased paths.
+    // Skipped when the call returns Vec<T>: per-element iteration is emitted by
+    // `render_assertion` itself, so the call-site has no single result struct
+    // to unwrap fields off of.
     let string_assertion_types = [
         "equals",
         "contains",
@@ -599,21 +602,23 @@ fn render_test_function(
         "matches_regex",
     ];
     let mut unwrapped_fields: Vec<(String, String)> = Vec::new(); // (fixture_field, local_var)
-    for assertion in &fixture.assertions {
-        if let Some(f) = &assertion.field {
-            if !f.is_empty()
-                && string_assertion_types.contains(&assertion.assertion_type.as_str())
-                && !unwrapped_fields.iter().any(|(ff, _)| ff == f)
-            {
-                // Only unwrap optional string fields — numeric optionals (u64, usize)
-                // don't support .as_deref() and should be compared directly.
-                let is_string_assertion = assertion.value.as_ref().is_none_or(|v| v.is_string());
-                if !is_string_assertion {
-                    continue;
-                }
-                if let Some((binding, local_var)) = field_resolver.rust_unwrap_binding(f, result_var) {
-                    let _ = writeln!(out, "    {binding}");
-                    unwrapped_fields.push((f.clone(), local_var));
+    if !result_is_vec {
+        for assertion in &fixture.assertions {
+            if let Some(f) = &assertion.field {
+                if !f.is_empty()
+                    && string_assertion_types.contains(&assertion.assertion_type.as_str())
+                    && !unwrapped_fields.iter().any(|(ff, _)| ff == f)
+                {
+                    // Only unwrap optional string fields — numeric optionals (u64, usize)
+                    // don't support .as_deref() and should be compared directly.
+                    let is_string_assertion = assertion.value.as_ref().is_none_or(|v| v.is_string());
+                    if !is_string_assertion {
+                        continue;
+                    }
+                    if let Some((binding, local_var)) = field_resolver.rust_unwrap_binding(f, result_var) {
+                        let _ = writeln!(out, "    {binding}");
+                        unwrapped_fields.push((f.clone(), local_var));
+                    }
                 }
             }
         }
@@ -718,9 +723,10 @@ fn render_rust_arg(
         return (vec![format!("let {name} = {default_val};")], expr);
     }
     let literal = json_to_rust_literal(value, arg_type);
-    // String args are passed by reference in Rust.
+    // For non-optional `string` args, the binding is an immediate `&'static str`
+    // literal — pass it directly without an extra `&` (which would yield `&&str`).
     // Bytes args are strings passed as .as_bytes().
-    let pass_by_ref = arg_type == "string" || arg_type == "bytes";
+    let pass_by_ref = arg_type == "bytes";
     let optional_expr = |n: &str| {
         if arg_type == "string" {
             format!("{n}.as_deref()")
@@ -1593,8 +1599,17 @@ fn render_assertion(
         "not_empty" => {
             if let Some(f) = &assertion.field {
                 let resolved = field_resolver.resolve(f);
-                if !is_unwrapped && field_resolver.is_optional(resolved) {
-                    // Non-string optional field (e.g., Option<Struct>): use is_some()
+                let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+                let is_arr = field_resolver.is_array(resolved);
+                if is_opt && is_arr {
+                    // Option<Vec<T>>: must be Some AND inner non-empty.
+                    let accessor = field_resolver.accessor(f, "rust", result_var);
+                    let _ = writeln!(
+                        out,
+                        "    assert!({accessor}.as_ref().is_some_and(|v| !v.is_empty()), \"expected {f} to be present and non-empty\");"
+                    );
+                } else if is_opt {
+                    // Non-collection optional field (e.g., Option<Struct>): use is_some().
                     let accessor = field_resolver.accessor(f, "rust", result_var);
                     let _ = writeln!(
                         out,
@@ -1606,25 +1621,39 @@ fn render_assertion(
                         "    assert!(!{field_access}.is_empty(), \"expected non-empty value\");"
                     );
                 }
-            } else {
-                // No field: assertion on the result itself. Use is_some() for Option types.
+            } else if result_is_option {
+                // Bare result is Option<T>: not_empty == is_some().
                 let _ = writeln!(
                     out,
                     "    assert!({field_access}.is_some(), \"expected non-empty value\");"
+                );
+            } else {
+                // Bare result is a struct/string/collection — non-empty via is_empty().
+                let _ = writeln!(
+                    out,
+                    "    assert!(!{field_access}.is_empty(), \"expected non-empty value\");"
                 );
             }
         }
         "is_empty" => {
             if let Some(f) = &assertion.field {
                 let resolved = field_resolver.resolve(f);
-                if !is_unwrapped && field_resolver.is_optional(resolved) {
+                let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+                let is_arr = field_resolver.is_array(resolved);
+                if is_opt && is_arr {
+                    // Option<Vec<T>>: empty means None or empty vec.
+                    let accessor = field_resolver.accessor(f, "rust", result_var);
+                    let _ = writeln!(
+                        out,
+                        "    assert!({accessor}.as_ref().is_none_or(|v| v.is_empty()), \"expected {f} to be empty or absent\");"
+                    );
+                } else if is_opt {
                     let accessor = field_resolver.accessor(f, "rust", result_var);
                     let _ = writeln!(out, "    assert!({accessor}.is_none(), \"expected {f} to be absent\");");
                 } else {
                     let _ = writeln!(out, "    assert!({field_access}.is_empty(), \"expected empty value\");");
                 }
             } else {
-                // No field: assertion on the result itself. Use is_none() for Option types.
                 let _ = writeln!(out, "    assert!({field_access}.is_none(), \"expected empty value\");");
             }
         }
