@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-04-30
+
+### Fixed
+
+- fix(codegen/binding-helpers): `gen_lossy_binding_to_core_fields` now applies per-value `.into()` for `Map<K, Named>` and `Option<Map<K, Named>>` fields. The 0.12.2 round only patched `field_conversion_to_core` (used by the `From<Binding> for Core` impl), but the inherent-method delegation path (used for `with_chunking`, `all`, `minimal`-style wrappers on PyO3/PHP/NAPI/Magnus/Rustler) is a parallel codegen path that constructs `core_self` directly. Both paths now emit per-value `(k, v.into())` so a binding-wrapper Map value converts to the core type.
+
 ## [0.12.2] - 2026-04-30
 
 ### Fixed

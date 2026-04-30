@@ -1420,6 +1420,62 @@ fn test_gen_lossy_binding_to_core_fields_non_sanitized() {
 }
 
 #[test]
+fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "patterns".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("ExtractionPattern".to_string()))),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("patterns: self.patterns.clone().into_iter().map(|(k, v)| (k, v.into())).collect()"),
+        "expected per-value .into() for Map<String, Named>; got:\n{result}"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_into() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "extractions".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("ExtractionPattern".to_string()))),
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains(
+            "extractions: self.extractions.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+        ),
+        "expected Option-preserving per-value .into() for Option<Map<String, Named>>; got:\n{result}"
+    );
+}
+
+#[test]
 fn test_gen_lossy_binding_to_core_fields_with_duration() {
     let mut typ = simple_type_def();
     typ.fields.push(FieldDef {
