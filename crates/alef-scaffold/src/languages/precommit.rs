@@ -150,6 +150,19 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
         rumdl = tv::precommit::RUMDL_REV,
     ));
 
+    // Shell, Dockerfile, and docs prose (shared kreuzberg-dev hooks)
+    yaml.push_str(&format!(
+        "  # Shell, Dockerfile, and docs prose (shared kreuzberg-dev hooks)\n\
+         \x20 - repo: https://github.com/kreuzberg-dev/pre-commit-hooks\n\
+         \x20   rev: {kreuzberg_hooks}\n\
+         \x20   hooks:\n\
+         \x20     - id: shfmt\n\
+         \x20     - id: shellcheck\n\
+         \x20     - id: hadolint\n\
+         \x20     - id: textlint\n\n",
+        kreuzberg_hooks = tv::precommit::KREUZBERG_PRECOMMIT_HOOKS_REV,
+    ));
+
     // Alef: readme, verify bindings, sync versions
     yaml.push_str(&format!(
         "  # Alef: generate READMEs, verify bindings, sync versions\n\

@@ -278,14 +278,34 @@ fn render_test_file(
     let _ = writeln!(out, "package {java_group_id}.e2e;");
     let _ = writeln!(out);
 
-    // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
-    let needs_object_mapper_for_options = options_type.is_some()
-        && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                arg.arg_type == "json_object" && f.input.get(field).is_some_and(|v| !v.is_null())
-            })
-        });
+    // Check if any fixture (with its resolved call) will emit MAPPER usage.
+    // This covers: non-null json_object with options_type, optional null json_object with
+    // options_type (MAPPER default), and handle args with non-null config.
+    let lang_for_om = "java";
+    let needs_object_mapper_for_options = fixtures.iter().any(|f| {
+        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
+        let eff_opts = call_cfg
+            .overrides
+            .get(lang_for_om)
+            .and_then(|o| o.options_type.as_deref())
+            .or(options_type);
+        if eff_opts.is_none() {
+            return false;
+        }
+        call_cfg.args.iter().any(|arg| {
+            if arg.arg_type != "json_object" {
+                return false;
+            }
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = f.input.get(field);
+            // Needs MAPPER for: non-null non-array value (MAPPER.readValue) OR
+            // optional null value (MAPPER.readValue("{}", T.class) default).
+            match val {
+                None | Some(serde_json::Value::Null) => arg.optional, // MAPPER default for optional null
+                Some(v) => !v.is_array(), // MAPPER.readValue for non-array objects
+            }
+        })
+    });
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         args.iter().filter(|a| a.arg_type == "handle").any(|a| {
@@ -294,6 +314,20 @@ fn render_test_file(
         })
     });
     let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle;
+
+    // Collect all options_type values used (class-level + per-fixture call overrides).
+    let mut all_options_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Some(t) = options_type {
+        all_options_types.insert(t.to_string());
+    }
+    for f in fixtures.iter() {
+        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
+        if let Some(ov) = call_cfg.overrides.get(lang_for_om) {
+            if let Some(t) = &ov.options_type {
+                all_options_types.insert(t.clone());
+            }
+        }
+    }
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test;");
     let _ = writeln!(out, "import static org.junit.jupiter.api.Assertions.*;");
@@ -304,17 +338,20 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
     }
-    // Import the options type if tests use it (it's in the same package as the main class).
-    if let Some(opts_type) = options_type {
-        if needs_object_mapper {
-            // Derive the fully-qualified name from the main class import path.
-            let opts_package = if !import_path.is_empty() {
-                let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-                format!("{pkg}.{opts_type}")
+    // Import all options types used across fixtures.
+    if needs_object_mapper && !all_options_types.is_empty() {
+        let opts_pkg = if !import_path.is_empty() {
+            import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("")
+        } else {
+            ""
+        };
+        for opts_type in &all_options_types {
+            let qualified = if opts_pkg.is_empty() {
+                opts_type.clone()
             } else {
-                opts_type.to_string()
+                format!("{opts_pkg}.{opts_type}")
             };
-            let _ = writeln!(out, "import {opts_package};");
+            let _ = writeln!(out, "import {qualified};");
         }
     }
     // Import CrawlConfig when handle args need JSON deserialization.
@@ -388,11 +425,22 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
+    let effective_options_type: Option<String> = call_overrides
+        .and_then(|o| o.options_type.clone())
+        .or_else(|| options_type.map(|s| s.to_string()));
+    let effective_options_type = effective_options_type.as_deref();
+
     // Check if this test needs ObjectMapper deserialization for json_object args.
-    let needs_deser = options_type.is_some()
-        && args
-            .iter()
-            .any(|arg| arg.arg_type == "json_object" && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null()));
+    // Strip "input." prefix when looking up field in fixture.input.
+    let needs_deser = effective_options_type.is_some()
+        && args.iter().any(|arg| {
+            if arg.arg_type != "json_object" {
+                return false;
+            }
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            fixture.input.get(field).is_some_and(|v| !v.is_null() && !v.is_array())
+        });
 
     // Always add throws Exception since the convert method may throw checked exceptions.
     let throws_clause = " throws Exception";
@@ -402,13 +450,13 @@ fn render_test_method(
     let _ = writeln!(out, "        // {description}");
 
     // Emit ObjectMapper deserialization bindings for json_object args.
-    if let (true, Some(opts_type)) = (needs_deser, options_type) {
+    if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
         for arg in args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                 if let Some(val) = fixture.input.get(field) {
-                    if !val.is_null() {
-                        // Fixture keys are camelCase; the Java ConversionOptions record uses
+                    if !val.is_null() && !val.is_array() {
+                        // Fixture keys are camelCase; the Java record uses
                         // @JsonProperty("snake_case") annotations. Normalize keys so Jackson
                         // can deserialize them correctly.
                         let normalized = super::normalize_json_keys_to_snake_case(val);
@@ -425,7 +473,8 @@ fn render_test_method(
         }
     }
 
-    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
+    let (mut setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, class_name, effective_options_type, &fixture.id);
 
     // Build visitor if present and add to setup
     let mut visitor_arg = String::new();

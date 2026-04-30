@@ -90,7 +90,10 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let doc = extract_doc_comments(&item.attrs);
-    let is_opaque = fields.is_empty();
+    // A struct is opaque only when it has no fields AND is not a serializable data type.
+    // Empty structs with Default+Serde (e.g. ExcelMetadata{}) are unit data types that
+    // should be transparent NifMap structs, not opaque resource handles.
+    let is_opaque = fields.is_empty() && !(has_default && has_serde);
     let rust_path = build_rust_path(crate_name, module_path, &name);
 
     // #[derive(Default)] — all fields get DefaultValue::Empty (type's own Default)
