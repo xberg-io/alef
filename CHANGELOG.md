@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **C# JSON converter switch-case block braces now match `dotnet format`'s default style.** The `gen_csharp_json_converter` writer emitted block braces aligned with the `case` keyword (col 12), but `dotnet format` reformats them one level deeper (col 16). On every commit the `csharp-format` pre-commit hook reshuffled the braces, which then broke `alef-verify`'s per-file hash check on the very next run. The generator now matches the formatter's expected output, eliminating the hook ping-pong. (`crates/alef-backend-csharp/src/gen_bindings.rs`)
+
 ## [0.11.24] - 2026-04-30
 
 ### Fixed

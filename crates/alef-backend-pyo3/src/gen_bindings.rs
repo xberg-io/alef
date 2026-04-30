@@ -1661,7 +1661,12 @@ fn gen_api_py(
         let has_builtin_param = sig_parts
             .iter()
             .any(|p| crate::gen_stubs::is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
-        let single_line = format!("{def_keyword} {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str);
+        let single_line = format!(
+            "{def_keyword} {}({}) -> {}:\n",
+            func.name,
+            sig_parts.join(", "),
+            return_type_str
+        );
         if single_line.len() <= 100 && !has_builtin_param {
             out.push_str(&single_line);
         } else {

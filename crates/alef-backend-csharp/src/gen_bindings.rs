@@ -2254,24 +2254,27 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             cs_name == pascal || cs_name == cs_type
         };
         let is_newtype = is_tuple_newtype || is_named_clash_newtype;
+        // dotnet format expects switch-case block braces indented one level
+        // deeper than the `case` keyword (the body's indent), not aligned to
+        // it — otherwise it reformats every commit and breaks alef-verify.
         out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
-        out.push_str("            {\n");
+        out.push_str("                {\n");
         if is_newtype {
-            out.push_str("                var doc = JsonSerializer.SerializeToDocument(v.Value, options);\n");
+            out.push_str("                    var doc = JsonSerializer.SerializeToDocument(v.Value, options);\n");
         } else {
-            out.push_str("                var doc = JsonSerializer.SerializeToDocument(v, options);\n");
+            out.push_str("                    var doc = JsonSerializer.SerializeToDocument(v, options);\n");
         }
-        out.push_str("                writer.WriteStartObject();\n");
+        out.push_str("                    writer.WriteStartObject();\n");
         out.push_str(&format!(
-            "                writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"
+            "                    writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"
         ));
-        out.push_str("                foreach (var prop in doc.RootElement.EnumerateObject())\n");
+        out.push_str("                    foreach (var prop in doc.RootElement.EnumerateObject())\n");
         out.push_str(&format!(
-            "                    if (prop.Name != \"{tag_field}\") prop.WriteTo(writer);\n"
+            "                        if (prop.Name != \"{tag_field}\") prop.WriteTo(writer);\n"
         ));
-        out.push_str("                writer.WriteEndObject();\n");
-        out.push_str("                break;\n");
-        out.push_str("            }\n");
+        out.push_str("                    writer.WriteEndObject();\n");
+        out.push_str("                    break;\n");
+        out.push_str("                }\n");
     }
 
     out.push_str(&format!(

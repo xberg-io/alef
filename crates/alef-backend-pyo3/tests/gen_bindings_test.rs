@@ -2304,7 +2304,9 @@ fn test_sanitized_field_gets_serde_skip() {
     };
 
     let config = make_config();
-    let files = backend.generate_bindings(&api, &config).expect("generate_bindings failed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
     let lib_file = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let content = &lib_file.content;
 
@@ -2364,7 +2366,9 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
     };
 
     let config = make_config();
-    let files = backend.generate_bindings(&api, &config).expect("generate_bindings failed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
     let lib_file = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
@@ -2449,7 +2453,9 @@ fn test_api_py_uses_keyword_arguments() {
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
         async_runtime: None,
-        stubs: Some(StubsConfig { output: std::path::PathBuf::from("packages/python/src/") }),
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/src/"),
+        }),
         features: None,
         serde_rename_all: None,
         capsule_types: Default::default(),
@@ -2463,7 +2469,9 @@ fn test_api_py_uses_keyword_arguments() {
         extra_lint_paths: Vec::new(),
     });
 
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
 
     // The call to _rust.extract_file must use keyword arguments.
@@ -2533,7 +2541,9 @@ fn test_async_function_emits_async_def_and_await() {
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
         async_runtime: None,
-        stubs: Some(StubsConfig { output: std::path::PathBuf::from("packages/python/src/") }),
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/src/"),
+        }),
         features: None,
         serde_rename_all: None,
         capsule_types: Default::default(),
@@ -2547,7 +2557,9 @@ fn test_async_function_emits_async_def_and_await() {
         extra_lint_paths: Vec::new(),
     });
 
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
 
     assert!(
@@ -2618,7 +2630,9 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
         async_runtime: None,
-        stubs: Some(StubsConfig { output: std::path::PathBuf::from("packages/python/src/") }),
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/src/"),
+        }),
         features: None,
         serde_rename_all: None,
         capsule_types: Default::default(),
@@ -2655,7 +2669,9 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         },
     ];
 
-    let files = backend.generate_public_api(&api, &config).expect("generate_public_api failed");
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
     let init_py = files.iter().find(|f| f.path.ends_with("__init__.py")).unwrap();
 
