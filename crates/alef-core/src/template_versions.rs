@@ -304,6 +304,9 @@ pub mod pub_dev {
 
     // renovate: datasource=pub depName=ffi
     pub const FFI_PACKAGE: &str = "^2.1.0";
+
+    // renovate: datasource=pub depName=http
+    pub const HTTP_PACKAGE: &str = "^1.2.0";
 }
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.
