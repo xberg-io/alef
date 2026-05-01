@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-05-01
+
+### Fixed
+
+- fix(backend/php): always emit `#![cfg_attr(windows, feature(abi_vectorcall))]`
+  in the generated PHP binding lib.rs. ext-php-rs requires the `vectorcall`
+  calling convention for PHP entry points on Windows, but the generator
+  previously only emitted the cfg_attr when `[php].feature_gate` was set.
+  Without it, downstream crates fail with E0658 ("the extern \"vectorcall\"
+  ABI is experimental"). The cfg_attr is a no-op on non-windows so it costs
+  nothing on Linux/macOS builds.
+
 ## [0.13.2] - 2026-05-01
 
 ### Fixed

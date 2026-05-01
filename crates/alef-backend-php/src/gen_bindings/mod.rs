@@ -425,13 +425,19 @@ impl Backend for PhpBackend {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
         }
 
-        // Add feature gate as inner attribute — entire crate is gated
+        // Always enable abi_vectorcall on Windows — ext-php-rs requires the
+        // `vectorcall` calling convention for PHP entry points there. The feature
+        // is unstable on stable Rust; consumers either build with nightly or set
+        // RUSTC_BOOTSTRAP=1 (the upstream-recommended workaround). This cfg_attr
+        // is a no-op on non-windows so it costs nothing on Linux/macOS builds.
         let php_config = config.php.as_ref();
+        builder.add_inner_attribute("cfg_attr(windows, feature(abi_vectorcall))");
+
+        // Optional feature gate — when [php].feature_gate is set, the entire crate
+        // is conditionally compiled. Use this for parity with PyO3's `extension-module`
+        // pattern; most PHP bindings don't need it.
         if let Some(feature_name) = php_config.and_then(|c| c.feature_gate.as_deref()) {
             builder.add_inner_attribute(&format!("cfg(feature = \"{feature_name}\")"));
-            builder.add_inner_attribute(&format!(
-                "cfg_attr(all(windows, target_env = \"msvc\", feature = \"{feature_name}\"), feature(abi_vectorcall))"
-            ));
         }
 
         // PHP module entry point — explicit class registration required because
