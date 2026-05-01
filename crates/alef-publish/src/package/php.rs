@@ -85,11 +85,17 @@ pub fn package_php(
     version: &str,
     options: &PiePackageOptions<'_>,
 ) -> Result<PackageArtifact> {
-    // Derive the PHP extension name from the crate's output path, falling back to
-    // the AlefConfig-level helper.
-    let ext_name = crate::crate_name_from_output(config, alef_core::config::extras::Language::Php)
+    // PHP extension name comes from `[php].extension_name` in alef.toml (which is
+    // also the value emitted into composer.json's `php-ext.extension-name`). PIE
+    // installs the binary using this name, so it MUST match composer.json — never
+    // derive from the crate name (which carries a `-php` binding suffix).
+    let ext_name = config.php_extension_name();
+
+    // Cargo's compiled artifact filename comes from the crate name, not the PHP
+    // extension name — for `html-to-markdown-php` cargo emits `html_to_markdown_php.{so,dylib,dll}`.
+    let cargo_lib_stem = crate::crate_name_from_output(config, alef_core::config::extras::Language::Php)
         .map(|n| n.replace('-', "_"))
-        .unwrap_or_else(|| config.php_extension_name());
+        .unwrap_or_else(|| ext_name.clone());
 
     let archive_name = pie_archive_name(&ext_name, version, target, options)?;
     let archive_path = output_dir.join(&archive_name);
@@ -102,16 +108,17 @@ pub fn package_php(
     fs::create_dir_all(&staging)?;
 
     if target.os == Os::Windows {
-        // Windows: locate the .dll and place it at staging root.
-        let dll_name = format!("{ext_name}.dll");
-        let dll_src = find_php_ext(workspace_root, target, &dll_name)?;
-        fs::copy(&dll_src, staging.join(&dll_name))?;
+        // Locate the cargo-produced .dll and rename it to {ext_name}.dll inside the archive.
+        let cargo_dll_name = format!("{cargo_lib_stem}.dll");
+        let dll_src = find_php_ext(workspace_root, target, &cargo_dll_name)?;
+        let staged_name = format!("{ext_name}.dll");
+        fs::copy(&dll_src, staging.join(&staged_name))?;
         create_zip(&staging, &archive_path)?;
     } else {
-        // Unix: locate .so or .dylib and place it as {ext_name}.so at staging root.
-        let lib_file = target.shared_lib_name(&ext_name);
-        let lib_src = find_php_ext(workspace_root, target, &lib_file)?;
-        // PIE always expects {ext_name}.so — rename .dylib on macOS.
+        // Locate cargo's .so/.dylib and rename to {ext_name}.so inside the archive.
+        // PIE always looks for {ext_name}.so on Unix — even on macOS where cargo emits .dylib.
+        let cargo_lib_file = target.shared_lib_name(&cargo_lib_stem);
+        let lib_src = find_php_ext(workspace_root, target, &cargo_lib_file)?;
         let staged_name = format!("{ext_name}.so");
         fs::copy(&lib_src, staging.join(&staged_name))?;
         super::create_tar_gz(&staging, &archive_path)?;

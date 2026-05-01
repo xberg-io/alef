@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-05-01
+
 ### Fixed
+
+- fix(publish/php): use `[php].extension_name` (composer.json's `php-ext.extension-name`)
+  for PIE archive filenames and inner `.so`/`.dll` name, not the binding crate name. PIE
+  installs binaries by extension-name, so `package_php` previously emitted
+  `php_{crate}_php-...` archives that PIE couldn't find. Cargo's compiled artifact filename
+  (still based on the crate name with `-php` suffix) is now resolved separately and renamed
+  to `{ext_name}.so` / `{ext_name}.dll` inside the archive.
 
 - fix(backend/ffi): honor `[ffi] exclude_types` in generated lib.rs. Previously the `FfiConfig::exclude_types`
   field was parsed from `alef.toml` but never applied during code generation — all types in the API surface

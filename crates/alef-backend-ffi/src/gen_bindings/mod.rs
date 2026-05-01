@@ -218,7 +218,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         .unwrap_or_default();
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
-    for typ in api.types.iter().filter(|typ| !typ.is_trait && !ffi_exclude_types.contains(typ.name.as_str())) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !ffi_exclude_types.contains(typ.name.as_str()))
+    {
         // Generate from_json/to_json for types that derive serde Serialize/Deserialize.
         // Opaque types and types without serde derives are skipped.
         // Note: sanitized fields do NOT block from_json/to_json generation because these
