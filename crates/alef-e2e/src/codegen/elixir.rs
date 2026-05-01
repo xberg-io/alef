@@ -333,6 +333,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     let _ = writeln!(out, "  end");
 }
 
+/// HTTP methods that Req exposes as convenience functions.
+/// All others must be called via `Req.request(method: :METHOD, ...)`.
+const REQ_CONVENIENCE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head"];
+
 /// Emit Req request lines inside an ExUnit test.
 fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str) {
     let method = req.method.to_lowercase();
@@ -380,14 +384,25 @@ fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &
 
     // Use the mock server's /fixtures/<id> endpoint.
     let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{}\"", escape_elixir(fixture_id));
-    if opts.is_empty() {
-        let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
+
+    // Req only exposes convenience functions for common HTTP verbs.
+    // Less common methods (OPTIONS, CONNECT, TRACE, etc.) must use Req.request/1.
+    if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
+        if opts.is_empty() {
+            let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
+        } else {
+            let opts_str = opts.join(", ");
+            let _ = writeln!(
+                out,
+                "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
+            );
+        }
     } else {
+        // Fall back to Req.request/1 for non-standard methods.
+        opts.insert(0, format!("method: :{method}"));
+        opts.insert(1, format!("url: {url_expr}"));
         let opts_str = opts.join(", ");
-        let _ = writeln!(
-            out,
-            "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
-        );
+        let _ = writeln!(out, "      {{:ok, response}} = Req.request({opts_str})");
     }
 }
 
@@ -395,11 +410,13 @@ fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &
 fn render_elixir_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
     if let Some(body) = &expected.body {
         let elixir_val = json_to_elixir(body);
-        let _ = writeln!(out, "      assert Jason.decode!(response.body) == {elixir_val}");
+        // Req auto-decodes JSON bodies; compare the decoded map directly.
+        let _ = writeln!(out, "      assert response.body == {elixir_val}");
     }
     if let Some(partial) = &expected.body_partial {
         if let Some(obj) = partial.as_object() {
-            let _ = writeln!(out, "      decoded_body = Jason.decode!(response.body)");
+            // Req auto-decodes JSON bodies; `response.body` is already a map.
+            let _ = writeln!(out, "      decoded_body = response.body");
             for (key, val) in obj {
                 let key_lit = format!("\"{}\"", escape_elixir(key));
                 let elixir_val = json_to_elixir(val);
@@ -428,9 +445,10 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
     for (name, value) in &expected.headers {
         let header_key = name.to_lowercase();
         let key_lit = format!("\"{}\"", escape_elixir(&header_key));
-        // Req stores response headers as a list of {name, value} tuples.
-        let get_header_expr =
-            format!("Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: v end)");
+        // Req (via Mint) stores header values as lists; extract the first value.
+        let get_header_expr = format!(
+            "Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: List.first(List.wrap(v)) end)"
+        );
         match value.as_str() {
             "<<present>>" => {
                 let _ = writeln!(out, "      assert {get_header_expr} != nil");
@@ -976,7 +994,18 @@ fn json_to_elixir(value: &serde_json::Value) -> String {
         serde_json::Value::String(s) => format!("\"{}\"", escape_elixir(s)),
         serde_json::Value::Bool(true) => "true".to_string(),
         serde_json::Value::Bool(false) => "false".to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Number(n) => {
+            // Elixir requires floats to have a decimal point and does not accept
+            // `e+N` exponent notation. Strip the `+` and ensure there is a decimal
+            // point before any `e` exponent marker (e.g. `1e-10` → `1.0e-10`).
+            let s = n.to_string().replace("e+", "e");
+            if s.contains('e') && !s.contains('.') {
+                // Insert `.0` before the `e` so Elixir treats this as a float.
+                s.replacen('e', ".0e", 1)
+            } else {
+                s
+            }
+        }
         serde_json::Value::Null => "nil".to_string(),
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr.iter().map(json_to_elixir).collect();
@@ -985,7 +1014,7 @@ fn json_to_elixir(value: &serde_json::Value) -> String {
         serde_json::Value::Object(map) => {
             let entries: Vec<String> = map
                 .iter()
-                .map(|(k, v)| format!("\"{}\" => {}", k.to_snake_case(), json_to_elixir(v)))
+                .map(|(k, v)| format!("\"{}\" => {}", escape_elixir(k), json_to_elixir(v)))
                 .collect();
             format!("%{{{}}}", entries.join(", "))
         }

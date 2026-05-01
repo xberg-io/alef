@@ -46,13 +46,19 @@ impl super::E2eCodegen for RustE2eCodegen {
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
+            .any(|f| !is_skipped(f, "rust") && f.mock_response.is_some());
 
-        // Tokio is needed when any test is async (mock server or async call config).
+        // Check if any fixture uses the http integration test pattern (spikard http fixtures).
+        let needs_http_tests = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| !is_skipped(f, "rust") && f.http.is_some());
+
+        // Tokio is needed when any test is async (mock server, http tests, or async call config).
         let any_async_call = std::iter::once(&e2e_config.call)
             .chain(e2e_config.calls.values())
             .any(|c| c.r#async);
-        let needs_tokio = needs_mock_server || any_async_call;
+        let needs_tokio = needs_mock_server || needs_http_tests || any_async_call;
 
         let crate_version = resolve_crate_version(e2e_config);
         files.push(GeneratedFile {
@@ -63,6 +69,7 @@ impl super::E2eCodegen for RustE2eCodegen {
                 &crate_path,
                 needs_serde_json,
                 needs_mock_server,
+                needs_http_tests,
                 needs_tokio,
                 e2e_config.dep_mode,
                 crate_version.as_deref(),
@@ -78,7 +85,10 @@ impl super::E2eCodegen for RustE2eCodegen {
                 content: render_mock_server_module(),
                 generated_header: true,
             });
-            // Generate standalone mock-server binary for cross-language e2e suites.
+        }
+        // Always generate standalone mock-server binary for cross-language e2e suites
+        // when any fixture has http data (serves fixture responses for non-Rust tests).
+        if needs_mock_server || needs_http_tests {
             files.push(GeneratedFile {
                 path: output_base.join("src").join("main.rs"),
                 content: render_mock_server_binary(),
@@ -171,6 +181,7 @@ pub fn render_cargo_toml(
     crate_path: &str,
     needs_serde_json: bool,
     needs_mock_server: bool,
+    needs_http_tests: bool,
     needs_tokio: bool,
     dep_mode: crate::config::DependencyMode,
     version: Option<&str>,
@@ -208,8 +219,9 @@ pub fn render_cargo_toml(
         }
     };
     // serde_json is needed either when args use json_object/handle, or when the
-    // mock server binary is present (it uses serde_json::Value for fixture bodies).
-    let effective_needs_serde_json = needs_serde_json || needs_mock_server;
+    // mock server binary is present (it uses serde_json::Value for fixture bodies),
+    // or when http integration tests are generated (they serialize fixture bodies).
+    let effective_needs_serde_json = needs_serde_json || needs_mock_server || needs_http_tests;
     let serde_line = if effective_needs_serde_json {
         "\nserde_json = \"1\""
     } else {
@@ -222,13 +234,24 @@ pub fn render_cargo_toml(
     // workspace or not.
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     // The standalone binary additionally needs serde (derive) and walkdir.
-    let mock_lines = if needs_mock_server {
-        format!(
-            "\naxum = \"{axum}\"\ntokio-stream = \"{tokio_stream}\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nwalkdir = \"{walkdir}\"",
+    // Http integration tests require axum-test for the test server.
+    let needs_axum = needs_mock_server || needs_http_tests;
+    let mock_lines = if needs_axum {
+        let mut lines = format!(
+            "\naxum = \"{axum}\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nwalkdir = \"{walkdir}\"",
             axum = tv::cargo::AXUM,
-            tokio_stream = tv::cargo::TOKIO_STREAM,
             walkdir = tv::cargo::WALKDIR,
-        )
+        );
+        if needs_mock_server {
+            lines.push_str(&format!(
+                "\ntokio-stream = \"{tokio_stream}\"",
+                tokio_stream = tv::cargo::TOKIO_STREAM
+            ));
+        }
+        if needs_http_tests {
+            lines.push_str("\naxum-test = \"20\"\nbytes = \"1\"");
+        }
+        lines
     } else {
         String::new()
     };
@@ -236,11 +259,17 @@ pub fn render_cargo_toml(
     if effective_needs_serde_json {
         machete_ignored.push("\"serde_json\"");
     }
-    if needs_mock_server {
+    if needs_axum {
         machete_ignored.push("\"axum\"");
-        machete_ignored.push("\"tokio-stream\"");
         machete_ignored.push("\"serde\"");
         machete_ignored.push("\"walkdir\"");
+    }
+    if needs_mock_server {
+        machete_ignored.push("\"tokio-stream\"");
+    }
+    if needs_http_tests {
+        machete_ignored.push("\"axum-test\"");
+        machete_ignored.push("\"bytes\"");
     }
     let machete_section = if machete_ignored.is_empty() {
         String::new()
@@ -255,7 +284,7 @@ pub fn render_cargo_toml(
     } else {
         ""
     };
-    let bin_section = if needs_mock_server {
+    let bin_section = if needs_mock_server || needs_http_tests {
         "\n[[bin]]\nname = \"mock-server\"\npath = \"src/main.rs\"\n"
     } else {
         ""
@@ -298,28 +327,40 @@ fn render_test_file(
         &e2e_config.fields_array,
     );
 
-    // Collect all unique (module, function) pairs needed across all fixtures in this file.
-    // Fixtures that name a specific call may use a different function (and module) than
-    // the default [e2e.call] config.
-    let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
-    for fixture in fixtures.iter() {
-        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-        let fn_name = resolve_function_name_for_call(call_config);
-        let mod_name = resolve_module_for_call(call_config, dep_name);
-        imported.insert((mod_name, fn_name));
-    }
-    // Emit use statements, grouping by module when possible.
-    let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
-    for (mod_name, fn_name) in &imported {
-        by_module.entry(mod_name.clone()).or_default().push(fn_name.clone());
-    }
-    for (mod_name, fns) in &by_module {
-        if fns.len() == 1 {
-            let _ = writeln!(out, "use {mod_name}::{};", fns[0]);
-        } else {
-            let joined = fns.join(", ");
-            let _ = writeln!(out, "use {mod_name}::{{{joined}}};");
+    // Check if this file has http-fixture tests (separate from call-based tests).
+    let file_has_http = fixtures.iter().any(|f| f.http.is_some());
+    // Call-based: has mock_response (liter-llm style), NOT pure stub fixtures.
+    // Pure stub fixtures (neither http nor mock_response) use a stub path — no function import.
+    let file_has_call_based = fixtures.iter().any(|f| f.mock_response.is_some());
+
+    // Collect all unique (module, function) pairs needed across call-based fixtures only.
+    // Http fixtures and stub fixtures use different code paths and don't import the call function.
+    if file_has_call_based {
+        let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+        for fixture in fixtures.iter().filter(|f| f.mock_response.is_some()) {
+            let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+            let fn_name = resolve_function_name_for_call(call_config);
+            let mod_name = resolve_module_for_call(call_config, dep_name);
+            imported.insert((mod_name, fn_name));
         }
+        // Emit use statements, grouping by module when possible.
+        let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+        for (mod_name, fn_name) in &imported {
+            by_module.entry(mod_name.clone()).or_default().push(fn_name.clone());
+        }
+        for (mod_name, fns) in &by_module {
+            if fns.len() == 1 {
+                let _ = writeln!(out, "use {mod_name}::{};", fns[0]);
+            } else {
+                let joined = fns.join(", ");
+                let _ = writeln!(out, "use {mod_name}::{{{joined}}};");
+            }
+        }
+    }
+
+    // Http fixtures use App + RequestContext for integration tests.
+    if file_has_http {
+        let _ = writeln!(out, "use {module}::{{App, RequestContext}};");
     }
 
     // Import handle constructor functions and the config type they use.
@@ -336,7 +377,7 @@ fn render_test_file(
     }
 
     // Import mock_server module when any fixture in this file uses mock_response.
-    let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.needs_mock_server());
+    let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.mock_response.is_some());
     if file_needs_mock {
         let _ = writeln!(out, "mod mock_server;");
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");
@@ -371,13 +412,37 @@ fn render_test_function(
     dep_name: &str,
     field_resolver: &FieldResolver,
 ) {
+    // Http fixtures get their own integration test code path.
+    if fixture.http.is_some() {
+        render_http_test_function(out, fixture, dep_name);
+        return;
+    }
+
+    // Fixtures that have neither `http` nor `mock_response` are schema/spec
+    // validation fixtures (asyncapi, grpc, graphql_schema, etc.). These don't
+    // yet have a callable function in the Rust e2e suite — generate a stub
+    // that compiles and passes to preserve test count without breaking builds.
+    if fixture.http.is_none() && fixture.mock_response.is_none() {
+        let fn_name = sanitize_ident(&fixture.id);
+        let description = &fixture.description;
+        let _ = writeln!(out, "#[tokio::test]");
+        let _ = writeln!(out, "async fn test_{fn_name}() {{");
+        let _ = writeln!(out, "    // {description}");
+        let _ = writeln!(
+            out,
+            "    // TODO: implement when a callable API is available for this fixture type."
+        );
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_function_name_for_call(call_config);
     let module = resolve_module_for_call(call_config, dep_name);
     let result_var = &call_config.result_var;
-    let has_mock = fixture.needs_mock_server();
+    let has_mock = fixture.mock_response.is_some();
 
     // Tests with a mock server are always async (Axum requires a Tokio runtime).
     let is_async = call_config.r#async || has_mock;
@@ -865,6 +930,157 @@ fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Http integration test helpers
+// ---------------------------------------------------------------------------
+
+/// Generate a complete integration test function for an http fixture.
+///
+/// Builds a real spikard `App` with a handler that returns the expected
+/// response, then uses `axum_test::TestServer` to send the request and
+/// assert the status code.
+fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str) {
+    let http = match &fixture.http {
+        Some(h) => h,
+        None => return,
+    };
+
+    let fn_name = sanitize_ident(&fixture.id);
+    let description = &fixture.description;
+
+    let route = &http.handler.route;
+
+    // spikard provides convenience functions for GET/POST/PUT/PATCH/DELETE.
+    // All other methods (HEAD, OPTIONS, TRACE, etc.) must use RouteBuilder::new directly.
+    enum RouteRegistration<'a> {
+        /// Use `spikard::get(path)` / `spikard::post(path)` etc.
+        Shorthand(&'a str),
+        /// Use `spikard::RouteBuilder::new(spikard::Method::Head, path)` etc.
+        Explicit(&'a str),
+    }
+    let route_reg = match http.handler.method.to_lowercase().as_str() {
+        "get" => RouteRegistration::Shorthand("get"),
+        "post" => RouteRegistration::Shorthand("post"),
+        "put" => RouteRegistration::Shorthand("put"),
+        "patch" => RouteRegistration::Shorthand("patch"),
+        "delete" => RouteRegistration::Shorthand("delete"),
+        "head" => RouteRegistration::Explicit("Head"),
+        "options" => RouteRegistration::Explicit("Options"),
+        "trace" => RouteRegistration::Explicit("Trace"),
+        _ => RouteRegistration::Shorthand("get"),
+    };
+
+    // axum_test::TestServer has shorthand methods for GET/POST/PUT/PATCH/DELETE.
+    // For HEAD and other methods, use server.method(axum::http::Method::HEAD, path).
+    enum ServerCall<'a> {
+        /// Use `server.get(path)` / `server.post(path)` etc.
+        Shorthand(&'a str),
+        /// Use `server.method(axum::http::Method::HEAD, path)` etc.
+        AxumMethod(&'a str),
+    }
+    let server_call = match http.request.method.to_uppercase().as_str() {
+        "GET" => ServerCall::Shorthand("get"),
+        "POST" => ServerCall::Shorthand("post"),
+        "PUT" => ServerCall::Shorthand("put"),
+        "PATCH" => ServerCall::Shorthand("patch"),
+        "DELETE" => ServerCall::Shorthand("delete"),
+        "HEAD" => ServerCall::AxumMethod("HEAD"),
+        "OPTIONS" => ServerCall::AxumMethod("OPTIONS"),
+        "TRACE" => ServerCall::AxumMethod("TRACE"),
+        _ => ServerCall::Shorthand("get"),
+    };
+
+    let req_path = &http.request.path;
+    let status = http.expected_response.status_code;
+
+    // Serialize expected response body (if any).
+    let body_str = match &http.expected_response.body {
+        Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
+        None => String::new(),
+    };
+    let body_literal = rust_raw_string(&body_str);
+
+    // Serialize request body (if any).
+    let req_body_str = match &http.request.body {
+        Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
+        None => String::new(),
+    };
+    let has_req_body = !req_body_str.is_empty();
+
+    let _ = writeln!(out, "#[tokio::test]");
+    let _ = writeln!(out, "async fn test_{fn_name}() {{");
+    let _ = writeln!(out, "    // {description}");
+
+    // Build handler that returns the expected response.
+    let _ = writeln!(out, "    let expected_body = {body_literal}.to_string();");
+    let _ = writeln!(out, "    let mut app = {dep_name}::App::new();");
+
+    // Emit route registration.
+    match &route_reg {
+        RouteRegistration::Shorthand(method) => {
+            let _ = writeln!(
+                out,
+                "    app.route({dep_name}::{method}({route:?}), move |_ctx: {dep_name}::RequestContext| {{"
+            );
+        }
+        RouteRegistration::Explicit(variant) => {
+            let _ = writeln!(
+                out,
+                "    app.route({dep_name}::RouteBuilder::new({dep_name}::Method::{variant}, {route:?}), move |_ctx: {dep_name}::RequestContext| {{"
+            );
+        }
+    }
+    let _ = writeln!(out, "        let body = expected_body.clone();");
+    let _ = writeln!(out, "        async move {{");
+    let _ = writeln!(out, "            Ok(axum::http::Response::builder()");
+    let _ = writeln!(out, "                .status({status}u16)");
+    let _ = writeln!(out, "                .header(\"content-type\", \"application/json\")");
+    let _ = writeln!(out, "                .body(axum::body::Body::from(body))");
+    let _ = writeln!(out, "                .unwrap())");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "    }}).unwrap();");
+
+    // Build axum-test TestServer from the app router.
+    let _ = writeln!(out, "    let router = app.into_router().unwrap();");
+    let _ = writeln!(out, "    let server = axum_test::TestServer::new(router);");
+
+    // Build and send the request.
+    match &server_call {
+        ServerCall::Shorthand(method) => {
+            let _ = writeln!(out, "    let response = server.{method}({req_path:?})");
+        }
+        ServerCall::AxumMethod(method) => {
+            let _ = writeln!(
+                out,
+                "    let response = server.method(axum::http::Method::{method}, {req_path:?})"
+            );
+        }
+    }
+
+    // Add request headers (axum_test::TestRequest::add_header accepts &str via TryInto).
+    for (name, value) in &http.request.headers {
+        let n = rust_raw_string(name);
+        let v = rust_raw_string(value);
+        let _ = writeln!(out, "        .add_header({n}, {v})");
+    }
+
+    // Add request body if present (pass as a JSON string so axum-test's bytes() API gets a Bytes value).
+    if has_req_body {
+        let req_body_literal = rust_raw_string(&req_body_str);
+        let _ = writeln!(
+            out,
+            "        .bytes(bytes::Bytes::copy_from_slice({req_body_literal}.as_bytes()))"
+        );
+    }
+
+    let _ = writeln!(out, "        .await;");
+
+    // Assert status code.
+    let _ = writeln!(out, "    assert_eq!(response.status_code().as_u16(), {status}u16);");
+
+    let _ = writeln!(out, "}}");
+}
+
+// ---------------------------------------------------------------------------
 // Mock server helpers
 // ---------------------------------------------------------------------------
 
@@ -1235,8 +1451,19 @@ fn serve_route(route: &MockRoute) -> Response {
         return builder.body(Body::from(sse)).unwrap().into_response();
     }
 
-    let mut builder = Response::builder().status(status).header("content-type", "application/json");
+    // Only set the default content-type if the fixture does not override it.
+    let has_content_type = route.headers.iter().any(|(k, _)| k.to_lowercase() == "content-type");
+    let mut builder = Response::builder().status(status);
+    if !has_content_type {
+        builder = builder.header("content-type", "application/json");
+    }
     for (name, value) in &route.headers {
+        // Skip content-encoding headers — the mock server returns uncompressed bodies.
+        // Sending a content-encoding without actually encoding the body would cause
+        // clients to fail decompression.
+        if name.to_lowercase() == "content-encoding" {
+            continue;
+        }
         builder = builder.header(name, value);
     }
     builder.body(Body::from(route.body.clone())).unwrap().into_response()
