@@ -154,9 +154,12 @@ fn render_test_file(
     // used" compile error.
     let needs_pkg = fixtures.iter().any(|f| f.mock_response.is_some());
 
-    // Determine if we need the "os" import (mock_url args).
-    // Check all resolved per-fixture call args.
+    // Determine if we need the "os" import (mock_url args, or HTTP fixtures
+    // that read MOCK_SERVER_URL via os.Getenv).
     let needs_os = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return true;
+        }
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
@@ -271,6 +274,10 @@ fn render_test_file(
     // Determine if we need "net/http" and "io" (HTTP server tests via HTTP client).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
     let needs_http = has_http_fixtures;
+    // io.ReadAll is only emitted when an HTTP fixture has a body assertion.
+    let needs_io = fixtures
+        .iter()
+        .any(|f| f.http.as_ref().is_some_and(|h| h.expected_response.body.is_some()));
 
     // Determine if we need "reflect" (for HTTP response body JSON comparison).
     let needs_reflect = fixtures.iter().any(|f| {
@@ -298,7 +305,7 @@ fn render_test_file(
     if needs_fmt {
         let _ = writeln!(out, "\t\"fmt\"");
     }
-    if needs_http {
+    if needs_io {
         let _ = writeln!(out, "\t\"io\"");
     }
     if needs_http {
@@ -367,15 +374,16 @@ fn render_test_function(
         return;
     }
 
-    // The Go binding wraps a C FFI layer and does not expose a HandleRequest or equivalent
-    // function that can be called from e2e tests. Emit compilable stubs for non-HTTP fixtures
-    // that don't have Rust FFI bindings.
+    // The Go binding wraps a C FFI layer and does not expose a HandleRequest
+    // (or equivalent) callable. Non-HTTP non-mock_response fixtures cannot be
+    // tested via Go — emit a documented stub to keep the generated package
+    // compilable. HTTP fixtures dispatch to the HTTP renderer above.
     if fixture.mock_response.is_none() {
         let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
         let _ = writeln!(out, "\t// {description}");
         let _ = writeln!(
             out,
-            "\tt.Skip(\"TODO: implement Go e2e tests via the spikard Go binding API\")"
+            "\tt.Skip(\"non-HTTP fixture: Go binding does not expose a callable for the configured `[e2e.call]` function\")"
         );
         let _ = writeln!(out, "}}");
         return;
@@ -726,11 +734,14 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\tdefer resp.Body.Close()");
 
-    // Read body.
-    let _ = writeln!(out, "\tbodyBytes, err := io.ReadAll(resp.Body)");
-    let _ = writeln!(out, "\tif err != nil {{");
-    let _ = writeln!(out, "\t\tt.Fatalf(\"read body failed: %v\", err)");
-    let _ = writeln!(out, "\t}}");
+    // Read body — only declare bodyBytes if a body assertion will use it.
+    let body_used = expected.body.is_some();
+    if body_used {
+        let _ = writeln!(out, "\tbodyBytes, err := io.ReadAll(resp.Body)");
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"read body failed: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+    }
 
     // Assert status code.
     let _ = writeln!(out, "\tif resp.StatusCode != {expected_status} {{");
@@ -746,8 +757,9 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                 let json_str = serde_json::to_string(expected_body).unwrap_or_default();
                 let escaped = go_string_literal(&json_str);
-                let _ = writeln!(out, "\tvar got map[string]any");
-                let _ = writeln!(out, "\tvar want map[string]any");
+                // Use `any` so JSON objects and arrays both decode correctly.
+                let _ = writeln!(out, "\tvar got any");
+                let _ = writeln!(out, "\tvar want any");
                 let _ = writeln!(out, "\tif err := json.Unmarshal(bodyBytes, &got); err != nil {{");
                 let _ = writeln!(out, "\t\tt.Fatalf(\"json unmarshal got: %v\", err)");
                 let _ = writeln!(out, "\t}}");
@@ -763,14 +775,16 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
             }
             serde_json::Value::String(s) => {
                 let escaped = go_string_literal(s);
-                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != {escaped} {{");
-                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %s want {escaped}\", string(bodyBytes))");
+                let _ = writeln!(out, "\twant := {escaped}");
+                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != want {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %q want %q\", string(bodyBytes), want)");
                 let _ = writeln!(out, "\t}}");
             }
             other => {
                 let escaped = go_string_literal(&other.to_string());
-                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != {escaped} {{");
-                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %s want {escaped}\", string(bodyBytes))");
+                let _ = writeln!(out, "\twant := {escaped}");
+                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != want {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %q want %q\", string(bodyBytes), want)");
                 let _ = writeln!(out, "\t}}");
             }
         }
@@ -790,7 +804,7 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
         );
         let _ = writeln!(
             out,
-            "\t\tt.Fatalf(\"header {escaped_name} mismatch: got %s want to contain {escaped_value}\", resp.Header.Get({escaped_name}))"
+            "\t\tt.Fatalf(\"header %s mismatch: got %q want to contain %q\", {escaped_name}, resp.Header.Get({escaped_name}), {escaped_value})"
         );
         let _ = writeln!(out, "\t}}");
     }
