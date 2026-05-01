@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.13] - 2026-05-01
+
+### Fixed
+
+- fix(extract): `validate_call_export` now accepts method-on-type references (e.g., `function = "chat"` where `chat` is a method on a public type). Previously rejected legitimate method-style entry points used by `liter-llm` and similar libraries.
+
 ## [0.12.12] - 2026-05-01
 
 ### Fixed
