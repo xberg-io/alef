@@ -487,12 +487,13 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             // Vec<Json> values: each element needs serde deserialization.
             let has_vec_json_val = matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
             if has_json_val || has_json_key || has_named_key || has_named_val || has_vec_named_val || has_vec_json_val {
+                // `k.into()` is a no-op for `String`→`String` and the canonical conversion for
+                // wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`) which the type resolver
+                // collapses to `TypeRef::String`.
                 let k_expr = if has_json_key {
                     "serde_json::from_str(&k).unwrap_or(serde_json::Value::String(k))"
-                } else if has_named_key {
-                    "k.into()"
                 } else {
-                    "k"
+                    "k.into()"
                 };
                 let v_expr = if has_json_val {
                     "serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v))"

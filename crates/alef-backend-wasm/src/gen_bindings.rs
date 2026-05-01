@@ -1443,11 +1443,47 @@ fn gen_function(
             return_annotation
         )
     } else if can_delegate {
-        let let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
+        let mut let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
             alef_codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };
+        // Nested Vec params (e.g. Vec<Vec<String>>) arrive as JsValue because wasm-bindgen
+        // cannot pass them across the boundary directly. Emit a deserialization shadowing
+        // binding so the core call sees a real `Vec<Vec<T>>`.
+        let needs_result_wrap = func
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Vec(outer) if matches!(outer.as_ref(), TypeRef::Vec(_))))
+            && func.error_type.is_none();
+        for p in &func.params {
+            if let TypeRef::Vec(outer_inner) = &p.ty
+                && matches!(outer_inner.as_ref(), TypeRef::Vec(_))
+            {
+                let elem_ty = if let TypeRef::Vec(elem) = outer_inner.as_ref() {
+                    typeref_to_core_type_str(elem.as_ref())
+                } else {
+                    "String".to_string()
+                };
+                let core_ty = format!("Vec<Vec<{elem_ty}>>");
+                if p.optional {
+                    let_bindings.push_str(&format!(
+                        "let {n}: Option<{core_ty}> = {n}.map(|v| \
+                         serde_wasm_bindgen::from_value::<{core_ty}>(v)\
+                         .expect(\"deserialize {n}\")) ;\n    ",
+                        n = p.name,
+                    ));
+                } else {
+                    let_bindings.push_str(&format!(
+                        "let {n}: {core_ty} = \
+                         serde_wasm_bindgen::from_value::<{core_ty}>({n})\
+                         .expect(\"deserialize {n}\");\n    ",
+                        n = p.name,
+                    ));
+                }
+            }
+        }
+        let _ = needs_result_wrap;
         let call_args = if let_bindings.is_empty() {
             generators::gen_call_args(&func.params, opaque_types)
         } else {

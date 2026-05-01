@@ -1018,16 +1018,19 @@ fn gen_lossy_binding_to_core_fields_inner(
                 }
                 TypeRef::Map(_, v) => match v.as_ref() {
                     TypeRef::Json => {
-                        // HashMap<String, String> (binding) → HashMap<String, Value> (core)
+                        // HashMap<String, String> (binding) → HashMap<K, Value> (core).
+                        // Emit `k.into()` so wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`)
+                        // — which the type resolver collapses to `TypeRef::String` — convert
+                        // correctly. For a real `String` core key it is a no-op.
                         if field.optional {
                             format!(
                                 "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| \
-                                 (k, serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect())"
+                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect())"
                             )
                         } else {
                             format!(
                                 "self.{name}.clone().into_iter().map(|(k, v)| \
-                                 (k, serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect()"
+                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect()"
                             )
                         }
                     }
@@ -1035,17 +1038,19 @@ fn gen_lossy_binding_to_core_fields_inner(
                     // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
                     TypeRef::Named(_) => {
                         if field.optional {
-                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+                            format!(
+                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
+                            )
                         } else {
-                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
+                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
                         }
                     }
                     // Collect to handle HashMap↔BTreeMap conversion
                     _ => {
                         if field.optional {
-                            format!("self.{name}.clone().map(|m| m.into_iter().collect())")
+                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
                         } else {
-                            format!("self.{name}.clone().into_iter().collect()")
+                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v)).collect()")
                         }
                     }
                 },

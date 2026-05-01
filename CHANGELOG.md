@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(codegen/binding_helpers): apply `k.into()` to Map keys in `gen_lossy_binding_to_core_fields` so the binding-side `is_empty()` helper round-trips wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`) correctly. Previously the helper emitted `(k, …)` directly, which broke when the core key type was `AHashMap<Cow<'static, str>, Value>`.
+- fix(backend-wasm): also deserialize `Vec<Vec<T>>` parameters in the `can_delegate` branch via `serde_wasm_bindgen::from_value`. Previously only the Result-returning serde-recovery branch handled this, so non-Result functions like `generate_cache_key` received the raw `JsValue`.
+- fix(codegen/binding_to_core): emit `k.into()` for non-Json keys in the generic `Map` arm, completing the Cow-key round-trip fix.
+
 ### Changed
 
 - feat(e2e/go): emit `t.Skip("TODO: ...")` stubs for all fixtures that lack a `mock_response`; omit the package import when no test uses it to avoid the Go "imported and not used" compile error.
