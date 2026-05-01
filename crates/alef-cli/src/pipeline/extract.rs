@@ -356,9 +356,16 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
         TypeRef::Map(k, v) => {
-            let a = sanitize_type_ref(k, known_types, known_enums);
-            let b = sanitize_type_ref(v, known_types, known_enums);
-            a || b
+            // Sanitize inner key and value types (e.g. Named("str") → String) so
+            // backends receive clean Map(String, Json) rather than Map(Named("str"), Json).
+            // However, the Map *structure itself* is always valid — all backends have explicit
+            // TypeRef::Map handling — so do NOT propagate sanitized=true to the caller.
+            // If we returned true here, the field would be flagged as sanitized and the
+            // conversion codegen would fall through to the Debug-format fallback
+            // (format!("{:?}", val.field)), which is wrong for every backend.
+            sanitize_type_ref(k, known_types, known_enums);
+            sanitize_type_ref(v, known_types, known_enums);
+            false
         }
         _ => false,
     }
@@ -439,6 +446,12 @@ fn dedup_api_surface(api: &mut ApiSurface) {
     // Remove types that collide with enums (enums win)
     let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     api.types.retain(|t| !enum_names.contains(&t.name));
+
+    // Remove types that collide with errors (errors win).
+    // This catches the case where extract_impl_block previously created an opaque TypeDef
+    // for a thiserror error enum that also had inherent impl methods.
+    let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+    api.types.retain(|t| !error_names.contains(&t.name));
 
     // Dedup types by name — prefer shorter rust_path (closer to crate root).
     // This handles name collisions like kreuzberg::Table vs kreuzberg::extraction::docx::parser::Table.
@@ -655,5 +668,93 @@ fn apply_path_mappings(api: &mut ApiSurface, config: &AlefConfig) {
             error_def.original_rust_path = error_def.rust_path.clone();
         }
         error_def.rust_path = rewrite_path(&error_def.rust_path, &mappings);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
+    /// but must NOT mark the Map itself as sanitized. Returning sanitized=true for a
+    /// Map causes downstream backends to fall through to the Debug-format fallback
+    /// (`format!("{:?}", val.field)`) instead of emitting the correct HashMap/JsValue
+    /// conversion. Regression for AHashMap<Cow<'static, str>, serde_json::Value>.
+    #[test]
+    fn sanitize_map_with_cow_key_preserves_map_structure_and_returns_not_sanitized() {
+        let known_types = AHashSet::default();
+        let known_enums = AHashSet::default();
+        // "str" is NOT in known_types — it represents the inner type of Cow<'static, str>.
+        // The key starts as Named("str") which the type_resolver emits for Cow<'static, str>.
+
+        let mut ty = TypeRef::Map(Box::new(TypeRef::Named("str".into())), Box::new(TypeRef::Json));
+
+        let sanitized = sanitize_type_ref(&mut ty, &known_types, &known_enums);
+
+        // The Map must be preserved — NOT converted to String.
+        assert!(
+            matches!(&ty, TypeRef::Map(k, v)
+                if matches!(k.as_ref(), TypeRef::String)
+                && matches!(v.as_ref(), TypeRef::Json)),
+            "expected Map(String, Json) but got {ty:?}"
+        );
+
+        // sanitize_type_ref must return false: the Map structure is valid and backends
+        // have explicit Map handling. Returning true would mark field.sanitized=true
+        // and trigger the wrong conversion code path in all backends.
+        assert!(
+            !sanitized,
+            "sanitize_type_ref returned sanitized=true for Map — this triggers the Debug-format fallback"
+        );
+
+        // Verify the symmetric case: Map(String, Json) with already-resolved key
+        // should also return false (key is already String, no unknown Named types).
+        let _ = known_types;
+        let mut ty2 = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
+        let sanitized2 = sanitize_type_ref(&mut ty2, &AHashSet::default(), &AHashSet::default());
+        assert!(!sanitized2, "Map(String, Json) should not be sanitized");
+        assert!(
+            matches!(&ty2, TypeRef::Map(k, v)
+                if matches!(k.as_ref(), TypeRef::String)
+                && matches!(v.as_ref(), TypeRef::Json)),
+            "Map(String, Json) must not be mutated when already clean"
+        );
+    }
+
+    /// Map(String, String) — the old case that was already handled correctly downstream —
+    /// must also return sanitized=false after this fix. Backends must handle it via the
+    /// normal (non-sanitized) Map conversion path.
+    #[test]
+    fn sanitize_map_with_both_string_types_returns_not_sanitized() {
+        let mut ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
+        assert!(!sanitized);
+        assert!(matches!(
+            &ty,
+            TypeRef::Map(k, v)
+                if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String)
+        ));
+    }
+
+    /// Primitive field (not a Map) with unknown Named inner type still gets sanitized=true.
+    /// This ensures we didn't break non-Map sanitization.
+    #[test]
+    fn sanitize_named_unknown_type_returns_sanitized_true() {
+        let mut ty = TypeRef::Named("UnknownForeignType".into());
+        let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
+        assert!(sanitized);
+        assert!(matches!(ty, TypeRef::String));
+    }
+
+    /// Vec<Named("unknown")> should still return sanitized=true (inner Named replaced with String).
+    #[test]
+    fn sanitize_vec_with_unknown_named_returns_sanitized_true() {
+        let mut ty = TypeRef::Vec(Box::new(TypeRef::Named("MyForeignStruct".into())));
+        let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
+        assert!(sanitized);
+        assert!(matches!(
+            &ty,
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)
+        ));
     }
 }

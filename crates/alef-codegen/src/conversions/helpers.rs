@@ -519,16 +519,46 @@ pub(crate) fn is_tuple_type_name(name: &str) -> bool {
 /// so that `From` impls reference the actual defining crate, avoiding orphan
 /// rule violations when `core_import` is a re-export facade.
 pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
+    core_type_path_remapped(typ, core_import, &[])
+}
+
+/// Like [`core_type_path`] but rewrites the leading crate segment when it matches
+/// a known source→override mapping.
+///
+/// When `core_crate_override` is set for a language, IR `rust_path` values still
+/// contain the original source crate prefix (e.g. `spikard_core::Method`). The
+/// `remaps` slice contains `(original_crate, override_crate)` pairs; when the
+/// leading crate segment of `rust_path` matches `original_crate`, it is replaced
+/// with `override_crate`.
+pub fn core_type_path_remapped(typ: &TypeDef, core_import: &str, remaps: &[(&str, &str)]) -> String {
     // Always use rust_path (post path-mapping) — this is the import name that
     // binding crates can actually resolve. The original_rust_path preserves the
     // pre-mapping crate name (e.g. "html_to_markdown") which may not be importable
     // when the dependency is renamed (e.g. "html-to-markdown-rs" in Cargo.toml).
     let path = typ.rust_path.replace('-', "_");
     if path.contains("::") {
-        path
+        apply_crate_remaps(&path, remaps)
     } else {
         format!("{core_import}::{}", typ.name)
     }
+}
+
+/// Apply source→override crate remaps to a fully-qualified Rust path.
+///
+/// If the leading crate segment of `path` (the part before the first `::`)
+/// matches any entry in `remaps`, that segment is replaced with the override.
+/// Returns `path` unchanged when no remap applies.
+pub fn apply_crate_remaps(path: &str, remaps: &[(&str, &str)]) -> String {
+    if remaps.is_empty() {
+        return path.to_string();
+    }
+    if let Some(sep) = path.find("::") {
+        let leading = &path[..sep];
+        if let Some(&(_, override_crate)) = remaps.iter().find(|(orig, _)| *orig == leading) {
+            return format!("{override_crate}{}", &path[sep..]);
+        }
+    }
+    path.to_string()
 }
 
 /// Check if a type has any sanitized fields (binding→core conversion is lossy).
@@ -538,10 +568,16 @@ pub fn has_sanitized_fields(typ: &TypeDef) -> bool {
 
 /// Derive the Rust import path for an enum, replacing hyphens with underscores.
 pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
+    core_enum_path_remapped(enum_def, core_import, &[])
+}
+
+/// Like [`core_enum_path`] but rewrites the leading crate segment when it matches
+/// a known source→override mapping. See [`core_type_path_remapped`] for details.
+pub fn core_enum_path_remapped(enum_def: &EnumDef, core_import: &str, remaps: &[(&str, &str)]) -> String {
     let path = enum_def.rust_path.replace('-', "_");
     if path.starts_with(core_import) || path.contains("::") {
-        // Path is already fully-qualified — use it verbatim.
-        path
+        // Path is already fully-qualified — apply remaps and return.
+        apply_crate_remaps(&path, remaps)
     } else {
         // Bare unqualified name: prefix with the facade crate.
         format!("{core_import}::{}", enum_def.name)

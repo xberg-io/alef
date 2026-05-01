@@ -2,7 +2,7 @@ use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 
 use super::ConversionConfig;
-use super::helpers::{core_prim_str, core_type_path, is_newtype, is_tuple_type_name, needs_i64_cast};
+use super::helpers::{core_prim_str, core_type_path_remapped, is_newtype, is_tuple_type_name, needs_i64_cast};
 
 /// Generate `impl From<BindingType> for core::Type` (binding -> core).
 /// Sanitized fields use `Default::default()` (lossy but functional).
@@ -12,7 +12,7 @@ pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 
 /// Generate `impl From<BindingType> for core::Type` with backend-specific config.
 pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &ConversionConfig) -> String {
-    let core_path = core_type_path(typ, core_import);
+    let core_path = core_type_path_remapped(typ, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
     let mut out = String::with_capacity(256);
     // When cfg-gated fields exist, ..Default::default() fills them when the feature is enabled.

@@ -1412,9 +1412,24 @@ fn napi_wrap_return_fn(
                 // Vec<usize>, Vec<f32>, etc. need element-wise casting to i64 or f64
                 let target_ty = match p {
                     alef_core::ir::PrimitiveType::F32 => "f64",
-                    _ => "i64", // u64, usize, isize, u32
+                    _ => "i64", // u64, usize, isize
                 };
                 format!("{expr}.into_iter().map(|v| v as {target_ty}).collect()")
+            }
+            // Vec<Vec<T>> where the inner primitive needs widening (e.g. Vec<Vec<f32>> → Vec<Vec<f64>>)
+            TypeRef::Vec(inner2) => {
+                if let TypeRef::Primitive(p) = inner2.as_ref() {
+                    if needs_napi_cast(p) {
+                        let target_ty = match p {
+                            alef_core::ir::PrimitiveType::F32 => "f64",
+                            _ => "i64",
+                        };
+                        return format!(
+                            "{expr}.into_iter().map(|row| row.into_iter().map(|x| x as {target_ty}).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                        );
+                    }
+                }
+                expr.to_string()
             }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {

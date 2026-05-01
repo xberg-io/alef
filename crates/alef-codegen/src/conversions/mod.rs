@@ -60,6 +60,14 @@ pub struct ConversionConfig<'a> {
     /// the binding wrapper holds `inner: Arc<CoreT>` and the conversion must extract
     /// `.inner` directly instead of calling `.into()` + wrapping in `Arc::new`.
     pub opaque_types: Option<&'a AHashSet<String>>,
+    /// When `core_crate_override` is set for a language, the IR's `rust_path` values
+    /// still contain the original source crate prefix (e.g. `spikard_core::Method`).
+    /// This field remaps those paths: `(original_crate_name, override_crate_name)`.
+    /// When set, any `rust_path` whose leading crate segment equals `original_crate_name`
+    /// is rewritten to use `override_crate_name` instead.
+    /// Example: `Some(("spikard_core", "spikard_http"))` rewrites
+    /// `spikard_core::Method` → `spikard_http::Method`.
+    pub source_crate_remaps: &'a [(&'a str, &'a str)],
     /// Per-field binding name overrides.  Key is `"TypeName.field_name"` (using the original
     /// IR field name); value is the binding struct's actual Rust field name (e.g. `"class_"`).
     /// Used when a field name is a reserved keyword in the target language and must be escaped
@@ -112,10 +120,11 @@ pub use enums::{
     gen_enum_from_core_to_binding_cfg,
 };
 pub use helpers::{
-    binding_to_core_match_arm, build_type_path_map, can_generate_conversion, can_generate_enum_conversion,
-    can_generate_enum_conversion_from_core, convertible_types, core_enum_path, core_to_binding_convertible_types,
-    core_to_binding_match_arm, core_type_path, field_references_excluded_type, has_sanitized_fields, input_type_names,
-    is_tuple_variant, resolve_named_path,
+    apply_crate_remaps, binding_to_core_match_arm, build_type_path_map, can_generate_conversion,
+    can_generate_enum_conversion, can_generate_enum_conversion_from_core, convertible_types, core_enum_path,
+    core_enum_path_remapped, core_to_binding_convertible_types, core_to_binding_match_arm, core_type_path,
+    core_type_path_remapped, field_references_excluded_type, has_sanitized_fields, input_type_names, is_tuple_variant,
+    resolve_named_path,
 };
 
 #[cfg(test)]

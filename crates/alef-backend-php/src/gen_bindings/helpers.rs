@@ -564,6 +564,27 @@ pub(crate) fn php_wrap_return(
             TypeRef::Primitive(p) if needs_i64_cast(p) => {
                 format!("{expr}.into_iter().map(|v| v as i64).collect()")
             }
+            // Vec<Vec<T>> where the inner primitive needs widening (e.g. Vec<Vec<usize>> → Vec<Vec<i64>>)
+            TypeRef::Vec(inner2) => {
+                if let TypeRef::Primitive(p) = inner2.as_ref() {
+                    if needs_i64_cast(p) {
+                        return format!(
+                            "{expr}.into_iter().map(|row| row.into_iter().map(|x| x as i64).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                        );
+                    }
+                }
+                // Fall back to shared wrap_return for nested Vec types that don't need casting
+                use alef_codegen::generators;
+                generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    returns_cow,
+                )
+            }
             _ => {
                 // Fall back to shared wrap_return for other Vec types
                 use alef_codegen::generators;

@@ -649,8 +649,8 @@ fn gen_function_body(
         && !(has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types))
     {
         // Sanitized functions cannot be auto-delegated AND we have no recoverable serde path —
-        // emit a safe error return value.
-        gen_stub_return(&func.return_type, true, &func.name)
+        // emit a safe stub: Err(...) when the signature is PhpResult<T>, default value otherwise.
+        gen_stub_return(&func.return_type, func.error_type.is_some(), &func.name)
     } else {
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true and for
         // sanitized Vec<tuple> params (decoded as Vec<String>). The serde path requires the
@@ -800,8 +800,8 @@ fn gen_async_function_body(
             )
         }
     } else {
-        // Cannot auto-delegate and no serde recovery path — return error stub
-        gen_stub_return(&func.return_type, true, &func.name)
+        // Cannot auto-delegate and no serde recovery path — emit a safe stub.
+        gen_stub_return(&func.return_type, func.error_type.is_some(), &func.name)
     }
 }
 
@@ -885,16 +885,19 @@ pub(crate) fn gen_async_static_method(
 }
 
 /// Generate a safe stub return expression for a sanitized function that cannot be auto-delegated.
-/// For PHP, returns a PhpResult error; for other targets, returns a default value.
-fn gen_stub_return(ty: &TypeRef, is_php_error: bool, func_name: &str) -> String {
-    if is_php_error {
-        // For PHP functions that return PhpResult<T>, return an error
+///
+/// When `has_error` is true the function wraps its return in `PhpResult<T>`, so we emit
+/// `Err(PhpException::default(...))`.  When `has_error` is false the function returns `T`
+/// directly, so we emit a type-appropriate default value instead.
+fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) -> String {
+    if has_error {
+        // Function signature is PhpResult<T> — return an error value.
         return format!(
             "Err(ext_php_rs::exception::PhpException::default(\"Not implemented: {func_name}\".to_string()))"
         );
     }
 
-    // For non-PHP targets, return default values
+    // Function returns T directly — emit a type-appropriate default.
     match ty {
         TypeRef::Optional(_) => "None".to_string(),
         TypeRef::Vec(_) => "Vec::new()".to_string(),

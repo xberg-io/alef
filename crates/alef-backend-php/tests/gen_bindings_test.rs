@@ -1288,10 +1288,26 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         "split_code must not delegate to core (type mismatch); content:\n{content}"
     );
 
-    // The generated bodies should emit PHP error stubs for sanitized functions.
+    // Sanitized functions without error_type must emit type-appropriate default values,
+    // NOT PhpException stubs (which would be a type mismatch for non-Result return types).
+    // extension_ambiguity returns Option<String>: stub must be `None`
     assert!(
-        content.contains("Not implemented: extension_ambiguity") || content.contains("Not implemented: split_code"),
-        "sanitized functions should emit PhpException error stubs; content:\n{content}"
+        content.contains("None"),
+        "extension_ambiguity (Option<String>, no Result) should emit `None` stub; content:\n{content}"
+    );
+    // split_code returns Vec<String>: stub must be `Vec::new()`
+    assert!(
+        content.contains("Vec::new()"),
+        "split_code (Vec<String>, no Result) should emit `Vec::new()` stub; content:\n{content}"
+    );
+    // Neither must be wrapped in a PhpException Err
+    assert!(
+        !content.contains("Err(ext_php_rs::exception::PhpException::default(\"Not implemented: extension_ambiguity"),
+        "extension_ambiguity must not emit PhpException (no error_type); content:\n{content}"
+    );
+    assert!(
+        !content.contains("Err(ext_php_rs::exception::PhpException::default(\"Not implemented: split_code"),
+        "split_code must not emit PhpException (no error_type); content:\n{content}"
     );
 }
 

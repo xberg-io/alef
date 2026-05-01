@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.10] - 2026-04-30
+## [0.12.10] - 2026-05-01
+
+### Added
+
+- feat(backend-wasm/config): add `custom_rust_modules`, `exclude_fields`, and `source_crate_remaps` options for hand-written Rust modules, per-type field exclusions for `cfg(not(target_arch = "wasm32"))`-gated source fields, and rewriting `<original_crate>::TypeName` references to `<override_crate>::TypeName` when `core_crate_override` is set.
+- feat(codegen/conversions): introduce `core_type_path_remapped` / `apply_crate_remaps` so generated `From` impls reference the override crate when `source_crate_remaps` is configured, avoiding orphan-rule violations across re-export facades.
 
 ### Fixed
 
+- fix(extract): preserve `Map<K, V>` structure during sanitization. Previously a `Map<Cow<'static, str>, serde_json::Value>` field was flattened to `TypeRef::String` whenever the key resolved through a sanitized `Named` type; the field now stays a Map so binding backends emit the correct iterator-based conversion (or `serde_wasm_bindgen::to_value` for WASM) instead of `format!("{:?}", val.<field>)`. Fixes `Metadata.additional` mismatches in pyo3, napi, php, and wasm bindings.
+- fix(backend-napi): widen nested `Vec<Vec<primitive>>` element-wise in return conversion when the binding declares the wider type (`f32` → `f64`, `u64`/`usize`/`isize` → `i64`). Mirrors the existing single-Vec arm so `embed_texts` and similar functions returning `Vec<Vec<f32>>` compile.
+- fix(backend-php): widen nested `Vec<Vec<u64/usize/isize>>` element-wise in return conversion to match the i64 cast emitted for single-Vec return types.
+- fix(backend-php): `gen_stub_return` now respects the function's actual error variance — non-Result functions get a type-appropriate default (e.g. `String::new()`, `Vec::new()`, `None`) instead of an `Err(PhpException::default(...))` body that violates the function signature.
+- fix(backend-wasm): emit `serde_wasm_bindgen::from_value` deserialization for `Vec<Vec<T>>` parameters that arrive as `JsValue`. Without it, `generate_cache_key` and similar functions taking nested-vec composites passed the raw `JsValue` into the core fn.
 - fix(core/version): add `to_r_version()` converting SemVer prereleases to CRAN-compatible four-component form.
 - fix(scaffold/r): generate `packages/r/src/Makevars`, `Makevars.in`, `Makevars.win.in`, and `src/entrypoint.c`.
 - fix(scaffold/r): change scaffolded `Cargo.toml` crate-type from `["cdylib"]` to `["staticlib", "lib"]`.
@@ -30,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.12.8] - 2026-04-30
 
 ### Fixed
+
+- fix(backend-dart): convert nested `Vec<Vec<f32>>` to `Vec<Vec<f64>>` in bridge so embed_texts return type matches binding declaration.
 
 ## [0.12.7] - 2026-04-30
 

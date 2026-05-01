@@ -5,7 +5,7 @@ use std::fmt::Write;
 use super::ConversionConfig;
 use super::binding_to_core::field_conversion_to_core;
 use super::helpers::is_newtype;
-use super::helpers::{binding_prim_str, core_type_path, needs_i64_cast};
+use super::helpers::{binding_prim_str, core_type_path_remapped, needs_i64_cast};
 
 /// Generate `impl From<core::Type> for BindingType` (core -> binding).
 pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str, opaque_types: &AHashSet<String>) -> String {
@@ -19,7 +19,7 @@ pub fn gen_from_core_to_binding_cfg(
     opaque_types: &AHashSet<String>,
     config: &ConversionConfig,
 ) -> String {
-    let core_path = core_type_path(typ, core_import);
+    let core_path = core_type_path_remapped(typ, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
     let mut out = String::with_capacity(256);
     writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();

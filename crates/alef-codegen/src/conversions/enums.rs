@@ -2,7 +2,7 @@ use alef_core::ir::EnumDef;
 use std::fmt::Write;
 
 use super::ConversionConfig;
-use super::helpers::{binding_to_core_match_arm_ext_cfg, core_enum_path, core_to_binding_match_arm_ext_cfg};
+use super::helpers::{binding_to_core_match_arm_ext_cfg, core_enum_path_remapped, core_to_binding_match_arm_ext_cfg};
 
 /// Generate `impl From<BindingEnum> for core::Enum` (binding -> core).
 pub fn gen_enum_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
@@ -11,7 +11,7 @@ pub fn gen_enum_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> S
 
 /// Generate `impl From<BindingEnum> for core::Enum` with backend-specific config.
 pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, config: &ConversionConfig) -> String {
-    let core_path = core_enum_path(enum_def, core_import);
+    let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
     let mut out = String::with_capacity(256);
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
@@ -40,7 +40,7 @@ pub fn gen_enum_from_core_to_binding(enum_def: &EnumDef, core_import: &str) -> S
 
 /// Generate `impl From<core::Enum> for BindingEnum` with backend-specific config.
 pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, config: &ConversionConfig) -> String {
-    let core_path = core_enum_path(enum_def, core_import);
+    let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
     let mut out = String::with_capacity(256);
     writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();

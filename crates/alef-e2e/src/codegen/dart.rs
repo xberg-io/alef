@@ -229,7 +229,7 @@ fn render_test_case(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
-    let description = &fixture.description;
+    let description = escape_dart(&fixture.description);
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_async = call_config.r#async;
 
