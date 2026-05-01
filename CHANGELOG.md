@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-05-01
+
+### Added
+
+- feat(e2e/wasm): the wasm e2e codegen now emits real `extractFile`/`extractBytes`-style test cases for non-HTTP fixtures, not just HTTP-server fixtures. Pre-0.13.4 the wasm renderer filtered `f.http.is_some()` and dropped every function-call fixture, leaving `e2e/wasm/` with only `globalSetup.ts`+`package.json` and zero tests against the binding's core async API. The wasm codegen now reuses the typescript renderer (parameterised by `lang = "wasm"`) and emits a `setup.ts` chdir to `test_documents/` when any active fixture takes a `file_path` or `bytes` arg, plus `globalSetup.ts` only when at least one HTTP fixture is in scope. Function-call resolution now goes through `[e2e.calls.<name>.overrides.wasm]` (auto-camelCasing the rust snake_case name when no explicit override is set), so wasm-specific renames work the same way they do for node.
+
+### Changed
+
+- chore(codegen): `resolve_node_function_name` (in `alef-e2e::codegen::typescript`) now takes a `lang: &str` parameter so the wasm codegen can reuse it. Existing call sites unaffected — typescript codegen passes `"node"` and behaves identically.
+
 ## [0.13.3] - 2026-05-01
 
 ### Fixed
