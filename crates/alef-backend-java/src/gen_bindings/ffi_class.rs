@@ -203,7 +203,14 @@ pub(crate) fn gen_sync_function_method(
         if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
             continue;
         }
-        marshal_param_to_ffi(out, &to_java_name(&param.name), &param.ty, opaque_types, prefix);
+        // When a parameter is optional (Option<T> in Rust), wrap the TypeRef so that
+        // marshal_param_to_ffi generates a null-safe allocation path.
+        let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
+            TypeRef::Optional(Box::new(param.ty.clone()))
+        } else {
+            param.ty.clone()
+        };
+        marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
     }
 
     // Call FFI
@@ -217,7 +224,13 @@ pub(crate) fn gen_sync_function_method(
             if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
                 "MemorySegment.NULL".to_string()
             } else {
-                ffi_param_name(&to_java_name(&p.name), &p.ty, opaque_types)
+                // Apply the same optional-wrapping logic used when marshalling.
+                let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
+                    TypeRef::Optional(Box::new(p.ty.clone()))
+                } else {
+                    p.ty.clone()
+                };
+                ffi_param_name(&to_java_name(&p.name), &effective_ty, opaque_types)
             }
         })
         .collect();

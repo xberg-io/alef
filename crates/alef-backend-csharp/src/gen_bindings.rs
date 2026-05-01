@@ -64,6 +64,13 @@ impl Backend for CsharpBackend {
             .map(|a| a.name.clone())
             .collect();
 
+        // Functions explicitly excluded from C# bindings (e.g., not present in the C FFI layer).
+        let exclude_functions: HashSet<String> = config
+            .csharp
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+
         let output_dir = resolve_output_dir(
             config.output.csharp.as_ref(),
             &config.crate_config.name,
@@ -87,6 +94,7 @@ impl Backend for CsharpBackend {
                 has_visitor_callbacks,
                 &config.trait_bridges,
                 &streaming_methods,
+                &exclude_functions,
             )),
             generated_header: true,
         });
@@ -139,6 +147,7 @@ impl Backend for CsharpBackend {
                 &bridge_type_aliases,
                 has_visitor_callbacks,
                 &streaming_methods,
+                &exclude_functions,
             )),
             generated_header: true,
         });
@@ -458,6 +467,7 @@ fn gen_native_methods(
     has_visitor_callbacks: bool,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
+    exclude_functions: &HashSet<String>,
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
@@ -485,7 +495,7 @@ fn gen_native_methods(
     // Enums passed as parameters in any FFI function flow through *_from_json + *_free
     // (the alef-backend-ffi side now emits these for param-passed enums). Treat them
     // like opaque struct params so the DllImport entries get generated.
-    for func in &api.functions {
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         for param in &func.params {
             if let TypeRef::Named(name) = &param.ty {
                 opaque_param_types.insert(name.clone());
@@ -581,7 +591,7 @@ fn gen_native_methods(
     }
 
     // Generate P/Invoke declarations for functions
-    for func in &api.functions {
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
         if emitted.insert(c_func_name.clone()) {
             out.push_str(&gen_pinvoke_for_func(
@@ -802,6 +812,7 @@ fn gen_wrapper_class(
     bridge_type_aliases: &HashSet<String>,
     has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
+    exclude_functions: &HashSet<String>,
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
@@ -833,7 +844,7 @@ fn gen_wrapper_class(
         .collect();
 
     // Generate wrapper methods for functions
-    for func in &api.functions {
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         out.push_str(&gen_wrapper_function(
             func,
             exception_name,

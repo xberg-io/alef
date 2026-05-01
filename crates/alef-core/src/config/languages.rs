@@ -645,6 +645,11 @@ pub struct CSharpConfig {
     /// lint/build/test commands target this file instead of the output directory.
     #[serde(default)]
     pub project_file: Option<String>,
+    /// Functions to exclude from C# binding generation (e.g., functions not present in the
+    /// C FFI layer). Excluded functions are omitted from both NativeMethods.cs and the
+    /// wrapper class.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

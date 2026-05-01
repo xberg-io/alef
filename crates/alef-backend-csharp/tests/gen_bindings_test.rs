@@ -194,6 +194,7 @@ fn test_basic_generation() {
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
             project_file: None,
+            exclude_functions: Vec::new(),
         }),
         r: None,
 
@@ -361,6 +362,7 @@ fn test_namespace_resolution() {
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
             project_file: None,
+            exclude_functions: Vec::new(),
         }),
         r: None,
 
@@ -1023,6 +1025,7 @@ fn minimal_csharp_config(crate_name: &str) -> AlefConfig {
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
             project_file: None,
+            exclude_functions: Vec::new(),
         }),
         kotlin: None,
         swift: None,

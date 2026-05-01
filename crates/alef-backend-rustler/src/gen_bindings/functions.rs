@@ -498,16 +498,30 @@ pub(super) fn gen_nif_async_function(
         let result_wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
         if func.error_type.is_some() {
             format!(
-                "{preamble}let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n    \
-                 Ok({result_wrap})"
+                "{preamble}std::thread::Builder::new()\n        \
+                 .stack_size(32 * 1024 * 1024)\n        \
+                 .spawn(move || {{\n            \
+                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n            \
+                 Ok({result_wrap})\n        \
+                 }})\n        \
+                 .map_err(|e| e.to_string())?\n        \
+                 .join()\n        \
+                 .map_err(|_| \"thread panicked\".to_string())?"
             )
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "{preamble}let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 Ok({result_wrap})"
+                "{preamble}std::thread::Builder::new()\n        \
+                 .stack_size(32 * 1024 * 1024)\n        \
+                 .spawn(move || {{\n            \
+                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n            \
+                 Ok::<_, String>({result_wrap})\n        \
+                 }})\n        \
+                 .map_err(|e| e.to_string())?\n        \
+                 .join()\n        \
+                 .map_err(|_| \"thread panicked\".to_string())?"
             )
         }
     } else {
@@ -749,16 +763,30 @@ pub(super) fn gen_nif_async_method(
         );
         if method.error_type.is_some() {
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n    \
-                 Ok({result_wrap})"
+                "std::thread::Builder::new()\n        \
+                 .stack_size(32 * 1024 * 1024)\n        \
+                 .spawn(move || {{\n            \
+                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n            \
+                 Ok({result_wrap})\n        \
+                 }})\n        \
+                 .map_err(|e| e.to_string())?\n        \
+                 .join()\n        \
+                 .map_err(|_| \"thread panicked\".to_string())?"
             )
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 Ok({result_wrap})"
+                "std::thread::Builder::new()\n        \
+                 .stack_size(32 * 1024 * 1024)\n        \
+                 .spawn(move || {{\n            \
+                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n            \
+                 Ok::<_, String>({result_wrap})\n        \
+                 }})\n        \
+                 .map_err(|e| e.to_string())?\n        \
+                 .join()\n        \
+                 .map_err(|_| \"thread panicked\".to_string())?"
             )
         }
     } else {

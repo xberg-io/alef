@@ -190,6 +190,7 @@ fn test_generated_code_example() {
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
             project_file: None,
+            exclude_functions: Vec::new(),
         }),
         r: None,
 

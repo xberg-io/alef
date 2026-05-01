@@ -15,7 +15,8 @@ use alef_core::config::AdapterPattern;
 use functions::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
 use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
 use types::{
-    gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
+    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_field_accessor,
+    gen_type_free, gen_type_from_json, gen_type_to_json,
 };
 
 pub struct FfiBackend;
@@ -278,6 +279,118 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if alef_codegen::conversions::can_generate_enum_conversion(enum_def) {
             builder.add_item(&gen_enum_from_i32(enum_def, prefix, &core_import));
             builder.add_item(&gen_enum_to_i32(enum_def, prefix, &core_import));
+        }
+    }
+
+    // Enum pointer lifecycle helpers (_free, _to_json, _from_json) for enums that:
+    //   a) are returned as heap-allocated *mut T by any non-excluded function or struct method, OR
+    //   b) are accepted as parameters by any non-excluded function
+    // These are required by Panama FFM callers (Java) that receive enum pointers and must
+    // free them, serialize them, or pass them as JSON-encoded parameters.
+    {
+        let ffi_exclude_set: ahash::AHashSet<&str> = config
+            .ffi
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
+        // Collect enum names returned as Named pointers by non-excluded free functions
+        let mut enum_pointer_return: ahash::AHashSet<String> = ahash::AHashSet::new();
+        for func in &api.functions {
+            if ffi_exclude_set.contains(func.name.as_str()) {
+                continue;
+            }
+            let return_named = match &func.return_type {
+                alef_core::ir::TypeRef::Named(n) => Some(n.clone()),
+                alef_core::ir::TypeRef::Optional(inner) => {
+                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(name) = return_named {
+                if api.enums.iter().any(|e| e.name == name) {
+                    enum_pointer_return.insert(name);
+                }
+            }
+        }
+        // Also check struct field accessors and method returns that yield enum pointers
+        for typ in api.types.iter().filter(|t| !t.is_trait) {
+            for method in &typ.methods {
+                let return_named = match &method.return_type {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.clone()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = return_named {
+                    if api.enums.iter().any(|e| e.name == name) {
+                        enum_pointer_return.insert(name);
+                    }
+                }
+            }
+        }
+
+        // Collect enum names used as parameters in non-excluded free functions
+        let mut enum_pointer_param: ahash::AHashSet<String> = ahash::AHashSet::new();
+        for func in &api.functions {
+            if ffi_exclude_set.contains(func.name.as_str()) {
+                continue;
+            }
+            for param in &func.params {
+                let param_named = match &param.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.clone()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = param_named {
+                    if api.enums.iter().any(|e| e.name == name) {
+                        enum_pointer_param.insert(name);
+                    }
+                }
+            }
+        }
+
+        let mut emitted_enum_free: ahash::AHashSet<String> = ahash::AHashSet::new();
+        for enum_def in &api.enums {
+            let needs_free = enum_pointer_return.contains(&enum_def.name);
+            // needs_from_json also implies needs_free: `_from_json` returns *mut T (heap-allocated)
+            // so the caller must call `_free` on the returned pointer after use.
+            let needs_from_json = enum_pointer_param.contains(&enum_def.name);
+            let has_serde = enum_def.has_serde;
+
+            // Generate _free (and _to_json for serialization) for return-type enums.
+            if needs_free && emitted_enum_free.insert(enum_def.name.clone()) {
+                builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
+                if has_serde {
+                    builder.add_item(&gen_enum_to_json(enum_def, prefix, &core_import));
+                }
+            }
+            if needs_from_json && has_serde {
+                let from_json_key = format!("{}_from_json", enum_def.name);
+                if emitted_enum_free.insert(from_json_key) {
+                    builder.add_item(&gen_enum_from_json(enum_def, prefix, &core_import));
+                }
+                // `_from_json` returns *mut T — generate _free if not already emitted.
+                // This allows callers (Java FFM) to free the heap pointer returned by _from_json.
+                if emitted_enum_free.insert(enum_def.name.clone()) {
+                    builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
+                }
+            }
         }
     }
 

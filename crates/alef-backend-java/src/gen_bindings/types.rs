@@ -2,7 +2,7 @@ use crate::type_map::{java_boxed_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{EnumDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
@@ -44,13 +44,27 @@ pub(crate) fn gen_record_type(
             java_type(&f.ty).to_string()
         };
         let jname = safe_java_field_name(&f.name);
+
+        // Non-optional List fields: Java initialises them to null when the field is
+        // absent from the input JSON. We must NOT serialise that null back to the
+        // Rust side — Rust's serde would reject it for a non-optional Vec<T>.
+        // @JsonInclude(NON_NULL) at the field level suppresses the null, letting
+        // Rust fall back to its serde `default` (empty vec, default value, etc.).
+        let needs_non_null = !f.optional && matches!(&f.ty, TypeRef::Vec(_));
+
         // When the language convention is camelCase but the JSON wire format uses
         // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
         // so Jackson serialises/deserialises using the correct snake_case key.
-        let decl = if lang_rename_all == "camelCase" && f.name.contains('_') {
-            format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname)
-        } else {
-            format!("{} {}", ftype, jname)
+        let has_json_property = lang_rename_all == "camelCase" && f.name.contains('_');
+
+        let decl = match (has_json_property, needs_non_null) {
+            (true, true) => format!(
+                "@JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty(\"{}\") {} {}",
+                f.name, ftype, jname
+            ),
+            (true, false) => format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname),
+            (false, true) => format!("@JsonInclude(JsonInclude.Include.NON_NULL) {} {}", ftype, jname),
+            (false, false) => format!("{} {}", ftype, jname),
         };
 
         if i > 0 {
@@ -72,6 +86,17 @@ pub(crate) fn gen_record_type(
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
+    // Suppress absent fields during serialization: null Java values and empty Optionals must
+    // not be sent to Rust as `null` JSON.  Rust's serde would reject null for non-optional
+    // fields, and `serde(skip)` fields (e.g. `cancel_token`) cause "unknown field" errors
+    // even when the value is null.  NON_ABSENT suppresses both `null` references AND
+    // `Optional.empty()` values, preventing either from appearing in the serialized JSON.
+    // Omitting the field lets Rust fall back to its `#[serde(default)]` value.
+    // This only affects serialization (Java → Rust). Deserialization (Rust → Java) is
+    // unaffected, so result types are safe to annotate with this too.
+    if typ.has_serde {
+        writeln!(record_block, "@JsonInclude(JsonInclude.Include.NON_ABSENT)").ok();
+    }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
         for (i, entry) in field_entries.iter().enumerate() {
@@ -96,10 +121,47 @@ pub(crate) fn gen_record_type(
         writeln!(record_block, "    }}").ok();
     }
 
+    // Generate a compact constructor that applies Rust-side defaults for non-optional
+    // primitive fields whose Java default (0, false, etc.) differs from the Rust default.
+    // This ensures that when Jackson deserialises JSON that omits a field, the record
+    // gets the Rust default rather than Java's zero value — critical for fields like
+    // `batch_size` where 0 is invalid and would panic inside the native call.
+    let compact_ctor_lines: Vec<String> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.optional)
+        .filter_map(|f| {
+            let jname = safe_java_field_name(&f.name);
+            match &f.typed_default {
+                Some(DefaultValue::IntLiteral(n)) if *n != 0 => {
+                    // Apply the Rust-side default when the Java primitive is at its zero value.
+                    // This handles the case where Jackson deserialises JSON that omits the
+                    // field, giving it Java's default of 0, which would be invalid in Rust
+                    // (e.g., `batch_size = 0` panics in `slice::chunks`).
+                    // Note: we do NOT apply defaults for bool fields — `false` is a valid
+                    // explicit value that users may intentionally pass; we can't distinguish
+                    // "user passed false" from "JSON omitted the field".
+                    Some(format!("        if ({jname} == 0) {jname} = {n};"))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+
+    if !compact_ctor_lines.is_empty() {
+        writeln!(record_block, "    public {}{{", typ.name).ok();
+        for line in &compact_ctor_lines {
+            writeln!(record_block, "{line}").ok();
+        }
+        writeln!(record_block, "    }}").ok();
+    }
+
     writeln!(record_block, "}}").ok();
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.
     let needs_json_property = fields_joined.contains("@JsonProperty(");
+    // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
+    let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
     let mut out = String::with_capacity(record_block.len() + 512);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     writeln!(out, "package {};", package).ok();
@@ -115,6 +177,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_property {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonProperty;").ok();
+    }
+    if needs_json_include {
+        writeln!(out, "import com.fasterxml.jackson.annotation.JsonInclude;").ok();
     }
     writeln!(out).ok();
     write!(out, "{}", record_block).ok();

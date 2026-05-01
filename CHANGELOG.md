@@ -9,13 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.12.16] - 2026-05-01
 
+### Added
+
+- feat(backend-csharp,core): support `[languages.csharp.exclude_functions]` to skip generating selected free functions from the C# binding surface
+- feat(backend-java): emit `JsonInclude(NON_NULL)` on optional fields and `JsonInclude(NON_ABSENT)` at the class level so Jackson omits null/empty optionals when serializing Java DTOs across the FFI boundary
+- feat(backend-java): wrap optional FFI parameters as `TypeRef::Optional` for null-safety; non-zero integer defaults emit a compact constructor that initializes them when callers pass null
+
 ### Fixed
 
 - fix(backend-magnus): use variadic arity (-1) with `scan_args` for free functions that have optional or promoted parameters; previously such functions were registered with a fixed arity equal to the total parameter count, causing Ruby callers that omit trailing optional arguments to get an argument count error
 - fix(e2e/ruby): emit `nil` placeholder for skipped optional positional args when a later arg is present; previously omitting an optional String arg before a json_object arg produced a 2-arg call where the config object landed in the string slot, causing a `TypeError: no implicit conversion` runtime error
 - fix(e2e/elixir): add kreuzberg path dep and rustler direct dep to generated mix.exs so NIF force-build works in e2e tests
+- fix(e2e/elixir): replace `map_or(false, ...)` with `is_some_and(...)` to clear `clippy::unnecessary_map_or`
+- fix(e2e/java): set `workingDirectory` in the generated maven-surefire plugin block so tests run from the project basedir, fixing relative fixture path resolution
 - fix(backend-extendr): derive R wrapper output path as packages/r/R/ instead of packages/r/src/rust/src/
+- fix(backend-pyo3): emit `pass` body for empty structs that pass through the codegen; combined with the v0.12.15 fix this allows empty structs to be referenced in tagged-union aliases without import-time `NameError`
+- fix(backend-ffi): preserve numeric error code metadata on the FFI error type through the type generators so host-side error conversions can attach `code`/`message` consistently
 - fix(scaffold/r): include `<R_ext/Visibility.h>` in generated entrypoint.c to define `attribute_visible`
+- fix(scaffold/php): align scaffolded PHP package metadata and dev tooling with current backend expectations
+- fix(cli/extract): drop debug `eprintln` from the extract pipeline so generation output is no longer polluted on stderr
+- fix(e2e/go): include `mock_response` in unit-test fixture builder so `test_go_method_name_uses_go_casing` exercises the real codegen path instead of the non-HTTP skip stub
+- fix(e2e/rust): include `mock_response` in unit-test fixture builders so `rust_call_overrides` regression tests exercise the real codegen path
+- fix(scaffold): assert on `config.ext_dir = 'native'` (the current `rb_sys/mkmf` API) instead of the deprecated `cargo_manifest` form
 
 ## [0.12.15] - 2026-05-01
 

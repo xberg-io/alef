@@ -761,7 +761,8 @@ pub fn gen_serde_let_bindings(
     indent: &str,
 ) -> String {
     let mut bindings = String::new();
-    for p in params {
+    for (idx, p) in params.iter().enumerate() {
+        let promoted = crate::shared::is_promoted_optional(params, idx);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_path = format!("{}::{}", core_import, name);
@@ -772,6 +773,22 @@ pub fn gen_serde_let_bindings(
                          {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
                          {indent}    serde_json::from_str(&json){err_conv}\n\
                          {indent}}}).transpose()?;\n{indent}",
+                        name = p.name,
+                        core_path = core_path,
+                        err_conv = err_conv,
+                        indent = indent,
+                    )
+                    .ok();
+                } else if promoted {
+                    // Promoted-optional: param is required in core but wrapped in Option<T>
+                    // in the binding because an earlier param is optional. Use unwrap_or_default()
+                    // so JS callers can omit it (pass undefined/null) to get default behaviour.
+                    write!(
+                        bindings,
+                        "let {name}_core: {core_path} = {name}.map(|v| {{\n\
+                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
+                         {indent}    serde_json::from_str::<{core_path}>(&json){err_conv}\n\
+                         {indent}}}).transpose()?{indent}.unwrap_or_default();\n{indent}",
                         name = p.name,
                         core_path = core_path,
                         err_conv = err_conv,

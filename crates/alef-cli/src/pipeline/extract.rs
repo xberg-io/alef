@@ -420,13 +420,10 @@ fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]) {
     for typ in &mut api.types {
         let original_count = typ.fields.len();
         let cfg_count = typ.fields.iter().filter(|f| f.cfg.is_some()).count();
-        // Retain non-cfg fields and cfg fields whose feature is enabled.
+        // Retain non-cfg fields and cfg fields whose feature condition is satisfied.
         typ.fields.retain(|f| match &f.cfg {
             None => true,
-            Some(cfg_str) => cfg_str
-                .strip_prefix("feature = \"")
-                .and_then(|s| s.strip_suffix('"'))
-                .is_some_and(|feature| enabled_features.iter().any(|ef| ef == feature)),
+            Some(cfg_str) => cfg_condition_enabled(cfg_str, enabled_features),
         });
         // Clear cfg on retained fields so codegen treats them as unconditional.
         for field in &mut typ.fields {
@@ -437,6 +434,87 @@ fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]) {
             typ.has_stripped_cfg_fields = true;
         }
     }
+}
+
+/// Evaluate a `#[cfg(...)]` condition string against a set of enabled features.
+///
+/// Handles:
+/// - `feature = "name"` — single feature check
+/// - `any(feature = "a", feature = "b", ...)` — any feature enabled
+/// - `all(feature = "a", feature = "b", ...)` — all features enabled
+///
+/// Defaults to `false` (strip the field) for unrecognized patterns.
+fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) -> bool {
+    // Normalize: trim outer whitespace and collapse spaces adjacent to punctuation.
+    // proc-macro2's `to_string()` inserts spaces between tokens, so
+    // `any(feature = "a")` becomes `any (feature = "a")`.
+    // We normalise by removing spaces before `(` and around `=`.
+    let normalized: String = {
+        let t = cfg_str.trim();
+        // Remove spaces before `(`: `any (` → `any(`
+        let t = t.replace(" (", "(");
+        // Remove spaces around `=`: `feature = "a"` stays (already fine), but
+        // in case of `feature ="a"` or `feature= "a"` etc.
+        // The proc-macro2 representation is `feature = "a"`, which after
+        // `strip_prefix("feature = \"")` works correctly, so we only need the `any (` fix.
+        t
+    };
+    let cfg_str = normalized.as_str();
+
+    // Simple: `feature = "name"`
+    if let Some(feature) = cfg_str.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
+        return enabled_features.iter().any(|ef| ef == feature);
+    }
+    // `any(...)` — enabled if at least one condition matches
+    if let Some(inner) = cfg_str.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
+        return parse_cfg_list(inner)
+            .iter()
+            .any(|cond| cfg_condition_enabled(cond, enabled_features));
+    }
+    // `all(...)` — enabled if all conditions match
+    if let Some(inner) = cfg_str.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
+        return parse_cfg_list(inner)
+            .iter()
+            .all(|cond| cfg_condition_enabled(cond, enabled_features));
+    }
+    // `not(...)` — invert the inner condition
+    if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
+        return !cfg_condition_enabled(inner.trim(), enabled_features);
+    }
+    // Unknown pattern — strip the field (conservative)
+    false
+}
+
+/// Split a comma-separated list of cfg conditions, respecting nested parentheses.
+fn parse_cfg_list(s: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for ch in s.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    result.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        result.push(trimmed);
+    }
+    result
 }
 
 /// 2. Duplicate types: Keep only the first occurrence of each type name

@@ -388,6 +388,17 @@ pub(crate) fn gen_native_lib(
         })
         .collect();
 
+    // Collect FFI-excluded function names so we can emit nullable handles for them.
+    // Functions excluded from the FFI layer are still present in the IR (and thus appear
+    // in the Java facade) but their native symbols are not compiled into the shared library.
+    // Using orElse(null) prevents class initialization failure; callers must null-check before
+    // invoking these handles.
+    let ffi_excluded: AHashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().cloned().collect())
+        .unwrap_or_default();
+
     // Generate method handles for free functions.
     // All functions get handles regardless of is_async — the FFI layer always exposes
     // synchronous C functions, and the Java async wrapper delegates to the sync method.
@@ -405,15 +416,27 @@ pub(crate) fn gen_native_lib(
 
         let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 
-        writeln!(
-            body,
-            "    static final MethodHandle {} = LINKER.downcallHandle(",
-            handle_name
-        )
-        .ok();
-        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", ffi_name).ok();
-        writeln!(body, "        {}", layout_str).ok();
-        writeln!(body, "    );").ok();
+        if ffi_excluded.contains(&func.name) {
+            // Use orElse(null) for FFI-excluded functions — their native symbol may be absent.
+            // Callers must null-check before invoking these handles.
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s, {})).orElse(null);",
+                handle_name, ffi_name, layout_str
+            )
+            .ok();
+        } else {
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                handle_name
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", ffi_name).ok();
+            writeln!(body, "        {}", layout_str).ok();
+            writeln!(body, "    );").ok();
+        }
     }
 
     // free_string handle for releasing FFI-allocated strings
@@ -529,6 +552,15 @@ pub(crate) fn gen_native_lib(
 
     // FROM_JSON + FREE handles for non-opaque Named types used as parameters.
     // These allow serializing a Java record to JSON and passing it to the FFI.
+    //
+    // Note: Even enums need _free here. `{prefix}_{type}_from_json` returns *mut T
+    // (a heap-allocated pointer) regardless of whether T is an enum or struct, so the
+    // matching _free is required to avoid leaking that allocation.
+    //
+    // We scan ALL functions (including ffi-excluded ones) because parameter type helpers
+    // like _from_json/_free may be needed for the generated wrapper regardless of whether
+    // the main function handle uses orElse(null). The dylib always exports these helpers
+    // for parameter types that appear in non-excluded functions of the same type.
     let mut emitted_from_json_handles: AHashSet<String> = AHashSet::new();
     for func in &api.functions {
         for param in &func.params {

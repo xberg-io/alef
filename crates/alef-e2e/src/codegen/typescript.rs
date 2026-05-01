@@ -40,7 +40,7 @@ impl E2eCodegen for TypeScriptCodegen {
         let function_name = overrides
             .and_then(|o| o.function.as_ref())
             .cloned()
-            .unwrap_or_else(|| call.function.clone());
+            .unwrap_or_else(|| snake_to_camel(&call.function));
         let client_factory = overrides.and_then(|o| o.client_factory.as_deref());
 
         // Resolve package config.
@@ -63,6 +63,15 @@ impl E2eCodegen for TypeScriptCodegen {
 
         // Determine whether any group has HTTP server test fixtures.
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+
+        // Detect whether any fixture uses file_path or bytes args — if so we need to
+        // chdir to the test_documents directory so relative paths resolve correctly.
+        let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.args
+                .iter()
+                .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+        });
 
         // Generate package.json.
         files.push(GeneratedFile {
@@ -87,10 +96,10 @@ impl E2eCodegen for TypeScriptCodegen {
         // Check if we need global setup (either for client_factory or HTTP tests).
         let needs_global_setup = client_factory.is_some() || has_http_fixtures;
 
-        // Generate vitest.config.ts — include globalSetup when needed.
+        // Generate vitest.config.ts — include globalSetup and/or setupFiles when needed.
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
-            content: render_vitest_config(needs_global_setup),
+            content: render_vitest_config(needs_global_setup, has_file_fixtures),
             generated_header: true,
         });
 
@@ -99,6 +108,15 @@ impl E2eCodegen for TypeScriptCodegen {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
                 content: render_global_setup(),
+                generated_header: true,
+            });
+        }
+
+        // Generate setup.ts when file_path args are used, to chdir to test_documents.
+        if has_file_fixtures {
+            files.push(GeneratedFile {
+                path: output_base.join("setup.ts"),
+                content: render_file_setup(),
                 generated_header: true,
             });
         }
@@ -200,8 +218,13 @@ fn render_tsconfig() -> String {
     .to_string()
 }
 
-fn render_vitest_config(with_global_setup: bool) -> String {
+fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    let setup_files_line = if with_file_setup {
+        "    setupFiles: ['./setup.ts'],\n"
+    } else {
+        ""
+    };
     if with_global_setup {
         format!(
             r#"{header}import {{ defineConfig }} from 'vitest/config';
@@ -210,7 +233,7 @@ export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
     globalSetup: './globalSetup.ts',
-  }},
+{setup_files_line}  }},
 }});
 "#
         )
@@ -221,11 +244,28 @@ export default defineConfig({{
 export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
-  }},
+{setup_files_line}  }},
 }});
 "#
         )
     }
+}
+
+fn render_file_setup() -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    header
+        + r#"import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Change to the test_documents directory so that fixture file paths like
+// "pdf/fake_memo.pdf" resolve correctly when running vitest from e2e/node/.
+// setup.ts lives in e2e/node/; test_documents lives at the repository root,
+// two directories up: e2e/node/ -> e2e/ -> repo root -> test_documents/.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const testDocumentsDir = join(__dirname, '..', '..', 'test_documents');
+process.chdir(testDocumentsDir);
+"#
 }
 
 fn render_global_setup() -> String {
@@ -402,12 +442,17 @@ fn render_test_file(
 }
 
 /// Resolve the function name for a call config, applying node-specific overrides.
+///
+/// NAPI-RS exports Rust snake_case functions as camelCase in JavaScript.
+/// When no explicit node `function` override is set, auto-convert the call
+/// config's snake_case function name to camelCase so generated imports match
+/// the binding's exports.
 fn resolve_node_function_name(call_config: &crate::config::CallConfig) -> String {
     call_config
         .overrides
         .get("node")
         .and_then(|o| o.function.clone())
-        .unwrap_or_else(|| call_config.function.clone())
+        .unwrap_or_else(|| snake_to_camel(&call_config.function))
 }
 
 /// Return the package-level helper function name to import for a method_result method,
@@ -702,6 +747,19 @@ fn render_test_case(
     let _ = writeln!(out, "  }});");
 }
 
+/// Check whether any arg at index `idx` or later has a non-null value in `input`.
+fn has_later_arg_value(args: &[crate::config::ArgMapping], from_idx: usize, input: &serde_json::Value) -> bool {
+    args[from_idx..].iter().any(|arg| {
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = if field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
+        !matches!(val, None | Some(serde_json::Value::Null))
+    })
+}
+
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
@@ -719,7 +777,7 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
-    for arg in args {
+    for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
                 "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
@@ -762,8 +820,12 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
-                continue;
+                // Optional arg with no fixture value — check if any later arg has a value.
+                // If so, emit `undefined` as a placeholder to preserve positional order.
+                if has_later_arg_value(args, idx + 1, input) {
+                    parts.push("undefined".to_string());
+                }
+                // Otherwise skip entirely (trailing optional args need no placeholder).
             }
             None | Some(serde_json::Value::Null) => {
                 // Required arg with no fixture value: pass a language-appropriate default.
@@ -777,12 +839,15 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type, cast the object literal.
+                // For json_object args, NAPI-RS bindings use camelCase for JS field names,
+                // so convert snake_case fixture keys to camelCase before passing.
                 if arg.arg_type == "json_object" {
                     if let Some(opts_type) = options_type {
-                        parts.push(format!("{} as {opts_type}", json_to_js(v)));
-                        continue;
+                        parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                    } else {
+                        parts.push(json_to_js_camel(v));
                     }
+                    continue;
                 }
                 parts.push(json_to_js(v));
             }

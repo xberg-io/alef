@@ -958,10 +958,11 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Signature must accept magnus::Value, not String, for the Named param
+    // Variadic signature: scan_args optional slot must be Option<magnus::Value>
+    // so a plain Ruby Hash (or nil) can be passed through.
     assert!(
-        content.contains("options: Option<magnus::Value>"),
-        "Option<Named> param must be typed as Option<magnus::Value> in the binding signature, got:\n{content}"
+        content.contains("(Option<magnus::Value>,)"),
+        "scan_args optional tuple must use Option<magnus::Value>, got:\n{content}"
     );
 
     // Body must call to_json via funcall before serde_json deserialization

@@ -84,11 +84,19 @@ impl E2eCodegen for RubyCodegen {
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
-        // Generate spec/spec_helper.rb when HTTP fixtures are present.
-        if has_http_fixtures {
+        // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
+        let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.args
+                .iter()
+                .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+        });
+
+        // Always generate spec/spec_helper.rb when file-based or HTTP fixtures are present.
+        if has_file_fixtures || has_http_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("spec").join("spec_helper.rb"),
-                content: render_spec_helper(),
+                content: render_spec_helper(has_file_fixtures, has_http_fixtures),
                 generated_header: true,
             });
         }
@@ -144,6 +152,7 @@ impl E2eCodegen for RubyCodegen {
                 enum_fields,
                 result_is_simple,
                 e2e_config,
+                has_file_fixtures || has_http_fixtures,
             );
             files.push(GeneratedFile {
                 path: spec_base.join(filename),
@@ -191,11 +200,27 @@ fn render_gemfile(
     )
 }
 
-fn render_spec_helper() -> String {
+fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool) -> String {
     let header = hash::header(CommentStyle::Hash);
-    header
-        + r#"# frozen_string_literal: true
+    let mut out = header;
+    out.push_str("# frozen_string_literal: true\n");
 
+    if has_file_fixtures {
+        out.push_str(
+            r#"
+# Change to the test_documents directory so that fixture file paths like
+# "pdf/fake_memo.pdf" resolve correctly when running rspec from e2e/ruby/.
+# spec_helper.rb lives in e2e/ruby/spec/; test_documents lives at the
+# repository root, three directories up: spec/ -> e2e/ruby/ -> e2e/ -> root.
+_test_documents = File.expand_path('../../../test_documents', __dir__)
+Dir.chdir(_test_documents) if Dir.exist?(_test_documents)
+"#,
+        );
+    }
+
+    if has_http_fixtures {
+        out.push_str(
+            r#"
 require 'open3'
 
 # Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
@@ -219,7 +244,11 @@ RSpec.configure do |config|
     @_mock_server_stdin&.close
   end
 end
-"#
+"#,
+        );
+    }
+
+    out
 }
 
 fn render_rubocop_yaml() -> String {
@@ -275,6 +304,7 @@ fn render_spec_file(
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     e2e_config: &E2eConfig,
+    needs_spec_helper: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -287,8 +317,8 @@ fn render_spec_file(
     let _ = writeln!(out, "require 'json'");
 
     let has_http = fixtures.iter().any(|f| f.is_http_test());
-    if has_http {
-        // spec_helper sets up the mock server and MOCK_SERVER_URL env var.
+    if needs_spec_helper || has_http {
+        // spec_helper sets up Dir.chdir and/or mock server.
         let _ = writeln!(out, "require_relative 'spec_helper'");
     }
     let _ = writeln!(out);

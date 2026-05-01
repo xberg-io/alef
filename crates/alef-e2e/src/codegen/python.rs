@@ -265,6 +265,15 @@ fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
     let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
+    // Detect whether any fixture uses file_path or bytes args — if so we need to
+    // chdir to the test_documents directory so relative paths resolve correctly.
+    let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        cc.args
+            .iter()
+            .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+    });
+
     let header = hash::header(CommentStyle::Hash);
     if has_http_fixtures {
         format!(
@@ -350,6 +359,44 @@ def app(mock_server: str) -> object:  # noqa: ARG001
     return _App()
 "#
         )
+    } else if has_file_fixtures {
+        format!(
+            r#"{header}"""Pytest configuration for e2e tests."""
+import os
+from pathlib import Path
+
+# Ensure the package is importable.
+# The {module} package is expected to be installed in the current environment.
+
+# Change to the test_documents directory so that fixture file paths like
+# "pdf/fake_memo.pdf" resolve correctly when running pytest from e2e/python/.
+_TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "test_documents"
+if _TEST_DOCUMENTS.is_dir():
+    os.chdir(_TEST_DOCUMENTS)
+
+# On macOS, Pdfium is a separate dylib not on the default library path in dev builds.
+# Search common locations (Cargo build output, staged target/release) and extend
+# DYLD_LIBRARY_PATH / LD_LIBRARY_PATH so the extension can load the library.
+_REPO_ROOT = Path(__file__).parent.parent.parent
+
+
+def _find_pdfium_dir() -> str | None:
+    """Find the directory containing libpdfium, searching Cargo build outputs."""
+    for _candidate in sorted(_REPO_ROOT.glob("target/*/release/build/*/out/libpdfium*")):
+        return str(_candidate.parent)
+    for _candidate in sorted(_REPO_ROOT.glob("target/release/build/*/out/libpdfium*")):
+        return str(_candidate.parent)
+    return None
+
+
+_pdfium_dir = _find_pdfium_dir()
+if _pdfium_dir is not None:
+    for _var in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"):
+        _existing = os.environ.get(_var, "")
+        if _pdfium_dir not in _existing:
+            os.environ[_var] = f"{{_pdfium_dir}}:{{_existing}}" if _existing else _pdfium_dir
+"#
+        )
     } else {
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
@@ -405,6 +452,31 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     // mock_url args need `import os`.
     let needs_os_import = e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
 
+    // bytes args need `from pathlib import Path` when any fixture value is a file path.
+    // bytes args need `import base64` when any fixture value is a base64 blob.
+    let needs_path_import = fixtures.iter().any(|f| {
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        cc.args.iter().any(|arg| {
+            if arg.arg_type != "bytes" {
+                return false;
+            }
+            let val = resolve_field(&f.input, &arg.field);
+            val.as_str()
+                .is_some_and(|s| matches!(classify_bytes_value(s), BytesKind::FilePath))
+        })
+    });
+    let needs_base64_import = fixtures.iter().any(|f| {
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        cc.args.iter().any(|arg| {
+            if arg.arg_type != "bytes" {
+                return false;
+            }
+            let val = resolve_field(&f.input, &arg.field);
+            val.as_str()
+                .is_some_and(|s| matches!(classify_bytes_value(s), BytesKind::Base64))
+        })
+    });
+
     // HTTP tests handle `import re` inline (per-test), so no top-level re import is needed.
     let needs_re_import = false;
     let _ = has_http_tests; // used indirectly via inline imports in render_http_test_function
@@ -446,12 +518,20 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let mut thirdparty_bare: Vec<String> = Vec::new();
     let mut thirdparty_from: Vec<String> = Vec::new();
 
+    if needs_base64_import {
+        stdlib_imports.push("import base64".to_string());
+    }
+
     if needs_json_import {
         stdlib_imports.push("import json".to_string());
     }
 
     if needs_os_import {
         stdlib_imports.push("import os".to_string());
+    }
+
+    if needs_path_import {
+        stdlib_imports.push("from pathlib import Path".to_string());
     }
 
     if needs_re_import {
@@ -881,6 +961,11 @@ fn render_test_function(
     let function_name = resolve_function_name_for_call(call_config);
     let result_var = &call_config.result_var;
 
+    // Resolve Python-specific override settings.
+    let python_override = call_config.overrides.get("python");
+    let result_is_simple = python_override.is_some_and(|o| o.result_is_simple);
+    let arg_name_map = python_override.map(|o| &o.arg_name_map);
+
     let desc_with_period = if description.ends_with('.') {
         description.to_string()
     } else {
@@ -915,6 +1000,11 @@ fn render_test_function(
     let mut kwarg_exprs = Vec::new();
     for arg in &call_config.args {
         let var_name = &arg.name;
+        // Resolve the kwarg name: use the arg_name_map override if present.
+        let kwarg_name = arg_name_map
+            .and_then(|m| m.get(var_name.as_str()))
+            .map(|s| s.as_str())
+            .unwrap_or(var_name.as_str());
 
         if arg.arg_type == "handle" {
             // Generate a create_engine (or equivalent) call and pass the variable.
@@ -996,7 +1086,7 @@ fn render_test_function(
                 let literal = json_to_python_literal(config_value);
                 arg_bindings.push(format!("    {var_name} = {constructor_name}({literal})"));
             }
-            kwarg_exprs.push(format!("{var_name}={var_name}"));
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -1005,7 +1095,7 @@ fn render_test_function(
             arg_bindings.push(format!(
                 "    {var_name} = os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'"
             ));
-            kwarg_exprs.push(format!("{var_name}={var_name}"));
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -1028,7 +1118,7 @@ fn render_test_function(
                         ""
                     };
                     arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-                    kwarg_exprs.push(format!("{var_name}={var_name}"));
+                    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                     continue;
                 }
                 "json" => {
@@ -1036,7 +1126,7 @@ fn render_test_function(
                     let json_str = serde_json::to_string(value).unwrap_or_default();
                     let escaped = escape_python(&json_str);
                     arg_bindings.push(format!("    {var_name} = json.loads(\"{escaped}\")"));
-                    kwarg_exprs.push(format!("{var_name}={var_name}"));
+                    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                     continue;
                 }
                 _ => {
@@ -1062,7 +1152,7 @@ fn render_test_function(
                             .collect();
                         let constructor = format!("{opts_type}({})", kwargs.join(", "));
                         arg_bindings.push(format!("    {var_name} = {constructor}"));
-                        kwarg_exprs.push(format!("{var_name}={var_name}"));
+                        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                         continue;
                     }
                 }
@@ -1085,7 +1175,43 @@ fn render_test_function(
                 _ => "None".to_string(),
             };
             arg_bindings.push(format!("    {var_name} = {default_val}"));
-            kwarg_exprs.push(format!("{var_name}={var_name}"));
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
+            continue;
+        }
+
+        // bytes args: classify the fixture value and emit the appropriate expression.
+        //
+        // Three patterns appear in fixtures:
+        //   1. File path   — "pdf/fake_memo.pdf", "images/hello_world.png"
+        //                    Starts with a word character followed by more word/slash/dot chars
+        //                    and a file extension.  Emit `Path("...").read_bytes()`.
+        //   2. Inline text — "<!DOCTYPE html>...", "{...}", text with spaces
+        //                    Starts with '<', '{', or contains whitespace.
+        //                    Emit `b"..."` bytes literal.
+        //   3. Base64      — "/9j/4AAQ" (JPEG magic), other short opaque strings
+        //                    Everything else.  Emit `base64.b64decode("...")`.
+        if arg.arg_type == "bytes" {
+            if let Some(raw) = value.as_str() {
+                match classify_bytes_value(raw) {
+                    BytesKind::FilePath => {
+                        let escaped = escape_python(raw);
+                        arg_bindings.push(format!("    {var_name} = Path(\"{escaped}\").read_bytes()"));
+                    }
+                    BytesKind::InlineText => {
+                        // Emit a bytes literal.  For short single-line values we can embed
+                        // them directly; use repr-like escaping of non-printable bytes.
+                        let escaped = escape_python(raw);
+                        arg_bindings.push(format!("    {var_name} = b\"{escaped}\""));
+                    }
+                    BytesKind::Base64 => {
+                        let escaped = escape_python(raw);
+                        arg_bindings.push(format!("    {var_name} = base64.b64decode(\"{escaped}\")"));
+                    }
+                }
+            } else {
+                arg_bindings.push(format!("    {var_name} = None"));
+            }
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -1096,7 +1222,7 @@ fn render_test_function(
             ""
         };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-        kwarg_exprs.push(format!("{var_name}={var_name}"));
+        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
     }
 
     // Generate visitor class if the fixture has a visitor spec.
@@ -1147,6 +1273,33 @@ fn render_test_function(
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
         }
+        if result_is_simple {
+            // When the result is a simple type, only assertions whose field is
+            // NOT in the skipped-for-simple-result set will produce real code.
+            if let Some(f) = &a.field {
+                let f_lower = f.to_lowercase();
+                if !f.is_empty()
+                    && f_lower != "content"
+                    && f_lower != "result"
+                    && (f_lower.starts_with("metadata")
+                        || f_lower.starts_with("document")
+                        || f_lower.starts_with("structure")
+                        || f_lower.starts_with("pages")
+                        || f_lower.starts_with("chunks")
+                        || f_lower.starts_with("tables")
+                        || f_lower.starts_with("images")
+                        || f_lower.starts_with("mime_type")
+                        || f_lower.starts_with("is_")
+                        || f_lower == "byte_length"
+                        || f_lower == "page_count"
+                        || f_lower == "output_format"
+                        || f_lower == "extraction_method")
+                {
+                    return false; // this assertion will be skipped
+                }
+            }
+            return true;
+        }
         match &a.field {
             Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
             _ => true,
@@ -1170,8 +1323,61 @@ fn render_test_function(
             // The call already raises on error in Python.
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver, fields_enum);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            field_resolver,
+            fields_enum,
+            result_is_simple,
+        );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Bytes value classification
+// ---------------------------------------------------------------------------
+
+/// How to represent a fixture `type = "bytes"` string value in generated Python.
+enum BytesKind {
+    /// A relative file path like `"pdf/fake_memo.pdf"` — read with `Path(...).read_bytes()`.
+    FilePath,
+    /// Inline text content like `"<!DOCTYPE html>..."` — encode to `b"..."`.
+    InlineText,
+    /// A base64-encoded blob like `"/9j/4AAQ"` — decode with `base64.b64decode(...)`.
+    Base64,
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+///
+/// Rules (in order):
+/// 1. Starts with `<`, `{`, or `[`, or contains whitespace → inline text.
+/// 2. First character is an ASCII letter/digit/underscore AND the value contains
+///    a `/` that is preceded by at least one word character AND the value contains
+///    a `.` after the last `/` → file path.
+/// 3. Everything else → base64.
+fn classify_bytes_value(s: &str) -> BytesKind {
+    // Rule 1: obvious inline content markers.
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return BytesKind::InlineText;
+    }
+
+    // Rule 2: looks like "dir/file.ext" — starts with a word char, has a slash,
+    // and the portion after the last slash contains a dot (file extension).
+    let first = s.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash_pos) = s.find('/') {
+            if slash_pos > 0 {
+                let after_slash = &s[slash_pos + 1..];
+                if after_slash.contains('.') && !after_slash.is_empty() {
+                    return BytesKind::FilePath;
+                }
+            }
+        }
+    }
+
+    // Rule 3: everything else is treated as base64.
+    BytesKind::Base64
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,7 +1415,37 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     fields_enum: &std::collections::HashSet<String>,
+    result_is_simple: bool,
 ) {
+    // When result_is_simple, the result IS the content — skip fields that
+    // reference struct sub-fields (metadata, document, structure, pages, etc.)
+    // which don't exist on a plain string/bool/bytes value.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            let f_lower = f.to_lowercase();
+            if !f.is_empty()
+                && f_lower != "content"
+                && f_lower != "result"
+                && (f_lower.starts_with("metadata")
+                    || f_lower.starts_with("document")
+                    || f_lower.starts_with("structure")
+                    || f_lower.starts_with("pages")
+                    || f_lower.starts_with("chunks")
+                    || f_lower.starts_with("tables")
+                    || f_lower.starts_with("images")
+                    || f_lower.starts_with("mime_type")
+                    || f_lower.starts_with("is_")
+                    || f_lower == "byte_length"
+                    || f_lower == "page_count"
+                    || f_lower == "output_format"
+                    || f_lower == "extraction_method")
+            {
+                let _ = writeln!(out, "    # skipped: field '{f}' not applicable for simple result type");
+                return;
+            }
+        }
+    }
+
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {
@@ -1356,16 +1592,24 @@ fn render_assertion(
     }
 
     // Skip assertions on fields that don't exist on the result type.
-    if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
-            return;
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+                let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 
-    let field_access = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "python", result_var),
-        _ => result_var.to_string(),
+    // For simple results, the result variable IS the value — map `content`/`result`
+    // fields (and empty/absent fields) to the result variable directly.
+    let field_access = if result_is_simple {
+        result_var.to_string()
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "python", result_var),
+            _ => result_var.to_string(),
+        }
     };
 
     // Determine whether this field should be compared as an enum string.

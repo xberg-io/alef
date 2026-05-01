@@ -593,7 +593,7 @@ impl Backend for Pyo3Backend {
         });
 
         // 2. Generate api.py (wrapper functions)
-        let api_content = gen_api_py(api, &module_name, &package_name, &config.trait_bridges);
+        let api_content = gen_api_py(api, &module_name, &package_name, &config.trait_bridges, &config.dto);
         files.push(GeneratedFile {
             path: output_base.join("api.py"),
             content: api_content,
@@ -943,10 +943,14 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                 let safe_name = alef_core::keywords::python_ident(&field.name);
                 if !field.doc.is_empty() {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
-                    out.push_str(&format!(
-                        "    \"\"\"{}\"\"\"\n\n",
-                        sanitize_python_doc(field.doc.lines().next().unwrap_or(""))
-                    ));
+                    let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+                    // Avoid `""""` when docstring ends with `"` — add trailing space.
+                    let safe_doc = if doc_line.ends_with('"') {
+                        format!("{doc_line} ")
+                    } else {
+                        doc_line
+                    };
+                    out.push_str(&format!("    \"\"\"{safe_doc}\"\"\"\n\n"));
                 } else {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
                 }
@@ -1127,10 +1131,16 @@ fn gen_typeddict(
         let safe_name = alef_core::keywords::python_ident(&field.name);
         if !field.doc.is_empty() {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
-            out.push_str(&format!(
-                "    \"\"\"{}\"\"\"\n\n",
-                sanitize_python_doc(field.doc.lines().next().unwrap_or(""))
-            ));
+            let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+            // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
+            // which Python parses as an empty string followed by a stray `"`.
+            // Add a trailing space to prevent the collision.
+            let safe_doc = if doc_line.ends_with('"') {
+                format!("{doc_line} ")
+            } else {
+                doc_line
+            };
+            out.push_str(&format!("    \"\"\"{safe_doc}\"\"\"\n\n"));
         } else {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
         }
@@ -1360,9 +1370,16 @@ fn gen_api_py(
     module_name: &str,
     package_name: &str,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
+    dto: &alef_core::config::DtoConfig,
 ) -> String {
+    use alef_core::config::PythonDtoStyle;
     use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
+
+    // When output_style is TypedDict, types with is_return_type=true are emitted as
+    // TypedDict classes (plain dicts at runtime). Converters for those types must use
+    // `value.get("field")` dict access instead of `value.field` attribute access.
+    let output_style = dto.python_output_style();
 
     // Collect bridge param names so they can be typed as `object | None` instead of
     // `str | None`. The IR sanitizes trait handle types to String, but callers pass
@@ -1584,6 +1601,21 @@ fn gen_api_py(
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
+        // When the output style is TypedDict, any value passed to a `_to_rust_*` converter
+        // may arrive as a plain dict (either because it IS a TypedDict itself, or because
+        // it was nested inside one and extracted with `.get()`). Use `value.get("field")`
+        // for all field accesses in TypedDict mode to avoid AttributeError on plain dicts.
+        let is_typeddict = output_style == PythonDtoStyle::TypedDict;
+
+        // Helper: emit `value.field` or `value.get("field")` depending on the type kind.
+        let field_access = |name: &str| -> String {
+            if is_typeddict {
+                format!("value.get(\"{name}\")")
+            } else {
+                format!("value.{name}")
+            }
+        };
+
         // Single-line: "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:"
         // Prefix "def _to_rust_" (13) + snake + "(value: " (8) + type_name + " | None) -> _rust." (18)
         // + type_name + " | None:" (8) = 47 + snake.len + 2 * type_name.len
@@ -1621,9 +1653,10 @@ fn gen_api_py(
             if let Some(nested_name) = inner_named {
                 if default_types.contains_key(nested_name) {
                     let nested_snake = nested_name.to_snake_case();
+                    let accessor = field_access(&field.name);
                     out.push_str(&format!(
-                        "        {}=_to_rust_{nested_snake}(value.{}),\n",
-                        field.name, field.name
+                        "        {}=_to_rust_{nested_snake}({accessor}),\n",
+                        field.name
                     ));
                     continue;
                 }
@@ -1634,15 +1667,16 @@ fn gen_api_py(
                         // If the caller already holds a _rust.{EnumName} instance (e.g. from a
                         // previous conversion), pass it through to avoid a double-wrap error;
                         // otherwise wrap the dict via the PyO3 constructor.
+                        let accessor = field_access(&field.name);
                         if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
                             out.push_str(&format!(
-                                "        {name}=(value.{name} if isinstance(value.{name}, _rust.{enum_name}) else _rust.{enum_name}(value.{name})) if value.{name} is not None else None,\n",
+                                "        {name}=({accessor} if isinstance({accessor}, _rust.{enum_name}) else _rust.{enum_name}({accessor})) if {accessor} is not None else None,\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        {name}=value.{name} if isinstance(value.{name}, _rust.{enum_name}) else _rust.{enum_name}(value.{name}),\n",
+                                "        {name}={accessor} if isinstance({accessor}, _rust.{enum_name}) else _rust.{enum_name}({accessor}),\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
@@ -1651,7 +1685,8 @@ fn gen_api_py(
                         // Simple int enum: the input value is a _rust.ConversionOptions (PyO3
                         // struct), so its enum fields are already the correct _rust.EnumType
                         // instances.  Pass them through directly — no string lookup needed.
-                        out.push_str(&format!("        {name}=value.{name},\n", name = field.name,));
+                        let accessor = field_access(&field.name);
+                        out.push_str(&format!("        {name}={accessor},\n", name = field.name,));
                     }
                     continue;
                 }
@@ -1661,24 +1696,25 @@ fn gen_api_py(
             if let TypeRef::Vec(inner) = &field.ty {
                 if let TypeRef::Named(enum_name) = inner.as_ref() {
                     if enum_names.contains(&enum_name.as_str()) {
+                        let accessor = field_access(&field.name);
                         if data_enum_names.contains(&enum_name.as_str()) {
                             // Data enum list: each element is a dict passed to the PyO3 constructor.
                             out.push_str(&format!(
-                                "        {name}=[_rust.{enum_name}(v) for v in value.{name}],\n",
+                                "        {name}=[_rust.{enum_name}(v) for v in {accessor}],\n",
                                 name = field.name,
-                                enum_name = enum_name,
                             ));
                         } else {
                             // Simple int enum list: elements are already _rust.EnumType instances
                             // since the input value is a PyO3 struct.  Pass the list through.
-                            out.push_str(&format!("        {name}=value.{name},\n", name = field.name,));
+                            out.push_str(&format!("        {name}={accessor},\n", name = field.name,));
                         }
                         continue;
                     }
                 }
             }
 
-            out.push_str(&format!("        {name}=value.{name},\n", name = field.name));
+            let accessor = field_access(&field.name);
+            out.push_str(&format!("        {name}={accessor},\n", name = field.name));
         }
 
         out.push_str("    )\n\n\n");
@@ -1686,9 +1722,36 @@ fn gen_api_py(
 
     // Generate wrapper for each function
     for func in &api.functions {
-        // Build Python-side params — required first, then optional (Python syntax rule)
+        // Build Python-side params applying seen_optional promotion.
+        //
+        // Python syntax requires params with defaults to follow params without defaults.
+        // The PyO3 binding uses seen_optional promotion: once any optional param appears
+        // in the Rust function signature, all subsequent params also get `= None` defaults
+        // (wrapped in Option<T>). The Python wrapper must mirror this so callers can omit
+        // those trailing params.
+        //
+        // Algorithm:
+        //   1. Walk params in IR order, track seen_optional.
+        //   2. A param is "promoted" if it is NOT optional in the IR but seen_optional is
+        //      already true (an earlier param was optional).
+        //   3. Partition into truly-required (not optional, not promoted) and
+        //      all-with-defaults (optional || promoted).
+        //   4. Emit truly-required first, then all-with-defaults — satisfying Python syntax.
+        let mut seen_optional_so_far = false;
+        let mut promoted_params: ahash::AHashSet<String> = ahash::AHashSet::new();
+        for param in &func.params {
+            if param.optional {
+                seen_optional_so_far = true;
+            } else if seen_optional_so_far {
+                // This param is not optional in the IR but comes after an optional param
+                // → the PyO3 binding promotes it to Option<T>; the Python wrapper must too.
+                promoted_params.insert(param.name.clone());
+            }
+        }
+
         let mut sig_parts = Vec::new();
-        let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
+        let is_with_default = |p: &&alef_core::ir::ParamDef| p.optional || promoted_params.contains(&p.name);
+        let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !is_with_default(p));
         for param in required.iter().chain(optional.iter()) {
             // Bridge params have their IR type sanitized to String, but callers pass
             // arbitrary Python objects implementing the visitor protocol — use `object`.
@@ -1697,7 +1760,8 @@ fn gen_api_py(
             } else {
                 crate::type_map::python_type(&param.ty)
             };
-            let py_type = if param.optional {
+            let needs_default = param.optional || promoted_params.contains(&param.name);
+            let py_type = if needs_default {
                 if base_type.ends_with("| None") {
                     format!("{} = None", base_type)
                 } else {
@@ -1777,14 +1841,20 @@ fn gen_api_py(
         // that the generated `_rust.fn(path=path, config=_rust_config, ...)` form is
         // independent of the pyo3 signature parameter order.
         let mut call_args: Vec<(String, String)> = Vec::new();
-        let (req_params, opt_params): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
+        let (req_params, opt_params): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !is_with_default(p));
         for param in req_params.iter().chain(opt_params.iter()) {
             let class = classify_param_type(&param.ty);
 
             if let Some((name, wrapping)) = class {
                 let pname = &param.name;
                 let var = format!("_rust_{pname}");
-                let optional = matches!(wrapping, Wrapping::Optional | Wrapping::OptionalVec) || param.optional;
+                // A param is "optional" for the conversion guard when:
+                //   - its IR type is Optional/OptionalVec, OR
+                //   - the IR param itself is optional, OR
+                //   - it was promoted to optional via seen_optional (comes after an optional param).
+                let is_promoted = promoted_params.contains(pname.as_str());
+                let optional =
+                    matches!(wrapping, Wrapping::Optional | Wrapping::OptionalVec) || param.optional || is_promoted;
                 let is_collection = matches!(wrapping, Wrapping::Vec | Wrapping::OptionalVec);
 
                 // has_default struct: Python-side conversion via _to_rust_<snake>().
@@ -1797,8 +1867,9 @@ fn gen_api_py(
                         emit_param_conversion(&mut out, &var, pname, &body, optional);
                     } else {
                         emit_param_conversion(&mut out, &var, pname, &scalar_expr, optional);
-                        // Required scalar: failed converter returns None → raise.
-                        if !param.optional && !is_collection {
+                        // Required scalar (not optional and not promoted): failed converter → raise.
+                        // Promoted params are treated as optional at the Python level, so do not raise.
+                        if !param.optional && !is_promoted && !is_collection {
                             out.push_str(&format!(
                                 "    if {var} is None:\n        msg = \"{pname} conversion returned None\"\n        raise ValueError(msg)\n"
                             ));

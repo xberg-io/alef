@@ -731,7 +731,10 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
     // Disable auto-follow so redirect-status fixtures (3xx) can assert the
     // server's response status code rather than the followed target's status.
     let _ = writeln!(out, "\tnoRedirectClient := &http.Client{{");
-    let _ = writeln!(out, "\t\tCheckRedirect: func(req *http.Request, via []*http.Request) error {{");
+    let _ = writeln!(
+        out,
+        "\t\tCheckRedirect: func(req *http.Request, via []*http.Request) error {{"
+    );
     let _ = writeln!(out, "\t\t\treturn http.ErrUseLastResponse");
     let _ = writeln!(out, "\t\t}},");
     let _ = writeln!(out, "\t}}");
@@ -2070,7 +2073,12 @@ mod tests {
             skip: None,
             call: None,
             input: serde_json::Value::Null,
-            mock_response: None,
+            mock_response: Some(crate::fixture::MockResponse {
+                status: 200,
+                body: Some(serde_json::Value::Null),
+                stream_chunks: None,
+                headers: std::collections::HashMap::new(),
+            }),
             source: String::new(),
             http: None,
             assertions: vec![Assertion {

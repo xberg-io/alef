@@ -155,8 +155,13 @@ impl Backend for JavaBackend {
         let lang_rename_all = config.serde_rename_all_for_language(Language::Java);
 
         // 4. Record types
+        // Include non-opaque types that either have fields OR are serializable unit structs
+        // (has_serde + has_default, empty fields). Unit structs like `ExcelMetadata` need a
+        // concrete Java class so they can be referenced as record components in tagged-union
+        // variant records (e.g. FormatMetadata.Excel(@JsonUnwrapped ExcelMetadata value)).
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            if !typ.is_opaque && !typ.fields.is_empty() {
+            let is_unit_serde = !typ.is_opaque && typ.fields.is_empty() && typ.has_serde;
+            if !typ.is_opaque && (!typ.fields.is_empty() || is_unit_serde) {
                 // Skip types that gen_visitor handles with richer visitor-specific versions
                 if has_visitor_pattern && (typ.name == "NodeContext" || typ.name == "VisitResult") {
                     continue;
@@ -182,7 +187,7 @@ impl Backend for JavaBackend {
         let builder_class_names: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| !t.is_opaque && !t.fields.is_empty() && t.has_default)
+            .filter(|t| !t.is_opaque && (!t.fields.is_empty() || (t.has_serde && t.fields.is_empty())) && t.has_default)
             .map(|t| format!("{}Builder", t.name))
             .collect();
 

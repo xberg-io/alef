@@ -1,6 +1,6 @@
 use crate::type_map::c_return_type_with_paths;
 use ahash::{AHashMap, AHashSet};
-use alef_codegen::conversions::core_type_path;
+use alef_codegen::conversions::{core_enum_path, core_type_path};
 use alef_core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
@@ -459,6 +459,162 @@ pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &s
     writeln!(out, "        _ => {{").ok();
     writeln!(out, "            set_last_error(1, \"Unknown {enum_name} variant\");").ok();
     writeln!(out, "            -1").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
+}
+
+/// Generate a `_free` function for an enum type returned as a heap-allocated pointer.
+///
+/// These are needed when a function returns `*mut EnumType` (via `Box::into_raw`), and the
+/// caller must free the allocation. This applies to enums that derive `Copy`/`Clone` but are
+/// returned through the pointer-based FFI API (e.g. field accessor methods on struct types).
+pub(super) fn gen_enum_free(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let enum_name = &enum_def.name;
+    let qualified = core_enum_path(enum_def, core_import);
+    let mut out = String::with_capacity(512);
+
+    writeln!(
+        out,
+        "/// Free a heap-allocated `{enum_name}` returned by a pointer-returning FFI function."
+    )
+    .ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Pointer must have been returned by this library, or be null.").ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_free(ptr: *mut {qualified}) {{"
+    )
+    .ok();
+    writeln!(out, "    if !ptr.is_null() {{").ok();
+    writeln!(
+        out,
+        "        // SAFETY: ptr was allocated by Box::into_raw; caller ensures no aliases."
+    )
+    .ok();
+    writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
+}
+
+/// Generate a `_to_json` function for an enum type returned as a heap-allocated pointer.
+///
+/// Serializes the enum to a JSON string using serde. Only generated for enums that
+/// derive `Serialize` (i.e. `has_serde` is true).
+pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let enum_name = &enum_def.name;
+    let qualified = core_enum_path(enum_def, core_import);
+    let mut out = String::with_capacity(1024);
+
+    writeln!(out, "/// Serialize a heap-allocated `{enum_name}` to a JSON string.").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(
+        out,
+        "/// `ptr` must be a valid, non-null pointer returned by a `{prefix}` function."
+    )
+    .ok();
+    writeln!(
+        out,
+        "/// The returned string must be freed with `{prefix}_free_string`."
+    )
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_to_json(ptr: *const {qualified}) -> *mut c_char {{"
+    )
+    .ok();
+    writeln!(out, "    if ptr.is_null() {{").ok();
+    writeln!(
+        out,
+        "        set_last_error(1, \"Null pointer passed to {prefix}_{enum_snake}_to_json\");"
+    )
+    .ok();
+    writeln!(out, "        return std::ptr::null_mut();").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(
+        out,
+        "    // SAFETY: null check above guarantees ptr is valid; no mutable aliases held."
+    )
+    .ok();
+    writeln!(out, "    let val = unsafe {{ &*ptr }};").ok();
+    writeln!(out, "    match serde_json::to_string(val) {{").ok();
+    writeln!(out, "        Ok(s) => match CString::new(s) {{").ok();
+    writeln!(out, "            Ok(cs) => cs.into_raw(),").ok();
+    writeln!(out, "            Err(_) => std::ptr::null_mut(),").ok();
+    writeln!(out, "        }},").ok();
+    writeln!(out, "        Err(e) => {{").ok();
+    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+    writeln!(out, "            std::ptr::null_mut()").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
+}
+
+/// Generate a `_from_json` function for an enum type (for parameter passing from Java).
+///
+/// Deserializes the enum from a JSON string. Only generated for enums that
+/// derive `Deserialize` (i.e. `has_serde` is true).
+pub(super) fn gen_enum_from_json(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let enum_name = &enum_def.name;
+    let qualified = core_enum_path(enum_def, core_import);
+    let mut out = String::with_capacity(1024);
+
+    writeln!(
+        out,
+        "/// Create a `{enum_name}` from a JSON string. Returns null on failure."
+    )
+    .ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").ok();
+    writeln!(
+        out,
+        "/// Returned handle must be freed with `{prefix}_{enum_snake}_free`."
+    )
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_json(json: *const c_char) -> *mut {qualified} {{"
+    )
+    .ok();
+    writeln!(out, "    clear_last_error();").ok();
+    writeln!(out, "    if json.is_null() {{").ok();
+    writeln!(
+        out,
+        "        set_last_error(1, \"Null pointer passed for JSON string\");"
+    )
+    .ok();
+    writeln!(out, "        return std::ptr::null_mut();").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(
+        out,
+        "    // SAFETY: null check above guarantees json is a valid pointer; string is valid UTF-8 from caller."
+    )
+    .ok();
+    writeln!(
+        out,
+        "    let c_str = match unsafe {{ CStr::from_ptr(json) }}.to_str() {{"
+    )
+    .ok();
+    writeln!(out, "        Ok(s) => s,").ok();
+    writeln!(out, "        Err(_) => {{").ok();
+    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in JSON string\");").ok();
+    writeln!(out, "            return std::ptr::null_mut();").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }};").ok();
+    writeln!(out, "    match serde_json::from_str::<{qualified}>(c_str) {{").ok();
+    writeln!(out, "        Ok(val) => Box::into_raw(Box::new(val)),").ok();
+    writeln!(out, "        Err(e) => {{").ok();
+    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+    writeln!(out, "            std::ptr::null_mut()").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();

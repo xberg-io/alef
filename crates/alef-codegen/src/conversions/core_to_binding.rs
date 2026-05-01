@@ -152,8 +152,11 @@ pub fn gen_from_core_to_binding_cfg(
             base_conversion
         };
         // CoreWrapper: unwrap Arc, convert Cow→String, Bytes→Vec<u8>
-        // Skip for sanitized fields since their conversion already handles the type mismatch via format!("{:?}", ...)
-        let conversion = if !field.sanitized {
+        // For sanitized fields, still apply Cow→String conversion: Cow<'_, str> sanitizes to
+        // TypeRef::String and the Debug-formatted fallback produces quotes, but Cow implements
+        // Display so .to_string() (emitted by apply_core_wrapper_from_core for Cow) is correct.
+        // Other sanitized fields (unknown Named types) still fall through to Debug formatting.
+        let conversion = if !field.sanitized || field.core_wrapper == alef_core::ir::CoreWrapper::Cow {
             apply_core_wrapper_from_core(
                 &conversion,
                 &field.name,
@@ -261,6 +264,7 @@ pub fn field_conversion_from_core(
         // String: sanitized from Box<str>, Cow<str>, (u32, u32), etc.
         // Use Debug formatting — it works for all types (including tuples) and avoids Display
         // trait bound failures when the original core type doesn't implement Display.
+        // Note: Cow<str> is handled before this point via the CoreWrapper::Cow path above.
         if matches!(ty, TypeRef::String) {
             if optional {
                 return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{v:?}}\"))");
@@ -764,21 +768,14 @@ fn apply_core_wrapper_from_core(
     match core_wrapper {
         CoreWrapper::None => conversion.to_string(),
         CoreWrapper::Cow => {
-            // Cow<str> → String: core val.name is Cow, binding needs String
-            // The conversion already emits "name: val.name" for strings which works
-            // since Cow<str> derefs to &str and String: From<Cow<str>> exists.
-            // But if it's "val.name" directly, add .into_owned() or .to_string()
-            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                if optional {
-                    // Already handled by map
-                    conversion.to_string()
-                } else if expr == format!("val.{name}") {
-                    format!("{name}: val.{name}.into_owned()")
-                } else {
-                    conversion.to_string()
-                }
+            // Cow<str> → String: core val.name is Cow<'static, str>, binding needs String.
+            // Always emit val.{name}.into_owned() regardless of what the base conversion emits.
+            // This handles both the normal path (base = "name: val.name") and the sanitized path
+            // (base = "name: format!(\"{:?}\", val.name)") which produces debug-escaped strings.
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| v.to_string())")
             } else {
-                conversion.to_string()
+                format!("{name}: val.{name}.to_string()")
             }
         }
         CoreWrapper::Arc => {

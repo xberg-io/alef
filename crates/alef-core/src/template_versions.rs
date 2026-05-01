@@ -297,7 +297,13 @@ pub mod hex {
     pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
 
     // renovate: datasource=hex depName=gleam_httpc
-    pub const GLEAM_HTTPC_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
+    // 4.x is the first to support gleam_stdlib >= 1.0.0; we accept the
+    // 4.x and 5.x lines.
+    pub const GLEAM_HTTPC_VERSION_RANGE: &str = ">= 4.0.0 and < 6.0.0";
+
+    // renovate: datasource=hex depName=envoy
+    // Tiny env-var helper, used by e2e tests to read MOCK_SERVER_URL.
+    pub const ENVOY_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
 }
 
 /// pub.dev (Dart) ecosystem.

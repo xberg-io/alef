@@ -294,6 +294,21 @@ pub struct CallOverride {
     /// Override the function name.
     #[serde(default)]
     pub function: Option<String>,
+    /// Maps canonical argument names to language-specific argument names.
+    ///
+    /// Used when a language binding uses a different parameter name than the
+    /// canonical `args` list in `CallConfig`. For example, if the canonical
+    /// arg name is `doc` but the Python binding uses `html`, specify:
+    ///
+    /// ```toml
+    /// [e2e.call.overrides.python]
+    /// arg_name_map = { doc = "html" }
+    /// ```
+    ///
+    /// The key is the canonical name (from `args[].name`) and the value is the
+    /// name to use when emitting the keyword argument in generated tests.
+    #[serde(default)]
+    pub arg_name_map: HashMap<String, String>,
     /// Override the crate name (Rust only).
     #[serde(default)]
     pub crate_name: Option<String>,

@@ -62,7 +62,12 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
             skip: None,
             call: None,
             input: serde_json::json!({ "path": "test.pdf" }),
-            mock_response: None,
+            mock_response: Some(alef_e2e::fixture::MockResponse {
+                status: 200,
+                body: Some(serde_json::Value::Null),
+                stream_chunks: None,
+                headers: std::collections::HashMap::new(),
+            }),
             visitor: None,
             assertions,
             source: "test.json".to_string(),
@@ -127,7 +132,12 @@ fn build_fixture() -> FixtureGroup {
                 "html": "<p>hi</p>",
                 "options": { "headingStyle": "atx" },
             }),
-            mock_response: None,
+            mock_response: Some(alef_e2e::fixture::MockResponse {
+                status: 200,
+                body: Some(serde_json::Value::Null),
+                stream_chunks: None,
+                headers: std::collections::HashMap::new(),
+            }),
             visitor: None,
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),

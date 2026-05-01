@@ -283,10 +283,24 @@ impl Backend for ExtendrBackend {
             content.push_str("}\n\n");
         }
 
-        let output_dir = resolve_output_dir(config.output.r.as_ref(), &config.crate_config.name, "packages/r/R/");
+        // The R wrapper file always goes into the package's R/ directory (e.g. packages/r/R/).
+        // We derive this from the rust output path: strip the conventional Rust-source suffix
+        // (src/rust/src) and append R/, falling back to the hardcoded default.
+        let r_wrapper_dir = if let Some(rust_out) = config.output.r.as_ref() {
+            let rust_str = rust_out.to_string_lossy();
+            // Strip trailing separator variants of "src/rust/src"
+            let suffixes = ["src/rust/src/", "src/rust/src"];
+            let base = suffixes
+                .iter()
+                .find_map(|s| rust_str.strip_suffix(s))
+                .unwrap_or_else(|| rust_str.as_ref());
+            format!("{base}R/")
+        } else {
+            "packages/r/R/".to_string()
+        };
 
         Ok(vec![GeneratedFile {
-            path: PathBuf::from(&output_dir).join(format!("{}.R", package_name)),
+            path: PathBuf::from(&r_wrapper_dir).join(format!("{}.R", package_name)),
             content,
             generated_header: false,
         }])

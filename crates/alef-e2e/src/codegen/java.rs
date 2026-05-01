@@ -233,7 +233,8 @@ fn render_pom_xml(
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>{maven_surefire}</version>
                 <configuration>
-                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=../../target/release</argLine>
+                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
+                    <workingDirectory>${{project.basedir}}/../../test_documents</workingDirectory>
                 </configuration>
             </plugin>
         </plugins>

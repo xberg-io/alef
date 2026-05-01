@@ -26,7 +26,7 @@ impl E2eCodegen for ElixirCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _alef_config: &AlefConfig,
+        alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -70,16 +70,25 @@ impl E2eCodegen for ElixirCodegen {
             .unwrap_or(&empty_atom_fields);
         let result_var = &call.result_var;
 
-        // Note: Elixir e2e tests use HTTP client only — no binding/NIF dependency needed.
-        // Package config is kept for future use but not currently applied to mix.exs.
-
         // Check if any fixture in any group is an HTTP test.
         let has_http_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
+        let has_nif_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| !f.is_http_test()));
 
-        // Generate mix.exs.
+        // Resolve package reference (path or version) for the NIF dependency.
+        let pkg_ref = e2e_config.resolve_package(lang);
+        let pkg_path = if has_nif_tests {
+            pkg_ref.as_ref().and_then(|p| p.path.as_deref()).unwrap_or("")
+        } else {
+            ""
+        };
+
+        // Generate mix.exs. The dep atom must match the binding's mix package
+        // name (e.g. `:spikard`), not a hardcoded value, otherwise consumer
+        // mix.exs files reference the wrong package.
+        let pkg_atom = alef_config.crate_config.name.replace('-', "_");
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
-            content: render_mix_exs("", "", "", e2e_config.dep_mode, has_http_tests),
+            content: render_mix_exs(&pkg_atom, pkg_path, e2e_config.dep_mode, has_http_tests, has_nif_tests),
             generated_header: false,
         });
 
@@ -176,11 +185,11 @@ end
 }
 
 fn render_mix_exs(
-    _dep_atom: &str,
-    _pkg_path: &str,
-    _dep_version: &str,
-    _dep_mode: crate::config::DependencyMode,
+    pkg_name: &str,
+    pkg_path: &str,
+    dep_mode: crate::config::DependencyMode,
     has_http_tests: bool,
+    has_nif_tests: bool,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
@@ -197,12 +206,37 @@ fn render_mix_exs(
     let _ = writeln!(out);
     let _ = writeln!(out, "  defp deps do");
     let _ = writeln!(out, "    [");
-    // E2e tests use HTTP client only — no binding/NIF dependency.
+
+    // Build the list of deps, then join with commas to avoid double-commas.
+    let mut deps: Vec<String> = Vec::new();
+
+    // Add the binding NIF dependency when there are non-HTTP tests.
+    if has_nif_tests && !pkg_path.is_empty() {
+        let pkg_atom = pkg_name;
+        let nif_dep = match dep_mode {
+            crate::config::DependencyMode::Local => {
+                format!("      {{:{pkg_atom}, path: \"{pkg_path}\"}}")
+            }
+            crate::config::DependencyMode::Registry => {
+                // Registry mode: pkg_path is repurposed as the version string.
+                format!("      {{:{pkg_atom}, \"{pkg_path}\"}}")
+            }
+        };
+        deps.push(nif_dep);
+        // rustler must be a direct dep in the consumer project for force_build to work.
+        deps.push(format!(
+            "      {{:rustler, \"{rustler}\", optional: true, runtime: false}}",
+            rustler = tv::hex::RUSTLER
+        ));
+    }
+
     // Add Req + Jason for HTTP testing.
     if has_http_tests {
-        let _ = writeln!(out, "      {{:req, \"{req}\"}},", req = tv::hex::REQ);
-        let _ = writeln!(out, "      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON);
+        deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
+        deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
     }
+
+    let _ = writeln!(out, "{}", deps.join(",\n"));
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");
     let _ = writeln!(out, "end");
@@ -229,10 +263,15 @@ fn render_test_file(
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "# E2e tests for category: {category}");
     let _ = writeln!(out, "defmodule E2e.{}Test do", elixir_module_name(category));
-    let _ = writeln!(out, "  use ExUnit.Case, async: true");
 
     // Add client helper when there are HTTP fixtures in this group.
     let has_http = fixtures.iter().any(|f| f.is_http_test());
+
+    // Use async: false for NIF tests — concurrent Tokio runtimes created by DirtyCpu NIFs
+    // on ARM64 macOS cause SIGBUS when tests run in parallel. HTTP-only tests can stay async.
+    let async_flag = if has_http { "true" } else { "false" };
+    let _ = writeln!(out, "  use ExUnit.Case, async: {async_flag}");
+
     if has_http {
         let _ = writeln!(out);
         let _ = writeln!(out, "  defp mock_server_url do");
@@ -451,6 +490,12 @@ fn render_elixir_body_assertions(out: &mut String, expected: &HttpExpectedRespon
 fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
     for (name, value) in &expected.headers {
         let header_key = name.to_lowercase();
+        // Skip headers Req's response pipeline transforms or strips:
+        // - content-encoding: Req auto-decompresses gzip/brotli responses and removes the header.
+        // - connection: hop-by-hop header stripped when reading responses.
+        if header_key == "content-encoding" || header_key == "connection" {
+            continue;
+        }
         let key_lit = format!("\"{}\"", escape_elixir(&header_key));
         // Req (via Mint) stores header values as lists; extract the first value.
         let get_header_expr = format!(
@@ -506,6 +551,25 @@ fn render_test_case(
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
 
+    // Non-HTTP non-mock_response fixtures (e.g. AsyncAPI, WebSocket, OpenRPC
+    // protocol-only fixtures) cannot be tested via the configured `[e2e.call]`
+    // function when the binding does not expose it. Emit a documented `@tag :skip`
+    // test so the suite stays compilable. HTTP fixtures dispatch via render_http_test_case
+    // and never reach here.
+    if fixture.mock_response.is_none() {
+        let _ = writeln!(out, "  describe \"{test_name}\" do");
+        let _ = writeln!(out, "    @tag :skip");
+        let _ = writeln!(out, "    test \"{description}\" do");
+        let _ = writeln!(
+            out,
+            "      # non-HTTP fixture: Elixir binding does not expose a callable for the configured `[e2e.call]` function"
+        );
+        let _ = writeln!(out, "      :ok");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
     // Resolve per-fixture call config (falls back to default if fixture.call is None).
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "elixir";
@@ -544,16 +608,65 @@ fn render_test_case(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // When the fixture uses a named call, use the args and options from that call's config.
+    let (
+        effective_args,
+        effective_options_type,
+        effective_options_default_fn,
+        effective_enum_fields,
+        effective_handle_struct_type,
+        effective_handle_atom_list_fields,
+    );
+    let empty_enum_fields_local: HashMap<String, String>;
+    let empty_atom_fields_local: std::collections::HashSet<String>;
+    let (
+        resolved_args,
+        resolved_options_type,
+        resolved_options_default_fn,
+        resolved_enum_fields_ref,
+        resolved_handle_struct_type,
+        resolved_handle_atom_list_fields_ref,
+    ) = if fixture.call.is_some() {
+        let co = call_config.overrides.get(lang);
+        effective_args = call_config.args.as_slice();
+        effective_options_type = co.and_then(|o| o.options_type.as_deref());
+        effective_options_default_fn = co.and_then(|o| o.options_via.as_deref());
+        empty_enum_fields_local = HashMap::new();
+        effective_enum_fields = co.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields_local);
+        effective_handle_struct_type = co.and_then(|o| o.handle_struct_type.as_deref());
+        empty_atom_fields_local = std::collections::HashSet::new();
+        effective_handle_atom_list_fields = co
+            .map(|o| &o.handle_atom_list_fields)
+            .unwrap_or(&empty_atom_fields_local);
+        (
+            effective_args,
+            effective_options_type,
+            effective_options_default_fn,
+            effective_enum_fields,
+            effective_handle_struct_type,
+            effective_handle_atom_list_fields,
+        )
+    } else {
+        (
+            args as &[_],
+            options_type,
+            options_default_fn,
+            enum_fields,
+            handle_struct_type,
+            handle_atom_list_fields,
+        )
+    };
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
-        args,
+        resolved_args,
         &module_path,
-        options_type,
-        options_default_fn,
-        enum_fields,
+        resolved_options_type,
+        resolved_options_default_fn,
+        resolved_enum_fields_ref,
         &fixture.id,
-        handle_struct_type,
-        handle_atom_list_fields,
+        resolved_handle_struct_type,
+        resolved_handle_atom_list_fields_ref,
     );
 
     // Build visitor if present — must happen before emitting setup_lines so the
@@ -572,20 +685,32 @@ fn render_test_case(
         let _ = writeln!(out, "      {line}");
     }
 
+    let returns_result = call_config.returns_result;
+
     if expects_error {
-        let _ = writeln!(
-            out,
-            "      assert {{:error, _}} = {module_path}.{function_name}({final_args})"
-        );
+        if returns_result {
+            let _ = writeln!(
+                out,
+                "      assert {{:error, _}} = {module_path}.{function_name}({final_args})"
+            );
+        } else {
+            // Non-Result function — just call and discard; error detection not meaningful.
+            let _ = writeln!(out, "      _result = {module_path}.{function_name}({final_args})");
+        }
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "      {{:ok, {result_var}}} = {module_path}.{function_name}({final_args})"
-    );
+    if returns_result {
+        let _ = writeln!(
+            out,
+            "      {{:ok, {result_var}}} = {module_path}.{function_name}({final_args})"
+        );
+    } else {
+        // Non-Result function returns value directly (e.g., bool, String).
+        let _ = writeln!(out, "      {result_var} = {module_path}.{function_name}({final_args})");
+    }
 
     for assertion in &fixture.assertions {
         render_assertion(out, assertion, &result_var, field_resolver, &module_path);
@@ -657,7 +782,9 @@ fn build_args_and_setup(
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
+                // Elixir functions have fixed positional arity — pass nil for optional args
+                // rather than skipping them, so the call site has the correct arity.
+                parts.push("nil".to_string());
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
@@ -672,7 +799,48 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type, build a proper struct.
+                // For file_path args, prepend the path to the test_documents directory
+                // relative to the e2e/elixir/ directory where `mix test` runs.
+                if arg.arg_type == "file_path" {
+                    if let Some(path_str) = v.as_str() {
+                        let full_path = format!("../../test_documents/{path_str}");
+                        parts.push(format!("\"{}\"", escape_elixir(&full_path)));
+                        continue;
+                    }
+                }
+                // For bytes args, use File.read! for file paths and Base.decode64! for base64.
+                // Inline text (starts with '<', '{', '[' or contains spaces) is used as-is (UTF-8 binary).
+                if arg.arg_type == "bytes" {
+                    if let Some(raw) = v.as_str() {
+                        let var_name = &arg.name;
+                        if raw.starts_with('<') || raw.starts_with('{') || raw.starts_with('[') || raw.contains(' ') {
+                            // Inline text — use as a binary string.
+                            parts.push(format!("\"{}\"", escape_elixir(raw)));
+                        } else {
+                            let first = raw.chars().next().unwrap_or('\0');
+                            let is_file_path = (first.is_ascii_alphanumeric() || first == '_')
+                                && raw
+                                    .find('/')
+                                    .is_some_and(|slash_pos| slash_pos > 0 && raw[slash_pos + 1..].contains('.'));
+                            if is_file_path {
+                                // Looks like "dir/file.ext" — read from test_documents.
+                                let full_path = format!("../../test_documents/{raw}");
+                                let escaped = escape_elixir(&full_path);
+                                setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
+                                parts.push(var_name.to_string());
+                            } else {
+                                // Treat as base64-encoded binary.
+                                setup_lines.push(format!(
+                                    "{var_name} = Base.decode64!(\"{}\", padding: false)",
+                                    escape_elixir(raw)
+                                ));
+                                parts.push(var_name.to_string());
+                            }
+                        }
+                        continue;
+                    }
+                }
+                // For json_object args with options_type+options_via, build a proper struct.
                 if arg.arg_type == "json_object" && !v.is_null() {
                     if let (Some(_opts_type), Some(options_fn), Some(obj)) =
                         (options_type, options_default_fn, v.as_object())
@@ -702,6 +870,15 @@ fn build_args_and_setup(
 
                         // Push the variable name as the argument.
                         parts.push(options_var.to_string());
+                        continue;
+                    }
+                    // When there's no options_type+options_via, the Elixir NIF expects a JSON
+                    // string (Option<String> decoded by serde_json) rather than an Elixir map.
+                    // Serialize the JSON value to a string literal here.
+                    if !v.is_null() {
+                        let json_str = serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string());
+                        let escaped = escape_elixir(&json_str);
+                        parts.push(format!("\"{escaped}\""));
                         continue;
                     }
                 }

@@ -284,7 +284,10 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         out,
         "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
     );
-    let _ = writeln!(out, "        using var client = new System.Net.Http.HttpClient(handler);");
+    let _ = writeln!(
+        out,
+        "        using var client = new System.Net.Http.HttpClient(handler);"
+    );
     let _ = writeln!(
         out,
         "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}/fixtures/{fixture_id}\");"

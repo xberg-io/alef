@@ -138,7 +138,7 @@ serde_json = "1"
 
     // entrypoint.c — C shim required by extendr.
     let entrypoint_c_content = format!(
-        "// Generated entrypoint: calls the extendr-generated R_init function.\n// Do not edit — regenerate with `alef generate`.\nvoid R_init_{lib_name}(void *dll);\n\nvoid attribute_visible R_init_{lib_name}_impl(void *dll) {{{{\n    R_init_{lib_name}(dll);\n}}}}\n",
+        "// Generated entrypoint: calls the extendr-generated R_init function.\n// Do not edit — regenerate with `alef generate`.\n#include <R_ext/Visibility.h>\n\nvoid R_init_{lib_name}(void *dll);\n\nvoid attribute_visible R_init_{lib_name}_impl(void *dll) {{{{\n    R_init_{lib_name}(dll);\n}}}}\n",
         lib_name = lib_name,
     );
 
