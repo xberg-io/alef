@@ -432,7 +432,10 @@ fn render_test_method(
         let _ = writeln!(out, "    @Test");
         let _ = writeln!(out, "    void test{method_name}() {{");
         let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(out, "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e tests via the spikard Java binding API\");");
+        let _ = writeln!(
+            out,
+            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e tests via the spikard Java binding API\");"
+        );
         let _ = writeln!(out, "    }}");
         return;
     }
@@ -672,6 +675,7 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- feat(e2e/go): emit `t.Skip("TODO: ...")` stubs for all fixtures that lack a `mock_response`; omit the package import when no test uses it to avoid the Go "imported and not used" compile error.
+- feat(e2e/java): emit `Assumptions.assumeTrue(false, "TODO: ...")` stubs for all fixtures that lack a `mock_response` so the test class compiles and is skipped cleanly.
+- feat(e2e/csharp): emit `[Fact(Skip = "TODO: ...")]` stubs for all fixtures that lack a `mock_response` so the test class compiles and all tests are reported as skipped.
+- fix(e2e/php): skip JSON decode and body assertions when `expected_response.body` is the empty-string sentinel, avoiding `JsonException` on empty bodies.
+
 ## [0.12.11] - 2026-05-01
 
 ### Changed

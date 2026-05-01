@@ -365,7 +365,7 @@ fn render_test_file(
         );
         let _ = writeln!(
             out,
-            "        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false]);"
+            "        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false, 'decode_content' => false]);"
         );
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
@@ -409,10 +409,13 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     let fixture_id = &fixture.id;
 
     // Determine if body assertions will be generated (so we know whether to
-    // call json_decode — skipping it avoids JsonException on empty/non-JSON bodies).
-    let needs_json_body = http.expected_response.body.is_some()
-        || http.expected_response.body_partial.is_some()
-        || http.expected_response.validation_errors.is_some();
+    // call json_decode — skipping it avoids JsonException on empty/non-JSON bodies.
+    // A body value of "" (empty string) means the response has no body — skip decode.
+    let has_explicit_body =
+        matches!(&http.expected_response.body, Some(v) if !(v.is_null() || v.is_string() && v.as_str() == Some("")));
+    let needs_json_body = has_explicit_body || http.expected_response.body_partial.is_some();
+    // validation_errors requires json_decode but should not throw when body is empty
+    let _needs_body_for_validation = http.expected_response.validation_errors.is_some() && !has_explicit_body;
 
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
@@ -429,7 +432,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     );
 
     // Assert response body.
-    render_php_body_assertions(out, &http.expected_response);
+    render_php_body_assertions(out, &http.expected_response, needs_json_body);
 
     // Assert response headers.
     render_php_header_assertions(out, &http.expected_response);
@@ -515,10 +518,14 @@ fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str
 }
 
 /// Emit body assertions for an HTTP expected response.
-fn render_php_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+/// `body_was_decoded` indicates whether `$body` is already in scope from a json_decode call.
+fn render_php_body_assertions(out: &mut String, expected: &HttpExpectedResponse, body_was_decoded: bool) {
     if let Some(body) = &expected.body {
-        let php_val = json_to_php(body);
-        let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
+        // Skip assertion when body is the empty-string sentinel (means no body expected).
+        if !(body.is_string() && body.as_str() == Some("")) {
+            let php_val = json_to_php(body);
+            let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
+        }
     }
     if let Some(partial) = &expected.body_partial {
         if let Some(obj) = partial.as_object() {
@@ -530,6 +537,10 @@ fn render_php_body_assertions(out: &mut String, expected: &HttpExpectedResponse)
         }
     }
     if let Some(errors) = &expected.validation_errors {
+        // Ensure $body is available even when it wasn't json_decoded earlier.
+        if !body_was_decoded {
+            let _ = writeln!(out, "        $body = json_decode((string) $response->getBody(), true);");
+        }
         for err in errors {
             let msg_lit = format!("\"{}\"", escape_php(&err.msg));
             let _ = writeln!(

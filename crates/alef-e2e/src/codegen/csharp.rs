@@ -270,7 +270,10 @@ fn render_test_method(
     // function that can be called from e2e tests.  Until C#-native HTTP integration tests
     // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
     if fixture.mock_response.is_none() {
-        let _ = writeln!(out, "    [Fact(Skip = \"TODO: implement C# e2e tests via the spikard C# binding API\")]");
+        let _ = writeln!(
+            out,
+            "    [Fact(Skip = \"TODO: implement C# e2e tests via the spikard C# binding API\")]"
+        );
         let _ = writeln!(out, "    public void Test_{method_name}()");
         let _ = writeln!(out, "    {{");
         let _ = writeln!(out, "        // {description}");
@@ -549,6 +552,7 @@ fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&st
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

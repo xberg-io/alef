@@ -341,7 +341,10 @@ fn render_test_function(
     if fixture.mock_response.is_none() {
         let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
         let _ = writeln!(out, "\t// {description}");
-        let _ = writeln!(out, "\tt.Skip(\"TODO: implement Go e2e tests via the spikard Go binding API\")");
+        let _ = writeln!(
+            out,
+            "\tt.Skip(\"TODO: implement Go e2e tests via the spikard Go binding API\")"
+        );
         let _ = writeln!(out, "}}");
         return;
     }
