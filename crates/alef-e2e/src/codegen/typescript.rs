@@ -144,6 +144,7 @@ impl E2eCodegen for TypeScriptCodegen {
 
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
             let content = render_test_file(
+                self.language_name(),
                 &group.category,
                 &active,
                 &module_path,
@@ -316,7 +317,8 @@ export async function teardown() {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_test_file(
+pub(super) fn render_test_file(
+    lang: &str,
     category: &str,
     fixtures: &[&Fixture],
     module_path: &str,
@@ -371,7 +373,7 @@ fn render_test_file(
         for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
             if fixture.call.is_some() {
                 let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-                let fixture_fn = resolve_node_function_name(call_config);
+                let fixture_fn = resolve_node_function_name(call_config, lang);
                 if client_factory.is_none() && !imports.contains(&fixture_fn) {
                     imports.push(fixture_fn);
                 }
@@ -422,6 +424,7 @@ fn render_test_file(
         } else {
             render_test_case(
                 &mut out,
+                lang,
                 fixture,
                 client_factory,
                 options_type,
@@ -441,16 +444,16 @@ fn render_test_file(
     out
 }
 
-/// Resolve the function name for a call config, applying node-specific overrides.
+/// Resolve the function name for a call config, applying language-specific overrides.
 ///
-/// NAPI-RS exports Rust snake_case functions as camelCase in JavaScript.
-/// When no explicit node `function` override is set, auto-convert the call
-/// config's snake_case function name to camelCase so generated imports match
-/// the binding's exports.
-fn resolve_node_function_name(call_config: &crate::config::CallConfig) -> String {
+/// Both NAPI-RS (node) and wasm-bindgen (wasm) export Rust snake_case functions as
+/// camelCase in JavaScript. When no explicit `function` override is set for `lang`,
+/// auto-convert the call config's snake_case function name to camelCase so generated
+/// imports match the binding's exports.
+fn resolve_node_function_name(call_config: &crate::config::CallConfig, lang: &str) -> String {
     call_config
         .overrides
-        .get("node")
+        .get(lang)
         .and_then(|o| o.function.clone())
         .unwrap_or_else(|| snake_to_camel(&call_config.function))
 }
@@ -636,6 +639,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
 #[allow(clippy::too_many_arguments)]
 fn render_test_case(
     out: &mut String,
+    lang: &str,
     fixture: &Fixture,
     client_factory: Option<&str>,
     options_type: Option<&str>,
@@ -644,7 +648,7 @@ fn render_test_case(
 ) {
     // Resolve per-fixture call config (supports `"call": "parse"` overrides in fixtures).
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let function_name = resolve_node_function_name(call_config);
+    let function_name = resolve_node_function_name(call_config, lang);
     let result_var = &call_config.result_var;
     let is_async = call_config.r#async;
     let args = &call_config.args;
