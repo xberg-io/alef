@@ -1452,10 +1452,18 @@ fn serve_route(route: &MockRoute) -> Response {
     }
 
     // Only set the default content-type if the fixture does not override it.
+    // Use application/json when the body looks like JSON (starts with { or [),
+    // otherwise fall back to text/plain to avoid clients failing JSON-decode.
     let has_content_type = route.headers.iter().any(|(k, _)| k.to_lowercase() == "content-type");
     let mut builder = Response::builder().status(status);
     if !has_content_type {
-        builder = builder.header("content-type", "application/json");
+        let trimmed = route.body.trim_start();
+        let default_ct = if trimmed.starts_with('{') || trimmed.starts_with('[') {
+            "application/json"
+        } else {
+            "text/plain"
+        };
+        builder = builder.header("content-type", default_ct);
     }
     for (name, value) in &route.headers {
         // Skip content-encoding headers — the mock server returns uncompressed bodies.
@@ -1464,9 +1472,46 @@ fn serve_route(route: &MockRoute) -> Response {
         if name.to_lowercase() == "content-encoding" {
             continue;
         }
+        // The <<absent>> sentinel means this header must NOT be present in the
+        // real server response — do not emit it from the mock server either.
+        if value == "<<absent>>" {
+            continue;
+        }
+        // Replace the <<uuid>> sentinel with a real UUID v4 so clients can
+        // assert the header value matches the UUID pattern.
+        if value == "<<uuid>>" {
+            let uuid = format!(
+                "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
+                rand_u32(),
+                rand_u16(),
+                rand_u16() & 0x0fff,
+                (rand_u16() & 0x3fff) | 0x8000,
+                rand_u48(),
+            );
+            builder = builder.header(name, uuid);
+            continue;
+        }
         builder = builder.header(name, value);
     }
     builder.body(Body::from(route.body.clone())).unwrap().into_response()
+}
+
+/// Generate a pseudo-random u32 using the current time nanoseconds.
+fn rand_u32() -> u32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    ns ^ (ns.wrapping_shl(13)) ^ (ns.wrapping_shr(17))
+}
+
+fn rand_u16() -> u16 {
+    (rand_u32() & 0xffff) as u16
+}
+
+fn rand_u48() -> u64 {
+    ((rand_u32() as u64) << 16) | (rand_u16() as u64)
 }
 
 // ---------------------------------------------------------------------------
@@ -1530,7 +1575,13 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
                     let body = mock
                         .body
                         .as_ref()
-                        .map(|b| serde_json::to_string(b).unwrap_or_default())
+                        .map(|b| match b {
+                            // Plain strings (e.g. text/plain bodies) are stored as JSON strings in
+                            // fixtures. Return the raw value so clients receive the string itself,
+                            // not its JSON-encoded form with extra surrounding quotes.
+                            serde_json::Value::String(s) => s.clone(),
+                            other => serde_json::to_string(other).unwrap_or_default(),
+                        })
                         .unwrap_or_default();
                     let stream_chunks = mock
                         .stream_chunks

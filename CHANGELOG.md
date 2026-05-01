@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(e2e/java): emit `Assumptions.assumeTrue(false, "TODO: ...")` stubs for all fixtures that lack a `mock_response` so the test class compiles and is skipped cleanly.
 - feat(e2e/csharp): emit `[Fact(Skip = "TODO: ...")]` stubs for all fixtures that lack a `mock_response` so the test class compiles and all tests are reported as skipped.
 - fix(e2e/php): skip JSON decode and body assertions when `expected_response.body` is the empty-string sentinel, avoiding `JsonException` on empty bodies.
+- fix(e2e/php): skip `markTestSkipped` for non-HTTP fixtures with no assertions; add `allow_redirects => false` to Guzzle client; skip HTTP 101 WebSocket upgrade tests; handle plain-string response bodies with raw `(string)$response->getBody()` comparison; suppress redundant `validation_errors` assertions when a full `body` assertEquals is generated; skip `content-encoding` header assertions since the mock server always returns uncompressed bodies.
+- fix(e2e/rust): handle `<<absent>>` sentinel by omitting that header from mock responses; handle `<<uuid>>` sentinel by generating a real UUID v4 value; use `text/plain` default content-type when body is not JSON.
 
 ## [0.12.11] - 2026-05-01
 
