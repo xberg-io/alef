@@ -469,7 +469,10 @@ impl Backend for RustlerBackend {
             } else {
                 func.name.to_snake_case()
             };
-            let doc_line = func.doc.lines().next().unwrap_or("Function");
+            let doc_line_raw = func.doc.lines().next().unwrap_or("Function");
+            // Elixir @doc strings use double-quote delimiters; escape any embedded quotes.
+            let doc_line = doc_line_raw.replace('"', "\\\"");
+            let doc_line = doc_line.as_str();
 
             let param_types: Vec<String> = func
                 .params
@@ -703,8 +706,9 @@ impl Backend for RustlerBackend {
                     format!("{}_{}", typ.name.to_lowercase(), method.name)
                 };
 
-                let doc_line = method.doc.lines().next().unwrap_or("Method");
-                content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                let doc_line_raw = method.doc.lines().next().unwrap_or("Method");
+                let doc_line_escaped = doc_line_raw.replace('"', "\\\"");
+                content.push_str(&format!("  @doc \"{doc_line_escaped}\"\n"));
 
                 // Params: receiver (if any) + method params
                 let mut param_names: Vec<String> = Vec::new();

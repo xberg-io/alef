@@ -93,6 +93,27 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Elixir);
 
+    // Determine if the generated Elixir source files live outside the default `lib/`
+    // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
+    let elixirc_paths_line = if let Some(elixir_out) = config.output.elixir.as_ref() {
+        let elixir_out_str = elixir_out.to_string_lossy();
+        let expected_lib = format!("{pkg_dir}/lib");
+        if !elixir_out_str.starts_with(&expected_lib) {
+            // Compute relative path from pkg_dir to the elixir output directory.
+            // Both are relative to the repo root; prefix with "../.." as needed.
+            let pkg = std::path::Path::new(&pkg_dir);
+            let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
+            // Count pkg_dir depth and build a relative path.
+            let pkg_depth = pkg.components().count();
+            let relative = format!("{}/{}", "../".repeat(pkg_depth), out.display());
+            format!("\n      elixirc_paths: [\"lib\", \"{relative}\"],")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let content = format!(
         r#"defmodule {module}.MixProject do
   use Mix.Project
@@ -101,7 +122,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::
     [
       app: :{app_name},
       version: "{version}",
-      elixir: "~> 1.14",
+      elixir: "~> 1.14",{elixirc_paths}
       rustler_crates: [{nif_atom}: [mode: :release]],
       description: "{description}",
       package: package(),
@@ -131,6 +152,7 @@ end
         app_name = app_name,
         nif_atom = format_args!("{app_name}_nif"),
         version = version,
+        elixirc_paths = elixirc_paths_line,
         description = meta.description,
         license = meta.license,
         repository = meta.repository,

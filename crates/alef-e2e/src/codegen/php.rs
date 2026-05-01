@@ -428,8 +428,10 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     // - String bodies: mock server returns raw text, compare via (string)$response->getBody()
     // - Object/array bodies: use json_decode + assertEquals
     // - Empty string sentinel ("") or null: no body assertion
-    let body_is_plain_string = matches!(&http.expected_response.body, Some(serde_json::Value::String(s)) if !s.is_empty());
-    let has_explicit_body = matches!(&http.expected_response.body, Some(v) if !(v.is_null() || v.is_string() && v.as_str() == Some("")));
+    let body_is_plain_string =
+        matches!(&http.expected_response.body, Some(serde_json::Value::String(s)) if !s.is_empty());
+    let has_explicit_body =
+        matches!(&http.expected_response.body, Some(v) if !(v.is_null() || v.is_string() && v.as_str() == Some("")));
     // Only call json_decode for non-string bodies (objects, arrays, booleans, numbers).
     let needs_json_body = has_explicit_body && !body_is_plain_string || http.expected_response.body_partial.is_some();
 

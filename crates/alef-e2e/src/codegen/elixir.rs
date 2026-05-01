@@ -305,6 +305,10 @@ fn render_test_file(
 // HTTP test rendering
 // ---------------------------------------------------------------------------
 
+/// HTTP methods that Finch (Req's underlying HTTP client) does not support.
+/// Tests using these methods are emitted with `@tag :skip` so they don't fail.
+const FINCH_UNSUPPORTED_METHODS: &[&str] = &["TRACE", "CONNECT"];
+
 /// Render an ExUnit `describe` + `test` block for an HTTP server test fixture.
 fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
     let test_name = sanitize_ident(&fixture.id);
@@ -314,10 +318,16 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     let fixture_id = &fixture.id;
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
+
+    // Skip tests for HTTP methods that Finch does not support.
+    if FINCH_UNSUPPORTED_METHODS.contains(&method.as_str()) {
+        let _ = writeln!(out, "    @tag :skip");
+    }
+
     let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
 
     // Build request targeting the mock server.
-    render_elixir_http_request(out, &http.request, fixture_id);
+    render_elixir_http_request(out, &http.request, fixture_id, http.expected_response.status_code);
 
     // Assert status.
     let status = http.expected_response.status_code;
@@ -338,7 +348,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
 const REQ_CONVENIENCE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head"];
 
 /// Emit Req request lines inside an ExUnit test.
-fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str) {
+fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str, expected_status: u16) {
     let method = req.method.to_lowercase();
 
     let mut opts: Vec<String> = Vec::new();
@@ -382,6 +392,12 @@ fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &
         opts.push(format!("params: [{}]", pairs.join(", ")));
     }
 
+    // When the expected response is a redirect (3xx), disable automatic redirect
+    // following so the test can assert the redirect status and Location header.
+    if (300..400).contains(&expected_status) {
+        opts.push("redirect: false".to_string());
+    }
+
     // Use the mock server's /fixtures/<id> endpoint.
     let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{}\"", escape_elixir(fixture_id));
 
@@ -410,13 +426,31 @@ fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &
 fn render_elixir_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
     if let Some(body) = &expected.body {
         let elixir_val = json_to_elixir(body);
-        // Req auto-decodes JSON bodies; compare the decoded map directly.
-        let _ = writeln!(out, "      assert response.body == {elixir_val}");
+        // Req auto-decodes `application/json` bodies, but non-JSON content types
+        // (e.g. `application/grpc`, `text/plain`) are returned as raw binaries.
+        // Guard with `if is_binary` so we can handle both cases uniformly.
+        match body {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                // Expected body is a JSON object/array — decode when Req returns a binary.
+                let _ = writeln!(
+                    out,
+                    "      body_decoded = if is_binary(response.body), do: Jason.decode!(response.body), else: response.body"
+                );
+                let _ = writeln!(out, "      assert body_decoded == {elixir_val}");
+            }
+            _ => {
+                // String/number/bool: compare against response.body directly.
+                let _ = writeln!(out, "      assert response.body == {elixir_val}");
+            }
+        }
     }
     if let Some(partial) = &expected.body_partial {
         if let Some(obj) = partial.as_object() {
-            // Req auto-decodes JSON bodies; `response.body` is already a map.
-            let _ = writeln!(out, "      decoded_body = response.body");
+            // Req auto-decodes JSON bodies; decode when Req returns a binary.
+            let _ = writeln!(
+                out,
+                "      decoded_body = if is_binary(response.body), do: Jason.decode!(response.body), else: response.body"
+            );
             for (key, val) in obj {
                 let key_lit = format!("\"{}\"", escape_elixir(key));
                 let elixir_val = json_to_elixir(val);
