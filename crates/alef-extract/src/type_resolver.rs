@@ -189,8 +189,13 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         // Bytes
         "Bytes" => TypeRef::Bytes,
 
-        // JSON
-        "JsonValue" => TypeRef::Json,
+        // JSON. `serde_json::Value` is matched via full-path above; the bare `Value`
+        // here covers the idiomatic `use serde_json::Value;` re-import. There is
+        // residual ambiguity (a user crate might have its own `Value` type), but
+        // `serde_json::Value` is the overwhelming match in the kreuzberg-dev
+        // ecosystem and downstream alef users — qualifying via path is the
+        // workaround for the rare collision.
+        "JsonValue" | "Value" => TypeRef::Json,
 
         // Vec<T>
         "Vec" => {
@@ -515,6 +520,14 @@ mod tests {
     fn test_json() {
         assert_eq!(resolve_type(&parse_type("serde_json::Value")), TypeRef::Json);
         assert_eq!(resolve_type(&parse_type("JsonValue")), TypeRef::Json);
+        // Bare `Value` (idiomatic `use serde_json::Value;` re-import) is also
+        // treated as Json. Required for HashMap<K, Value> fields to round-trip
+        // through binding backends without losing the Json shape.
+        assert_eq!(resolve_type(&parse_type("Value")), TypeRef::Json);
+        assert_eq!(
+            resolve_type(&parse_type("HashMap<String, Value>")),
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json))
+        );
     }
 
     #[test]
