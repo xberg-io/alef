@@ -84,12 +84,26 @@ pub enum ExportValidation {
 pub fn validate_call_export(surface: &ApiSurface, module_path: &str, function_name: &str) -> ExportValidation {
     let expected_rust_path = format!("{module_path}::{function_name}");
 
-    let all_defs: Vec<&str> = surface
+    let mut all_defs: Vec<String> = surface
         .functions
         .iter()
         .filter(|f| f.name == function_name)
-        .map(|f| f.rust_path.as_str())
+        .map(|f| f.rust_path.clone())
         .collect();
+
+    // Also accept method-on-type references: e.g. `function = "chat"` where `chat`
+    // is a method on a public type like `LlmClient` (trait) or `DefaultClient`. The
+    // e2e codegen layer already handles method-style call sites; the validator was
+    // previously too strict and rejected these legitimate entry points.
+    let mut method_match_found = false;
+    for type_def in &surface.types {
+        for method in &type_def.methods {
+            if method.name == function_name {
+                method_match_found = true;
+                all_defs.push(format!("{}::{}", type_def.rust_path, method.name));
+            }
+        }
+    }
 
     if all_defs.is_empty() {
         return ExportValidation::NotFound {
@@ -97,22 +111,48 @@ pub fn validate_call_export(surface: &ApiSurface, module_path: &str, function_na
         };
     }
 
-    if all_defs.iter().any(|p| *p == expected_rust_path) {
+    if all_defs.iter().any(|p| p == &expected_rust_path) {
+        return ExportValidation::Ok;
+    }
+
+    // Lenient policy for methods: if any method anywhere in the surface matches the
+    // function name, accept it. Codegen handles method-style dispatch correctly and
+    // the strict module-path check is only meaningful for free functions.
+    if method_match_found {
         return ExportValidation::Ok;
     }
 
     ExportValidation::WrongPath {
         function: function_name.to_string(),
         declared_module: module_path.to_string(),
-        actual_paths: all_defs.iter().map(|s| s.to_string()).collect(),
+        actual_paths: all_defs,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use alef_core::ir::{ApiSurface, FieldDef, TypeDef, TypeRef};
+    use alef_core::ir::{ApiSurface, FieldDef, MethodDef, TypeDef, TypeRef};
 
     use super::{ExportValidation, return_type_fields, validate_call_export};
+
+    fn make_method(name: &str, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }
+    }
 
     fn make_fn(name: &str, rust_path: &str, return_type: TypeRef) -> alef_core::ir::FunctionDef {
         alef_core::ir::FunctionDef {
@@ -358,6 +398,32 @@ mod tests {
             validate_call_export(&surface, "kreuzberg", "render_page"),
             ExportValidation::Ok
         ));
+    }
+
+    #[test]
+    fn validate_ok_when_method_matches() {
+        let mut surface = empty_surface();
+        let mut client = make_type("DefaultClient", vec![]);
+        client.methods.push(make_method("chat", TypeRef::String));
+        surface.types.push(client);
+
+        assert!(matches!(
+            validate_call_export(&surface, "my_crate", "chat"),
+            ExportValidation::Ok
+        ));
+    }
+
+    #[test]
+    fn validate_not_found_when_neither_function_nor_method_matches() {
+        let mut surface = empty_surface();
+        let mut client = make_type("DefaultClient", vec![]);
+        client.methods.push(make_method("complete", TypeRef::String));
+        surface.types.push(client);
+
+        match validate_call_export(&surface, "my_crate", "chat") {
+            ExportValidation::NotFound { function } => assert_eq!(function, "chat"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
     }
 
     #[test]
