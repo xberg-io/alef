@@ -844,7 +844,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
 
     // Generate @dataclass or TypedDict for types with has_default (user-facing config types)
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if !typ.has_default || typ.fields.is_empty() {
+        if !typ.has_default {
             continue;
         }
         // Skip "Update" types — they're internal
@@ -886,6 +886,11 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                 class_name_to_docstring(&typ.name)
             };
             out.push_str(&format!("    \"\"\"{class_doc}\"\"\"\n\n"));
+
+            if typ.fields.is_empty() {
+                out.push_str("    pass\n\n");
+                continue;
+            }
 
             for field in &typ.fields {
                 // Determine Python type hint

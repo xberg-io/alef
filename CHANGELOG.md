@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.15] - 2026-05-01
+
 ### Fixed
 
+- fix(backend-pyo3): emit empty Python dataclasses for empty Rust structs (e.g. `pub struct ExcelMetadata {}`) when they have `Default`. Previously, the codegen skipped them entirely, leaving dangling references in tagged-union type aliases (`FormatMetadata = ... | ExcelMetadata | ...`) and breaking module import with `NameError: name 'ExcelMetadata' is not defined`.
+- fix(e2e/escape): escape ASCII control characters (`\x00`–`\x1f`) in Python string literals using `\xHH` so generated Python source remains valid. Previously, fixtures with embedded NUL bytes (e.g. `clean_text_basic`) produced source files Python's parser rejected with `SyntaxError: source code string cannot contain null bytes`.
+- fix(e2e/csharp): use PascalCase HTTP method names for `System.Net.Http.HttpMethod` static properties; route header assertions to `.Headers` vs `.Content.Headers` correctly to avoid "Misused header name" runtime errors; uniquify per-assertion variable names so `out var` does not redeclare in method scope.
 - fix(e2e/go): clarify the non-HTTP stub message and document why it fires (Go bindings without a callable matching `[e2e.call].function`).
 - fix(e2e/go): emit `os` import when any HTTP fixture is present (HTTP tests read `MOCK_SERVER_URL` via `os.Getenv`); previously only mock_url args triggered the import.
 - fix(e2e/go): only emit `io` import when at least one HTTP fixture has a body assertion; eliminates `"io" imported and not used` build errors in test files where no fixture asserts on the body.

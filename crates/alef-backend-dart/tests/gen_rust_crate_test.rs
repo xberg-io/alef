@@ -428,8 +428,8 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
 
-    // Should have: 1 .dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml = 5
-    assert_eq!(files.len(), 5, "expected 5 generated files, got {}", files.len());
+    // Should have: 1 .dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml + frb_generated.rs = 6
+    assert_eq!(files.len(), 6, "expected 6 generated files, got {}", files.len());
 
     let has_dart = files
         .iter()

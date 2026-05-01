@@ -1444,7 +1444,7 @@ fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
     let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
 
     assert!(
-        result.contains("patterns: self.patterns.clone().into_iter().map(|(k, v)| (k, v.into())).collect()"),
+        result.contains("patterns: self.patterns.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()"),
         "expected per-value .into() for Map<String, Named>; got:\n{result}"
     );
 }
@@ -1475,7 +1475,7 @@ fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_in
 
     assert!(
         result.contains(
-            "extractions: self.extractions.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+            "extractions: self.extractions.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
         ),
         "expected Option-preserving per-value .into() for Option<Map<String, Named>>; got:\n{result}"
     );

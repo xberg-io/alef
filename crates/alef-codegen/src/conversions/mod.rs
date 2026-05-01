@@ -408,12 +408,12 @@ mod tests {
             true,
         );
         assert!(
-            result.contains("m.into_iter().map(|(k, v)| (k, v.into())).collect()"),
+            result.contains("m.into_iter().map(|(k, v)| (k.into(), v.into())).collect()"),
             "expected per-value v.into() in optional Map<Named> conversion, got: {result}"
         );
         assert_eq!(
             result,
-            "patterns: val.patterns.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+            "patterns: val.patterns.map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
         );
     }
 

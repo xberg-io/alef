@@ -258,7 +258,15 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     let description = &fixture.description;
     let request = &http.request;
     let expected = &http.expected_response;
-    let method = request.method.to_uppercase();
+    // C#'s System.Net.Http.HttpMethod static properties are PascalCase: Get, Post, Put, Delete, ...
+    let method = {
+        let lower = request.method.to_ascii_lowercase();
+        let mut chars = lower.chars();
+        match chars.next() {
+            Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+            None => String::new(),
+        }
+    };
     let fixture_id = &fixture.id;
     let expected_status = expected.status_code;
 
@@ -361,7 +369,15 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         }
     }
 
-    // Assert response headers if specified (skip special tokens).
+    // Assert response headers if specified (skip special tokens). Use unique
+    // variable names per assertion since `out var` introduces a new local in
+    // method scope and C# disallows redeclaration.
+    //
+    // HttpResponseMessage splits headers between `.Headers` (general HTTP
+    // headers like Cache-Control) and `.Content.Headers` (entity headers like
+    // Content-Type, Content-Length, Content-Encoding). Pick the right one or
+    // .NET throws "Misused header name".
+    let mut header_idx = 0usize;
     for (name, value) in &expected.headers {
         if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
             continue;
@@ -370,11 +386,33 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         if name.to_lowercase() == "content-encoding" {
             continue;
         }
+        let lower = name.to_ascii_lowercase();
+        let is_content_header = matches!(
+            lower.as_str(),
+            "content-type"
+                | "content-length"
+                | "content-encoding"
+                | "content-language"
+                | "content-location"
+                | "content-md5"
+                | "content-range"
+                | "content-disposition"
+                | "expires"
+                | "last-modified"
+                | "allow"
+        );
+        let target = if is_content_header {
+            "response.Content.Headers"
+        } else {
+            "response.Headers"
+        };
         let escaped_name = escape_csharp(name);
         let escaped_value = escape_csharp(value);
+        let var_name = format!("hdr{header_idx}");
+        header_idx += 1;
         let _ = writeln!(
             out,
-            "        Assert.True(response.Headers.TryGetValues(\"{escaped_name}\", out var values) && values.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
+            "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
         );
     }
 
@@ -402,6 +440,21 @@ fn render_test_method(
     // HTTP fixtures: generate real HTTP client tests using System.Net.Http.
     if let Some(http) = &fixture.http {
         render_http_test_method(out, fixture, http);
+        return;
+    }
+
+    // Non-HTTP fixtures with no mock_response: the C# binding wraps a C FFI
+    // layer and does not expose a HandleRequest callable. Emit a documented
+    // skip so the project stays compilable.
+    if fixture.mock_response.is_none() {
+        let _ = writeln!(
+            out,
+            "    [Fact(Skip = \"non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function\")]"
+        );
+        let _ = writeln!(out, "    public void Test_{method_name}()");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(out, "    }}");
         return;
     }
 

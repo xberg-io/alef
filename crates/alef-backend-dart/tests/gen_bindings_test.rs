@@ -144,8 +144,8 @@ fn struct_with_primitive_fields_emits_class() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    // generate_bindings now returns the Dart wrapper plus 4 Rust crate files
-    assert_eq!(files.len(), 5);
+    // generate_bindings now returns the Dart wrapper plus 5 Rust crate files
+    assert_eq!(files.len(), 6);
     let content = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with(".dart"))
