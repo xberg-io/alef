@@ -1099,6 +1099,114 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     out
 }
 
+/// Returns true when the function has optional params (or promoted required params that follow
+/// optional ones), meaning Magnus needs variadic arity (-1) with scan_args.
+fn needs_variadic_arity(params: &[alef_core::ir::ParamDef]) -> bool {
+    params.iter().any(|p| p.optional) || {
+        // Promoted: any required param that follows an optional one
+        let mut seen_optional = false;
+        params.iter().any(|p| {
+            if p.optional {
+                seen_optional = true;
+                false
+            } else {
+                seen_optional && !p.optional
+            }
+        })
+    }
+}
+
+/// Map a single parameter's type to its Magnus scan_args type string.
+/// Optional and promoted params become `Option<T>`, required params become `T`.
+fn param_scan_args_type(
+    p: &alef_core::ir::ParamDef,
+    promoted: bool,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    let inner = if let TypeRef::Named(name) = &p.ty {
+        if !opaque_types.contains(name.as_str()) {
+            "magnus::Value".to_string()
+        } else {
+            mapper.map_type(&p.ty)
+        }
+    } else {
+        mapper.map_type(&p.ty)
+    };
+    if p.optional || promoted {
+        format!("Option<{inner}>")
+    } else {
+        inner
+    }
+}
+
+/// Generate the scan_args call + destructuring for variadic Magnus functions.
+///
+/// Returns a string of Rust code that:
+/// 1. Calls `scan_args` with appropriate required/optional type params.
+/// 2. Destructures `.required` and `.optional` to bind individual param names.
+fn gen_scan_args_prologue(
+    params: &[alef_core::ir::ParamDef],
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    let mut seen_optional = false;
+    let mut req_types: Vec<String> = Vec::new();
+    let mut opt_types: Vec<String> = Vec::new();
+    let mut req_names: Vec<String> = Vec::new();
+    let mut opt_names: Vec<String> = Vec::new();
+
+    for (idx, p) in params.iter().enumerate() {
+        let promoted = alef_codegen::shared::is_promoted_optional(params, idx);
+        if p.optional {
+            seen_optional = true;
+        }
+        let ty = param_scan_args_type(p, promoted, mapper, opaque_types);
+        if p.optional || promoted {
+            // Optional or promoted: goes in the optional bucket with Option<T> wrapping
+            let inner = if p.optional || promoted {
+                // ty is already Option<T>
+                ty
+            } else {
+                ty
+            };
+            opt_types.push(inner);
+            opt_names.push(p.name.clone());
+        } else {
+            req_types.push(ty);
+            req_names.push(p.name.clone());
+        }
+        let _ = seen_optional; // suppress unused warning
+    }
+
+    let req_tuple = if req_types.is_empty() {
+        "()".to_string()
+    } else {
+        format!("({},)", req_types.join(", "))
+    };
+    let opt_tuple = if opt_types.is_empty() {
+        "()".to_string()
+    } else {
+        format!("({},)", opt_types.join(", "))
+    };
+
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "let _scan = magnus::scan_args::scan_args::<{req_tuple}, {opt_tuple}, (), (), (), ()>(args)?;"
+    ));
+
+    if !req_names.is_empty() {
+        let destructure = format!("({},)", req_names.join(", "));
+        lines.push(format!("let {destructure} = _scan.required;"));
+    }
+    if !opt_names.is_empty() {
+        let destructure = format!("({},)", opt_names.join(", "));
+        lines.push(format!("let {destructure} = _scan.optional;"));
+    }
+
+    lines.join("\n    ")
+}
+
 /// Generate a free function binding.
 fn gen_function(
     func: &FunctionDef,
@@ -1106,16 +1214,22 @@ fn gen_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
+    let variadic = needs_variadic_arity(&func.params);
+
     // For non-opaque Named params, accept magnus::Value so a plain Ruby Hash works directly.
     // The binding calls to_json internally before serde_json deserialization.
-    let params = function_params(&func.params, &|ty| {
-        if let TypeRef::Named(name) = ty {
-            if !opaque_types.contains(name.as_str()) {
-                return "magnus::Value".to_string();
+    let params = if variadic {
+        "args: &[magnus::Value]".to_string()
+    } else {
+        function_params(&func.params, &|ty| {
+            if let TypeRef::Named(name) = ty {
+                if !opaque_types.contains(name.as_str()) {
+                    return "magnus::Value".to_string();
+                }
             }
-        }
-        mapper.map_type(ty)
-    });
+            mapper.map_type(ty)
+        })
+    };
     let return_type = mapper.map_type(&func.return_type);
     // Async functions always return Result because Runtime::new() can fail, even when the core
     // function itself has no error type.
@@ -1134,7 +1248,8 @@ fn gen_function(
     if serde_recoverable {
         deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
     } else {
-        for p in &func.params {
+        for (idx, p) in func.params.iter().enumerate() {
+            let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);
             if let TypeRef::Named(name) = &p.ty {
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
@@ -1142,6 +1257,12 @@ fn gen_function(
                         // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                         deser_lines.push(format!(
                             "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
+                        ));
+                    } else if promoted {
+                        // Promoted: function_params wrapped this in Option<magnus::Value>.
+                        // Unwrap and convert; fall back to Default when caller passes nil/omits.
+                        deser_lines.push(format!(
+                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }}, _ => Default::default() }};"
                         ));
                     } else {
                         deser_lines.push(format!(
@@ -1152,6 +1273,13 @@ fn gen_function(
             }
         }
     }
+    // When variadic, prepend scan_args prologue to unpack individual bindings from args slice.
+    let scan_args_prologue = if variadic {
+        format!("{}\n    ", gen_scan_args_prologue(&func.params, mapper, opaque_types))
+    } else {
+        String::new()
+    };
+
     let deser_preamble = if deser_lines.is_empty() {
         String::new()
     } else {
@@ -1233,7 +1361,7 @@ fn gen_function(
     };
     format!(
         "{allow_attr}fn {}({params}) -> {return_annotation} {{\n    \
-         {deser_preamble}{body}\n}}",
+         {scan_args_prologue}{deser_preamble}{body}\n}}",
         func.name
     )
 }
@@ -1268,6 +1396,13 @@ fn magnus_serde_recoverable(func: &FunctionDef, opaque_types: &AHashSet<String>)
 
 /// Generate Magnus serde let-bindings that produce `{name}_core: core::Type` so the shared
 /// `gen_call_args_with_let_bindings` can emit `&{name}_core` for is_ref Named params.
+///
+/// Handles three cases for Named non-opaque params:
+/// 1. `optional=true`: parameter is `Option<magnus::Value>` — bind as `Option<CoreType>`.
+/// 2. `optional=false` but promoted (follows an optional param): parameter is also
+///    `Option<magnus::Value>` due to `function_params` promotion — bind as `CoreType`,
+///    falling back to `Default::default()` when the caller passes `nil`/omits the arg.
+/// 3. `optional=false` and not promoted: parameter is `magnus::Value` — bind as `CoreType`.
 fn magnus_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -1275,13 +1410,21 @@ fn magnus_serde_let_bindings(
 ) -> Vec<String> {
     let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
     let mut out = Vec::new();
-    for p in params {
+    for (idx, p) in params.iter().enumerate() {
+        let promoted = alef_codegen::shared::is_promoted_optional(params, idx);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                     out.push(format!(
                         "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}), _ => None }};",
+                        n = p.name,
+                    ));
+                } else if promoted {
+                    // Promoted: function_params wrapped this in Option<magnus::Value>.
+                    // Unwrap and deserialize; fall back to Default when caller passes nil/omits.
+                    out.push(format!(
+                        "let {n}_core: {core_import}::{name} = match {n} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}, _ => Default::default() }};",
                         n = p.name,
                     ));
                 } else {
@@ -1319,16 +1462,22 @@ fn gen_async_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
+    let variadic = needs_variadic_arity(&func.params);
+
     // For non-opaque Named params, accept magnus::Value so a plain Ruby Hash works directly.
     // The binding calls to_json internally before serde_json deserialization.
-    let params = function_params(&func.params, &|ty| {
-        if let TypeRef::Named(name) = ty {
-            if !opaque_types.contains(name.as_str()) {
-                return "magnus::Value".to_string();
+    let params = if variadic {
+        "args: &[magnus::Value]".to_string()
+    } else {
+        function_params(&func.params, &|ty| {
+            if let TypeRef::Named(name) = ty {
+                if !opaque_types.contains(name.as_str()) {
+                    return "magnus::Value".to_string();
+                }
             }
-        }
-        mapper.map_type(ty)
-    });
+            mapper.map_type(ty)
+        })
+    };
     let return_type = mapper.map_type(&func.return_type);
     // Async functions always return Result because Runtime::new() can fail, even when the core
     // function itself has no error type.
@@ -1342,7 +1491,8 @@ fn gen_async_function(
     if serde_recoverable {
         deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
     } else {
-        for p in &func.params {
+        for (idx, p) in func.params.iter().enumerate() {
+            let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);
             if let TypeRef::Named(name) = &p.ty {
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
@@ -1350,6 +1500,12 @@ fn gen_async_function(
                         // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                         deser_lines.push(format!(
                             "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
+                        ));
+                    } else if promoted {
+                        // Promoted: function_params wrapped this in Option<magnus::Value>.
+                        // Unwrap and convert; fall back to Default when caller passes nil/omits.
+                        deser_lines.push(format!(
+                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }}, _ => Default::default() }};"
                         ));
                     } else {
                         deser_lines.push(format!(
@@ -1360,6 +1516,13 @@ fn gen_async_function(
             }
         }
     }
+    // When variadic, prepend scan_args prologue to unpack individual bindings from args slice.
+    let scan_args_prologue = if variadic {
+        format!("{}\n    ", gen_scan_args_prologue(&func.params, mapper, opaque_types))
+    } else {
+        String::new()
+    };
+
     let deser_preamble = if deser_lines.is_empty() {
         String::new()
     } else {
@@ -1419,7 +1582,7 @@ fn gen_async_function(
     };
     format!(
         "{allow_attr}fn {}_async({params}) -> {return_annotation} {{\n    \
-         {deser_preamble}{body}\n\
+         {scan_args_prologue}{deser_preamble}{body}\n\
          }}",
         func.name
     )
@@ -1537,7 +1700,13 @@ fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        let param_count = func.params.len();
+        // Use variadic arity (-1) for functions with optional/promoted params so Ruby callers
+        // can omit trailing arguments. The generated function uses scan_args to unpack.
+        let param_count: i32 = if needs_variadic_arity(&func.params) {
+            -1
+        } else {
+            func.params.len() as i32
+        };
         if func.is_async {
             // Register both sync (blocking) and async variants
             lines.push(format!(

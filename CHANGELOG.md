@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.16] - 2026-05-01
+
+### Fixed
+
+- fix(backend-magnus): use variadic arity (-1) with `scan_args` for free functions that have optional or promoted parameters; previously such functions were registered with a fixed arity equal to the total parameter count, causing Ruby callers that omit trailing optional arguments to get an argument count error
+- fix(e2e/elixir): add kreuzberg path dep and rustler direct dep to generated mix.exs so NIF force-build works in e2e tests
+- fix(backend-extendr): derive R wrapper output path as packages/r/R/ instead of packages/r/src/rust/src/
+- fix(scaffold/r): include `<R_ext/Visibility.h>` in generated entrypoint.c to define `attribute_visible`
+
 ## [0.12.15] - 2026-05-01
 
 ### Fixed
@@ -18,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/go): emit `os` import when any HTTP fixture is present (HTTP tests read `MOCK_SERVER_URL` via `os.Getenv`); previously only mock_url args triggered the import.
 - fix(e2e/go): only emit `io` import when at least one HTTP fixture has a body assertion; eliminates `"io" imported and not used` build errors in test files where no fixture asserts on the body.
 - fix(e2e/go): only declare `bodyBytes` when the fixture has a body assertion; eliminates `declared and not used: bodyBytes` build errors.
-- fix(e2e/go): use a separate `want :=` declaration plus `%q` formatting in the body-mismatch `t.Fatalf` instead of interpolating the (already-Go-quoted) literal into the format string; previously emitted unparseable Go for fixtures whose expected body contained double-quotes (e.g. JSON-as-string responses) and for headers whose names/values contained backticks.
+- fix(e2e/go): use a separate `want :=` declaration plus `%q` formatting in the body-mismatch `t.Fatalf` instead of interpolating the (already-Go-quoted) literal into the format string; previously emitted unparsable Go for fixtures whose expected body contained double-quotes (e.g. JSON-as-string responses) and for headers whose names/values contained backticks.
 - fix(e2e/go): decode HTTP response and expected bodies into `any` (not `map[string]any`) so JSON arrays in the expected body decode without `cannot unmarshal array into ... map` runtime errors.
 
 ## [0.12.14] - 2026-05-01
