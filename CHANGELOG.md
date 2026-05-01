@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(backend/ffi): honor `[ffi] exclude_types` in generated lib.rs. Previously the `FfiConfig::exclude_types`
+  field was parsed from `alef.toml` but never applied during code generation — all types in the API surface
+  were emitted regardless. The FFI backend now filters `api.types` through `ffi_exclude_types` before emitting
+  struct wrappers, field accessors, and method wrappers, matching the behavior of the elixir and wasm backends.
+
 ## [0.13.1] - 2026-05-01
 
 ### Fixed

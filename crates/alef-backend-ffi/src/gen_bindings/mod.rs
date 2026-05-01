@@ -210,8 +210,15 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         );
     }
 
+    // Collect the set of type names excluded via [ffi] exclude_types.
+    let ffi_exclude_types: ahash::AHashSet<&str> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait && !ffi_exclude_types.contains(typ.name.as_str())) {
         // Generate from_json/to_json for types that derive serde Serialize/Deserialize.
         // Opaque types and types without serde derives are skipped.
         // Note: sanitized fields do NOT block from_json/to_json generation because these
