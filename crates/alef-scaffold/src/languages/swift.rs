@@ -28,7 +28,7 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &AlefConfig) -> anyhow::
     // rules require those types to be exported from a separate C target so that
     // `import RustBridgeC` at the top of the generated Swift files brings them in scope.
     let package_swift = format!(
-        r#"// swift-tools-version: 5.9
+        r#"// swift-tools-version: 6.0
 import PackageDescription
 
 // NOTE: Run `cargo build -p {binding_crate}` before `swift build`.
@@ -54,14 +54,12 @@ let package = Package(
         ),
         // RustBridge: Swift wrapper around the Rust static library.
         // Depends on RustBridgeC so the generated Swift files can use the C types.
+        // Note: link the Rust static library by setting LIBRARY_SEARCH_PATHS in your
+        // build system rather than unsafeFlags here (unsafeFlags prevents use as a dep).
         .target(
             name: "RustBridge",
             dependencies: ["RustBridgeC"],
-            path: "Sources/RustBridge",
-            linkerSettings: [
-                .linkedLibrary("{binding_crate_underscore}"),
-                .unsafeFlags(["-L../../target/debug"]),
-            ]
+            path: "Sources/RustBridge"
         ),
         .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
         .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
@@ -72,7 +70,6 @@ let package = Package(
         min_macos = min_macos_major,
         min_ios = min_ios_major,
         binding_crate = binding_crate_name,
-        binding_crate_underscore = binding_crate_underscore,
     );
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";

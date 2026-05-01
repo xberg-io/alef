@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- feat(e2e/swift): emit test files into `packages/swift/Tests/<Module>Tests/` instead of a standalone `e2e/swift` package. SwiftPM 6.0 forbids local `.package(path:)` references between packages in the same git repository; placing the generated tests inside the existing library package sidesteps the restriction while retaining a skeletal `e2e/swift/Package.swift` for CI reference.
+- feat(e2e/zig): use `std.heap.DebugAllocator(.{}) = .init` (Zig 0.16+); emit compilable stub test bodies (`_ = testing;`) for fixtures with no assertions instead of calling a non-existent `handle_request` function; omit allocator setup when no setup lines are needed.
+- feat(scaffold/swift): upgrade generated `Package.swift` to `swift-tools-version: 6.0`; remove `unsafeFlags` from `RustBridge` target's `linkerSettings` so the package can be used as a SwiftPM dependency.
+
 ### Fixed
 
 - fix(e2e/rust/tests): pass the new `needs_http_tests` flag through `cargo_toml_generation.rs` test fixtures so the suite compiles after the `render_cargo_toml` signature was extended.

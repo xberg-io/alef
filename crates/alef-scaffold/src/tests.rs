@@ -1176,7 +1176,7 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains("swift-tools-version: 5.9"),
+        package_swift.content.contains("swift-tools-version: 6.0"),
         "got: {}",
         package_swift.content
     );
@@ -1201,10 +1201,10 @@ fn test_scaffold_swift() {
         "Package.swift must declare RustBridgeC target; got: {}",
         package_swift.content
     );
-    // RustBridge must link the static library
+    // RustBridge target must exist (unsafeFlags removed to allow use as a dependency)
     assert!(
-        package_swift.content.contains("linkedLibrary(\"my_lib_swift\")"),
-        "Package.swift must link my_lib_swift; got: {}",
+        package_swift.content.contains("name: \"RustBridge\""),
+        "Package.swift must declare RustBridge target; got: {}",
         package_swift.content
     );
 

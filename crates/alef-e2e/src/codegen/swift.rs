@@ -77,12 +77,28 @@ impl E2eCodegen for SwiftE2eCodegen {
             })
             .unwrap_or_else(|_| format!("https://example.invalid/{module_name}.git"));
 
-        // Generate Package.swift.
+        // Generate Package.swift (kept for tooling/CI reference but not used
+        // for running tests — see note below).
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
             content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
+
+        // Swift e2e tests are written into the *packages/swift* package rather
+        // than into the separate e2e/swift package.  SwiftPM 6.0 forbids local
+        // `.package(path:)` references between packages inside the same git
+        // repository, so a standalone e2e/swift package cannot depend on
+        // packages/swift.  Placing the test files directly inside
+        // packages/swift/Tests/<Module>Tests/ sidesteps the restriction: the
+        // tests are part of the same SwiftPM package that defines the library
+        // target, so no inter-package dependency is needed.
+        //
+        // `pkg_path` is expressed relative to the e2e/<lang> directory (e.g.
+        // "../../packages/swift").  Joining it onto `output_base` and
+        // normalising collapses the traversals to the actual project-root-
+        // relative path (e.g. "packages/swift").
+        let tests_base = normalize_path(&output_base.join(&pkg_path));
 
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
@@ -119,7 +135,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 &e2e_config.fields_enum,
             );
             files.push(GeneratedFile {
-                path: output_base
+                path: tests_base
                     .join("Tests")
                     .join(format!("{module_name}Tests"))
                     .join(filename),
@@ -149,19 +165,37 @@ fn render_package_swift(
 ) -> String {
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
-    let dep_block = match dep_mode {
+    // For local deps SwiftPM identity = last path component (e.g. "../../packages/swift" → "swift").
+    // For registry deps identity is inferred from the URL.
+    // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
+    let (dep_block, product_dep) = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!(r#"        .package(url: "{registry_url}", from: "{pkg_version}")"#)
+            let dep = format!(r#"        .package(url: "{registry_url}", from: "{pkg_version}")"#);
+            let pkg_id = registry_url
+                .trim_end_matches('/')
+                .trim_end_matches(".git")
+                .split('/')
+                .next_back()
+                .unwrap_or(module_name);
+            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
+            (dep, prod)
         }
         crate::config::DependencyMode::Local => {
-            format!(r#"        .package(path: "{pkg_path}")"#)
+            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
+            let pkg_id = pkg_path
+                .trim_end_matches('/')
+                .split('/')
+                .next_back()
+                .unwrap_or(module_name);
+            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
+            (dep, prod)
         }
     };
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
     format!(
-        r#"// swift-tools-version: 5.9
+        r#"// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
@@ -175,7 +209,7 @@ let package = Package(
     targets: [
         .testTarget(
             name: "{module_name}Tests",
-            dependencies: ["{module_name}"]
+            dependencies: [{product_dep}]
         ),
     ]
 )
@@ -559,6 +593,31 @@ fn render_assertion(
             panic!("Swift e2e generator: unsupported assertion type: {other}");
         }
     }
+}
+
+/// Normalise a path by resolving `..` components without hitting the filesystem.
+///
+/// This mirrors what `std::fs::canonicalize` does but works on paths that do
+/// not yet exist on disk (generated-file paths).  Only `..` traversals are
+/// collapsed; `.` components are dropped; nothing else is changed.
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    let mut components = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                // Pop the last pushed component if there is one that isn't
+                // already a `..` (avoids over-collapsing `../../foo`).
+                if !components.as_os_str().is_empty() {
+                    components.pop();
+                } else {
+                    components.push(component);
+                }
+            }
+            std::path::Component::CurDir => {}
+            other => components.push(other),
+        }
+    }
+    components
 }
 
 /// Convert a `serde_json::Value` to a Swift literal string.
