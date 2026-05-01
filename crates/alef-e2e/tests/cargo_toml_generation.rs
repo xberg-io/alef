@@ -8,6 +8,7 @@ fn test_cargo_toml_contains_empty_workspace_section_in_local_mode() {
         "../../crates/my-lib",                   // crate_path
         false,                                   // needs_serde_json
         false,                                   // needs_mock_server
+        false,                                   // needs_http_tests
         false,                                   // needs_tokio
         alef_e2e::config::DependencyMode::Local, // dep_mode
         None,                                    // version
@@ -31,6 +32,7 @@ fn test_cargo_toml_contains_empty_workspace_section_in_registry_mode() {
         "../../crates/my-lib",                      // crate_path
         false,                                      // needs_serde_json
         false,                                      // needs_mock_server
+        false,                                      // needs_http_tests
         false,                                      // needs_tokio
         alef_e2e::config::DependencyMode::Registry, // dep_mode
         Some("0.1.0"),                              // version
@@ -52,6 +54,7 @@ fn test_cargo_toml_contains_package_name() {
         "my-lib",
         "my_lib",
         "../../crates/my-lib",
+        false,
         false,
         false,
         false,
