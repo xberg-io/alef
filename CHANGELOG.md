@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/elixir): add missing commas between deps entries in generated `mix.exs`; without them Elixir emits a syntax error before deps like `{:req, ...}`.
+- fix(e2e/kotlin): fall back to `alef_config.resolved_version()` when `[e2e.packages.kotlin]` has no explicit `version`, avoiding a stale `0.1.0` jar reference in `build.gradle.kts`.
+- fix(e2e/gleam): strip leading underscores from generated test-function names; fixture IDs with numeric prefixes (e.g. `13_json_...`) produced `_json_..._test()` which Gleam rejects.
+- fix(backend-dart): emit `lib/<pkg>.dart` barrel file re-exporting `src/<pkg>.dart` so `package:<pkg>/<pkg>.dart` imports resolve correctly in e2e tests.
 - fix(extract/type_resolver): treat bare `Value` as `TypeRef::Json` to match the idiomatic `use serde_json::Value;` re-import. Without this, `HashMap<String, Value>` fields (e.g. `ProblemDetails.extensions`) sanitized to `Map<String, String>` and downstream From-impls emitted `.into_iter().collect()` between mismatched value types, breaking pyo3/napi bindings. `serde_json::Value` (full path) was already handled.
 
 ## [0.12.10] - 2026-05-01
