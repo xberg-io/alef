@@ -150,7 +150,8 @@ impl E2eCodegen for GleamE2eCodegen {
                 "  // Elixir/Erlang NIF to be loaded at runtime.\n",
                 "  True |> should.equal(True)\n",
                 "}\n",
-            ).to_string();
+            )
+            .to_string();
             files.push(GeneratedFile {
                 path: output_base.join("test").join("e2e_gleam_test.gleam"),
                 content: smoke,
@@ -300,7 +301,11 @@ fn render_test_case(
     // strip leading digits → "payload_too_large").
     let raw_name = sanitize_ident(&fixture.id);
     let stripped = raw_name.trim_start_matches(|c: char| c == '_' || c.is_ascii_digit());
-    let test_name = if stripped.is_empty() { raw_name.as_str() } else { stripped };
+    let test_name = if stripped.is_empty() {
+        raw_name.as_str()
+    } else {
+        stripped
+    };
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 

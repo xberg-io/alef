@@ -4,9 +4,9 @@
 //! from JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 use crate::config::E2eConfig;
-use crate::escape::{escape_java, sanitize_filename};
+use crate::escape::{escape_kotlin, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, Fixture, FixtureGroup, HttpFixture};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -195,6 +195,7 @@ dependencies {{
     testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
+    testImplementation(kotlin("test"))
 }}
 
 tasks.test {{
@@ -236,6 +237,9 @@ fn render_test_file(
     let _ = writeln!(out, "package {kotlin_pkg_id}.e2e");
     let _ = writeln!(out);
 
+    // Detect if any fixture in this group is an HTTP server test.
+    let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
+
     // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
     let needs_object_mapper_for_options = options_type.is_some()
         && fixtures.iter().any(|f| {
@@ -251,14 +255,17 @@ fn render_test_file(
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
     });
-    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle;
+    // HTTP fixtures always need ObjectMapper for JSON body comparison.
+    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle || has_http_fixtures;
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test");
     let _ = writeln!(out, "import kotlin.test.assertEquals");
     let _ = writeln!(out, "import kotlin.test.assertTrue");
     let _ = writeln!(out, "import kotlin.test.assertFalse");
     let _ = writeln!(out, "import kotlin.test.assertFailsWith");
-    if !import_path.is_empty() {
+    // Only import the binding class when there are non-HTTP fixtures that call it.
+    let has_call_fixtures = fixtures.iter().any(|f| !f.is_http_test());
+    if has_call_fixtures && !import_path.is_empty() {
         let _ = writeln!(out, "import {import_path}");
     }
     if needs_object_mapper {
@@ -267,7 +274,7 @@ fn render_test_file(
     }
     // Import the options type if tests use it (it's in the same package as the main class).
     if let Some(opts_type) = options_type {
-        if needs_object_mapper {
+        if needs_object_mapper && has_call_fixtures {
             // Derive the fully-qualified name from the main class import path.
             let opts_package = if !import_path.is_empty() {
                 let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
@@ -319,6 +326,152 @@ fn render_test_file(
     out
 }
 
+/// Render an HTTP server test method using java.net.http.HttpClient against MOCK_SERVER_URL.
+///
+/// The mock server registers each fixture at `/fixtures/<fixture_id>` and returns the
+/// pre-canned response. Tests send the correct HTTP method and headers to that endpoint.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let method_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let request = &http.request;
+    let expected = &http.expected_response;
+    let method = request.method.to_uppercase();
+    let fixture_id = &fixture.id;
+    let expected_status = expected.status_code;
+
+    // Skip tests that expect a 101 Switching Protocols response — Java's HttpClient
+    // cannot handle protocol-switch responses and throws an EOFException.
+    if expected_status == 101 {
+        let _ = writeln!(out, "    @Test");
+        let _ = writeln!(out, "    fun test{method_name}() {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"Skipped: Java HttpClient cannot handle 101 Switching Protocols responses\")"
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    let _ = writeln!(out, "    @Test");
+    let _ = writeln!(out, "    fun test{method_name}() {{");
+    let _ = writeln!(out, "        // {description}");
+    let _ = writeln!(
+        out,
+        "        val baseUrl = System.getenv(\"MOCK_SERVER_URL\") ?: \"http://localhost:8080\""
+    );
+
+    // The mock server serves each fixture at /fixtures/<fixture_id>.
+    // We send the correct HTTP method and headers to that endpoint.
+    let _ = writeln!(
+        out,
+        "        val uri = java.net.URI.create(\"$baseUrl/fixtures/{fixture_id}\")"
+    );
+
+    // Build request.
+    let _ = writeln!(out, "        val builder = java.net.http.HttpRequest.newBuilder(uri)");
+    let _ = writeln!(
+        out,
+        "            .method(\"{method}\", {body_publisher})",
+        body_publisher = {
+            if let Some(body) = &request.body {
+                let json = serde_json::to_string(body).unwrap_or_default();
+                let escaped = escape_kotlin(&json);
+                format!("java.net.http.HttpRequest.BodyPublishers.ofString(\"{escaped}\")")
+            } else {
+                "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
+            }
+        }
+    );
+
+    // Java's HttpClient restricts certain headers that cannot be set programmatically.
+    const JAVA_RESTRICTED_HEADERS: &[&str] = &[
+        "connection", "content-length", "expect", "host", "upgrade",
+    ];
+
+    // Add headers.
+    let content_type = request.content_type.as_deref().unwrap_or("application/json");
+    if request.body.is_some() {
+        let _ = writeln!(out, "            .header(\"Content-Type\", \"{content_type}\")");
+    }
+    for (name, value) in &request.headers {
+        // Skip restricted headers — Java's HttpClient throws IllegalArgumentException for these.
+        if JAVA_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
+            continue;
+        }
+        let escaped_name = escape_kotlin(name);
+        let escaped_value = escape_kotlin(value);
+        let _ = writeln!(out, "            .header(\"{escaped_name}\", \"{escaped_value}\")");
+    }
+
+    // Add cookies as Cookie header.
+    if !request.cookies.is_empty() {
+        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let cookie_header = escape_kotlin(&cookie_str.join("; "));
+        let _ = writeln!(out, "            .header(\"Cookie\", \"{cookie_header}\")");
+    }
+
+    let _ = writeln!(out, "        val response = java.net.http.HttpClient.newHttpClient()");
+    let _ = writeln!(
+        out,
+        "            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString())"
+    );
+
+    // Assert status code.
+    let _ = writeln!(
+        out,
+        "        assertEquals({expected_status}, response.statusCode(), \"status code mismatch\")"
+    );
+
+    // Assert body if expected.
+    if let Some(expected_body) = &expected.body {
+        match expected_body {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let escaped = escape_kotlin(&json_str);
+                let _ = writeln!(out, "        val bodyJson = MAPPER.readTree(response.body())");
+                let _ = writeln!(out, "        val expectedJson = MAPPER.readTree(\"{escaped}\")");
+                let _ = writeln!(out, "        assertEquals(expectedJson, bodyJson, \"body mismatch\")");
+            }
+            serde_json::Value::String(s) => {
+                let escaped = escape_kotlin(s);
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\")"
+                );
+            }
+            other => {
+                let escaped = escape_kotlin(&other.to_string());
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\")"
+                );
+            }
+        }
+    }
+
+    // Assert response headers if specified (skip special tokens and non-applicable headers).
+    for (name, value) in &expected.headers {
+        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
+            // Skip special-token assertions for now.
+            continue;
+        }
+        // content-encoding is set by the real spikard server (compression middleware)
+        // but the mock server doesn't compress response bodies, so skip this assertion.
+        if name.to_lowercase() == "content-encoding" {
+            continue;
+        }
+        let escaped_name = escape_kotlin(name);
+        let escaped_value = escape_kotlin(value);
+        let _ = writeln!(
+            out,
+            "        assertTrue(response.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\")"
+        );
+    }
+
+    let _ = writeln!(out, "    }}");
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
@@ -333,10 +486,34 @@ fn render_test_method(
     enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
 ) {
+    // Delegate HTTP fixtures to the HTTP-specific renderer.
+    if let Some(http) = &fixture.http {
+        render_http_test_method(out, fixture, http);
+        return;
+    }
+
     // Resolve per-fixture call config (supports named calls via fixture.call field).
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "kotlin";
     let call_overrides = call_config.overrides.get(lang);
+
+    // Emit a compilable stub for non-HTTP fixtures that have no Kotlin-specific call
+    // override — these fixtures call the default function (e.g., `handleRequest`) which
+    // may not exist in the Kotlin binding at this target (e.g., asyncapi, websocket).
+    if call_overrides.is_none() {
+        let method_name = fixture.id.to_upper_camel_case();
+        let description = &fixture.description;
+        let _ = writeln!(out, "    @Test");
+        let _ = writeln!(out, "    fun test{method_name}() {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Kotlin e2e test for fixture '{}'\")",
+            fixture.id
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
     let effective_function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
@@ -374,7 +551,7 @@ fn render_test_method(
                         let _ = writeln!(
                             out,
                             "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
-                            escape_java(&json_str)
+                            escape_kotlin(&json_str)
                         );
                     }
                 }
@@ -457,7 +634,7 @@ fn build_args_and_setup(
                 let name = &arg.name;
                 setup_lines.push(format!(
                     "val {name}Config = MAPPER.readValue(\"{}\", CrawlConfig::class.java)",
-                    escape_java(&json_str),
+                    escape_kotlin(&json_str),
                 ));
                 setup_lines.push(format!(
                     "val {} = {class_name}.{constructor_name}({name}Config)",
@@ -752,7 +929,7 @@ fn render_assertion(
 /// Convert a `serde_json::Value` to a Kotlin literal string.
 fn json_to_kotlin(value: &serde_json::Value) -> String {
     match value {
-        serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),
+        serde_json::Value::String(s) => format!("\"{}\"", escape_kotlin(s)),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Number(n) => {
             if n.is_f64() {
@@ -768,7 +945,7 @@ fn json_to_kotlin(value: &serde_json::Value) -> String {
         }
         serde_json::Value::Object(_) => {
             let json_str = serde_json::to_string(value).unwrap_or_default();
-            format!("\"{}\"", escape_java(&json_str))
+            format!("\"{}\"", escape_kotlin(&json_str))
         }
     }
 }

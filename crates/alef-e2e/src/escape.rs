@@ -121,6 +121,17 @@ pub fn escape_java(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
+/// Escape a string for embedding in a Kotlin double-quoted string literal.
+/// Like Java escaping but also escapes `$` which triggers Kotlin string interpolation.
+pub fn escape_kotlin(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
 /// Escape a string for embedding in a C# string literal.
 pub fn escape_csharp(s: &str) -> String {
     s.replace('\\', "\\\\")
