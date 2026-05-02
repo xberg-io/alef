@@ -730,6 +730,12 @@ fn render_test_case(
     // value directly. We pass this flag through to render_assertion below.
     let result_is_simple = call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
 
+    // When the binding returns `Vec<T>` / `Array<T>`, fixture assertions on
+    // single-result fields (`mime_type`, `content`, …) should target the *first*
+    // element. We mirror the csharp codegen and index `[0]` into the result
+    // variable when `result_is_vec` is set on the per-call language override.
+    let result_is_vec = call_config.overrides.get(lang).is_some_and(|o| o.result_is_vec);
+
     // Apply per-language `arg_order` reordering. NAPI-RS often reshuffles
     // parameters relative to the canonical Rust signature (e.g. extract_file
     // takes `(path, mime_type, config)` in Rust but `(path, config, mime_type?)`
@@ -851,7 +857,7 @@ fn render_test_case(
         if assertion.assertion_type == "not_error" && !call_config.returns_result {
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
+        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, result_is_vec);
     }
 
     let _ = writeln!(out, "  }});");
@@ -1021,6 +1027,7 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_vec: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1185,13 +1192,21 @@ fn render_assertion(
         }
     }
 
+    // When the binding returns Vec<T>, index into [0] for single-element field
+    // access. (Mirror the csharp codegen.) Most "batch" fixtures assert on the
+    // first result's content/mime_type rather than enumerating every element.
+    let effective_result_var = if result_is_vec {
+        format!("{result_var}[0]")
+    } else {
+        result_var.to_string()
+    };
     let field_expr = match &assertion.field {
         // When the binding returns a primitive, every assertion targets the bare
         // `result` variable — never `result.<field>`.
         Some(f) if !f.is_empty() && !result_is_simple => {
-            field_resolver.accessor(f, "typescript", result_var)
+            field_resolver.accessor(f, "typescript", &effective_result_var)
         }
-        _ => result_var.to_string(),
+        _ => effective_result_var.clone(),
     };
 
     match assertion.assertion_type.as_str() {
