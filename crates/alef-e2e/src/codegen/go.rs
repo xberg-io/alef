@@ -2655,4 +2655,35 @@ mod tests {
             "must not emit nested len guard, got:\n{out}"
         );
     }
+
+    #[test]
+    fn test_classify_bytes_value_file_paths() {
+        // File paths: directory/filename.ext
+        assert!(matches!(classify_bytes_value("pdf/memo.pdf"), BytesKind::FilePath));
+        assert!(matches!(classify_bytes_value("images/hello_world.png"), BytesKind::FilePath));
+        assert!(matches!(classify_bytes_value("docs/nested/file.docx"), BytesKind::FilePath));
+        assert!(matches!(classify_bytes_value("_internal/test.bin"), BytesKind::FilePath));
+    }
+
+    #[test]
+    fn test_classify_bytes_value_inline_text() {
+        // Inline text: HTML/JSON/XML or contains spaces
+        assert!(matches!(classify_bytes_value("<!DOCTYPE html>"), BytesKind::InlineText));
+        assert!(matches!(classify_bytes_value("{\"key\": \"value\"}"), BytesKind::InlineText));
+        assert!(matches!(classify_bytes_value("[1, 2, 3]"), BytesKind::InlineText));
+        assert!(matches!(classify_bytes_value("plain text content"), BytesKind::InlineText));
+        assert!(matches!(classify_bytes_value("<html><body>test</body></html>"), BytesKind::InlineText));
+    }
+
+    #[test]
+    fn test_classify_bytes_value_base64() {
+        // Base64: opaque strings without obvious markers
+        assert!(matches!(classify_bytes_value("/9j/4AAQSkZJRg=="), BytesKind::Base64));
+        assert!(matches!(classify_bytes_value("iVBORw0KGgoAAAANS"), BytesKind::Base64));
+        assert!(matches!(classify_bytes_value("YSBndWllbidzIGd1"), BytesKind::Base64));
+        // Paths without dot don't match (no extension)
+        assert!(matches!(classify_bytes_value("nodot/file"), BytesKind::Base64));
+        // Single word without slash doesn't match path pattern
+        assert!(matches!(classify_bytes_value("singleword"), BytesKind::Base64));
+    }
 }
