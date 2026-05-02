@@ -1544,7 +1544,12 @@ fn render_assertion(
     // panic by checking that the array is non-empty first.
     // Extract the array slice expression (everything before `[0]`).
     let array_guard: Option<String> = if let Some(idx) = field_expr.find("[0]") {
-        let array_expr = &field_expr[..idx];
+        let guard_source = field_expr
+            .strip_prefix("len(")
+            .and_then(|expr| expr.strip_suffix(')'))
+            .unwrap_or(&field_expr);
+        let idx = guard_source.find("[0]").unwrap_or(idx);
+        let array_expr = &guard_source[..idx];
         Some(array_expr.to_string())
     } else {
         None
@@ -2564,6 +2569,46 @@ mod tests {
         assert!(
             !out.contains("kreuzberg.clean_extracted_text("),
             "must not emit raw snake_case method name, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_go_array_guard_handles_len_wrapped_element_access() {
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::from(["chunks".to_string()]),
+        );
+        let assertion = Assertion {
+            assertion_type: "less_than_or_equal".to_string(),
+            field: Some("chunks.content.length".to_string()),
+            value: Some(serde_json::json!(50)),
+            values: None,
+            method: None,
+            args: None,
+            check: None,
+        };
+        let mut out = String::new();
+
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "tspack",
+            &resolver,
+            &std::collections::HashMap::new(),
+            false,
+            false,
+        );
+
+        assert!(
+            out.contains("if len(result.Chunks) > 0 {"),
+            "expected guard around result.Chunks, got:\n{out}"
+        );
+        assert!(
+            !out.contains("if len(len("),
+            "must not emit nested len guard, got:\n{out}"
         );
     }
 }
