@@ -228,9 +228,15 @@ fn render_test_file(
     );
     let _ = writeln!(out);
 
+    // Visitor class declarations accumulated across all fixtures — emitted as
+    // private nested classes inside the test class but outside any method body.
+    // C# does not allow local class declarations inside method bodies.
+    let mut visitor_class_decls: Vec<String> = Vec::new();
+
     for (i, fixture) in fixtures.iter().enumerate() {
         render_test_method(
             &mut out,
+            &mut visitor_class_decls,
             fixture,
             class_name,
             function_name,
@@ -246,6 +252,12 @@ fn render_test_file(
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
+    }
+
+    // Emit visitor helper classes at class scope (after test methods).
+    for decl in &visitor_class_decls {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{decl}");
     }
 
     let _ = writeln!(out, "}}");
@@ -441,6 +453,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
+    visitor_class_decls: &mut Vec<String>,
     fixture: &Fixture,
     class_name: &str,
     _function_name: &str,
@@ -519,10 +532,10 @@ fn render_test_method(
         &fixture.id,
     );
 
-    // Build visitor if present and add to setup
+    // Build visitor if present: instantiate in method body, declare class at file scope.
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_spec);
+        visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_class_decls, &fixture.id, visitor_spec);
     }
 
     let args_with_visitor = if visitor_arg.is_empty() {
@@ -1241,20 +1254,39 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
 // Visitor generation
 // ---------------------------------------------------------------------------
 
-/// Build a C# visitor class and add setup lines. Returns the visitor variable name.
-fn build_csharp_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
-    setup_lines.push("var _testVisitor = new TestVisitor();".to_string());
-    setup_lines.push("class TestVisitor : IVisitor".to_string());
-    setup_lines.push("{".to_string());
+/// Build a C# visitor: add an instantiation line to `setup_lines` and push
+/// a private nested class declaration to `class_decls` (emitted at class scope,
+/// outside any method body — C# does not allow local class declarations inside
+/// methods).  Each fixture gets a unique class name derived from its ID to avoid
+/// duplicate-name compile errors when multiple visitor fixtures exist per file.
+/// Returns the visitor variable name for use as a call argument.
+fn build_csharp_visitor(
+    setup_lines: &mut Vec<String>,
+    class_decls: &mut Vec<String>,
+    fixture_id: &str,
+    visitor_spec: &crate::fixture::VisitorSpec,
+) -> String {
+    use heck::ToUpperCamelCase;
+    let class_name = format!("{}Visitor", fixture_id.to_upper_camel_case());
+    let var_name = format!("_visitor_{}", fixture_id.replace('-', "_"));
+
+    setup_lines.push(format!("var {var_name} = new {class_name}();"));
+
+    // Build the class declaration string (indented for nesting inside the test class).
+    let mut decl = String::new();
+    let _ = writeln!(decl, "    private sealed class {class_name} : IVisitor");
+    let _ = writeln!(decl, "    {{");
     for (method_name, action) in &visitor_spec.callbacks {
-        emit_csharp_visitor_method(setup_lines, method_name, action);
+        emit_csharp_visitor_method(&mut decl, method_name, action);
     }
-    setup_lines.push("}".to_string());
-    "_testVisitor".to_string()
+    let _ = writeln!(decl, "    }}");
+    class_decls.push(decl);
+
+    var_name
 }
 
-/// Emit a C# visitor method for a callback action.
-fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
+/// Emit a C# visitor method into a class declaration string.
+fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &CallbackAction) {
     let camel_method = method_to_camel(method_name);
     let params = match method_name {
         "visit_link" => "VisitContext ctx, string href, string text, string title",
@@ -1291,28 +1323,28 @@ fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, 
         _ => "VisitContext ctx",
     };
 
-    setup_lines.push(format!("    public VisitResult {camel_method}({params})"));
-    setup_lines.push("    {".to_string());
+    let _ = writeln!(decl, "        public VisitResult {camel_method}({params})");
+    let _ = writeln!(decl, "        {{");
     match action {
         CallbackAction::Skip => {
-            setup_lines.push("        return VisitResult.Skip();".to_string());
+            let _ = writeln!(decl, "            return VisitResult.Skip();");
         }
         CallbackAction::Continue => {
-            setup_lines.push("        return VisitResult.Continue();".to_string());
+            let _ = writeln!(decl, "            return VisitResult.Continue();");
         }
         CallbackAction::PreserveHtml => {
-            setup_lines.push("        return VisitResult.PreserveHtml();".to_string());
+            let _ = writeln!(decl, "            return VisitResult.PreserveHtml();");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_csharp(output);
-            setup_lines.push(format!("        return VisitResult.Custom(\"{escaped}\");"));
+            let _ = writeln!(decl, "            return VisitResult.Custom(\"{escaped}\");");
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_csharp(template);
-            setup_lines.push(format!("        return VisitResult.Custom($\"{escaped}\");"));
+            let _ = writeln!(decl, "            return VisitResult.Custom($\"{escaped}\");");
         }
     }
-    setup_lines.push("    }".to_string());
+    let _ = writeln!(decl, "        }}");
 }
 
 /// Convert snake_case method names to C# PascalCase.
