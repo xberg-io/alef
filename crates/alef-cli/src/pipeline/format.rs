@@ -121,14 +121,20 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 work_dir,
             })
         }
-        // Bug fix: derive wasm crate name from config instead of hardcoding "wasm".
-        // Runs at workspace root so `cargo fmt -p <pkg>` can resolve the workspace member.
+        // Format the resolved wasm binding crate directly. The crate may be excluded
+        // from the root workspace, so `cargo fmt -p <pkg>` is not reliable.
         Language::Wasm => {
-            let wasm_crate = format!("{}-wasm", config.name);
+            let manifest_path = config
+                .output_for("wasm")
+                .map(resolve_crate_dir)
+                .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)))
+                .join("Cargo.toml")
+                .to_string_lossy()
+                .into_owned();
             Some(FormatterSpec {
                 commands: vec![FormatterCommand {
                     command: "cargo".to_owned(),
-                    args: vec!["fmt".to_owned(), "-p".to_owned(), wasm_crate],
+                    args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path],
                 }],
                 work_dir: String::new(),
             })
@@ -406,6 +412,13 @@ fn run_custom_formatter(cmd: &str, work_dir: &Path) -> bool {
     }
 }
 
+fn resolve_crate_dir(output_path: &Path) -> PathBuf {
+    output_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| output_path.to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,42 +454,41 @@ project_file = "{project_file}"
         cfg.resolve().unwrap().remove(0)
     }
 
-    fn make_config_with_source(crate_name: &str, source: &str) -> ResolvedCrateConfig {
-        let cfg: NewAlefConfig = toml::from_str(&format!(
-            r#"
-[workspace]
-languages = ["wasm"]
-
-[[crates]]
-name = "{crate_name}"
-sources = ["{source}"]
-"#
-        ))
-        .expect("valid config");
-        cfg.resolve().unwrap().remove(0)
-    }
-
-    // Bug 1: WASM crate name must be derived from the core crate dir, not the
-    // public package name.
     #[test]
-    fn test_wasm_formatter_uses_config_crate_name() {
+    fn test_wasm_formatter_uses_manifest_path() {
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         assert_eq!(spec.commands.len(), 1);
         let cmd = &spec.commands[0];
         assert_eq!(cmd.command, "cargo");
-        assert_eq!(cmd.args, vec!["fmt", "-p", "liter-llm-wasm"]);
+        assert_eq!(
+            cmd.args,
+            vec!["fmt", "--manifest-path", "crates/liter-llm-wasm/Cargo.toml"]
+        );
         assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
     }
 
     #[test]
-    fn test_wasm_formatter_different_crate_name() {
-        // With the new schema the crate name is explicit; the wasm binding crate is
-        // always `{name}-wasm`. Use "kreuzberg-core" directly — no source-path derivation.
-        let config = make_config_with_source("kreuzberg-core", "crates/kreuzberg-core/src/lib.rs");
+    fn test_wasm_formatter_uses_configured_output_path() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["wasm"]
+[[crates]]
+name = "tree-sitter-language-pack"
+sources = ["crates/ts-pack-core/src/lib.rs"]
+[crates.output]
+wasm = "crates/ts-pack-core-wasm/src/"
+"#,
+        )
+        .expect("valid config");
+        let config = cfg.resolve().unwrap().remove(0);
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         let cmd = &spec.commands[0];
-        assert_eq!(cmd.args, vec!["fmt", "-p", "kreuzberg-core-wasm"]);
+        assert_eq!(
+            cmd.args,
+            vec!["fmt", "--manifest-path", "crates/ts-pack-core-wasm/Cargo.toml"]
+        );
     }
 
     // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.
