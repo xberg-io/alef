@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php): respect namespace config in php_autoload_namespace. After v0.14.0, the namespace
+  emission logic regressed and ignored the `[crates.php] namespace` configuration, instead
+  splitting the extension name on underscores. Now respects explicit namespace override.
+
 - fix(backend-wasm): bridge type aliases (e.g. `VisitorHandle`) are now treated as opaque in
   WASM binding-to-core `From` conversions. Fields of these types now emit `Default::default()`
   instead of `val.visitor.map(Into::into)` (which failed E0277 because `WasmVisitorHandle`
