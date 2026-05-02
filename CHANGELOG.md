@@ -7,16 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.10] - 2026-05-02
+
 ### Added
 
 - feat(codegen): auto-exclude trait-bridge registration functions via `collect_trait_bridge_registration_fn_names()`.
   Each binding backend now automatically excludes `register_*` / `unregister_*` functions to prevent double-emit
-  compile errors — kreuzberg no longer needs manual `exclude` entries in `alef.toml` for trait-bridge registration fns.
+  compile errors — downstream consumers no longer need manual `exclude` entries in `alef.toml` for trait-bridge registration fns.
 
 - feat(e2e-go): support disk-path fixture loading in Go e2e harness in addition to HTTP URLs.
   New test infrastructure in `crates/alef-e2e/tests/go_bytes_file_path_fixtures.rs` demonstrates the pattern.
 
 ### Fixed
+
+- fix(cli): qualify type-name exclusion entries by Rust path. `apply_filters` previously matched
+  `[exclude].types`/`enums`/`errors` entries against the short type name only, so a fully-qualified entry
+  like `kreuzberg::core::config::formats::OutputFormat` never actually filtered anything when an
+  ambiguously-named type appeared in two pub-use chains. Entries containing `::` are now matched against
+  the type's `rust_path` (with hyphens normalised); plain entries continue to match by short name.
+  Three regression tests cover plain-name match, qualified-path match, and hyphen normalisation.
 
 - fix(codegen): resolve C# signature mismatch in generated binding code that surfaced during trait-bridge auto-exclusion wiring.
 

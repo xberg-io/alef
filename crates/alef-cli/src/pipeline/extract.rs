@@ -604,6 +604,34 @@ fn dedup_api_surface(api: &mut ApiSurface) {
     api.errors.retain(|e| seen_errors.insert(e.name.clone()));
 }
 
+/// Returns true if `name` (short) or `rust_path` (fully qualified) matches any entry in
+/// `exclude_list`.
+///
+/// Entries that contain `::` are treated as fully-qualified Rust paths and matched against
+/// `rust_path` (with `-` normalized to `_`). Plain entries (no `::`) are matched against
+/// `name` only. This allows precise disambiguation when two types share the same short name
+/// but live in different modules, e.g.:
+///
+/// ```toml
+/// [exclude]
+/// types = [
+///   "kreuzberg::core::config::formats::OutputFormat",  # internal; matched by rust_path
+///   "OutputFormat",                                    # would match by name (all variants)
+/// ]
+/// ```
+fn is_type_excluded(name: &str, rust_path: &str, exclude_list: &[String]) -> bool {
+    exclude_list.iter().any(|entry| {
+        if entry.contains("::") {
+            // Fully-qualified path: match against rust_path (normalise hyphens to underscores).
+            let normalised = rust_path.replace('-', "_");
+            normalised == entry.as_str()
+        } else {
+            // Short name: match against the simple type name.
+            name == entry.as_str()
+        }
+    })
+}
+
 fn apply_filters(mut api: ApiSurface, config: &AlefConfig) -> ApiSurface {
     let exclude = &config.exclude;
     let include = &config.include;
@@ -620,11 +648,15 @@ fn apply_filters(mut api: ApiSurface, config: &AlefConfig) -> ApiSurface {
         api.functions.retain(|f| include.functions.contains(&f.name));
     }
 
-    // Then apply excludes (blacklist)
-    api.types.retain(|t| !exclude.types.contains(&t.name));
+    // Then apply excludes (blacklist).
+    // Entries containing `::` are matched against rust_path (fully-qualified); others by name.
+    api.types
+        .retain(|t| !is_type_excluded(&t.name, &t.rust_path, &exclude.types));
     api.functions.retain(|f| !exclude.functions.contains(&f.name));
-    api.enums.retain(|e| !exclude.types.contains(&e.name));
-    api.errors.retain(|e| !exclude.types.contains(&e.name));
+    api.enums
+        .retain(|e| !is_type_excluded(&e.name, &e.rust_path, &exclude.types));
+    api.errors
+        .retain(|e| !is_type_excluded(&e.name, &e.rust_path, &exclude.types));
 
     // Apply method-level excludes: "TypeName.method_name"
     if !exclude.methods.is_empty() {
@@ -834,5 +866,66 @@ mod tests {
             &ty,
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)
         ));
+    }
+
+    // ---------------------------------------------------------------------------
+    // is_type_excluded — fully-qualified path matching
+    // ---------------------------------------------------------------------------
+
+    /// Plain (no-`::`) entries match by short name only.
+    #[test]
+    fn is_type_excluded_plain_entry_matches_by_name() {
+        let exclude = vec!["OutputFormat".to_string()];
+
+        // Short name hit
+        assert!(
+            is_type_excluded("OutputFormat", "kreuzberg::types::OutputFormat", &exclude),
+            "plain entry must match when name matches"
+        );
+
+        // Different name — no match
+        assert!(
+            !is_type_excluded("SomethingElse", "kreuzberg::types::SomethingElse", &exclude),
+            "plain entry must not match when name differs"
+        );
+    }
+
+    /// Fully-qualified entries match only the specific rust_path, not any type
+    /// that merely shares the same short name.
+    ///
+    /// Regression: kreuzberg::core::config::formats::OutputFormat must be excluded
+    /// while kreuzberg::types::OutputFormat is retained.
+    #[test]
+    fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
+        let exclude = vec!["kreuzberg::core::config::formats::OutputFormat".to_string()];
+
+        // The internal variant — must be excluded.
+        assert!(
+            is_type_excluded(
+                "OutputFormat",
+                "kreuzberg::core::config::formats::OutputFormat",
+                &exclude
+            ),
+            "qualified entry must match the exact rust_path"
+        );
+
+        // The public variant that shares the same short name — must NOT be excluded.
+        assert!(
+            !is_type_excluded("OutputFormat", "kreuzberg::types::OutputFormat", &exclude),
+            "qualified entry must NOT match a different rust_path with the same short name"
+        );
+    }
+
+    /// Hyphens in rust_path are normalised to underscores before comparison, matching
+    /// the convention used throughout alef's path mapping layer.
+    #[test]
+    fn is_type_excluded_normalises_hyphens_in_rust_path() {
+        let exclude = vec!["my_crate::some_module::Foo".to_string()];
+
+        // rust_path with hyphen in crate name — normalised to underscore before compare.
+        assert!(
+            is_type_excluded("Foo", "my-crate::some_module::Foo", &exclude),
+            "hyphens in rust_path should be normalised to underscores"
+        );
     }
 }
