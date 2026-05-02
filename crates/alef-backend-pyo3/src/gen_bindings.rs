@@ -850,13 +850,23 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                 continue;
             }
             // Add SCREAMING_SNAKE_CASE class-level attributes to the native pyclass.
+            // When the Rust variant name is a Python keyword (e.g. `None`), bare
+            // attribute access `HighlightStyle.None` is a SyntaxError, so use
+            // `setattr` + `getattr` to bridge the keyword.
             for variant in &enum_def.variants {
                 let rust_name = &variant.name;
                 let py_name = rust_name.to_shouty_snake_case();
-                out.push_str(&format!(
-                    "{}.{} = {}.{}\n",
-                    enum_def.name, py_name, enum_def.name, rust_name
-                ));
+                if alef_core::keywords::PYTHON_KEYWORDS.contains(&rust_name.as_str()) {
+                    out.push_str(&format!(
+                        "setattr({}, \"{}\", getattr({}, \"{}\"))\n",
+                        enum_def.name, py_name, enum_def.name, rust_name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "{}.{} = {}.{}\n",
+                        enum_def.name, py_name, enum_def.name, rust_name
+                    ));
+                }
             }
             out.push('\n');
         }
