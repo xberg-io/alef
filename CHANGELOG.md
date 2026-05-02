@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/typescript): `options_type` casts and imports are now resolved per-fixture. Previously the renderer used the top-level `[e2e.call.overrides.<lang>].options_type` for every fixture in a test file, even fixtures that overrode the call (`fixture.call = "chunk_text"`) and declared their own per-call `options_type` (e.g. `JsChunkingConfig`). The renderer now reads `e2e.calls.<name>.overrides.<lang>.options_type` for fixtures that override the call, and only the top-level value is used for fixtures using the default call. The header import block emits `type X` declarations for the *union* of all options types referenced by the active fixtures (e.g. both `JsExtractionConfig` and `JsChunkingConfig` when one file mixes `extract_file` and `chunk_text` fixtures), eliminating TS2304 "Cannot find name 'JsChunkingConfig'" on chunking fixtures and stopping the wrong cast (`JsExtractionConfig` applied to a `JsChunkingConfig`-shaped object).
+- fix(e2e/typescript): `as <OptionsType>` casts are now emitted only for *object*-shaped json_object args. Previously every json_object arg (including `paths: [...]`, `texts: [...]`, `parts: [...]`) was cast to the call's options type, producing `["a.pdf"] as JsExtractionConfig` on `batchExtractFileSync(paths, config)` calls — TS2352 "Conversion of type 'string[]' to type 'JsExtractionConfig' may be a mistake". The renderer now inspects the fixture value: arrays/scalars are emitted plain (typed as `Array<string>` / etc by the binding), only objects receive the cast.
+- fix(e2e/typescript): `bytes` arg type now classifies the fixture string value (file path / inline / base64) and emits a runtime load instead of passing the string as-is. Previously fixtures like `extract_bytes` with `data: "pdf/fake_memo.pdf"` produced `extractBytes("pdf/fake_memo.pdf", ...)` — TS2345 "Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'". The renderer now classifies via the same rules as python/rust codegens (`<`/`{`/`[`/whitespace → inline-text → `Buffer.from(s, "utf-8")`; `dir/file.ext` → file-path → `readFileSync(path)`; otherwise → base64 → `Buffer.from(s, "base64")`). When any active fixture's resolved call uses a bytes file-path arg, the test file imports `{ readFileSync } from 'node:fs'`. The existing `setup.ts` chdir to `test_documents/` is preserved, so relative paths resolve at runtime.
+
 ## [0.13.6] - 2026-05-02
 
 ### Added

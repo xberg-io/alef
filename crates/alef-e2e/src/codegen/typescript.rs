@@ -339,19 +339,47 @@ pub(super) fn render_test_file(
     // (fixtures with no assertions are emitted as it.skip stubs that don't call any imports).
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
-    // Check if any fixture uses a json_object arg that needs the options type import.
-    let needs_options_import = options_type.is_some()
-        && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                let val = if field == "input" {
-                    Some(&f.input)
-                } else {
-                    f.input.get(field)
-                };
-                arg.arg_type == "json_object" && val.is_some_and(|v| !v.is_null())
-            })
+    // Collect the union of all `options_type` overrides referenced by the active
+    // fixtures. A single test file may exercise multiple `[e2e.calls.*]` entries
+    // (e.g. `extract_file` *and* `chunk_text`) — each can declare its own
+    // `options_type` for the language, so we import every distinct one.
+    //
+    // For fixtures using the default call (`fixture.call == None`), the top-level
+    // `options_type` argument applies; for fixtures with `fixture.call = "..."`,
+    // we look up the per-call override directly.
+    let mut needed_options_types: Vec<String> = Vec::new();
+    let push_unique = |v: &mut Vec<String>, name: String| {
+        if !v.contains(&name) {
+            v.push(name);
+        }
+    };
+    for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
+        let resolved = e2e_config.resolve_call(fixture.call.as_deref());
+        let call_args = if fixture.call.is_some() { &resolved.args } else { args };
+        let fixture_options_type: Option<String> = if fixture.call.is_some() {
+            resolved.overrides.get(lang).and_then(|o| o.options_type.clone())
+        } else {
+            options_type.map(|s| s.to_string())
+        };
+        let Some(opts_type) = fixture_options_type else {
+            continue;
+        };
+        let any_object_arg = call_args.iter().any(|arg| {
+            if arg.arg_type != "json_object" {
+                return false;
+            }
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = if field == "input" {
+                Some(&fixture.input)
+            } else {
+                fixture.input.get(field)
+            };
+            val.is_some_and(|v| v.is_object())
         });
+        if any_object_arg {
+            push_unique(&mut needed_options_types, opts_type);
+        }
+    }
 
     // Collect handle constructor function names that need to be imported.
     let handle_constructors: Vec<String> = args
@@ -359,6 +387,30 @@ pub(super) fn render_test_file(
         .filter(|arg| arg.arg_type == "handle")
         .map(|arg| format!("create{}", arg.name.to_upper_camel_case()))
         .collect();
+
+    // Detect whether any active fixture's resolved call uses a `bytes` arg with a
+    // file-path string value — those need `readFileSync` from `node:fs`.
+    let needs_fs_import = fixtures.iter().filter(|f| !f.is_http_test()).any(|f| {
+        let resolved = e2e_config.resolve_call(f.call.as_deref());
+        let call_args = if f.call.is_some() { &resolved.args } else { args };
+        call_args.iter().any(|arg| {
+            if arg.arg_type != "bytes" {
+                return false;
+            }
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = if field == "input" {
+                Some(&f.input)
+            } else {
+                f.input.get(field)
+            };
+            val.and_then(|v| v.as_str())
+                .is_some_and(|s| matches!(classify_bytes_value(s), BytesKind::FilePath))
+        })
+    });
+
+    if needs_fs_import {
+        let _ = writeln!(out, "import {{ readFileSync }} from 'node:fs';");
+    }
 
     // Build imports for non-HTTP fixtures.
     if has_non_http_fixtures {
@@ -405,14 +457,11 @@ pub(super) fn render_test_file(
         // Use pkg_name (the npm package name, e.g. "@kreuzberg/liter-llm") for
         // the import specifier so that registry builds resolve the published package name.
         let _ = module_path; // retained in signature for potential future use
-        if let (true, Some(opts_type)) = (needs_options_import, options_type) {
+        for opts_type in &needed_options_types {
             imports.push(format!("type {opts_type}"));
-            let imports_str = imports.join(", ");
-            let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
-        } else {
-            let imports_str = imports.join(", ");
-            let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
         }
+        let imports_str = imports.join(", ");
+        let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
     }
 
     let _ = writeln!(out);
@@ -653,6 +702,17 @@ fn render_test_case(
     let is_async = call_config.r#async;
     let args = &call_config.args;
 
+    // Resolve options_type per-fixture: when the fixture overrides the call
+    // (`fixture.call = "..."`), pull the language override from the named call;
+    // otherwise fall back to the top-level `[e2e.call.overrides.<lang>]` value
+    // already passed into render_test_file.
+    let fixture_options_type: Option<String> = if fixture.call.is_some() {
+        call_config.overrides.get(lang).and_then(|o| o.options_type.clone())
+    } else {
+        options_type.map(|s| s.to_string())
+    };
+    let options_type = fixture_options_type.as_deref();
+
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
     let async_kw = if is_async { "async " } else { "" };
@@ -843,11 +903,44 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
+                if arg.arg_type == "bytes" {
+                    if let Some(raw) = v.as_str() {
+                        let var = format!("{}Bytes", arg.name);
+                        match classify_bytes_value(raw) {
+                            BytesKind::FilePath => {
+                                let escaped = escape_js(raw);
+                                setup_lines
+                                    .push(format!("const {var} = readFileSync(\"{escaped}\");"));
+                            }
+                            BytesKind::InlineText => {
+                                let escaped = escape_js(raw);
+                                setup_lines.push(format!(
+                                    "const {var} = Buffer.from(\"{escaped}\", \"utf-8\");"
+                                ));
+                            }
+                            BytesKind::Base64 => {
+                                let escaped = escape_js(raw);
+                                setup_lines.push(format!(
+                                    "const {var} = Buffer.from(\"{escaped}\", \"base64\");"
+                                ));
+                            }
+                        }
+                        parts.push(var);
+                        continue;
+                    }
+                }
                 // For json_object args, NAPI-RS bindings use camelCase for JS field names,
                 // so convert snake_case fixture keys to camelCase before passing.
+                // Only apply the `options_type` cast to *object*-shaped values — array
+                // arguments (e.g. `paths: ["a.pdf", "b.pdf"]`) are typed as `Array<T>`
+                // in the binding signature and must not be cast to the config type.
                 if arg.arg_type == "json_object" {
-                    if let Some(opts_type) = options_type {
-                        parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                    if v.is_object() {
+                        if let Some(opts_type) = options_type {
+                            parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                        } else {
+                            parts.push(json_to_js_camel(v));
+                        }
                     } else {
                         parts.push(json_to_js_camel(v));
                     }
@@ -1478,4 +1571,45 @@ fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &
 fn to_camel_case(snake: &str) -> String {
     use heck::ToLowerCamelCase;
     snake.to_lower_camel_case()
+}
+
+/// How to represent a fixture `type = "bytes"` string value in generated TypeScript.
+///
+/// Mirrors the classification in `python.rs` and `rust.rs`. Three patterns appear in
+/// fixtures:
+///   1. **File path** — `"pdf/fake_memo.pdf"`. Loaded with `readFileSync(path)` from
+///      the working directory (`setup.ts` chdirs to `test_documents/`).
+///   2. **Inline text** — `"<!DOCTYPE html>..."`, `"{...}"`, prose with whitespace.
+///      Encoded with `Buffer.from(s, "utf-8")`.
+///   3. **Base64** — `"/9j/4AAQ..."` and other opaque short strings.
+///      Decoded with `Buffer.from(s, "base64")`.
+enum BytesKind {
+    FilePath,
+    InlineText,
+    Base64,
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+///
+/// Rules (in order):
+/// 1. Starts with `<`, `{`, `[`, or contains whitespace → inline text.
+/// 2. First character is an ASCII word character AND value contains a `/` AND the
+///    portion after the last `/` contains a `.` → file path.
+/// 3. Everything else → base64.
+fn classify_bytes_value(s: &str) -> BytesKind {
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return BytesKind::InlineText;
+    }
+    let first = s.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash_pos) = s.find('/') {
+            if slash_pos > 0 {
+                let after_slash = &s[slash_pos + 1..];
+                if after_slash.contains('.') && !after_slash.is_empty() {
+                    return BytesKind::FilePath;
+                }
+            }
+        }
+    }
+    BytesKind::Base64
 }
