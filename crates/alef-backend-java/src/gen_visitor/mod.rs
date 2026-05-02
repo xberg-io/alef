@@ -167,7 +167,7 @@ pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String
     writeln!(out, "                NativeLib.{pu}_FREE_STRING.invoke(resultPtr);").ok();
     writeln!(
         out,
-        "                return new ConversionResult(java.util.Optional.of(markdown), java.util.Optional.empty(), null, null, null, null);"
+        "                return new ConversionResult(markdown, null, null, null, null, null);"
     )
     .ok();
     writeln!(out, "            }} catch (Throwable e) {{").ok();

@@ -636,7 +636,12 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     for (i, field) in non_tuple_fields.iter().enumerate() {
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        writeln!(body, "            {}{}", field_name, comma).ok();
+        // For optional fields, extract the value from Optional using orElse(null)
+        if field.optional {
+            writeln!(body, "            {}.orElse(null){}", field_name, comma).ok();
+        } else {
+            writeln!(body, "            {}{}", field_name, comma).ok();
+        }
     }
     writeln!(body, "        );").ok();
     writeln!(body, "    }}").ok();

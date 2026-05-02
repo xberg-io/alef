@@ -49,6 +49,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(napi/dts): opaque trait types (e.g. `JsHtmlVisitor`) are now included in the generated
   `index.d.ts`; previously they were excluded by the `!is_trait` filter.
 
+- fix(backend-java): optional record fields now use `@Nullable` annotation instead of
+  `Optional<T>` wrapper, making the Java API idiomatically correct. Fields are typed as
+  nullable boxed types (e.g. `@Nullable Long` instead of `Optional<Long>`), improving
+  compatibility with IDE inspections and code generators.
+
+- fix(backend-java): Javadoc generation now strips Rust-specific syntax (intra-doc links
+  like `[`Type`]`, code block fences, and Rust sections like `# Arguments`/`# Errors`)
+  to produce valid Java documentation. The `emit_javadoc` helper function applies the
+  transformation uniformly across all public API methods.
+
+- fix(backend-java): builder `build()` methods now correctly extract values from `Optional`
+  fields using `.orElse(null)` before passing to nullable record constructors.
+
+- fix(backend-java): `convertWithVisitor` method now constructs `ConversionResult` with
+  nullable fields instead of `Optional.of()` and `Optional.empty()` calls.
+
 - fix(napi/dts): optional fields in `#[napi(object)]` structs are now correctly marked `?`
   when the field type is `TypeRef::Optional`, `field.optional` is set, or the parent type
   has `has_default = true`.
