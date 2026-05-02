@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(backend-magnus): functions registered via the trait_bridge path now use fixed arity in `function!(...)` instead of `-1` (variadic). The bridge generator emits a fixed-arg signature like `fn convert(html: String, options: Option<String>, visitor: Option<Value>)`, but the registration loop previously emitted `function!(convert, -1)` whenever any param was optional. Magnus's `function!` macro requires the fn to take `&[Value]` for arity `-1`, so the trait-bridge fn failed to satisfy `FunctionCAry<_>`/`Fn<(&[Value],)>`, breaking compilation for every binding that exposed a top-level function with an `HtmlVisitor`-style trait param (e.g. `html-to-markdown`'s ruby gem failed to build on linux/aarch64/macos with E0599 "method `call_handle_error` exists but trait bounds were not satisfied"). Bridge functions now register with `function!(name, params.len())`; non-bridge optional-param functions still use variadic `-1` with `scan_args` as before.
+
 ## [0.13.5] - 2026-05-02
 
 ### Fixed

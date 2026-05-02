@@ -1712,9 +1712,14 @@ fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        // Use variadic arity (-1) for functions with optional/promoted params so Ruby callers
-        // can omit trailing arguments. The generated function uses scan_args to unpack.
-        let param_count: i32 = if needs_variadic_arity(&func.params) {
+        // Functions with a trait_bridge param go through gen_bridge_function, which emits a
+        // fixed-arity signature (not args: &[Value]). For those we must register fixed arity
+        // even when params include optionals — otherwise Magnus's function! macro fails to
+        // satisfy trait bounds (the fn doesn't take &[Value]). For all other functions we use
+        // variadic arity (-1) so Ruby callers can omit trailing optional arguments; the
+        // generated body uses scan_args to unpack.
+        let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
+        let param_count: i32 = if !has_bridge_param && needs_variadic_arity(&func.params) {
             -1
         } else {
             func.params.len() as i32
