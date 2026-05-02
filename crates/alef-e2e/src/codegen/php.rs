@@ -1440,11 +1440,11 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_php(output);
-            setup_lines.push(format!("        return ['custom' => {escaped}];"));
+            setup_lines.push(format!("        return ['custom' => \"{escaped}\"];"));
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_php(template);
-            setup_lines.push(format!("        return ['custom' => {escaped}];"));
+            setup_lines.push(format!("        return ['custom' => \"{escaped}\"];"));
         }
     }
     setup_lines.push("    }".to_string());
