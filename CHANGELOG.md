@@ -13,11 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `options.visitor` (language-idiomatic field assignment) instead of passing it
   as a third positional argument. This aligns e2e test generation with the h2m
   API change where `convert(html, options)` accepts visitor as an optional
-  ConversionOptions field rather than a separate parameter. Implemented for
-  Rust (mutable options binding with visitor attachment), Ruby (dict key
-  insertion), and PHP (separate options object merge). Python and TypeScript
-  already used the correct pattern (kwargs/field merge). Remaining languages
-  (Go, Java, C#, Elixir, R, etc.) require similar updates.
+  ConversionOptions field rather than a separate parameter. Implemented for:
+  - Rust: mutate options binding after construction to attach visitor
+  - Ruby: insert visitor key into options hash inline
+  - PHP: merge visitor as separate options object
+  - Python, TypeScript: already correct (kwargs/object-field pattern)
+  Remaining languages (Go, Java, C#, Elixir, R, Gleam, Kotlin, Zig, Swift,
+  WASM, Dart, C) require equivalent updates to move visitor from positional
+  arg to options field assignment (patterns will vary per language syntax).
 
 ### Added
 
