@@ -1252,6 +1252,7 @@ fn emit_named_param_teardown_indented(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gen_wrapper_function(
     func: &FunctionDef,
     _exception_name: &str,

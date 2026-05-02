@@ -1677,7 +1677,9 @@ fn render_assertion(
                 } else if result_is_simple {
                     field_expr.clone()
                 } else {
-                    format!("fmt.Sprintf(\"%v\", {field_expr})")
+                    format!(
+                        "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
+                    )
                 };
                 if is_opt {
                     let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1716,7 +1718,9 @@ fn render_assertion(
                     } else if result_is_simple {
                         field_expr.clone()
                     } else {
-                        format!("fmt.Sprintf(\"%v\", {field_expr})")
+                        format!(
+                            "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
+                        )
                     };
                     if is_opt {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1749,7 +1753,9 @@ fn render_assertion(
                 } else if result_is_simple {
                     field_expr.clone()
                 } else {
-                    format!("fmt.Sprintf(\"%v\", {field_expr})")
+                    format!(
+                        "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
+                    )
                 };
                 let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(

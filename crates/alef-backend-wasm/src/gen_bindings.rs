@@ -1052,6 +1052,7 @@ fn gen_struct(
 /// `bridge_fields` lists field names that belong to an options-field bridge. These
 /// get `Option<JsValue>` getters/setters and are excluded from the `new()` constructor
 /// (callers set them via the setter after construction).
+#[allow(clippy::too_many_arguments)]
 fn gen_struct_methods(
     typ: &TypeDef,
     mapper: &WasmMapper,
