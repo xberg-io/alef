@@ -414,13 +414,44 @@ fn render_test_file(
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");
     }
 
+    // When the Rust override uses wrap_options_in_some + options_type, the
+    // generated tests annotate `serde_json::from_value::<OptionsType>(...)`.
+    // Import the options type so the annotation resolves.
+    {
+        let call_config = &e2e_config.call;
+        let rust_override = call_config.overrides.get("rust");
+        let needs_options_type_import = rust_override.is_some_and(|o| {
+            o.wrap_options_in_some && o.options_type.is_some()
+        });
+        if needs_options_type_import {
+            let ty_name = rust_override.unwrap().options_type.as_deref().unwrap();
+            let file_has_non_null_options = fixtures.iter().any(|f| {
+                call_config.args.iter().any(|a| {
+                    a.arg_type == "json_object"
+                        && a.optional
+                        && !resolve_field(&f.input, &a.field).is_null()
+                })
+            });
+            if file_has_non_null_options {
+                let _ = writeln!(out, "use {module}::{ty_name};");
+            }
+        }
+    }
+
     // Import the visitor trait, result enum, and node context when any fixture
     // in this file declares a `visitor` block. Without these, the inline
     // `impl HtmlVisitor for _TestVisitor` block fails to resolve.
     let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
     if file_needs_visitor {
         let visitor_trait = resolve_visitor_trait(&module);
-        let _ = writeln!(out, "use {module}::{{{visitor_trait}, NodeContext, VisitResult}};");
+        let trait_module = resolve_visitor_trait_module(&module);
+        if trait_module == module {
+            let _ = writeln!(out, "use {module}::{{{visitor_trait}, NodeContext, VisitResult}};");
+        } else {
+            // Trait lives in a sub-module; emit separate imports.
+            let _ = writeln!(out, "use {trait_module}::{visitor_trait};");
+            let _ = writeln!(out, "use {module}::{{NodeContext, VisitResult}};");
+        }
     }
 
     let _ = writeln!(out);
@@ -495,6 +526,7 @@ fn render_test_function(
     // Resolve Rust-specific overrides for argument shaping.
     let rust_overrides = call_config.overrides.get("rust");
     let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
+    let options_type = rust_overrides.and_then(|o| o.options_type.as_deref());
     let extra_args: Vec<String> = rust_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
 
     // Emit input variable bindings from args config.
@@ -517,19 +549,38 @@ fn render_test_function(
             arg.owned,
             arg.element_type.as_deref(),
         );
-        for binding in &bindings {
-            let _ = writeln!(out, "    {binding}");
-        }
         // For functions whose options slot is owned `Option<T>` rather than `&T`,
         // wrap the json_object expression in `Some(...).clone()` so it matches
-        // the parameter shape. Other arg types pass through unchanged.
+        // the parameter shape.  When the fixture has no options (null value),
+        // the binding is `Default::default()` whose type Rust cannot infer from
+        // `Some(x.clone())` alone — emit `None` directly and suppress the binding.
         let final_expr = if wrap_options_in_some && arg.arg_type == "json_object" {
-            if let Some(rest) = expr.strip_prefix('&') {
-                format!("Some({rest}.clone())")
+            if value.is_null() && arg.optional {
+                // No options provided — pass None directly; bindings unused, don't emit.
+                "None".to_string()
             } else {
-                format!("Some({expr})")
+                // Emit bindings, annotating the deserialization call with the
+                // concrete type so Rust can infer it without the `Some(T)` wrapper
+                // context (which is only available after the binding is created).
+                for binding in &bindings {
+                    let annotated = if let Some(ty) = options_type {
+                        // Add turbofish to `serde_json::from_value(...)` → `serde_json::from_value::<Ty>(...)`
+                        binding.replace("serde_json::from_value(", &format!("serde_json::from_value::<{ty}>("))
+                    } else {
+                        binding.clone()
+                    };
+                    let _ = writeln!(out, "    {annotated}");
+                }
+                if let Some(rest) = expr.strip_prefix('&') {
+                    format!("Some({rest}.clone())")
+                } else {
+                    format!("Some({expr})")
+                }
             }
         } else {
+            for binding in &bindings {
+                let _ = writeln!(out, "    {binding}");
+            }
             expr
         };
         arg_exprs.push(final_expr);
@@ -537,6 +588,7 @@ fn render_test_function(
 
     // Emit visitor if present in fixture.
     if let Some(visitor_spec) = &fixture.visitor {
+        let _ = writeln!(out, "    #[derive(Debug)]");
         let _ = writeln!(out, "    struct _TestVisitor;");
         let _ = writeln!(out, "    impl {} for _TestVisitor {{", resolve_visitor_trait(&module));
         for (method_name, action) in &visitor_spec.callbacks {
@@ -2940,53 +2992,183 @@ fn resolve_visitor_trait(module: &str) -> String {
     }
 }
 
+/// Resolve the module path that contains the visitor trait.
+///
+/// When the trait lives in a sub-module (e.g. `html_to_markdown_rs::visitor`)
+/// rather than the crate root, this returns the full sub-module path so the
+/// caller can emit a separate `use` statement for the trait import.
+fn resolve_visitor_trait_module(module: &str) -> String {
+    if module.contains("html_to_markdown") {
+        format!("{module}::visitor")
+    } else {
+        module.to_string()
+    }
+}
+
+/// Parameter descriptor for a single visitor method parameter.
+///
+/// The `name` field is the logical name (without `_` suppression prefix — that
+/// is added at render time for unused params).
+/// The `ty` field is the Rust type string.
+/// The `unwrap_option` flag indicates this is `Option<&str>` and the body
+/// needs a `let {name} = {name}.unwrap_or_default();` binding to expose a
+/// plain `&str` for template interpolation.
+struct VisitorParam {
+    name: &'static str,
+    ty: &'static str,
+    /// When true, the declared param type is `Option<&str>` and the bare name
+    /// starts with `_` to suppress unused-variable warnings.  For
+    /// `CustomTemplate` actions that reference this param, the prefix is
+    /// stripped and an unwrap binding is emitted.
+    unwrap_option: bool,
+}
+
+impl VisitorParam {
+    const fn new(name: &'static str, ty: &'static str) -> Self {
+        Self { name, ty, unwrap_option: false }
+    }
+
+    /// An `Option<&str>` parameter whose plain string value may be needed by
+    /// `CustomTemplate` actions.  The name stored here is the bare identifier
+    /// (no `_` prefix); the prefix is added at render time when the param is
+    /// not referenced.
+    const fn option_str(name: &'static str) -> Self {
+        Self { name, ty: "Option<&str>", unwrap_option: true }
+    }
+
+    /// An `Option<&str>` parameter that is never referenced by templates.
+    /// The name stored here already includes the `_` prefix.
+    const fn option_str_unused(name: &'static str) -> Self {
+        Self { name, ty: "Option<&str>", unwrap_option: false }
+    }
+}
+
+/// Returns the typed parameter list for a visitor method, matching the
+/// `HtmlVisitor` trait signatures exactly.
+///
+/// The first `&NodeContext` parameter is always included; the returned slice
+/// covers only the additional parameters (after ctx).
+fn visitor_method_extra_params(method_name: &str) -> Vec<VisitorParam> {
+    match method_name {
+        "visit_link" => vec![
+            VisitorParam::new("href", "&str"),
+            VisitorParam::new("text", "&str"),
+            VisitorParam::option_str_unused("_title"),
+        ],
+        "visit_image" => vec![
+            VisitorParam::new("src", "&str"),
+            VisitorParam::new("alt", "&str"),
+            VisitorParam::option_str_unused("_title"),
+        ],
+        "visit_heading" => vec![
+            VisitorParam::new("level", "u32"),
+            VisitorParam::new("text", "&str"),
+            VisitorParam::option_str_unused("_id"),
+        ],
+        "visit_code_block" => vec![
+            VisitorParam::option_str_unused("_lang"),
+            VisitorParam::new("code", "&str"),
+        ],
+        "visit_code_inline" | "visit_strong" | "visit_emphasis" | "visit_strikethrough"
+        | "visit_underline" | "visit_subscript" | "visit_superscript" | "visit_mark"
+        | "visit_button" | "visit_summary" | "visit_figcaption" | "visit_definition_term"
+        | "visit_definition_description" | "visit_text" => {
+            vec![VisitorParam::new("text", "&str")]
+        }
+        "visit_list_item" => vec![
+            VisitorParam::new("ordered", "bool"),
+            VisitorParam::new("marker", "&str"),
+            VisitorParam::new("text", "&str"),
+        ],
+        "visit_blockquote" => vec![
+            VisitorParam::new("content", "&str"),
+            VisitorParam::new("depth", "usize"),
+        ],
+        "visit_table_row" => vec![
+            VisitorParam::new("cells", "&[String]"),
+            VisitorParam::new("is_header", "bool"),
+        ],
+        "visit_custom_element" => vec![
+            VisitorParam::new("tag_name", "&str"),
+            VisitorParam::new("html", "&str"),
+        ],
+        "visit_form" => vec![
+            VisitorParam::option_str_unused("_action"),
+            VisitorParam::option_str_unused("_method"),
+        ],
+        "visit_input" => vec![
+            VisitorParam::new("input_type", "&str"),
+            VisitorParam::option_str_unused("_name"),
+            VisitorParam::option_str_unused("_value"),
+        ],
+        "visit_audio" | "visit_video" | "visit_iframe" => {
+            vec![VisitorParam::option_str("src")]
+        }
+        "visit_details" => vec![VisitorParam::new("open", "bool")],
+        "visit_list_start" => vec![VisitorParam::new("ordered", "bool")],
+        "visit_list_end" => vec![
+            VisitorParam::new("ordered", "bool"),
+            VisitorParam::new("output", "&str"),
+        ],
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end"
+        | "visit_figure_end" => vec![VisitorParam::new("output", "&str")],
+        _ => vec![],
+    }
+}
+
 /// Emit a Rust visitor method for a callback action.
 ///
-/// The parameter type list mirrors the `HtmlVisitor` trait in
-/// `kreuzberg-dev/html-to-markdown`. Param names are bound to `_` because the
-/// generated visitor body never references them — the body always returns a
-/// fixed `VisitResult` variant — so we'd otherwise hit `unused_variables`
-/// warnings that fail prek's `cargo clippy -D warnings` hook.
+/// Parameter names are suppressed with a `_` prefix unless the action is
+/// `CustomTemplate`, in which case params referenced by the template are
+/// exposed as plain identifiers so the `format!()` call can capture them.
+/// `Option<&str>` parameters referenced in a template are additionally
+/// unwrapped via `let name = name.unwrap_or_default();`.
 fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
-    // Each entry: parameters typed exactly as `HtmlVisitor` expects them,
-    // bound to `_` patterns so the generated body needn't introduce unused
-    // bindings. Receiver is `&mut self` to match the trait.
-    let params = match method_name {
-        "visit_link" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_image" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_heading" => "_: &NodeContext, _: u8, _: &str, _: Option<&str>",
-        "visit_code_block" => "_: &NodeContext, _: Option<&str>, _: &str",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "_: &NodeContext, _: &str",
-        "visit_text" => "_: &NodeContext, _: &str",
-        "visit_list_item" => "_: &NodeContext, _: bool, _: &str, _: &str",
-        "visit_blockquote" => "_: &NodeContext, _: &str, _: u32",
-        "visit_table_row" => "_: &NodeContext, _: &[String], _: bool",
-        "visit_custom_element" => "_: &NodeContext, _: &str, _: &str",
-        "visit_form" => "_: &NodeContext, _: &str, _: &str",
-        "visit_input" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_audio" | "visit_video" | "visit_iframe" => "_: &NodeContext, _: &str",
-        "visit_details" => "_: &NodeContext, _: bool",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "_: &NodeContext, _: &str"
-        }
-        "visit_list_start" => "_: &NodeContext, _: bool",
-        "visit_list_end" => "_: &NodeContext, _: bool, _: &str",
-        _ => "_: &NodeContext",
+    let extra = visitor_method_extra_params(method_name);
+
+    // Determine which param names the template references (if any).
+    let referenced: Vec<&str> = if let CallbackAction::CustomTemplate { template } = action {
+        extra
+            .iter()
+            .filter(|p| {
+                let bare = p.name.trim_start_matches('_');
+                template.contains(&format!("{{{bare}}}"))
+            })
+            .map(|p| p.name.trim_start_matches('_'))
+            .collect()
+    } else {
+        Vec::new()
     };
 
+    // Build the parameter string, suppressing names that aren't referenced.
+    let mut param_parts = vec!["_: &NodeContext".to_string()];
+    for p in &extra {
+        let bare = p.name.trim_start_matches('_');
+        let is_used = referenced.contains(&bare);
+        let param_name = if is_used {
+            bare.to_string()
+        } else if p.name.starts_with('_') {
+            p.name.to_string()
+        } else {
+            format!("_{bare}")
+        };
+        param_parts.push(format!("{param_name}: {}", p.ty));
+    }
+    let params = param_parts.join(", ");
+
     let _ = writeln!(out, "        fn {method_name}(&mut self, {params}) -> VisitResult {{");
+
+    // For template params that are Option<&str>, emit an unwrap binding so
+    // the format! string can use a plain &str.
+    if let CallbackAction::CustomTemplate { .. } = action {
+        for p in &extra {
+            let bare = p.name.trim_start_matches('_');
+            if p.unwrap_option && referenced.contains(&bare) {
+                let _ = writeln!(out, "            let {bare} = {bare}.unwrap_or_default();");
+            }
+        }
+    }
+
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "            VisitResult::Skip");
