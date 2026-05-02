@@ -18,6 +18,14 @@ use std::fmt::Write;
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 
+/// Find the first function parameter whose IR type carries a bridge field
+/// (`bind_via = "options_field"`).  Returns the match metadata needed for
+/// generating the options-field bridge wrapper.
+pub use alef_codegen::generators::trait_bridge::find_bridge_field;
+
+/// Match info for a trait bridge whose handle lives as a struct field.
+pub use alef_codegen::generators::trait_bridge::BridgeFieldMatch;
+
 /// PHP-specific trait bridge generator.
 /// Implements code generation for bridging PHP objects to Rust traits.
 pub struct PhpBridgeGenerator {

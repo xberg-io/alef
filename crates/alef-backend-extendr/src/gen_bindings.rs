@@ -3,10 +3,12 @@ use alef_codegen::doc_emission;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
 use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::PathBuf;
 
 pub struct ExtendrBackend;

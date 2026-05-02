@@ -4,8 +4,9 @@ mod types;
 
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
+use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -217,6 +218,17 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
 
+    // Collect the options_type names used by options-field bridges.
+    // For these types, suppress the auto-generated `_from_json` helper: the public API no
+    // longer exposes a JSON constructor for option structs that own a bridge field (the
+    // visitor cannot survive a JSON round-trip).
+    let options_field_bridge_types: ahash::AHashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+        .filter_map(|b| b.options_type.as_deref())
+        .collect();
+
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api
         .types
@@ -232,7 +244,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             // method — the method wrapper produces the same FFI export name and would
             // collide.
             let has_from_json_method = typ.methods.iter().any(|m| m.name == "from_json");
-            if !has_from_json_method {
+            // Also skip when this type is the options_type for an options-field bridge:
+            // the embedded visitor field cannot survive JSON deserialization, so the
+            // generated {prefix}_{type}_from_json shim would silently drop it and is
+            // therefore not part of the public API surface.
+            let is_options_bridge_type = options_field_bridge_types.contains(typ.name.as_str());
+            if !has_from_json_method && !is_options_bridge_type {
                 builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
             }
             // Generate to_json for types that support serialization. Skip Update types

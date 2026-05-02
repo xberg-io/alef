@@ -534,7 +534,16 @@ fn gen_go_file(
         writeln!(
             out,
             "{}\n",
-            gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
+            gen_function_wrapper(
+                func,
+                ffi_prefix,
+                &opaque_names,
+                bridge_param_names,
+                bridge_type_aliases,
+                &api.types,
+                options_field_bridges,
+                &config.trait_bridges,
+            )
         )
         .ok();
     }

@@ -1,0 +1,290 @@
+//! Options-field bridge code generation for the C FFI backend.
+//!
+//! When a `[[trait_bridges]]` entry is configured with `bind_via = "options_field"`,
+//! the visitor handle lives as a field on the options struct rather than as a positional
+//! argument. This module generates:
+//!
+//! 1. `{prefix}_options_set_{field}` — a setter that wraps the vtable bridge in a
+//!    `Rc<RefCell<dyn Trait>>` and stores it on `options.{field}`.  Callers (Go, Java, C#)
+//!    invoke this before calling `{prefix}_convert`.
+//! 2. `{prefix}_convert` — a convert wrapper that passes options (with the embedded
+//!    visitor) directly to the core call.  Replaces the sanitized stub that the normal
+//!    free-function path would emit for functions whose signature the IR sanitizer marks
+//!    unimplementable due to the trait-object field.
+//!
+//! The `{prefix}_convert_with_visitor` export from the legacy `visitor_callbacks` path is
+//! NOT emitted in this mode — a single `{prefix}_convert` suffices.
+
+use alef_codegen::generators::trait_bridge::{format_param_type, format_return_type, format_type_ref};
+use alef_core::ir::{MethodDef, ReceiverKind, TypeDef};
+use heck::ToPascalCase;
+use std::collections::HashMap;
+use std::fmt::Write;
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Generate the `{prefix}_options_set_{field}` setter.
+///
+/// The setter wraps the vtable bridge handle in a thin `Rc<RefCell<VtableRef>>` delegating
+/// wrapper and stores it in the options struct's visitor field.  Callers must invoke this
+/// before passing options to `{prefix}_convert`.
+///
+/// # Parameters
+///
+/// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
+/// - `core_import`: the Rust crate name for the core library (e.g. `"html_to_markdown_rs"`).
+/// - `trait_def`: the IR definition of the trait whose bridge is being attached.
+/// - `trait_name`: the Rust trait name (e.g. `"HtmlVisitor"`).
+/// - `field_name`: the field on the options struct (e.g. `"visitor"`).
+/// - `options_type_name`: the IR type name of the options struct (e.g. `"ConversionOptions"`).
+/// - `type_paths`: map of IR type name → fully-qualified Rust path for signature generation.
+pub fn gen_options_set_bridge(
+    prefix: &str,
+    core_import: &str,
+    trait_def: &TypeDef,
+    trait_name: &str,
+    field_name: &str,
+    options_type_name: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let pascal_prefix = prefix.to_pascal_case();
+    // Bridge handle type: {PascalPrefix}{TraitName}Bridge (produced by gen_trait_bridge)
+    let handle_type = format!("{pascal_prefix}{trait_name}Bridge");
+    let options_type_snake = to_snake_case(options_type_name);
+    let handle_snake = to_snake_case(&handle_type);
+    let fn_name = format!("{prefix}_options_set_{field_name}");
+    let trait_path = trait_def.rust_path.replace('-', "_");
+
+    // Generate the VtableRef delegation impl for every (non-trait-source) method.
+    let delegation_methods = gen_vtable_ref_delegation(trait_def, core_import, type_paths);
+
+    format!(
+        r#"/// Attach a vtable visitor bridge to a `{options_type_name}` options struct.
+///
+/// The `{handle_type}` encapsulates a set of C function pointers that receive visit
+/// callbacks during HTML-to-Markdown conversion.  Call this setter before `{prefix}_convert`
+/// to activate visitor callbacks.  Pass `visitor = null` to clear a previously attached visitor.
+///
+/// Neither pointer is consumed: the caller retains ownership of both `options` and `visitor`
+/// and must free them independently after conversion completes.
+///
+/// # Safety
+///
+/// `options` must be a non-null pointer returned by `{prefix}_{options_type_snake}_new` (or
+/// equivalent), valid for write access.  `visitor` must be a non-null pointer returned by
+/// `{prefix}_{handle_snake}_new`, or null.  Both must remain valid for the duration of any
+/// subsequent `{prefix}_convert` call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_name}(
+    options: *mut {core_import}::{options_type_name},
+    visitor: *mut {handle_type},
+) {{
+    if options.is_null() {{
+        return;
+    }}
+    // SAFETY: null check above guarantees options is a valid, aligned, initialised pointer.
+    let opts = unsafe {{ &mut *options }};
+
+    if visitor.is_null() {{
+        opts.{field_name} = None;
+        return;
+    }}
+
+    // Wrap the raw bridge pointer in a thin delegating type that implements the trait.
+    // `VtableRef` borrows the bridge by raw pointer and must not outlive the bridge handle.
+    struct VtableRef(*mut {handle_type});
+
+    impl std::fmt::Debug for VtableRef {{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+            f.debug_tuple("VtableRef").finish()
+        }}
+    }}
+
+    // SAFETY: {handle_type} is `Send + Sync` (unsafe impl generated by gen_trait_bridge).
+    // The caller guarantees the pointer remains valid while options is in use.
+    unsafe impl Send for VtableRef {{}}
+
+    impl {trait_path} for VtableRef {{
+{delegation_methods}    }}
+
+    // SAFETY: visitor is non-null; wrapping in Rc<RefCell<_>> is safe for single-threaded use.
+    opts.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(VtableRef(visitor))));
+}}"#,
+        prefix = prefix,
+        pascal_prefix = pascal_prefix,
+        handle_type = handle_type,
+        handle_snake = handle_snake,
+        fn_name = fn_name,
+        core_import = core_import,
+        options_type_name = options_type_name,
+        options_type_snake = options_type_snake,
+        field_name = field_name,
+        trait_path = trait_path,
+        delegation_methods = delegation_methods,
+    )
+}
+
+/// Generate the `{prefix}_convert` function for the `options_field` bridge mode.
+///
+/// In this mode the visitor is embedded in `ConversionOptions.{field}` via the setter.
+/// The generated `{prefix}_convert` passes options (including the embedded visitor) directly
+/// to the core `convert` call.  It replaces the sanitized stub the generic free-function
+/// path would otherwise emit for the sanitized `convert` signature.
+///
+/// # Parameters
+///
+/// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
+/// - `core_import`: the Rust crate name for the core library (e.g. `"html_to_markdown_rs"`).
+pub fn gen_convert_with_options_field_bridge(prefix: &str, core_import: &str) -> String {
+    let fn_name = format!("{prefix}_convert");
+    format!(
+        r#"/// Convert HTML to Markdown.
+///
+/// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
+/// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
+/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+///
+/// If a visitor was attached to `options` via `{prefix}_options_set_visitor`, it will
+/// receive callbacks during conversion.
+///
+/// # Arguments
+///
+/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
+/// - `options`: optional conversion options (with optional embedded visitor); pass null for defaults.
+///
+/// # Safety
+///
+/// `html` must be a valid, non-null, null-terminated UTF-8 string.
+/// `options` must be a valid pointer or null.
+/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_name}(
+    html: *const std::ffi::c_char,
+    options: *const {core_import}::ConversionOptions,
+) -> *mut {core_import}::ConversionResult {{
+    clear_last_error();
+
+    if html.is_null() {{
+        set_last_error(1, "Null pointer passed for html");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
+    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in html parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    // Clone options out of the pointer.  Any visitor attached via
+    // `{prefix}_options_set_visitor` is embedded in options.visitor and will be
+    // picked up automatically by the core convert call.
+    let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
+        None
+    }} else {{
+        // SAFETY: null check above guarantees options is a valid pointer.
+        Some(unsafe {{ &*options }}.clone())
+    }};
+
+    match {core_import}::convert(html_str, options_rs, None) {{
+        Ok(result) => Box::into_raw(Box::new(result)),
+        Err(e) => {{
+            set_last_error(2, &e.to_string());
+            std::ptr::null_mut()
+        }}
+    }}
+}}"#,
+        prefix = prefix,
+        fn_name = fn_name,
+        core_import = core_import,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Generate `impl {trait_path} for VtableRef` method bodies.
+///
+/// Each method delegates to `unsafe { (*self.0).method_name(args...) }`, reusing
+/// the trait impl already generated on the bridge struct by `gen_trait_bridge`.
+fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths: &HashMap<String, String>) -> String {
+    let mut out = String::with_capacity(4096);
+
+    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
+
+    for method in &own_methods {
+        let receiver_str = match &method.receiver {
+            Some(ReceiverKind::Ref) => "&self",
+            Some(ReceiverKind::RefMut) => "&mut self",
+            Some(ReceiverKind::Owned) => "self",
+            None => "",
+        };
+
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, format_param_type(p, type_paths)))
+            .collect();
+
+        let all_params = if receiver_str.is_empty() {
+            params.join(", ")
+        } else if params.is_empty() {
+            receiver_str.to_string()
+        } else {
+            format!("{}, {}", receiver_str, params.join(", "))
+        };
+
+        let error_override = method.error_type.as_ref().map(|_| {
+            // Use a Box<dyn Error> error type to stay compatible with bridge impls.
+            "Box<dyn std::error::Error + Send + Sync>".to_string()
+        });
+        let ret = format_return_type(&method.return_type, error_override.as_deref(), type_paths);
+
+        let arg_list = build_arg_list(method, core_import, type_paths);
+        let method_name = &method.name;
+
+        writeln!(
+            out,
+            "        fn {method_name}({all_params}) -> {ret} {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            // SAFETY: self.0 is a valid pointer for the duration of the conversion call."
+        )
+        .ok();
+        writeln!(out, "            unsafe {{ (*self.0).{method_name}({arg_list}) }}").ok();
+        writeln!(out, "        }}").ok();
+    }
+
+    out
+}
+
+/// Build the argument expression list for a method call: `(arg1, arg2, ...)`.
+///
+/// For each parameter, if `is_ref=true` and the core method takes a reference,
+/// we pass `param_name` directly (already a reference from the method signature).
+/// Otherwise we pass `param_name` by value (move / copy).
+///
+/// The `ctx` parameter (first param for visitor methods, typed as `&NodeContext`)
+/// is passed through as-is since the outer signature already has it as a reference.
+fn build_arg_list(method: &MethodDef, _core_import: &str, _type_paths: &HashMap<String, String>) -> String {
+    method.params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ")
+}
+
+/// Convert a PascalCase identifier to snake_case.
+pub(crate) fn to_snake_case(s: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(ch.to_ascii_lowercase());
+    }
+    out
+}

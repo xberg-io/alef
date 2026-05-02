@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e): visitor codegen now assigns the synthesized visitor object to
+  `options.visitor` (language-idiomatic field assignment) instead of passing it
+  as a third positional argument. This aligns e2e test generation with the h2m
+  API change where `convert(html, options)` accepts visitor as an optional
+  ConversionOptions field rather than a separate parameter. Implemented for
+  Rust (mutable options binding with visitor attachment), Ruby (dict key
+  insertion), and PHP (separate options object merge). Python and TypeScript
+  already used the correct pattern (kwargs/field merge). Remaining languages
+  (Go, Java, C#, Elixir, R, etc.) require similar updates.
+
 ### Added
 
 - feat(docs): render trait-bridged fields as struct fields on options types when

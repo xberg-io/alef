@@ -3,13 +3,13 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to R objects (named lists of functions) via extendr.
 
-pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+pub use alef_codegen::generators::trait_bridge::{BridgeFieldMatch, find_bridge_field, find_bridge_param};
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, format_type_ref,
     gen_bridge_all, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 

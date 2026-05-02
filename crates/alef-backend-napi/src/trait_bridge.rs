@@ -4,11 +4,11 @@
 //! to JavaScript objects via NAPI-RS.
 
 use alef_codegen::generators::trait_bridge::{
-    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
-    to_camel_case, visitor_param_type,
+    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec,
+    bridge_param_type as param_type, gen_bridge_all, to_camel_case, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -17,6 +17,12 @@ use std::fmt::Write;
 ///
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+
+/// Find the first function parameter whose IR type carries a bridge field
+/// (`bind_via = "options_field"`).
+///
+/// Returns `None` when no bridge applies.
+pub use alef_codegen::generators::trait_bridge::find_bridge_field;
 
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.

@@ -820,7 +820,7 @@ impl Backend for PhpBackend {
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
                     content.push_str("     */\n");
                 }
-                let params: Vec<String> = sorted_visible_params
+                let mut params: Vec<String> = sorted_visible_params
                     .iter()
                     .map(|p| {
                         let ptype = php_type_fq(&p.ty, &namespace);
@@ -831,6 +831,12 @@ impl Backend for PhpBackend {
                         }
                     })
                     .collect();
+                // Bridge-field functions expose an extra visitor param in the native extension.
+                if let Some(bfm) = bridge_field_funcs_stubs.get(func.name.as_str()) {
+                    let bridge_class = bfm.bridge.type_alias.as_deref()
+                        .unwrap_or(bfm.bridge.trait_name.as_str());
+                    params.push(format!("?{} ${}_obj = null", bridge_class, bfm.field_name));
+                }
                 // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
                 let stub_method_name = if func.is_async {
                     format!("{}_async", func.name).to_lower_camel_case()

@@ -1,5 +1,5 @@
 use crate::type_map::python_type;
-use alef_core::config::{AlefConfig, Language, TraitBridgeConfig};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
@@ -103,6 +103,18 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     let bridge_param_names: std::collections::HashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
+    // For options-field bridges, collect a map from options_type name → bridge field name so
+    // gen_type_stub can override the field type to `object | None` instead of `str | None`.
+    let bridge_field_overrides: std::collections::HashMap<&str, &str> = trait_bridges
+        .iter()
+        .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+        .filter_map(|b| {
+            let options_type = b.options_type.as_deref()?;
+            let field_name = b.resolved_options_field()?;
+            Some((options_type, field_name))
+        })
+        .collect();
+
     // Generate type stubs — collect opaque types separately so consecutive
     // one-liner class stubs are emitted without blank lines between them
     // (ruff strips those in .pyi files).
@@ -113,7 +125,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         .partition(|typ| typ.is_opaque);
 
     for typ in &non_opaque {
-        lines.push(gen_type_stub(typ, api, config));
+        lines.push(gen_type_stub(typ, api, config, &bridge_field_overrides));
         lines.push("".to_string());
     }
 
@@ -167,7 +179,12 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a Python type stub for a struct.
-fn gen_type_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> String {
+fn gen_type_stub(
+    typ: &TypeDef,
+    api: &ApiSurface,
+    config: &AlefConfig,
+    bridge_field_overrides: &std::collections::HashMap<&str, &str>,
+) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
@@ -179,13 +196,24 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> String
     // it as `obj.class_` (the escaped name), NOT as `obj.class`, because `class` is a
     // syntax error in a Python attribute access expression.  The stub must match.
     for field in &typ.fields {
-        let type_str = python_type(&field.ty);
-        // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
-        let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
-        let field_type = if (is_optional_duration || field.optional) && !type_str.contains("| None") {
-            format!("{} | None", type_str)
+        // When this type is the options_type for an options-field bridge and this is the
+        // bridge field, override the type hint to `object | None` so Python callers know
+        // they can pass any visitor object.  The IR sanitizes the type to `String`, which
+        // would otherwise show up as `str | None` in the stub — incorrect and confusing.
+        let is_bridge_field = bridge_field_overrides
+            .get(typ.name.as_str())
+            .is_some_and(|&bridge_field_name| field.name == bridge_field_name);
+        let field_type = if is_bridge_field {
+            "object | None".to_string()
         } else {
-            type_str
+            let type_str = python_type(&field.ty);
+            // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
+            let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
+            if (is_optional_duration || field.optional) && !type_str.contains("| None") {
+                format!("{} | None", type_str)
+            } else {
+                type_str
+            }
         };
         // Resolve the field name: use config-driven rename if available, otherwise apply
         // automatic keyword escaping via python_safe_name.

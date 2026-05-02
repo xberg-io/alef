@@ -678,7 +678,7 @@ fn render_test_method(
     let (mut setup_lines, args_str) =
         build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
 
-    // Build visitor if present and add to setup
+    // Build visitor if present and attach to options
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
         visitor_arg = build_php_visitor(&mut setup_lines, visitor_spec);
@@ -687,9 +687,9 @@ fn render_test_method(
     let final_args = if visitor_arg.is_empty() {
         args_str
     } else if args_str.is_empty() {
-        visitor_arg
+        format!("(object)['visitor' => {visitor_arg}]")
     } else {
-        format!("{args_str}, {visitor_arg}")
+        format!("{args_str}, (object)['visitor' => {visitor_arg}]")
     };
 
     let call_expr = if php_client_factory.is_some() {

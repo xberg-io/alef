@@ -148,6 +148,7 @@ impl Backend for CsharpBackend {
                 has_visitor_callbacks,
                 &streaming_methods,
                 &exclude_functions,
+                &options_field_bridges,
             )),
             generated_header: true,
         });
@@ -267,6 +268,7 @@ impl Backend for CsharpBackend {
                         &complex_enums,
                         &custom_converter_enums,
                         &lang_rename_all,
+                        &options_field_bridges,
                     )),
                     generated_header: true,
                 });
@@ -468,6 +470,7 @@ fn gen_native_methods(
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
     exclude_functions: &HashSet<String>,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
