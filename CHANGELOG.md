@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Commands::Generate` and `Commands::All`, and track stub-changed languages in
   `changed_languages` in `Commands::All`.
 
+- fix(e2e): add `node`/`wasm` default formatters (`npx oxfmt {dir}`) to `alef_e2e::format`.
+  `run_formatters` had no entry for TypeScript e2e output, so hashes were embedded over raw
+  codegen bytes; prek's oxfmt hook then reformatted those files, making `alef verify` report
+  28 stale TS files after every `alef e2e generate` / `alef e2e generate --registry` run.
+
 - fix(php): respect namespace config in php_autoload_namespace. After v0.14.0, the namespace
   emission logic regressed and ignored the `[crates.php] namespace` configuration, instead
   splitting the extension name on underscores. Now respects explicit namespace override.

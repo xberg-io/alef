@@ -23,10 +23,16 @@ use tracing::warn;
 ///   to format a non-workspace-member crate.
 /// * `python` — `ruff format {dir}` normalises whitespace/newlines in the
 ///   generated test files so prek's ruff hook is a no-op.
+/// * `node` — `npx oxfmt {dir}` normalises TypeScript test files so prek's
+///   oxfmt hook is a no-op. Without this, hashes are computed over raw codegen
+///   output and reformatted by prek, causing `alef verify` to report stale files.
+/// * `wasm` — same as `node`; the wasm e2e suite uses the same TypeScript
+///   toolchain and oxfmt produces identical normalisation requirements.
 fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
         "rust" => Some("(cd {dir} && cargo fmt --all)"),
         "python" => Some("ruff format {dir}"),
+        "node" | "wasm" => Some("npx oxfmt {dir}"),
         _ => None,
     }
 }
@@ -111,6 +117,26 @@ mod tests {
         assert!(
             cmd.contains("{dir}"),
             "python formatter must include {{dir}} placeholder: {cmd}"
+        );
+    }
+
+    #[test]
+    fn test_default_formatter_node_uses_oxfmt() {
+        let cmd = default_formatter("node").expect("node must have a default formatter");
+        assert!(cmd.contains("oxfmt"), "node formatter must use oxfmt: {cmd}");
+        assert!(
+            cmd.contains("{dir}"),
+            "node formatter must include {{dir}} placeholder: {cmd}"
+        );
+    }
+
+    #[test]
+    fn test_default_formatter_wasm_uses_oxfmt() {
+        let cmd = default_formatter("wasm").expect("wasm must have a default formatter");
+        assert!(cmd.contains("oxfmt"), "wasm formatter must use oxfmt: {cmd}");
+        assert!(
+            cmd.contains("{dir}"),
+            "wasm formatter must include {{dir}} placeholder: {cmd}"
         );
     }
 
