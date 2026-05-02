@@ -109,9 +109,7 @@ pub(super) fn gen_dts(
                     //   2. The field itself has `optional = true` in the IR (e.g. *Update struct fields)
                     //   3. The parent type has `has_default = true` — the NAPI binding wraps every
                     //      field in Option<T> so callers can omit fields and rely on defaults.
-                    let is_optional = matches!(field.ty, TypeRef::Optional(_))
-                        || field.optional
-                        || typ.has_default;
+                    let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional || typ.has_default;
                     if is_optional {
                         lines.push(format!("  {js_name}?: {ts_ty}"));
                     } else {

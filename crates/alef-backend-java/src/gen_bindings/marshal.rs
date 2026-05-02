@@ -150,7 +150,7 @@ pub(crate) fn marshal_param_to_ffi(
                         );
                         writeln!(
                             out,
-                            "            var {}Json = {} != null ? createObjectMapper().writeValueAsString({}) : null;",
+                            "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
                             cname, name, name
                         )
                         .ok();
@@ -264,7 +264,11 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         .ok();
         writeln!(out, "            switch (errCode) {{").ok();
         writeln!(out, "                case 1 -> throw new InvalidInputException(msg);").ok();
-        writeln!(out, "                case 2 -> throw new ConversionErrorException(msg);").ok();
+        writeln!(
+            out,
+            "                case 2 -> throw new ConversionErrorException(msg);"
+        )
+        .ok();
         writeln!(
             out,
             "                default -> throw new {}Exception(errCode, msg);",

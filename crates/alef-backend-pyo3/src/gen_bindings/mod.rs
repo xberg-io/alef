@@ -337,8 +337,14 @@ impl Backend for Pyo3Backend {
             };
             if typ.is_opaque {
                 let mut struct_code = generators::gen_opaque_struct(typ, type_cfg);
-                let mut impl_block =
-                    generators::gen_opaque_impl_block(typ, &mapper, type_cfg, &opaque_types, &mutex_types, &adapter_bodies);
+                let mut impl_block = generators::gen_opaque_impl_block(
+                    typ,
+                    &mapper,
+                    type_cfg,
+                    &opaque_types,
+                    &mutex_types,
+                    &adapter_bodies,
+                );
                 if tokio_mutex_types.contains(&typ.name) {
                     struct_code = rewrite_to_tokio_mutex_struct(&struct_code);
                     impl_block = rewrite_to_tokio_mutex_impl(&impl_block);
@@ -425,11 +431,8 @@ impl Backend for Pyo3Backend {
             // Check whether any parameter's type matches a trait bridge type_alias (function-param binding).
             let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
             // Check whether any parameter's type carries a bridge field (options-field binding).
-            let bridge_field = alef_codegen::generators::trait_bridge::find_bridge_field(
-                f,
-                &api.types,
-                &config.trait_bridges,
-            );
+            let bridge_field =
+                alef_codegen::generators::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     f,

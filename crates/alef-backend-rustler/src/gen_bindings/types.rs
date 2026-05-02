@@ -79,15 +79,21 @@ pub(super) fn gen_struct(
 }
 
 /// Generate a Rustler config constructor impl for a type with `has_default`.
-pub(super) fn gen_rustler_config_impl(typ: &TypeDef, mapper: &crate::type_map::RustlerMapper) -> String {
+/// Fields in `exclude_fields` are skipped in both the struct and the constructor.
+pub(super) fn gen_rustler_config_impl(
+    typ: &TypeDef,
+    mapper: &crate::type_map::RustlerMapper,
+    exclude_fields: &AHashSet<String>,
+) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
     writeln!(out, "impl {} {{", typ.name).ok();
 
-    // Generate kwargs constructor using config_gen helper
+    // Convert AHashSet to std HashSet for config_gen API
+    let excl_std: std::collections::HashSet<String> = exclude_fields.iter().cloned().collect();
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
-    let config_method = alef_codegen::config_gen::gen_rustler_kwargs_constructor(typ, &map_fn);
+    let config_method = alef_codegen::config_gen::gen_rustler_kwargs_constructor_with_exclude(typ, &map_fn, &excl_std);
     write!(out, "    {}", config_method).ok();
 
     writeln!(out, "}}").ok();

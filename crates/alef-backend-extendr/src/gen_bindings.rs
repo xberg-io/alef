@@ -351,9 +351,17 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
     let mut out = String::with_capacity(2048);
 
     // Function-level roxygen header
-    writeln!(out, "#' Create a ConversionOptions list for HTML-to-Markdown conversion").ok();
+    writeln!(
+        out,
+        "#' Create a ConversionOptions list for HTML-to-Markdown conversion"
+    )
+    .ok();
     writeln!(out, "#'").ok();
-    writeln!(out, "#' All parameters default to `NULL`, which means the Rust default is used.").ok();
+    writeln!(
+        out,
+        "#' All parameters default to `NULL`, which means the Rust default is used."
+    )
+    .ok();
     writeln!(out, "#' Pass named arguments to override individual settings.").ok();
     writeln!(out, "#'").ok();
 
@@ -374,7 +382,11 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
         }
     }
 
-    writeln!(out, "#' @return A named list suitable for the `options` argument of [convert()].").ok();
+    writeln!(
+        out,
+        "#' @return A named list suitable for the `options` argument of [convert()]."
+    )
+    .ok();
     writeln!(out, "#' @export").ok();
 
     // Function signature: all fields as NULL-defaulted params

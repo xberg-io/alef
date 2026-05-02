@@ -94,9 +94,14 @@ impl Backend for GoBackend {
             .filter_map(|b| b.type_alias.clone())
             .collect();
         // Determine if any bridge is configured for the visitor pattern.
-        // Requires both trait_bridges to be present AND visitor_callbacks = true in [ffi].
+        // Options-field bridges generate visitor.go regardless of visitor_callbacks.
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
-        let has_visitor_bridge = !config.trait_bridges.is_empty() && visitor_callbacks_enabled;
+        let has_options_field_bridge = config
+            .trait_bridges
+            .iter()
+            .any(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField);
+        let has_visitor_bridge =
+            has_options_field_bridge || (!config.trait_bridges.is_empty() && visitor_callbacks_enabled);
 
         // Determine if any plugin-style bridges (with register_fn) are configured.
         // These are independent of visitor_callbacks and generate trait_bridges.go.
@@ -149,12 +154,26 @@ impl Backend for GoBackend {
 
         // Generate visitor.go when a visitor bridge is configured.
         if has_visitor_bridge {
+            // Derive vtable_trait_name and options_field from the first options-field bridge,
+            // falling back to sensible defaults for legacy function-param bridges.
+            let (vtable_trait_name, options_field) = config
+                .trait_bridges
+                .iter()
+                .find(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+                .and_then(|b| {
+                    let field = b.resolved_options_field()?;
+                    Some((b.trait_name.clone(), field.to_string()))
+                })
+                .unwrap_or_else(|| ("HtmlVisitor".to_string(), "visitor".to_string()));
+
             let visitor_content = strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
                 &ffi_crate_dir,
                 &to_root,
+                &vtable_trait_name,
+                &options_field,
             ));
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join("visitor.go"),
@@ -316,8 +335,8 @@ fn gen_go_file(
     // The package comment must immediately precede the package declaration with no blank line.
     writeln!(
         out,
-        "// Package {} provides Go bindings for the liter-llm library.",
-        pkg_name
+        "// Package {} provides Go bindings for the {} library.",
+        pkg_name, config.name
     )
     .ok();
     writeln!(out, "package {}\n", pkg_name).ok();

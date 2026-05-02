@@ -9,6 +9,9 @@ homepage.workspace = true
 description = "Core types, config schema, and backend trait for the alef polyglot binding generator"
 readme = "README.md"
 
+[package.metadata.cargo-machete]
+ignored = ["tracing"]
+
 [dependencies]
 anyhow = { workspace = true }
 blake3 = { workspace = true }
@@ -17,6 +20,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+# `tracing` is required at runtime by the `traced_test` proc-macro from
+# `tracing-test` (dev-dep) — the macro expands to `tracing::dispatcher::*` calls
+# in test bodies. cargo-machete cannot see this transitive dependency.
 tracing = { workspace = true }
 
 [dev-dependencies]

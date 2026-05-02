@@ -2,3 +2,6 @@
 # Gradle property flag: `-P<name>` sets project property `<name>` to true.
 # Used in build defaults: `gradle build -Prelease`.
 Prelease = "Prelease"
+# Used as a deliberate misspelling in a parse-error test fixture
+# (crates/alef-core/src/config/new_config.rs ~line 684).
+wrkspace = "wrkspace"

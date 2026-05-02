@@ -103,11 +103,10 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Jason is required whenever visitor bridges are active (options_field or function_param
     // mode) because the visitor receive loop uses Jason.decode! / Jason.encode!.
-    let has_visitor_bridges = config.trait_bridges.iter().any(|b| {
-        !b.exclude_languages
-            .iter()
-            .any(|l| l == "elixir" || l == "rustler")
-    });
+    let has_visitor_bridges = config
+        .trait_bridges
+        .iter()
+        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
     let jason_dep = if has_visitor_bridges {
         format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON)
     } else {

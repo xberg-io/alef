@@ -157,11 +157,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // Determine which variant carries #[default].
     // Prefer the variant that has is_default=true in the source (mirrors the Rust core's
     // #[default] attribute); fall back to the first variant when none is explicitly marked.
-    let default_idx = enum_def
-        .variants
-        .iter()
-        .position(|v| v.is_default)
-        .unwrap_or(0);
+    let default_idx = enum_def.variants.iter().position(|v| v.is_default).unwrap_or(0);
     for (idx, variant) in enum_def.variants.iter().enumerate() {
         if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
             writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();

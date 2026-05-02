@@ -324,8 +324,11 @@ package_name = "@spikard/node"
         assert_eq!(py.rename_fields.get("User.type").map(String::as_str), Some("user_type"));
         assert_eq!(py.rename_fields.get("User.id").map(String::as_str), Some("identifier"));
 
-        let nd = spikard.node.as_ref().expect("node config should be present");
-        assert_eq!(nd.rename_fields.get("User.type").map(String::as_str), Some("userType"));
+        let node_cfg = spikard.node.as_ref().expect("node config should be present");
+        assert_eq!(
+            node_cfg.rename_fields.get("User.type").map(String::as_str),
+            Some("userType")
+        );
     }
 
     #[test]
@@ -673,8 +676,9 @@ languages = []
 
     #[test]
     fn unknown_top_level_key_is_rejected() {
-        // A typo like `wrkspace` instead of `workspace` must produce a parse error,
-        // not silently succeed with the field ignored.
+        // A misspelled key must produce a parse error, not silently succeed with the
+        // field ignored.
+        // typos: ignore start
         let result: Result<NewAlefConfig, _> = toml::from_str(
             r#"
 wrkspace = "typo"
@@ -684,6 +688,7 @@ name = "spikard"
 sources = ["src/lib.rs"]
 "#,
         );
+        // typos: ignore end
         assert!(
             result.is_err(),
             "unknown top-level key should be rejected by deny_unknown_fields"

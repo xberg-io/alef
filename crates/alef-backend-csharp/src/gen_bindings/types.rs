@@ -20,9 +20,7 @@ pub(super) fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
 
     // Internal SafeHandle subclass — owns the native handle and calls Free on finalization.
     // Bugs 1+9: deterministic cleanup via SafeHandle; no-op Dispose() is eliminated.
-    out.push_str(&format!(
-        "internal sealed class {class_name}SafeHandle : SafeHandle\n"
-    ));
+    out.push_str(&format!("internal sealed class {class_name}SafeHandle : SafeHandle\n"));
     out.push_str("{\n");
     out.push_str(&format!(
         "    internal {class_name}SafeHandle(IntPtr handle) : base(IntPtr.Zero, true)\n"
@@ -33,9 +31,7 @@ pub(super) fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
     out.push_str("    public override bool IsInvalid => handle == IntPtr.Zero;\n\n");
     out.push_str("    protected override bool ReleaseHandle()\n");
     out.push_str("    {\n");
-    out.push_str(&format!(
-        "        NativeMethods.{free_method}(handle);\n"
-    ));
+    out.push_str(&format!("        NativeMethods.{free_method}(handle);\n"));
     out.push_str("        return true;\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
@@ -50,14 +46,10 @@ pub(super) fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
     }
     out.push_str(&format!("public sealed class {class_name} : IDisposable\n"));
     out.push_str("{\n");
-    out.push_str(&format!(
-        "    private readonly {class_name}SafeHandle _safeHandle;\n\n"
-    ));
+    out.push_str(&format!("    private readonly {class_name}SafeHandle _safeHandle;\n\n"));
     out.push_str(&format!("    internal {class_name}(IntPtr handle)\n"));
     out.push_str("    {\n");
-    out.push_str(&format!(
-        "        _safeHandle = new {class_name}SafeHandle(handle);\n"
-    ));
+    out.push_str(&format!("        _safeHandle = new {class_name}SafeHandle(handle);\n"));
     out.push_str("    }\n\n");
     out.push_str("    internal IntPtr Handle => _safeHandle.DangerousGetHandle();\n\n");
     out.push_str("    public void Dispose() => _safeHandle.Dispose();\n");

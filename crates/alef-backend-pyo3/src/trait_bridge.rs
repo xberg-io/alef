@@ -817,6 +817,7 @@ pub fn gen_bridge_function(
     adapter_bodies: &alef_codegen::generators::AdapterBodies,
     opaque_types: &ahash::AHashSet<String>,
     core_import: &str,
+    error_converters: &[String],
 ) -> String {
     use alef_codegen::generators::AsyncPattern;
     use alef_core::ir::TypeRef;
@@ -1032,10 +1033,17 @@ pub fn gen_bridge_function(
     let body = if let Some(ref error_type) = func.error_type {
         // Build the error conversion. For known error types, use the dedicated converter
         // function (e.g. `conversion_error_to_py_err`). For generic/unknown error types
-        // (anyhow::Error, etc.), fall back to PyRuntimeError.
+        // (anyhow::Error, etc.), fall back to PyRuntimeError — unless there is exactly one
+        // known converter available, in which case use it (handles the `anyhow::Result<T>`
+        // alias case where the IR records "anyhow::Error" as the error type).
         let core_err_conv = if error_type.contains("::") || error_type == "Error" {
-            // Generic error type — use PyRuntimeError
-            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+            if error_converters.len() == 1 {
+                // Single known converter — use it instead of the generic PyRuntimeError fallback.
+                format!(".map_err({})", error_converters[0])
+            } else {
+                // Generic error type — use PyRuntimeError
+                ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+            }
         } else {
             // Known error type — convert PascalCase to snake_case for converter function name
             let snake_error = {
@@ -1134,6 +1142,7 @@ pub fn gen_bridge_field_function(
     cfg: &alef_codegen::generators::RustBindingConfig<'_>,
     opaque_types: &ahash::AHashSet<String>,
     core_import: &str,
+    error_converters: &[String],
 ) -> String {
     use alef_codegen::generators::AsyncPattern;
     use alef_core::ir::TypeRef;
@@ -1345,8 +1354,15 @@ pub fn gen_bridge_field_function(
 
     // 6. Build error conversion.
     let body = if let Some(ref error_type) = func.error_type {
+        // Same heuristic as gen_bridge_function: path-qualified types (anyhow::Error) are
+        // treated as generic unless there is exactly one known error converter available,
+        // in which case that converter is used instead of the PyRuntimeError fallback.
         let core_err_conv = if error_type.contains("::") || error_type == "Error" {
-            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+            if error_converters.len() == 1 {
+                format!(".map_err({})", error_converters[0])
+            } else {
+                ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+            }
         } else {
             let snake_error = {
                 let mut s = String::with_capacity(error_type.len() + 4);
@@ -1365,18 +1381,14 @@ pub fn gen_bridge_field_function(
             format!(".map_err({snake_error}_to_py_err)")
         };
         if return_wrap == "val" {
-            format!(
-                "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}{core_err_conv}"
-            )
+            format!("{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}{core_err_conv}")
         } else {
             format!(
                 "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}.map(|val| {return_wrap}){core_err_conv}"
             )
         }
     } else {
-        format!(
-            "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}"
-        )
+        format!("{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}")
     };
 
     // Build PyO3 attributes.

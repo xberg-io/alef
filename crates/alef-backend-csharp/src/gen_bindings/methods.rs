@@ -33,8 +33,8 @@ pub(super) fn gen_wrapper_class(
     out.push_str("using System.Runtime.InteropServices;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n");
-    let has_async = api.functions.iter().any(|f| f.is_async)
-        || api.types.iter().flat_map(|t| t.methods.iter()).any(|m| m.is_async);
+    let has_async =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().flat_map(|t| t.methods.iter()).any(|m| m.is_async);
     if has_async {
         out.push_str("using System.Threading.Tasks;\n");
     }
@@ -117,7 +117,10 @@ pub(super) fn gen_wrapper_class(
     if !api.errors.is_empty() {
         let base_error = &api.errors[0];
         let base_ex = format!("{}Exception", base_error.name.to_pascal_case());
-        let has_invalid_input = base_error.variants.iter().any(|v| v.name.to_pascal_case() == "InvalidInput");
+        let has_invalid_input = base_error
+            .variants
+            .iter()
+            .any(|v| v.name.to_pascal_case() == "InvalidInput");
         if has_invalid_input {
             out.push_str("        if (code == 1) return new InvalidInputException(message);\n");
         }

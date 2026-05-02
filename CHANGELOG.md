@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(java): bare `catch (Throwable ignored) { return 0; }` in VisitorBridge upcall stubs swallowed
+  visitor exceptions silently. The catch clause now captures the first throwable in a sticky
+  `volatile Throwable visitorError` field, returns `VISIT_RESULT_ERROR` (4), and surfaces the
+  exception via `rethrowVisitorError()` in the `finally` block of `convertWithVisitor`.
+
+- fix(java): `encodeVisitResult` allocated `Custom` markdown and `Error` message buffers into
+  `Arena.global()`, leaking them permanently. The method is now a non-static instance method
+  that allocates into `this.arena` (the bridge's confined arena), so all buffers are freed on
+  `VisitorBridge.close()`.
+
+- fix(java): `checkLastError()` always threw the base exception class. The method now
+  dispatches on the native error code: code 1 throws `InvalidInputException`, code 2 throws
+  `ConversionErrorException`, and any other code throws the base `{Class}Exception`.
+
+- fix(java): `createObjectMapper()` was called once per FFI invocation, allocating a new
+  `ObjectMapper` on every `convert()` call. The factory is now called once at class-load time
+  to populate a `private static final ObjectMapper MAPPER` field.
+
+- fix(java): stale generated files `IHtmlVisitor.java`, `HtmlVisitorBridge.java`,
+  `TestVisitor.java`, `TestVisitorAdapter.java`, and `VisitContext.java` were emitted by the
+  trait-bridge and gen-visitor paths. They are superseded by `Visitor.java` and
+  `VisitorBridge.java` in the Panama FFM visitor pattern. All five files are removed from
+  generation and deleted from committed output.
+
+- fix(java): `has_visitor_pattern` was evaluated using `config.ffi.visitor_callbacks` which is
+  always `None` in the Java backend's `ResolvedCrateConfig`. The check now also activates when
+  any `[[trait_bridges]]` entry uses `bind_via = "options_field"`, which is the Java-specific
+  visitor activation path.
+
+- fix(java): output path defaulted to `packages/java/` from the workspace template, causing
+  generated files to land in `packages/java/dev/kreuzberg/htmltomarkdown/` instead of the
+  correct `packages/java/src/main/java/dev/kreuzberg/htmltomarkdown/`. The Java output path is
+  now resolved via an explicit `java = "packages/java/src/main/java/"` entry in `[crates.output]`.
+
+## [0.14.1] - 2026-05-02
+
+### Added
+
+- feat(trait-bridge): `[[trait_bridges]]` schema now supports optional `unregister_fn` and
+  `clear_fn` fields. When present, alef emits the corresponding host-language wrappers
+  alongside the existing `register_fn` codegen. Pyo3 backend implements both new methods;
+  remaining backends fall through to the default `None` (no emission).
+
+- feat(error-gen): error-Display strings now have template placeholders (`{message}`,
+  `{plugin_name}`, `{elapsed_ms}`, `{limit_ms}`, `{0}`-style positional, etc.) stripped
+  before emission. Acronym-aware variant-name splitting recognizes 40+ technical
+  acronyms (IO, OCR, PDF, URL, HTTP, TCP, …) and preserves them in the rendered text:
+  `IoError` → "IO error", not "iO error". Applies across all error-handling backends.
+
+- feat(pyo3): `register_*` plugin docstrings now use a humanized noun derived from the
+  trait name. Previously emitted `"""Register a register_ocr_backend backend."""`
+  (placeholder leaked); now emits `"""Register a OCR backend implementation as a runtime plugin."""`.
+
+### Fixed
+
 - fix(extendr): `generate_public_api` no longer emits a duplicate `convert()` wrapper calling
   `.Call("htm_convert", ...)`. extendr generates `extendr-wrappers.R` with the correct
   `.Call(wrap__convert, ...)` symbol; the backend now emits only `@useDynLib` + `options.R`.
@@ -91,6 +146,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(csharp): `ConvertWithVisitor` accepted `IVisitor` (old generated interface) instead
   of `IHtmlVisitor` (trait-bridge interface from `TraitBridges.cs`). The method now takes
   `IHtmlVisitor` and wraps it in `HtmlVisitorBridge` instead of the removed `VisitorCallbacks`.
+
+- fix(napi): `mapper.map_type` returns `String`, not `Cow<str>`; removed stale `.into_owned()`
+  calls in `crates/alef-backend-napi/src/gen_bindings/types.rs`.
+
+- fix(extendr): removed dead reference to `gen_conversion_options_r` (kreuzberg-specific dead
+  code from an earlier project-coupled state).
+
+- fix(codegen): collapsed clippy `if-same-then-else` warning in `config_gen.rs` by combining
+  enum-variant and Named-type branches that emit the same body.
+
+- chore(deps): dropped unused `tracing` dep from `alef-core` (only `tracing-test` is used,
+  and that's a dev-dep).
 
 ## [0.14.0] - 2026-05-02
 

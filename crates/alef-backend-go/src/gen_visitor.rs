@@ -10,40 +10,41 @@
 ///   `user_data` to every C callback.
 /// - Package-level `//export goVisit*` functions look up the visitor by ID and call
 ///   the appropriate method.
-/// - A static C helper in the CGo preamble constructs VisitorCallbacks by
-///   referencing all exported Go trampolines — this is valid because CGo compiles the
-///   preamble together with the Go file that carries the `//export` declarations.
-/// - `ConvertWithVisitor` registers the visitor, calls the C helper to build the
-///   callbacks struct, then calls the appropriate C API functions to perform conversion.
-use alef_codegen::naming::go_param_name;
+/// - A static C helper in the CGo preamble constructs the VTable by referencing all
+///   exported Go trampolines — this is valid because CGo compiles the preamble together
+///   with the Go file that carries the `//export` declarations.
+/// - `ConvertWithVisitor` registers the visitor, builds the VTable via the static C
+///   helper, then calls `{prefix}_{bridge_snake}_new` + `{prefix}_options_set_{field}`
+///   + `{prefix}_convert` to perform conversion.
+///
+/// # VTable ABI
+///
+/// Each function pointer in the VTable has the signature:
+///   `(user_data: void*, ctx: char* /* JSON */, ...extras..., out_result: char**) -> int32_t`
+///
+/// `user_data` is the first argument; `ctx` is a JSON-encoded `NodeContext`; `out_result`
+/// receives a heap-allocated C string when the visitor returns a Custom/Error result.
+///
+/// This differs from the legacy `VisitorCallbacks` pattern (FunctionParam bind_via), where
+/// `user_data` was a FIELD on the struct and context was a typed `*NodeContext` pointer.
 use alef_core::hash::{self, CommentStyle};
 use std::fmt::Write;
 
-/// Derive the cbindgen-generated C struct name for a Rust FFI struct.
+/// Derive the cbindgen-generated C type name for a Rust FFI type.
 ///
-/// cbindgen prepends the configured `prefix` (uppercased) to the Rust type name.
-/// FFI structs are named with a PascalCase prefix in Rust (e.g. `HtmNodeContext`,
-/// `HtmVisitorCallbacks`), so for `ffi_prefix = "htm"` cbindgen emits
-/// `HTMHtmNodeContext`, `HTMHtmVisitorCallbacks`.
-pub(crate) fn ffi_c_struct_name(ffi_prefix: &str, rust_basename: &str) -> String {
+/// cbindgen prepends the uppercased `ffi_prefix` to the Rust struct name verbatim.
+/// Example: prefix="htm", Rust name="HtmHtmlVisitorVTable" → "HTMHtmHtmlVisitorVTable".
+///
+/// Note: the Rust struct name already includes the pascal-case prefix segment
+/// (e.g. `Htm`), so only the uppercase prefix is prepended here.
+pub(crate) fn ffi_c_type_name(ffi_prefix: &str, rust_basename: &str) -> String {
     let prefix_upper = ffi_prefix.to_uppercase();
-    let prefix_pascal = {
-        let mut chars = ffi_prefix.chars();
-        match chars.next() {
-            None => String::new(),
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        }
-    };
-    format!("{prefix_upper}{prefix_pascal}{rust_basename}")
-}
-
-fn visitor_c_struct_name(ffi_prefix: &str) -> String {
-    ffi_c_struct_name(ffi_prefix, "VisitorCallbacks")
+    format!("{prefix_upper}{rust_basename}")
 }
 
 /// A single visitor callback specification.
 struct CallbackSpec {
-    /// Field name in the C callbacks struct (snake_case).
+    /// Field name in the C VTable struct (snake_case).
     c_field: &'static str,
     /// Exported Go function name (e.g. `goVisitText`).
     export_name: &'static str,
@@ -51,7 +52,7 @@ struct CallbackSpec {
     go_method: &'static str,
     /// Doc comment for the Go interface method.
     doc: &'static str,
-    /// Extra C parameters after `(ctx, user_data)` and before `(out_custom, out_len)`.
+    /// Extra C parameters after `(user_data, ctx)` and before `(out_result)`.
     /// Each entry: (c_param_name, c_type, go_var_name, go_type_in_interface, decode_expr).
     /// `decode_expr` is the Go expression to convert the C parameter to the Go interface type.
     extra: &'static [ExtraParam],
@@ -312,13 +313,13 @@ const CALLBACKS: &[CallbackSpec] = &[
         c_field: "visit_table_row",
         export_name: "goVisitTableRow",
         go_method: "VisitTableRow",
-        doc: "VisitTableRow visits table rows. Cells are passed as a slice of strings.",
+        doc: "VisitTableRow visits table rows. Cells are passed as a JSON-encoded slice of strings.",
         extra: &[ExtraParam {
             c_name: "cells",
-            c_type: "**C.char",
+            c_type: "*C.char",
             go_name: "cells",
             go_iface_type: "[]string",
-            decode: "decodeCells(cells, cellCount)",
+            decode: "decodeCellsJSON(cells)",
         }],
         has_is_header: true,
     },
@@ -721,19 +722,27 @@ const CALLBACKS: &[CallbackSpec] = &[
     },
 ];
 
-/// Generate the complete visitor.go file content.
+/// Generate the complete visitor.go file content for the options-field VTable ABI.
 ///
-/// `pkg_name`: Go package name (e.g. `"htmltomarkdown"`).
-/// `ffi_prefix`: C function prefix (e.g. `"htm"`).
-/// `ffi_header`: C header filename (e.g. `"html_to_markdown.h"`).
-/// `ffi_crate_dir`: path from go output dir to the FFI crate dir.
-/// `to_root`: relative path from go output dir to the repo root.
+/// # Parameters
+///
+/// - `pkg_name`: Go package name (e.g. `"htmltomarkdown"`).
+/// - `ffi_prefix`: C function prefix (e.g. `"htm"`).
+/// - `ffi_header`: C header filename (e.g. `"html_to_markdown.h"`).
+/// - `ffi_crate_dir`: path from go output dir to the FFI crate dir.
+/// - `to_root`: relative path from go output dir to the repo root.
+/// - `vtable_trait_name`: Rust trait name used to derive the VTable struct name
+///   (e.g. `"HtmlVisitor"` → `"HtmHtmlVisitorVTable"`).
+/// - `options_field`: field name on `ConversionOptions` that holds the bridge
+///   (e.g. `"visitor"`).
 pub fn gen_visitor_file(
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
     ffi_crate_dir: &str,
     to_root: &str,
+    vtable_trait_name: &str,
+    options_field: &str,
 ) -> String {
     let mut out = String::with_capacity(32_768);
 
@@ -741,13 +750,33 @@ pub fn gen_visitor_file(
     writeln!(out, "package {pkg_name}").ok();
     writeln!(out).ok();
 
-    // Construct C type names from the FFI prefix.
-    // cbindgen prepends prefix_upper + the Rust struct name (PascalCase),
-    // so the visitor callbacks struct is e.g. "HTMHtmVisitorCallbacks" for prefix "htm".
+    // Derive C type names.
+    // VTable: {PREFIX_UPPER}{PascalPrefix}{TraitName}VTable  e.g. HTMHtmHtmlVisitorVTable
+    // Bridge: {PREFIX_UPPER}{PascalPrefix}{TraitName}Bridge  e.g. HTMHtmHtmlVisitorBridge
+    let pascal_prefix = {
+        let mut chars = ffi_prefix.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        }
+    };
     let prefix_upper = ffi_prefix.to_uppercase();
-    let node_context_type = ffi_c_struct_name(ffi_prefix, "NodeContext");
-    let visitor_callbacks_type = visitor_c_struct_name(ffi_prefix);
-    let conversion_options_type = format!("{}ConversionOptions", prefix_upper);
+    let vtable_rust_name = format!("{pascal_prefix}{vtable_trait_name}VTable");
+    let bridge_rust_name = format!("{pascal_prefix}{vtable_trait_name}Bridge");
+    let vtable_c_type = ffi_c_type_name(ffi_prefix, &vtable_rust_name);
+    let bridge_c_type = ffi_c_type_name(ffi_prefix, &bridge_rust_name);
+    let conversion_options_type = format!("{prefix_upper}ConversionOptions");
+
+    // Derive bridge_snake from bridge_rust_name for fn names.
+    // e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
+    let bridge_snake = to_snake_case(&bridge_rust_name);
+    let fn_bridge_new = format!("{ffi_prefix}_{bridge_snake}_new");
+    let fn_bridge_free = format!("{ffi_prefix}_{bridge_snake}_free");
+    let fn_options_set_visitor = format!("{ffi_prefix}_options_set_{options_field}");
+    let fn_options_free = format!("{ffi_prefix}_conversion_options_free");
+    let fn_options_from_json = format!("{ffi_prefix}_conversion_options_from_json");
+    let fn_convert = format!("{ffi_prefix}_convert");
+    let fn_result_free = format!("{ffi_prefix}_conversion_result_free");
 
     // -------------------------------------------------------------------------
     // CGo preamble
@@ -770,25 +799,22 @@ pub fn gen_visitor_file(
     // Forward-declare all exported Go trampolines so the static helper below can
     // reference them.  CGo will resolve these at link time.
     for spec in CALLBACKS {
-        let c_sig = c_signature(spec, ffi_prefix, &node_context_type);
+        let c_sig = c_signature(spec);
         writeln!(out, "extern int32_t {}({});", spec.export_name, c_sig).ok();
     }
 
     writeln!(out).ok();
 
-    // Static C helper that constructs the cbindgen-named visitor callbacks struct.
-    writeln!(
-        out,
-        "static {visitor_callbacks_type} makeVisitorCallbacks(void* user_data) {{"
-    )
-    .ok();
-    writeln!(out, "    {visitor_callbacks_type} cbs;").ok();
-    writeln!(out, "    memset(&cbs, 0, sizeof(cbs));").ok();
-    writeln!(out, "    cbs.user_data = user_data;").ok();
+    // Static C helper that constructs the VTable by pointing each field at the
+    // corresponding exported Go trampoline.  The VTable has NO user_data field;
+    // user_data is passed as the first argument to each function pointer.
+    writeln!(out, "static {vtable_c_type} makeVisitorVTable(void) {{").ok();
+    writeln!(out, "    {vtable_c_type} vtbl;").ok();
+    writeln!(out, "    memset(&vtbl, 0, sizeof(vtbl));").ok();
     for spec in CALLBACKS {
-        writeln!(out, "    cbs.{} = {};", spec.c_field, spec.export_name).ok();
+        writeln!(out, "    vtbl.{} = {};", spec.c_field, spec.export_name).ok();
     }
-    writeln!(out, "    return cbs;").ok();
+    writeln!(out, "    return vtbl;").ok();
     writeln!(out, "}}").ok();
 
     writeln!(out, "*/").ok();
@@ -812,24 +838,35 @@ pub fn gen_visitor_file(
         "// NodeContext carries context information passed to every visitor callback."
     )
     .ok();
+    writeln!(
+        out,
+        "// It is decoded from the JSON-encoded context string passed by the C layer."
+    )
+    .ok();
     writeln!(out, "type NodeContext struct {{").ok();
     writeln!(out, "\t// NodeType is a coarse-grained node type tag.").ok();
-    writeln!(out, "\tNodeType NodeType").ok();
+    writeln!(out, "\tNodeType string `json:\"node_type\"`").ok();
     writeln!(out, "\t// TagName is the HTML element tag name (e.g. \"div\").").ok();
-    writeln!(out, "\tTagName string").ok();
+    writeln!(out, "\tTagName string `json:\"tag_name\"`").ok();
     writeln!(out, "\t// Depth is the DOM depth (0 = root).").ok();
-    writeln!(out, "\tDepth uint").ok();
+    writeln!(out, "\tDepth uint `json:\"depth\"`").ok();
     writeln!(out, "\t// IndexInParent is the 0-based sibling index.").ok();
-    writeln!(out, "\tIndexInParent uint").ok();
+    writeln!(out, "\tIndexInParent uint `json:\"index_in_parent\"`").ok();
     writeln!(
         out,
         "\t// ParentTag is the parent element tag name, or nil at the root."
     )
     .ok();
-    writeln!(out, "\tParentTag *string").ok();
+    writeln!(out, "\tParentTag *string `json:\"parent_tag\"`").ok();
     writeln!(out, "\t// IsInline is true when this element is treated as inline.").ok();
-    writeln!(out, "\tIsInline bool").ok();
+    writeln!(out, "\tIsInline bool `json:\"is_inline\"`").ok();
     writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // NodeType is now a plain string constant namespace — the JSON values come from Rust's
+    // serde-serialized NodeType enum (snake_case by default).
+    writeln!(out, "// NodeType is a string constant for the node type tag.").ok();
+    writeln!(out, "type NodeType = string").ok();
     writeln!(out).ok();
 
     // -------------------------------------------------------------------------
@@ -998,144 +1035,46 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // Shared helpers
     // -------------------------------------------------------------------------
-    writeln!(out, "func decodeNodeContext(c *C.{node_context_type}) NodeContext {{").ok();
-    writeln!(out, "\tctx := NodeContext{{").ok();
-    writeln!(out, "\t\tNodeType:      nodeTypeFromC(c.node_type),").ok();
-    writeln!(out, "\t\tTagName:       C.GoString(c.tag_name),").ok();
-    writeln!(out, "\t\tDepth:         uint(c.depth),").ok();
-    writeln!(out, "\t\tIndexInParent: uint(c.index_in_parent),").ok();
-    writeln!(out, "\t\tIsInline:      c.is_inline != 0,").ok();
+
+    // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
+    writeln!(out, "func decodeNodeContext(ctxJSON *C.char) NodeContext {{").ok();
+    writeln!(out, "\tvar ctx NodeContext").ok();
+    writeln!(out, "\tif ctxJSON == nil {{").ok();
+    writeln!(out, "\t\treturn ctx").ok();
     writeln!(out, "\t}}").ok();
-    writeln!(out, "\tif c.parent_tag != nil {{").ok();
-    writeln!(out, "\t\ts := C.GoString(c.parent_tag)").ok();
-    writeln!(out, "\t\tctx.ParentTag = &s").ok();
-    writeln!(out, "\t}}").ok();
+    writeln!(out, "\t_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)").ok();
     writeln!(out, "\treturn ctx").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // Generate nodeTypeFromC: map C int32_t enum ordinal to Go NodeType string.
-    // The ordinals must match the Rust `NodeType` enum discriminants.
+    // encodeVisitResult: write JSON-encoded result into *out_result.
+    // The VTable ABI uses a single out_result **char (not outCustom+outLen).
+    // For codes 3 (Custom) and 4 (Error) with a non-nil Custom string, we JSON-encode
+    // the full VisitResult and store the heap-allocated C string in *out_result.
+    // For all other codes, *out_result is left as-is (nil) and the code alone suffices.
     writeln!(
         out,
-        "// nodeTypeFromC maps the C node_type enum ordinal to the Go NodeType string constant."
-    )
-    .ok();
-    writeln!(out, "func nodeTypeFromC(i C.int32_t) NodeType {{").ok();
-    writeln!(out, "\tswitch int(i) {{").ok();
-    // These ordinals match the Rust NodeType enum order (auto-derived discriminants).
-    let node_type_variants = [
-        "text",
-        "element",
-        "heading",
-        "paragraph",
-        "div",
-        "blockquote",
-        "pre",
-        "hr",
-        "list",
-        "list_item",
-        "definition_list",
-        "definition_term",
-        "definition_description",
-        "table",
-        "table_row",
-        "table_cell",
-        "table_header",
-        "table_body",
-        "table_head",
-        "table_foot",
-        "link",
-        "image",
-        "strong",
-        "em",
-        "code",
-        "strikethrough",
-        "underline",
-        "subscript",
-        "superscript",
-        "mark",
-        "small",
-        "br",
-        "span",
-        "article",
-        "section",
-        "nav",
-        "aside",
-        "header",
-        "footer",
-        "main",
-        "figure",
-        "figcaption",
-        "time",
-        "details",
-        "summary",
-        "form",
-        "input",
-        "select",
-        "option",
-        "button",
-        "textarea",
-        "label",
-        "fieldset",
-        "legend",
-        "audio",
-        "video",
-        "picture",
-        "source",
-        "iframe",
-        "svg",
-        "canvas",
-        "ruby",
-        "rt",
-        "rp",
-        "abbr",
-        "kbd",
-        "samp",
-        "var",
-        "cite",
-        "q",
-        "del",
-        "ins",
-        "data",
-        "meter",
-        "progress",
-        "output",
-        "template",
-        "slot",
-        "html",
-        "head",
-        "body",
-        "title",
-        "meta",
-        "link_tag",
-        "style",
-        "script",
-        "base",
-        "custom",
-    ];
-    for (i, name) in node_type_variants.iter().enumerate() {
-        let go_name = alef_codegen::naming::to_go_name(name);
-        writeln!(out, "\tcase {i}: return NodeType{go_name}").ok();
-    }
-    writeln!(out, "\tdefault: return NodeType(\"unknown\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    writeln!(
-        out,
-        "func encodeVisitResult(r VisitResult, outCustom **C.char, outLen *C.uintptr_t) C.int32_t {{"
+        "func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {{"
     )
     .ok();
     writeln!(out, "\tif (r.Code == 3 || r.Code == 4) && r.Custom != nil {{").ok();
-    writeln!(out, "\t\tcs := C.CString(*r.Custom)").ok();
-    writeln!(out, "\t\t*outCustom = cs").ok();
-    writeln!(out, "\t\t*outLen = C.uintptr_t(len(*r.Custom))").ok();
+    writeln!(out, "\t\ttype payload struct {{").ok();
+    writeln!(out, "\t\t\tCode   int32   `json:\"code\"`").ok();
+    writeln!(out, "\t\t\tCustom *string `json:\"custom\"`").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(
+        out,
+        "\t\tb, err := json.Marshal(payload{{Code: r.Code, Custom: r.Custom}})"
+    )
+    .ok();
+    writeln!(out, "\t\tif err == nil {{").ok();
+    writeln!(out, "\t\t\t*outResult = C.CString(string(b))").ok();
+    writeln!(out, "\t\t}}").ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\treturn C.int32_t(r.Code)").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
+
     writeln!(out, "func optGoString(p *C.char) *string {{").ok();
     writeln!(out, "\tif p == nil {{").ok();
     writeln!(out, "\t\treturn nil").ok();
@@ -1144,17 +1083,15 @@ pub fn gen_visitor_file(
     writeln!(out, "\treturn &s").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
-    writeln!(out, "func decodeCells(cells **C.char, count C.uintptr_t) []string {{").ok();
-    writeln!(out, "\tn := int(count)").ok();
-    writeln!(out, "\tif n == 0 {{").ok();
+
+    // decodeCellsJSON: cells is a JSON-encoded []string in the VTable ABI.
+    writeln!(out, "func decodeCellsJSON(cells *C.char) []string {{").ok();
+    writeln!(out, "\tif cells == nil {{").ok();
     writeln!(out, "\t\treturn nil").ok();
     writeln!(out, "\t}}").ok();
-    writeln!(out, "\tptrs := (*[1 << 28]*C.char)(unsafe.Pointer(cells))[:n:n]").ok();
-    writeln!(out, "\tsl := make([]string, n)").ok();
-    writeln!(out, "\tfor i, p := range ptrs {{").ok();
-    writeln!(out, "\t\tsl[i] = C.GoString(p)").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn sl").ok();
+    writeln!(out, "\tvar result []string").ok();
+    writeln!(out, "\t_ = json.Unmarshal([]byte(C.GoString(cells)), &result)").ok();
+    writeln!(out, "\treturn result").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
@@ -1162,40 +1099,49 @@ pub fn gen_visitor_file(
     // //export trampolines
     // -------------------------------------------------------------------------
     for spec in CALLBACKS {
-        gen_trampoline(&mut out, spec, &node_context_type);
+        gen_trampoline(&mut out, spec);
     }
 
     // -------------------------------------------------------------------------
     // ConvertWithVisitor
     // -------------------------------------------------------------------------
-    gen_convert_with_visitor(&mut out, ffi_prefix, &conversion_options_type);
+    gen_convert_with_visitor(
+        &mut out,
+        ffi_prefix,
+        &conversion_options_type,
+        &vtable_c_type,
+        &bridge_c_type,
+        &fn_bridge_new,
+        &fn_bridge_free,
+        &fn_options_set_visitor,
+        &fn_options_free,
+        &fn_options_from_json,
+        &fn_convert,
+        &fn_result_free,
+    );
 
     out
 }
 
 /// Build the C parameter list string for the extern declaration of an exported Go function.
-fn c_signature(spec: &CallbackSpec, _ffi_prefix: &str, node_context_type: &str) -> String {
-    // CGO's //export generates non-const parameter types in the prolog header,
-    // so extern declarations must match — no const qualifiers.
-    let mut parts = vec![format!("{node_context_type}* ctx"), "void* user_data".to_string()];
+///
+/// VTable ABI: `(void* user_data, char* ctx, ...extras..., int32_t isHeader?, char** out_result)`
+fn c_signature(spec: &CallbackSpec) -> String {
+    let mut parts = vec!["void* user_data".to_string(), "char* ctx".to_string()];
     for ep in spec.extra {
         let ctype = match ep.c_type {
             "*C.char" => "char*",
             "C.int32_t" => "int32_t",
             "C.uint32_t" => "uint32_t",
             "C.uintptr_t" => "uintptr_t",
-            "**C.char" => "char**",
             _ => "void*",
         };
         parts.push(format!("{ctype} {}", ep.c_name));
     }
     if spec.has_is_header {
-        // visit_table_row: cell_count precedes is_header in the C ABI.
-        parts.push("uintptr_t cellCount".to_string());
         parts.push("int32_t isHeader".to_string());
     }
-    parts.push("char** out_custom".to_string());
-    parts.push("uintptr_t* out_len".to_string());
+    parts.push("char** out_result".to_string());
     parts.join(", ")
 }
 
@@ -1223,23 +1169,20 @@ fn iface_param_names(spec: &CallbackSpec) -> Vec<String> {
     names
 }
 
-/// Generate one `//export goVisit*` C callback trampoline.
-fn gen_trampoline(out: &mut String, spec: &CallbackSpec, node_context_type: &str) {
+/// Generate one `//export goVisit*` C callback trampoline for the VTable ABI.
+///
+/// VTable ABI signature: `(user_data unsafe.Pointer, ctx *C.char, ...extras..., outResult **C.char) C.int32_t`
+fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     // Build Go function parameter list (CGo types).
-    let mut go_params = vec![
-        format!("ctx *C.{node_context_type}"),
-        "userData unsafe.Pointer".to_string(),
-    ];
+    // VTable ABI: user_data first, then ctx (JSON string), then extras, then out_result.
+    let mut go_params = vec!["userData unsafe.Pointer".to_string(), "ctx *C.char".to_string()];
     for ep in spec.extra {
         go_params.push(format!("{} {}", ep.c_name, ep.c_type));
     }
     if spec.has_is_header {
-        // visit_table_row: cell_count precedes is_header in the C ABI.
-        go_params.push("cellCount C.uintptr_t".to_string());
         go_params.push("isHeader C.int32_t".to_string());
     }
-    go_params.push("outCustom **C.char".to_string());
-    go_params.push("outLen *C.uintptr_t".to_string());
+    go_params.push("outResult **C.char".to_string());
 
     writeln!(out, "//export {}", spec.export_name).ok();
     writeln!(out, "func {}({}) C.int32_t {{", spec.export_name, go_params.join(", ")).ok();
@@ -1252,8 +1195,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, node_context_type: &str
 
     // Decode each extra parameter.
     for ep in spec.extra {
-        let var_name = go_param_name(&format!("go_{}", ep.go_name));
-        writeln!(out, "\t{var_name} := {}", ep.decode).ok();
+        writeln!(out, "\tgo{} := {}", capitalize(ep.go_name), ep.decode).ok();
     }
     if spec.has_is_header {
         writeln!(out, "\tgoIsHeader := isHeader != 0").ok();
@@ -1262,20 +1204,42 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, node_context_type: &str
     // Build call args.
     let mut call_args = vec!["nodeCtx".to_string()];
     for ep in spec.extra {
-        call_args.push(go_param_name(&format!("go_{}", ep.go_name)));
+        call_args.push(format!("go{}", capitalize(ep.go_name)));
     }
     if spec.has_is_header {
         call_args.push("goIsHeader".to_string());
     }
 
     writeln!(out, "\tr := v.{}({})", spec.go_method, call_args.join(", ")).ok();
-    writeln!(out, "\treturn encodeVisitResult(r, outCustom, outLen)").ok();
+    writeln!(out, "\treturn encodeVisitResult(r, outResult)").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 }
 
-/// Generate the `ConvertWithVisitor` function.
-fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str, conversion_options_type: &str) {
+/// Generate the `ConvertWithVisitor` function for the options-field VTable pattern.
+///
+/// Flow:
+/// 1. Register the Go visitor in the global table; get a numeric ID as user_data.
+/// 2. Build the VTable via the static C helper (all fn pointers set, no user_data field).
+/// 3. Create a bridge via `{fn_bridge_new}(&vtbl, unsafe.Pointer(id))`.
+/// 4. Attach the bridge to options via `{fn_options_set_visitor}(cOptions, bridge)`.
+/// 5. Call `{fn_convert}(cHTML, cOptions)` to run conversion.
+/// 6. Free bridge and options after conversion completes.
+#[allow(clippy::too_many_arguments)]
+fn gen_convert_with_visitor(
+    out: &mut String,
+    _ffi_prefix: &str,
+    conversion_options_type: &str,
+    _vtable_c_type: &str,
+    bridge_c_type: &str,
+    fn_bridge_new: &str,
+    fn_bridge_free: &str,
+    fn_options_set_visitor: &str,
+    fn_options_free: &str,
+    fn_options_from_json: &str,
+    fn_convert: &str,
+    fn_result_free: &str,
+) {
     writeln!(
         out,
         "// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during"
@@ -1299,49 +1263,113 @@ fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str, conversion_optio
     writeln!(out, "\tcHTML := C.CString(html)").ok();
     writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
     writeln!(out).ok();
+
+    // Build ConversionOptions C pointer (nil → use defaults).
     writeln!(out, "\tvar cOptions *C.{conversion_options_type}").ok();
     writeln!(out, "\tif options != nil {{").ok();
     writeln!(
         out,
-        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{ffi_prefix}_conversion_options_from_json(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{ffi_prefix}_conversion_options_free(cOptions)"
+        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)"
     )
     .ok();
     writeln!(out, "\t}}").ok();
-    writeln!(out).ok();
+    writeln!(out, "\tif cOptions == nil {{").ok();
     writeln!(
         out,
-        "\t// Register visitor and build the C callback struct via the static C helper."
+        "\t\t// Allocate a default options struct so we can attach the visitor."
+    )
+    .ok();
+    writeln!(out, "\t\tdefaultJSON := C.CString(\"{{}}\")").ok();
+    writeln!(out, "\t\tcOptions = C.{fn_options_from_json}(defaultJSON)").ok();
+    writeln!(out, "\t\tC.free(unsafe.Pointer(defaultJSON))").ok();
+    writeln!(out, "\t\tdefer C.{fn_options_free}(cOptions)").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out).ok();
+
+    // Register visitor and build VTable.
+    writeln!(
+        out,
+        "\t// Register visitor and build the C VTable via the static C helper."
     )
     .ok();
     writeln!(out, "\tid := registerVisitor(visitor)").ok();
     writeln!(out, "\tdefer unregisterVisitor(id)").ok();
-    writeln!(out, "\tcbs := C.makeVisitorCallbacks(unsafe.Pointer(id))").ok();
+    writeln!(out, "\tvtbl := C.makeVisitorVTable()").ok();
     writeln!(out).ok();
-    writeln!(out, "\tvisitorHandle := C.{ffi_prefix}_visitor_create(&cbs)").ok();
-    writeln!(out, "\tif visitorHandle == nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to create visitor handle\")").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{ffi_prefix}_visitor_free(visitorHandle)").ok();
-    writeln!(out).ok();
+
+    // Create bridge from VTable + user_data.
     writeln!(
         out,
-        "\tptr := C.{ffi_prefix}_convert_with_visitor(cHTML, cOptions, visitorHandle)"
+        "\t// Create a bridge that holds the VTable and the visitor ID as user_data."
     )
     .ok();
-    writeln!(out, "\tif err := lastError(); err != nil {{").ok();
-    writeln!(out, "\t\tif ptr != nil {{").ok();
-    writeln!(out, "\t\t\tC.{ffi_prefix}_free_string(ptr)").ok();
-    writeln!(out, "\t\t}}").ok();
-    writeln!(out, "\t\treturn nil, err").ok();
+    writeln!(out, "\tbridge := C.{fn_bridge_new}(&vtbl, unsafe.Pointer(id))").ok();
+    writeln!(out, "\tif bridge == nil {{").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")").ok();
     writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{fn_bridge_free}(bridge)").ok();
+    writeln!(out).ok();
+
+    // Attach bridge to options.
+    writeln!(
+        out,
+        "\t// Attach the bridge to the options struct so convert() picks it up."
+    )
+    .ok();
+    writeln!(
+        out,
+        "\tC.{fn_options_set_visitor}(cOptions, (*C.{bridge_c_type})(bridge))"
+    )
+    .ok();
+    writeln!(out).ok();
+
+    // Call convert.
+    writeln!(out, "\tptr := C.{fn_convert}(cHTML, cOptions)").ok();
     writeln!(out, "\tif ptr == nil {{").ok();
+    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
+    writeln!(out, "\t\t\treturn nil, err").ok();
+    writeln!(out, "\t\t}}").ok();
     writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
     writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.{ffi_prefix}_free_string(ptr)").ok();
-    // htm_convert_with_visitor returns a plain markdown string, not JSON.
-    // Construct ConversionResult directly with the content field populated.
-    writeln!(out, "\tcontent := C.GoString(ptr)").ok();
-    writeln!(out, "\treturn &ConversionResult{{Content: &content}}, nil").ok();
+    writeln!(out, "\tdefer C.{fn_result_free}(ptr)").ok();
+    writeln!(out).ok();
+
+    // Deserialize ConversionResult from the returned JSON pointer.
+    writeln!(out, "\tjsonStr := C.GoString((*C.char)(unsafe.Pointer(ptr)))").ok();
+    writeln!(out, "\tvar result ConversionResult").ok();
+    writeln!(
+        out,
+        "\tif err := json.Unmarshal([]byte(jsonStr), &result); err != nil {{"
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)"
+    )
+    .ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn &result, nil").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
+}
+
+/// Capitalize the first letter of a string.
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+/// Convert PascalCase to snake_case (e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge").
+fn to_snake_case(s: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(ch.to_ascii_lowercase());
+    }
+    out
 }

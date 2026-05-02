@@ -213,18 +213,10 @@ pub unsafe extern "C" fn {fn_name}(
 ///
 /// Each method delegates to `unsafe { (*self.0).method_name(args...) }`, reusing
 /// the trait impl already generated on the bridge struct by `gen_trait_bridge`.
-fn gen_vtable_ref_delegation(
-    trait_def: &TypeDef,
-    core_import: &str,
-    type_paths: &HashMap<String, String>,
-) -> String {
+fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths: &HashMap<String, String>) -> String {
     let mut out = String::with_capacity(4096);
 
-    let own_methods: Vec<&MethodDef> = trait_def
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none())
-        .collect();
+    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
     for method in &own_methods {
         let receiver_str = match &method.receiver {
@@ -275,11 +267,7 @@ fn gen_vtable_ref_delegation(
 }
 
 /// Build the argument expression list for a method call.
-fn build_arg_list(
-    method: &MethodDef,
-    _core_import: &str,
-    _type_paths: &HashMap<String, String>,
-) -> String {
+fn build_arg_list(method: &MethodDef, _core_import: &str, _type_paths: &HashMap<String, String>) -> String {
     method
         .params
         .iter()

@@ -62,10 +62,7 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         _ => "ctx: any",
     };
 
-    let _ = writeln!(
-        out,
-        "    {camel_method}({params}): string | {{ custom: string }} {{"
-    );
+    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "        return \"skip\";");

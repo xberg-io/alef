@@ -193,12 +193,21 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             && matches!(&field.ty, TypeRef::Named(n) if config
                 .opaque_types
                 .is_some_and(|opaque| opaque.contains(n.as_str())));
+        // Opaque Named fields without CoreWrapper::Arc (e.g. visitor: Object<'static>) cannot be
+        // auto-converted via Into — the binding stores a raw JS object that needs a bridge.
+        // Emit Default::default() and let the caller (e.g. the convert function) set it separately.
+        let is_opaque_no_wrapper_field = field.core_wrapper == CoreWrapper::None
+            && matches!(&field.ty, TypeRef::Named(n) if config
+                .opaque_types
+                .is_some_and(|opaque| opaque.contains(n.as_str())));
         let conversion = if is_opaque_arc_field {
             if field.optional {
                 format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
             } else {
                 format!("{}: val.{}.inner", field.name, field.name)
             }
+        } else if is_opaque_no_wrapper_field {
+            format!("{}: Default::default()", field.name)
         } else {
             apply_core_wrapper_to_core(
                 &conversion,

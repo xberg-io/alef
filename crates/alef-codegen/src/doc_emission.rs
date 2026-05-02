@@ -411,10 +411,7 @@ mod tests {
     #[test]
     fn test_doc_first_paragraph_joined_stops_at_blank_line() {
         let doc = "First paragraph.\nStill first.\n\nSecond paragraph.";
-        assert_eq!(
-            doc_first_paragraph_joined(doc),
-            "First paragraph. Still first."
-        );
+        assert_eq!(doc_first_paragraph_joined(doc), "First paragraph. Still first.");
     }
 
     #[test]

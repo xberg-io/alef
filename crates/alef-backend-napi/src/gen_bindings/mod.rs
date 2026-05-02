@@ -264,6 +264,10 @@ impl Backend for NapiBackend {
             optionalize_defaults: true,
             option_duration_on_defaults: true,
             include_cfg_metadata: true,
+            // Pass opaque_types so the conversion generator can emit `Default::default()`
+            // for opaque-type fields (e.g. visitor: Object<'static>) instead of trying to
+            // convert them via Into — these fields are handled separately via bridge code.
+            opaque_types: Some(&opaque_types),
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators

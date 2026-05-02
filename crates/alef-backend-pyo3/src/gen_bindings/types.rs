@@ -304,11 +304,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         out.push_str(&format!("    \"\"\"{enum_doc}\"\"\"\n\n"));
         for variant in &enum_def.variants {
             let value = variant.name.to_snake_case();
-            out.push_str(&format!(
-                "    {} = \"{}\"\n",
-                to_python_screaming(&variant.name),
-                value
-            ));
+            out.push_str(&format!("    {} = \"{}\"\n", to_python_screaming(&variant.name), value));
         }
         out.push_str("\n\n");
     }

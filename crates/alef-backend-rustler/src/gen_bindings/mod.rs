@@ -165,7 +165,7 @@ impl Backend for RustlerBackend {
                 builder.add_item(&gen_struct(typ, &mapper, &module_prefix, excl));
                 // Generate config constructor if type has Default
                 if typ.has_default && !typ.fields.is_empty() {
-                    let config_impl = gen_rustler_config_impl(typ, &mapper);
+                    let config_impl = gen_rustler_config_impl(typ, &mapper, excl);
                     builder.add_item(&config_impl);
                 }
             }
@@ -296,6 +296,15 @@ impl Backend for RustlerBackend {
                 .methods
                 .iter()
                 .filter(|m| !exclude_functions.contains(m.name.as_str()))
+                .filter(|m| {
+                    // Skip methods whose return type references an excluded type.
+                    // E.g. ConversionOptions::builder() returns ConversionOptionsBuilder which
+                    // is excluded because it holds !Send + !Sync core types.
+                    !alef_codegen::conversions::field_references_excluded_type(
+                        &m.return_type,
+                        &exclude_types.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    )
+                })
             {
                 if method.is_async {
                     builder.add_item(&gen_nif_async_method(
@@ -324,6 +333,18 @@ impl Backend for RustlerBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+
+        // Collect bridge type aliases so they can be passed as `exclude_types` in ConversionConfig.
+        // This ensures From impls skip fields (e.g. `visitor: Option<VisitorHandle>`) that were
+        // excluded from the binding struct because they reference !Send + !Sync core types.
+        let bridge_conv_exclude_types: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"))
+            .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+            .map(|b| b.type_alias.as_deref().unwrap_or(&b.trait_name).to_string())
+            .collect();
+
         // From/Into conversions
         for typ in api
             .types
@@ -332,6 +353,7 @@ impl Backend for RustlerBackend {
         {
             let rustler_struct_cfg = alef_codegen::conversions::ConversionConfig {
                 map_as_string: true,
+                exclude_types: &bridge_conv_exclude_types,
                 ..Default::default()
             };
             if input_types.contains(&typ.name)
@@ -712,10 +734,7 @@ impl Backend for RustlerBackend {
                             .enumerate()
                             .map(|(i, a)| if i == opts_idx { "nil".to_string() } else { a.clone() })
                             .collect();
-                        content.push_str(&format!(
-                            "  def {nif_fn_name}({}) do\n",
-                            nil_clause_params.join(", ")
-                        ));
+                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", nil_clause_params.join(", ")));
                         content.push_str(&format!(
                             "    {native_mod}.{nif_fn_name}({})\n",
                             nil_nif_args.join(", ")
@@ -1035,10 +1054,12 @@ fn gen_nif_init(
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
     // Check if any opaque types need Resource registration via on_load
     // Exclude trait types (they shouldn't be registered as Rustler resources)
+    // Also exclude types in exclude_types (e.g. VisitorHandle, ConversionOptionsBuilder)
+    // which are omitted from the binding layer because they hold !Send+!Sync core types.
     let opaque_types: Vec<&str> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && !t.is_trait)
+        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(t.name.as_str()))
         .map(|t| t.name.as_str())
         .collect();
     if !opaque_types.is_empty() {

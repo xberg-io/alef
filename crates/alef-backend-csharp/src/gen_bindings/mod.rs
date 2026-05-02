@@ -377,9 +377,8 @@ fn delete_superseded_visitor_files(base_path: &std::path::Path) -> anyhow::Resul
     for filename in superseded {
         let path = base_path.join(filename);
         if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| {
-                anyhow::anyhow!("Failed to delete superseded visitor file {}: {}", path.display(), e)
-            })?;
+            std::fs::remove_file(&path)
+                .map_err(|e| anyhow::anyhow!("Failed to delete superseded visitor file {}: {}", path.display(), e))?;
         }
     }
     Ok(())

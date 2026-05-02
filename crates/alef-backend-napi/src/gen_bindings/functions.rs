@@ -240,10 +240,19 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                     }
                 }
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                    if p.optional {
-                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    // When an opaque type param is required by a builder/owned-receiver method,
+                    // clone the inner value (Arc dereference) to get an owned copy.
+                    // When used as a reference param, borrow `&v.inner` instead.
+                    if p.is_ref {
+                        if p.optional {
+                            format!("{}.as_ref().map(|v| v.inner.as_ref())", p.name)
+                        } else {
+                            format!("{}.inner.as_ref()", p.name)
+                        }
+                    } else if p.optional {
+                        format!("{}.as_ref().map(|v| (*v.inner).clone())", p.name)
                     } else {
-                        format!("&{}.inner", p.name)
+                        format!("(*{}.inner).clone()", p.name)
                     }
                 }
                 TypeRef::Named(_) => {

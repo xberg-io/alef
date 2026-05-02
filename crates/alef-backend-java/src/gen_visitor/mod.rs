@@ -203,8 +203,14 @@ mod tests {
         assert!(names.contains(&"VisitResult.java"), "must include VisitResult.java");
         assert!(names.contains(&"Visitor.java"), "must include Visitor.java");
         assert!(names.contains(&"VisitorBridge.java"), "must include VisitorBridge.java");
-        assert!(!names.contains(&"VisitContext.java"), "must NOT include VisitContext.java");
-        assert!(!names.contains(&"TestVisitor.java"), "must NOT include TestVisitor.java");
+        assert!(
+            !names.contains(&"VisitContext.java"),
+            "must NOT include VisitContext.java"
+        );
+        assert!(
+            !names.contains(&"TestVisitor.java"),
+            "must NOT include TestVisitor.java"
+        );
         assert!(
             !names.contains(&"TestVisitorAdapter.java"),
             "must NOT include TestVisitorAdapter.java"

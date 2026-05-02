@@ -433,12 +433,18 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
-        // When visitor callbacks are enabled, the core `convert` function has a visitor
-        // parameter that the IR sanitizer marks as unimplementable.  Skip the sanitized
-        // stub — the real implementation is emitted below (either via gen_convert_no_visitor
-        // for the legacy FunctionParam path, or gen_convert_with_options_field_bridge for
-        // the OptionsField path).
-        if (visitor_callbacks_enabled || has_options_field_bridge) && func.sanitized && func.name == "convert" {
+        // For the legacy FunctionParam visitor path: skip the sanitized convert stub;
+        // gen_convert_no_visitor emits the real implementation below.
+        // For the OptionsField path: skip the IR-generated convert entirely;
+        // gen_convert_with_options_field_bridge emits the definitive implementation that
+        // passes the embedded visitor through options.  The IR version is a duplicate
+        // because the visitor lives in ConversionOptions (not a function parameter), so
+        // the IR correctly generates a 2-arg convert — but we still want the one with
+        // the full options-clone-with-visitor semantics only.
+        if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
+            continue;
+        }
+        if has_options_field_bridge && func.name == "convert" {
             continue;
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
@@ -449,10 +455,8 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
     if has_options_field_bridge {
         // Build a type_paths map for delegation method signature generation.
-        let type_paths: std::collections::HashMap<String, String> = path_map
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let type_paths: std::collections::HashMap<String, String> =
+            path_map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
         let trait_map: ahash::AHashMap<&str, &alef_core::ir::TypeDef> = api
             .types
@@ -487,7 +491,10 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         }
 
         // Emit the correct {prefix}_convert that passes options (with embedded visitor) to core.
-        builder.add_item(&crate::gen_bridge_field::gen_convert_with_options_field_bridge(prefix, &core_import));
+        builder.add_item(&crate::gen_bridge_field::gen_convert_with_options_field_bridge(
+            prefix,
+            &core_import,
+        ));
     } else if visitor_callbacks_enabled {
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_convert_with_visitor.

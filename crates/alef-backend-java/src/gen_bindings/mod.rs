@@ -89,8 +89,13 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Only generate visitor support if visitor_callbacks is explicitly enabled in FFI config
-        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
+        // Generate visitor support when visitor_callbacks is enabled in FFI config (canonical check),
+        // OR when any trait bridge is bound via options_field (Java-specific activation path).
+        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false)
+            || config
+                .trait_bridges
+                .iter()
+                .any(|b| b.bind_via == BridgeBinding::OptionsField);
 
         let mut files = Vec::new();
 
@@ -309,7 +314,11 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
+        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false)
+            || config
+                .trait_bridges
+                .iter()
+                .any(|b| b.bind_via == BridgeBinding::OptionsField);
 
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)

@@ -769,6 +769,72 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
 
 /// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
 /// Accepts keyword list or map, applies defaults for missing fields.
+/// Fields in `exclude_fields` are skipped (used for bridge fields that cannot implement Encoder/Decoder).
+pub fn gen_rustler_kwargs_constructor_with_exclude(
+    typ: &TypeDef,
+    _type_mapper: &dyn Fn(&TypeRef) -> String,
+    exclude_fields: &std::collections::HashSet<String>,
+) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(512);
+
+    writeln!(
+        out,
+        "pub fn new(opts: std::collections::HashMap<String, rustler::Term>) -> Self {{"
+    )
+    .ok();
+    writeln!(out, "    Self {{").ok();
+
+    for field in &typ.fields {
+        if exclude_fields.contains(&field.name) {
+            continue;
+        }
+        if field.optional {
+            writeln!(
+                out,
+                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()),",
+                field.name, field.name
+            )
+            .ok();
+        } else if use_unwrap_or_default(field) {
+            writeln!(
+                out,
+                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                field.name, field.name
+            )
+            .ok();
+        } else {
+            let default_str = default_value_for_field(field, "rust");
+            let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
+
+            if (is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char))
+                || matches!(&field.ty, TypeRef::Named(_))
+            {
+                writeln!(
+                    out,
+                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                    field.name, field.name
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
+                    field.name, field.name, default_str
+                )
+                .ok();
+            }
+        }
+    }
+
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
+
+/// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
+/// Accepts keyword list or map, applies defaults for missing fields.
 pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
