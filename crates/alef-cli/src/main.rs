@@ -1157,18 +1157,36 @@ fn main() -> Result<()> {
                     let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                     pipeline::finalize_hashes(&path_set, &sources_hash)?;
 
-                    // Sweep orphan alef-generated files in the e2e output root that
-                    // are no longer produced by the current generation set (e.g.
-                    // categories that now produce 0 functions, fixtures filtered
-                    // out by language-specific gates). Without this pass, those
-                    // files linger on disk with stale `alef:hash:` headers and
-                    // `alef verify` reports them as stale forever.
-                    let sweep_root = if registry {
+                    // Sweep orphan alef-generated files.  When a --lang filter is
+                    // active, scope the sweep to only the per-language subdirectories
+                    // that were regenerated — sweeping the full e2e root would delete
+                    // other languages' files that were intentionally left on disk.
+                    // Without a filter, sweep the entire e2e output root as before.
+                    let e2e_output_root = if registry {
                         base_dir.join(&e2e_ref.registry.output)
                     } else {
                         base_dir.join(&e2e_ref.output)
                     };
-                    pipeline::sweep_orphans(&[sweep_root], &path_set)?;
+                    let sweep_roots: Vec<PathBuf> = if lang.is_some() {
+                        // Derive sweep roots from the top-level subdirectories of the
+                        // e2e output root that appear in the generated file set.  Each
+                        // generator writes into `<output>/<lang>/`, so taking the first
+                        // two path components relative to the e2e root gives us the
+                        // per-language directory.
+                        let mut seen = std::collections::HashSet::new();
+                        for path in &output_paths {
+                            if let Ok(rel) = path.strip_prefix(&e2e_output_root) {
+                                if let Some(top) = rel.components().next() {
+                                    let lang_dir = e2e_output_root.join(top.as_os_str());
+                                    seen.insert(lang_dir);
+                                }
+                            }
+                        }
+                        seen.into_iter().collect()
+                    } else {
+                        vec![e2e_output_root]
+                    };
+                    pipeline::sweep_orphans(&sweep_roots, &path_set)?;
 
                     cache::write_stage_hash(cache_key, &stage_hash, &output_paths)?;
                     println!("Generated {count} e2e files");
