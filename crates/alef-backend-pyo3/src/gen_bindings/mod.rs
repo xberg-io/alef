@@ -197,8 +197,17 @@ impl Backend for Pyo3Backend {
             .filter(|e| generators::enum_has_data_variants(e))
             .map(|e| e.name.clone())
             .collect();
+        // Trait bridge type aliases are opaque — they map to Arc<Py<PyAny>> in the binding
+        // layer and must not attempt From/Into conversion. Include them so struct fields
+        // referencing these types use Default::default() and skip serialization.
+        let bridge_type_aliases: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         opaque_names_vec.extend(data_enum_names);
+        opaque_names_vec.extend(bridge_type_aliases);
         // Mirror the Vec in a HashSet so the transitive-closure loop's
         // membership check is O(1) instead of O(n) per type per iteration.
         // `field_references_opaque_type` still takes a slice (its public
@@ -565,6 +574,7 @@ impl Backend for Pyo3Backend {
             } else {
                 Some(&py_field_renames)
             },
+            opaque_types: Some(&opaque_names_set),
             ..Default::default()
         };
         // From/Into conversions — separate sets for each direction
@@ -584,7 +594,7 @@ impl Backend for Pyo3Backend {
                 builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
-                    &opaque_types,
+                    &opaque_names_set,
                     &pyo3_conversion_cfg,
                 ));
             }

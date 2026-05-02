@@ -38,9 +38,11 @@ impl TypeMapper for Pyo3Mapper {
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
         if self.trait_type_names.contains(name) {
             // Trait objects cannot be used as bare types (E0782) and cannot cross the
-            // PyO3 FFI boundary as `Arc<dyn Trait>`. Map to `Py<PyAny>` so Python
+            // PyO3 FFI boundary as `Arc<dyn Trait>`. Map to `Arc<Py<PyAny>>` so Python
             // objects implementing the trait protocol can be passed through as opaque handles.
-            Cow::Borrowed("Py<PyAny>")
+            // Arc wrapping makes the type Clone (Py<PyAny> is not Clone, but Arc is).
+            // This allows the binding struct to derive Clone without issue.
+            Cow::Borrowed("Arc<Py<PyAny>>")
         } else {
             Cow::Borrowed(name)
         }
