@@ -874,7 +874,11 @@ fn render_rust_arg(
     let expr = |n: &str| {
         if arg_type == "bytes" {
             if owned {
-                format!("{n}.to_vec()")
+                // Bytes literal `let n = r#"..."#;` is `&'static str`. To produce
+                // `Vec<u8>` we go through `.as_bytes().to_vec()`. (For file-path
+                // bytes the early-return path already produces a `Vec<u8>` binding,
+                // so this branch only fires for inline text/base64 strings.)
+                format!("{n}.as_bytes().to_vec()")
             } else {
                 format!("{n}.as_bytes()")
             }
@@ -903,7 +907,7 @@ fn render_rust_arg(
         // For owned bytes optional, wrap as Some(Vec<u8>) so the call passes Option<Vec<u8>>.
         if arg_type == "bytes" && owned {
             (
-                vec![format!("let {name} = Some(({literal}).to_vec());")],
+                vec![format!("let {name} = Some(({literal}).as_bytes().to_vec());")],
                 optional_expr(name),
             )
         } else if arg_type == "string" && owned {
