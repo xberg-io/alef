@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_js, expand_fixture_templates, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -14,6 +14,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// TypeScript e2e code generator.
 pub struct TypeScriptCodegen;
@@ -475,91 +476,126 @@ fn ts_method_helper_import(method_name: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP server test rendering
+// HTTP server test rendering — TestClientRenderer impl + thin driver wrapper
 // ---------------------------------------------------------------------------
 
-/// Render a vitest `it` block for an HTTP server fixture.
-///
-/// The generated test uses the Hono/Fastify app's `.request()` method (or equivalent
-/// test helper) available as `app` from a module-level `beforeAll` setup. For now
-/// the test body stubs the `app` reference — callers that integrate this into a real
-/// framework supply the appropriate setup.
-fn render_http_test_case(out: &mut String, fixture: &Fixture) {
-    let Some(http) = &fixture.http else {
-        return;
-    };
+/// Renderer that emits vitest `it(...)` blocks using the Node.js `fetch` API
+/// against the mock server (`process.env.MOCK_SERVER_URL`).
+pub(super) struct TypeScriptTestClientRenderer;
 
-    let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('\'', "\\'");
+impl client::TestClientRenderer for TypeScriptTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "node"
+    }
 
-    // HTTP 101 (WebSocket upgrade) — fetch cannot handle upgrade responses.
-    if http.expected_response.status_code == 101 {
-        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
-        let _ = writeln!(out, "    // HTTP 101 WebSocket upgrade cannot be tested via fetch");
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let escaped_desc = description.replace('\'', "\\'");
+        if let Some(reason) = skip_reason {
+            let escaped_reason = reason.replace('\'', "\\'");
+            let _ = writeln!(out, "  it.skip('{fn_name}: {escaped_desc}', async () => {{");
+            let _ = writeln!(out, "    // skipped: {escaped_reason}");
+        } else {
+            let _ = writeln!(out, "  it('{fn_name}: {escaped_desc}', async () => {{");
+        }
+    }
+
+    fn render_test_close(&self, out: &mut String) {
         let _ = writeln!(out, "  }});");
-        return;
     }
 
-    let method = http.request.method.to_uppercase();
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_uppercase();
+        let fixture_id = escape_js(ctx.path.trim_start_matches("/fixtures/"));
 
-    // Build the init object for `fetch(url, init)`.
-    let mut init_entries: Vec<String> = Vec::new();
-    init_entries.push(format!("method: '{method}'"));
-    // Do not follow redirects — tests that assert on 3xx status codes need the original response.
-    init_entries.push("redirect: 'manual'".to_string());
+        // Build the init object for `fetch(url, init)`.
+        let mut init_entries: Vec<String> = Vec::new();
+        init_entries.push(format!("method: '{method}'"));
+        // Do not follow redirects — tests that assert on 3xx status codes need the original response.
+        init_entries.push("redirect: 'manual'".to_string());
 
-    // Headers
-    if !http.request.headers.is_empty() {
-        let entries: Vec<String> = http
-            .request
-            .headers
-            .iter()
-            .map(|(k, v)| {
-                let expanded_v = expand_fixture_templates(v);
-                format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
-            })
-            .collect();
-        init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
+        // Headers
+        if !ctx.headers.is_empty() {
+            let mut header_pairs: Vec<(&String, &String)> = ctx.headers.iter().collect();
+            header_pairs.sort_by_key(|(k, _)| k.as_str());
+            let entries: Vec<String> = header_pairs
+                .iter()
+                .map(|(k, v)| {
+                    let expanded_v = expand_fixture_templates(v);
+                    format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
+                })
+                .collect();
+            init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
+        }
+
+        // Body
+        if let Some(body) = ctx.body {
+            let js_body = json_to_js(body);
+            init_entries.push(format!("body: JSON.stringify({js_body})"));
+        }
+
+        let _ = writeln!(
+            out,
+            "    const mockUrl = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+        );
+        let init_str = init_entries.join(", ");
+        let _ = writeln!(
+            out,
+            "    const {} = await fetch(mockUrl, {{ {init_str} }});",
+            ctx.response_var
+        );
     }
 
-    // Body
-    if let Some(body) = &http.request.body {
-        let js_body = json_to_js(body);
-        init_entries.push(format!("body: JSON.stringify({js_body})"));
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let _ = writeln!(out, "    expect({response_var}.status).toBe({status});");
     }
 
-    let fixture_id = escape_js(&fixture.id);
-    let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");
-    let _ = writeln!(
-        out,
-        "    const mockUrl = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
-    );
-
-    let init_str = init_entries.join(", ");
-    let _ = writeln!(out, "    const response = await fetch(mockUrl, {{ {init_str} }});");
-
-    // Status code assertion.
-    let status = http.expected_response.status_code;
-    let _ = writeln!(out, "    expect(response.status).toBe({status});");
-
-    // Body assertions.
-    if let Some(expected_body) = &http.expected_response.body {
-        // Empty-string sentinel ("") and null mean no body — skip assertion.
-        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
-            if let serde_json::Value::String(s) = expected_body {
-                // Plain-string body: mock server returns raw text, compare as text.
-                let escaped = escape_js(s);
-                let _ = writeln!(out, "    const text = await response.text();");
-                let _ = writeln!(out, "    expect(text).toBe('{escaped}');");
-            } else {
-                let js_val = json_to_js(expected_body);
-                let _ = writeln!(out, "    const data = await response.json();");
-                let _ = writeln!(out, "    expect(data).toEqual({js_val});");
+    fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
+        let escaped_name = escape_js(&name.to_lowercase());
+        match expected {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "    expect({response_var}.headers.get('{escaped_name}')).not.toBeNull();"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(
+                    out,
+                    "    expect({response_var}.headers.get('{escaped_name}')).toBeNull();"
+                );
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "    expect({response_var}.headers.get('{escaped_name}')).toMatch(/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/);"
+                );
+            }
+            exact => {
+                let escaped_val = escape_js(exact);
+                let _ = writeln!(
+                    out,
+                    "    expect({response_var}.headers.get('{escaped_name}')).toBe('{escaped_val}');"
+                );
             }
         }
-    } else if let Some(partial) = &http.expected_response.body_partial {
-        let _ = writeln!(out, "    const data = await response.json();");
-        if let Some(obj) = partial.as_object() {
+    }
+
+    fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        if let serde_json::Value::String(s) = expected {
+            // Plain-string body: mock server returns raw text, compare as text.
+            let escaped = escape_js(s);
+            let _ = writeln!(out, "    const text = await {response_var}.text();");
+            let _ = writeln!(out, "    expect(text).toBe('{escaped}');");
+        } else {
+            let js_val = json_to_js(expected);
+            let _ = writeln!(out, "    const data = await {response_var}.json();");
+            let _ = writeln!(out, "    expect(data).toEqual({js_val});");
+        }
+    }
+
+    fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        let _ = writeln!(out, "    const data = await {response_var}.json();");
+        if let Some(obj) = expected.as_object() {
             for (key, val) in obj {
                 let js_key = escape_js(key);
                 let js_val = json_to_js(val);
@@ -571,65 +607,52 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         }
     }
 
-    // Header assertions.
-    for (header_name, header_value) in &http.expected_response.headers {
-        let lower_name = header_name.to_lowercase();
-        // The mock server strips content-encoding headers because it returns uncompressed bodies.
-        if lower_name == "content-encoding" {
-            continue;
-        }
-        let escaped_name = escape_js(&lower_name);
-        match header_value.as_str() {
-            "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).not.toBeNull();"
-                );
-            }
-            "<<absent>>" => {
-                let _ = writeln!(out, "    expect(response.headers.get('{escaped_name}')).toBeNull();");
-            }
-            "<<uuid>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toMatch(/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/);"
-                );
-            }
-            exact => {
-                let escaped_val = escape_js(exact);
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toBe('{escaped_val}');"
-                );
-            }
-        }
-    }
-
-    // Validation error assertions — skip when a full body assertion is already generated
-    // (redundant, and response.json() can only be called once per response).
-    let body_has_content = matches!(&http.expected_response.body, Some(v)
-        if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
-    if let Some(validation_errors) = &http.expected_response.validation_errors {
-        if !validation_errors.is_empty() && !body_has_content {
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(
+            out,
+            "    const body = await {response_var}.json() as {{ errors?: unknown[] }};"
+        );
+        let _ = writeln!(out, "    const errors = body.errors ?? [];");
+        for ve in errors {
+            let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
+            let loc_str = loc_js.join(", ");
+            let expanded_msg = expand_fixture_templates(&ve.msg);
+            let escaped_msg = escape_js(&expanded_msg);
             let _ = writeln!(
                 out,
-                "    const body = await response.json() as {{ errors?: unknown[] }};"
+                "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e[\"loc\"]) === JSON.stringify([{loc_str}]) && String(e[\"msg\"]).includes(\"{escaped_msg}\"))).toBe(true);"
             );
-            let _ = writeln!(out, "    const errors = body.errors ?? [];");
-            for ve in validation_errors {
-                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
-                let loc_str = loc_js.join(", ");
-                let expanded_msg = expand_fixture_templates(&ve.msg);
-                let escaped_msg = escape_js(&expanded_msg);
-                let _ = writeln!(
-                    out,
-                    "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e[\"loc\"]) === JSON.stringify([{loc_str}]) && String(e[\"msg\"]).includes(\"{escaped_msg}\"))).toBe(true);"
-                );
-            }
         }
     }
+}
 
-    let _ = writeln!(out, "  }});");
+/// Render a vitest `it` block for an HTTP server fixture.
+///
+/// Delegates to the shared [`client::http_call::render_http_test`] driver via
+/// [`TypeScriptTestClientRenderer`]. HTTP 101 (WebSocket upgrade) fixtures are
+/// emitted as `it.skip` stubs before reaching the driver because `fetch` cannot
+/// handle upgrade responses.
+fn render_http_test_case(out: &mut String, fixture: &Fixture) {
+    let Some(http) = &fixture.http else {
+        return;
+    };
+
+    // HTTP 101 (WebSocket upgrade) — fetch cannot handle upgrade responses.
+    if http.expected_response.status_code == 101 {
+        let test_name = sanitize_ident(&fixture.id);
+        let description = fixture.description.replace('\'', "\\'");
+        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
+        let _ = writeln!(out, "    // HTTP 101 WebSocket upgrade cannot be tested via fetch");
+        let _ = writeln!(out, "  }});");
+        return;
+    }
+
+    client::http_call::render_http_test(out, &TypeScriptTestClientRenderer, fixture);
 }
 
 // ---------------------------------------------------------------------------

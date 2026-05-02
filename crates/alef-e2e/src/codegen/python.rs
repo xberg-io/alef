@@ -3,11 +3,12 @@
 //! Generates `e2e/python/conftest.py` and `tests/test_{category}.py` files from
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
+use super::client;
 use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{escape_python, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -722,177 +723,128 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 }
 
 // ---------------------------------------------------------------------------
-// HTTP server test rendering
+// HTTP server test rendering — PythonTestClientRenderer
 // ---------------------------------------------------------------------------
 
-/// Render a pytest test function for an HTTP server fixture.
+/// Pytest/urllib test renderer.
 ///
-/// The generated test:
-/// 1. Receives a `client` fixture from conftest.py (the test server client).
-/// 2. Sends the configured request.
-/// 3. Asserts status code, body (exact or partial), headers, and validation errors.
-fn render_http_test_function(out: &mut String, fixture: &Fixture) {
-    let Some(http) = &fixture.http else {
-        return;
-    };
+/// Python HTTP e2e tests use `urllib.request` directly against the mock server
+/// binary (not a `TestClient` over FFI). The trait primitives emit the urllib
+/// request-build + response-capture scaffolding that the existing monolithic
+/// renderer produced, so generated output is unchanged after the migration.
+struct PythonTestClientRenderer;
 
-    let fn_name = sanitize_ident(&fixture.id);
-    let description = &fixture.description;
-    let desc_with_period = if description.ends_with('.') {
-        description.to_string()
-    } else {
-        format!("{description}.")
-    };
+impl client::TestClientRenderer for PythonTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "python"
+    }
 
-    // HTTP 101 (WebSocket upgrade) — urllib cannot handle upgrade responses.
-    let status = http.expected_response.status_code;
-    if status == 101 {
-        let _ = writeln!(
-            out,
-            "@pytest.mark.skip(reason=\"HTTP 101 WebSocket upgrade cannot be tested via urllib\")"
-        );
+    /// Emit `@pytest.mark.skip` (if skipped), function signature, and docstring.
+    ///
+    /// Skipped tests still get a stub body (`...`) so pytest can collect them.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let desc_with_period = if description.ends_with('.') {
+            description.to_string()
+        } else {
+            format!("{description}.")
+        };
+
+        if let Some(reason) = skip_reason {
+            let escaped = escape_python(reason);
+            let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
+        }
         let _ = writeln!(out, "def test_{fn_name}(mock_server: str) -> None:");
         let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
-        let _ = writeln!(out, "    ...");
-        let _ = writeln!(out);
-        return;
+        if skip_reason.is_some() {
+            let _ = writeln!(out, "    ...");
+        }
     }
 
-    if is_skipped(fixture, "python") {
-        let reason = fixture
-            .skip
-            .as_ref()
-            .and_then(|s| s.reason.as_deref())
-            .unwrap_or("skipped for python");
-        let escaped = escape_python(reason);
-        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
-    }
+    /// No-op: Python functions are not wrapped in a block, so no closing token
+    /// is needed. The blank line between tests is emitted by the call site
+    /// (`render_test_file`) after every fixture, which keeps the separator
+    /// consistent with non-HTTP fixtures.
+    fn render_test_close(&self, _out: &mut String) {}
 
-    let _ = writeln!(out, "def test_{fn_name}(mock_server: str) -> None:");
-    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
-    let _ = writeln!(out, "    import os  # noqa: PLC0415");
-    let _ = writeln!(out, "    import urllib.request  # noqa: PLC0415");
-    let _ = writeln!(out, "    base = os.environ.get(\"MOCK_SERVER_URL\", mock_server)");
-    let fixture_id = fixture.id.as_str();
-    let _ = writeln!(out, "    url = f\"{{base}}/fixtures/{fixture_id}\"");
+    /// Emit the urllib request scaffolding that drives the mock server.
+    ///
+    /// Emits:
+    /// - Inline imports for `os`, `urllib.request` (and optionally `json`).
+    /// - URL construction from the fixture path.
+    /// - Headers dict, optional JSON body, and `urllib.request.Request` build.
+    /// - A `_NoRedirect` opener + try/except that captures `status_code`,
+    ///   `resp_body`, and `resp_headers`.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let _ = writeln!(out, "    import os  # noqa: PLC0415");
+        let _ = writeln!(out, "    import urllib.request  # noqa: PLC0415");
+        let _ = writeln!(out, "    base = os.environ.get(\"MOCK_SERVER_URL\", mock_server)");
+        let _ = writeln!(out, "    url = f\"{{base}}{}\"", ctx.path);
 
-    // Build the request call using urllib.
-    let method = http.request.method.to_uppercase();
+        let method = ctx.method.to_uppercase();
 
-    // Build headers dict.
-    let mut header_entries: Vec<String> = Vec::new();
-    for (k, v) in &http.request.headers {
-        header_entries.push(format!("        \"{}\": \"{}\",", escape_python(k), escape_python(v)));
-    }
-    let headers_py = if header_entries.is_empty() {
-        "{}".to_string()
-    } else {
-        format!("{{\n{}\n    }}", header_entries.join("\n"))
-    };
+        // Build headers dict literal.
+        let mut header_entries: Vec<String> = ctx
+            .headers
+            .iter()
+            .map(|(k, v)| format!("        \"{}\": \"{}\",", escape_python(k), escape_python(v)))
+            .collect();
+        header_entries.sort(); // deterministic output
+        let headers_py = if header_entries.is_empty() {
+            "{}".to_string()
+        } else {
+            format!("{{\n{}\n    }}", header_entries.join("\n"))
+        };
 
-    if let Some(body) = &http.request.body {
-        let py_body = json_to_python_literal(body);
-        let _ = writeln!(out, "    import json  # noqa: PLC0415");
-        let _ = writeln!(out, "    _headers = {headers_py}");
-        let _ = writeln!(out, "    _headers.setdefault(\"Content-Type\", \"application/json\")");
-        let _ = writeln!(out, "    _body = json.dumps({py_body}).encode()");
+        if let Some(body) = ctx.body {
+            let py_body = json_to_python_literal(body);
+            let _ = writeln!(out, "    import json  # noqa: PLC0415");
+            let _ = writeln!(out, "    _headers = {headers_py}");
+            let _ = writeln!(out, "    _headers.setdefault(\"Content-Type\", \"application/json\")");
+            let _ = writeln!(out, "    _body = json.dumps({py_body}).encode()");
+            let _ = writeln!(
+                out,
+                "    _req = urllib.request.Request(url, data=_body, headers=_headers, method=\"{method}\")"
+            );
+        } else {
+            let _ = writeln!(out, "    _headers = {headers_py}");
+            let _ = writeln!(
+                out,
+                "    _req = urllib.request.Request(url, headers=_headers, method=\"{method}\")"
+            );
+        }
+
+        // Build a no-redirect opener and capture the response.
+        // Both `resp_body` and `resp_headers` are always bound so that
+        // `render_assert_*` primitives can reference them unconditionally.
         let _ = writeln!(
             out,
-            "    _req = urllib.request.Request(url, data=_body, headers=_headers, method=\"{method}\")"
+            "    class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: N801"
         );
-    } else {
-        let _ = writeln!(out, "    _headers = {headers_py}");
         let _ = writeln!(
             out,
-            "    _req = urllib.request.Request(url, headers=_headers, method=\"{method}\")"
+            "        def redirect_request(self, *args, **kwargs): return None  # noqa: E704"
         );
-    }
-    // Determine which response variables are actually needed.
-    // Exclude the empty-string body sentinel ("") and null — those mean "no body".
-    let body_has_content = matches!(&http.expected_response.body, Some(v)
-        if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
-    let needs_body = body_has_content
-        || http.expected_response.body_partial.is_some()
-        || http
-            .expected_response
-            .validation_errors
-            .as_ref()
-            .is_some_and(|v| !v.is_empty());
-    // content-encoding is skipped (mock server strips it), so only consider other headers.
-    let needs_headers = http
-        .expected_response
-        .headers
-        .iter()
-        .any(|(k, _)| k.to_lowercase() != "content-encoding");
-
-    // Build an opener that does NOT follow redirects so we can assert on 3xx responses.
-    let _ = writeln!(
-        out,
-        "    class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: N801"
-    );
-    let _ = writeln!(
-        out,
-        "        def redirect_request(self, *args, **kwargs): return None  # noqa: E704"
-    );
-    let _ = writeln!(out, "    _opener = urllib.request.build_opener(_NoRedirect())");
-    let _ = writeln!(out, "    try:");
-    let _ = writeln!(out, "        response = _opener.open(_req)  # noqa: S310");
-    let _ = writeln!(out, "        status_code = response.status");
-    if needs_body {
-        let _ = writeln!(out, "        resp_body = response.read()");
-    }
-    if needs_headers {
-        let _ = writeln!(out, "        resp_headers = dict(response.headers)");
-    }
-    let _ = writeln!(out, "    except urllib.error.HTTPError as _exc:");
-    let _ = writeln!(out, "        status_code = _exc.code");
-    if needs_body {
-        let _ = writeln!(out, "        resp_body = _exc.read()");
-    }
-    if needs_headers {
-        let _ = writeln!(out, "        resp_headers = dict(_exc.headers)");
+        let _ = writeln!(out, "    _opener = urllib.request.build_opener(_NoRedirect())");
+        let _ = writeln!(out, "    try:");
+        let _ = writeln!(out, "        response = _opener.open(_req)  # noqa: S310");
+        let _ = writeln!(out, "        status_code = response.status");
+        let _ = writeln!(out, "        resp_body = response.read()  # noqa: F841");
+        let _ = writeln!(out, "        resp_headers = dict(response.headers)  # noqa: F841");
+        let _ = writeln!(out, "    except urllib.error.HTTPError as _exc:");
+        let _ = writeln!(out, "        status_code = _exc.code");
+        let _ = writeln!(out, "        resp_body = _exc.read()  # noqa: F841");
+        let _ = writeln!(out, "        resp_headers = dict(_exc.headers)  # noqa: F841");
     }
 
-    // Status code assertion.
-    let status = http.expected_response.status_code;
-    let _ = writeln!(out, "    assert status_code == {status}  # noqa: S101");
-
-    // Body assertions.
-    if let Some(expected_body) = &http.expected_response.body {
-        // Empty-string sentinel means no body — skip assertion.
-        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
-            if let serde_json::Value::String(s) = expected_body {
-                // Plain-string body: mock server returns raw text, compare decoded bytes directly.
-                let py_val = format!("\"{}\"", escape_python(s));
-                let _ = writeln!(out, "    assert resp_body.decode() == {py_val}  # noqa: S101");
-            } else {
-                let py_val = json_to_python_literal(expected_body);
-                let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
-                let _ = writeln!(out, "    data = _json.loads(resp_body)");
-                let _ = writeln!(out, "    assert data == {py_val}  # noqa: S101");
-            }
-        }
-    } else if let Some(partial) = &http.expected_response.body_partial {
-        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
-        let _ = writeln!(out, "    data = _json.loads(resp_body)");
-        if let Some(obj) = partial.as_object() {
-            for (key, val) in obj {
-                let py_val = json_to_python_literal(val);
-                let escaped_key = escape_python(key);
-                let _ = writeln!(out, "    assert data[\"{escaped_key}\"] == {py_val}  # noqa: S101");
-            }
-        }
+    fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
+        let _ = writeln!(out, "    assert status_code == {status}  # noqa: S101");
     }
 
-    // Header assertions.
-    for (header_name, header_value) in &http.expected_response.headers {
-        let lower_name = header_name.to_lowercase();
-        // The mock server strips content-encoding headers because it returns uncompressed bodies.
-        if lower_name == "content-encoding" {
-            continue;
-        }
-        let escaped_name = escape_python(&lower_name);
-        match header_value.as_str() {
+    /// Emit a single header assertion, handling special tokens `<<present>>`,
+    /// `<<absent>>`, and `<<uuid>>`.
+    fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
+        let escaped_name = escape_python(&name.to_lowercase());
+        match expected {
             "<<present>>" => {
                 let _ = writeln!(out, "    assert \"{escaped_name}\" in resp_headers  # noqa: S101");
             }
@@ -919,24 +871,93 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         }
     }
 
-    // Validation error assertions — skip when a full body assertEquals is already generated
-    // (it is redundant and avoids miss-keying "detail" vs "errors").
-    if let Some(validation_errors) = &http.expected_response.validation_errors {
-        if !validation_errors.is_empty() && !body_has_content {
+    /// Emit an exact-equality body assertion.
+    ///
+    /// String bodies are compared as decoded text; structured JSON bodies are
+    /// compared via `json.loads()`.
+    fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        if let serde_json::Value::String(s) = expected {
+            let py_val = format!("\"{}\"", escape_python(s));
+            let _ = writeln!(out, "    assert resp_body.decode() == {py_val}  # noqa: S101");
+        } else {
+            let py_val = json_to_python_literal(expected);
             let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
-            let _ = writeln!(out, "    _data = _json.loads(resp_body)");
-            let _ = writeln!(out, "    errors = _data.get(\"errors\", [])");
-            for ve in validation_errors {
-                let loc_py: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_python(s))).collect();
-                let loc_str = loc_py.join(", ");
-                let escaped_msg = escape_python(&ve.msg);
-                let _ = writeln!(
-                    out,
-                    "    assert any(e[\"loc\"] == [{loc_str}] and \"{escaped_msg}\" in e[\"msg\"] for e in errors)  # noqa: S101"
-                );
+            let _ = writeln!(out, "    data = _json.loads(resp_body)");
+            let _ = writeln!(out, "    assert data == {py_val}  # noqa: S101");
+        }
+    }
+
+    /// Emit partial-body assertions — every key in `expected` must match the
+    /// corresponding value in the parsed JSON response.
+    fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+        let _ = writeln!(out, "    data = _json.loads(resp_body)");
+        if let Some(obj) = expected.as_object() {
+            for (key, val) in obj {
+                let py_val = json_to_python_literal(val);
+                let escaped_key = escape_python(key);
+                let _ = writeln!(out, "    assert data[\"{escaped_key}\"] == {py_val}  # noqa: S101");
             }
         }
     }
+
+    /// Emit validation-error assertions for 422 responses.
+    ///
+    /// The driver only calls this when `body` is absent (fixture has no exact
+    /// body assertion) — if a full body assertion was already emitted the driver
+    /// skips validation errors because the body already covers them.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        _response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+        let _ = writeln!(out, "    _data = _json.loads(resp_body)");
+        let _ = writeln!(out, "    errors = _data.get(\"errors\", [])");
+        for ve in errors {
+            let loc_py: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_python(s))).collect();
+            let loc_str = loc_py.join(", ");
+            let escaped_msg = escape_python(&ve.msg);
+            let _ = writeln!(
+                out,
+                "    assert any(e[\"loc\"] == [{loc_str}] and \"{escaped_msg}\" in e[\"msg\"] for e in errors)  # noqa: S101"
+            );
+        }
+    }
+}
+
+/// Render a pytest test function for an HTTP server fixture.
+///
+/// Delegates to [`client::http_call::render_http_test`] via [`PythonTestClientRenderer`].
+/// HTTP 101 (WebSocket upgrade) is handled as a pre-hook: urllib cannot drive
+/// upgrade responses, so those fixtures are emitted as skip-stubs before the
+/// shared driver is invoked.
+fn render_http_test_function(out: &mut String, fixture: &Fixture) {
+    // HTTP 101 (WebSocket upgrade) — urllib cannot handle upgrade responses.
+    // Emit a skip stub independently of the shared driver.
+    if let Some(http) = &fixture.http {
+        if http.expected_response.status_code == 101 {
+            let fn_name = sanitize_ident(&fixture.id);
+            let description = &fixture.description;
+            let desc_with_period = if description.ends_with('.') {
+                description.to_string()
+            } else {
+                format!("{description}.")
+            };
+            let _ = writeln!(
+                out,
+                "@pytest.mark.skip(reason=\"HTTP 101 WebSocket upgrade cannot be tested via urllib\")"
+            );
+            let _ = writeln!(out, "def test_{fn_name}(mock_server: str) -> None:");
+            let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+            let _ = writeln!(out, "    ...");
+            let _ = writeln!(out);
+            return;
+        }
+    }
+
+    client::http_call::render_http_test(out, &PythonTestClientRenderer, fixture);
 }
 
 // ---------------------------------------------------------------------------

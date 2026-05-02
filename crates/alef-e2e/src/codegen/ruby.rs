@@ -6,9 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{
-    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
-};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -20,6 +18,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// Ruby e2e code generator.
 pub struct RubyCodegen;
@@ -346,8 +345,8 @@ fn render_spec_file(
         }
         first = false;
 
-        if let Some(http) = &fixture.http {
-            render_http_example(&mut out, fixture, http);
+        if fixture.http.is_some() {
+            render_http_example(&mut out, fixture);
         } else {
             // Non-HTTP fixtures (WebSocket, SSE, gRPC, etc.) that have no usable assertions
             // cannot be tested via Net::HTTP. Emit a pending example instead.
@@ -421,165 +420,92 @@ fn has_usable_assertion(fixture: &Fixture, field_resolver: &FieldResolver, resul
 }
 
 // ---------------------------------------------------------------------------
-// HTTP test rendering
+// HTTP test rendering — shared-driver integration
 // ---------------------------------------------------------------------------
 
-/// Render an RSpec `describe` + `it` block for an HTTP server test fixture.
-fn render_http_example(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let description = fixture.description.replace('\'', "\\'");
-    let method = http.request.method.to_uppercase();
-    let path = &http.request.path;
-    let fixture_id = &fixture.id;
-    let status = http.expected_response.status_code;
+/// Thin renderer that emits RSpec `describe` + `it` blocks targeting a mock server
+/// via `Net::HTTP`. Satisfies [`client::TestClientRenderer`] so the shared
+/// [`client::http_call::render_http_test`] driver drives the call sequence.
+struct RubyTestClientRenderer;
 
-    let _ = writeln!(out, "  describe '{method} {path}' do");
+impl client::TestClientRenderer for RubyTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "ruby"
+    }
 
-    // HTTP 101 (WebSocket upgrade) cannot be tested via Net::HTTP — generate a skip.
-    if status == 101 {
-        let _ = writeln!(out, "    it '{}' do", description);
-        let _ = writeln!(
-            out,
-            "      skip 'HTTP 101 WebSocket upgrade cannot be tested via Net::HTTP'"
-        );
+    /// Emit `describe '{fn_name}' do` + inner `it '{description}' do`.
+    ///
+    /// `fn_name` is the sanitised fixture id used as the describe label.
+    /// When `skip_reason` is `Some`, the inner `it` block gets a `skip` call so
+    /// the shared driver short-circuits before emitting any assertions.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let escaped_description = description.replace('\'', "\\'");
+        let _ = writeln!(out, "  describe '{fn_name}' do");
+        if let Some(reason) = skip_reason {
+            let _ = writeln!(out, "    it '{escaped_description}' do");
+            let _ = writeln!(out, "      skip '{reason}'");
+            // NB: the shared driver calls render_test_close immediately after render_test_open
+            // for skipped fixtures, so the closing `end`s are emitted there.
+        } else {
+            let _ = writeln!(out, "    it '{escaped_description}' do");
+        }
+    }
+
+    /// Close the inner `it` block and the outer `describe` block.
+    fn render_test_close(&self, out: &mut String) {
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
-        return;
     }
 
-    let _ = writeln!(out, "    it '{}' do", description);
+    /// Emit a `Net::HTTP` request to the mock server using the path from `ctx`.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_uppercase();
+        let method_class = http_method_class(&method);
+        let _ = writeln!(out, "      require 'net/http'");
+        let _ = writeln!(out, "      require 'uri'");
+        let _ = writeln!(out, "      require 'json'");
+        let _ = writeln!(out, "      _uri = URI.parse(\"#{{mock_server_url}}{}\")", ctx.path);
+        let _ = writeln!(out, "      _http = Net::HTTP.new(_uri.host, _uri.port)");
+        let _ = writeln!(out, "      _http.use_ssl = _uri.scheme == 'https'");
+        let _ = writeln!(out, "      _req = Net::HTTP::{method_class}.new(_uri.request_uri)");
 
-    // Build request call targeting the mock server.
-    render_ruby_http_request_mock(out, &http.request, fixture_id);
-
-    // Assert status (Net::HTTP: response.code is a string, convert to int).
-    let _ = writeln!(out, "      expect(response.code.to_i).to eq({status})");
-
-    // Assert response body.
-    render_ruby_body_assertions(out, &http.expected_response);
-
-    // Assert response headers.
-    render_ruby_header_assertions(out, &http.expected_response);
-
-    let _ = writeln!(out, "    end");
-    let _ = writeln!(out, "  end");
-}
-
-/// Convert an uppercase HTTP method string to Ruby's Net::HTTP class name.
-/// Ruby uses title-cased names: Get, Post, Put, Delete, Patch, Head, Options, Trace.
-fn http_method_class(method: &str) -> String {
-    let mut chars = method.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
-    }
-}
-
-/// Emit a Net::HTTP request to the mock server's `/fixtures/<id>` endpoint.
-fn render_ruby_http_request_mock(out: &mut String, req: &HttpRequest, fixture_id: &str) {
-    let method = req.method.to_uppercase();
-    let method_class = http_method_class(&method);
-    let _ = writeln!(out, "      require 'net/http'");
-    let _ = writeln!(out, "      require 'uri'");
-    let _ = writeln!(out, "      require 'json'");
-    let _ = writeln!(
-        out,
-        "      _uri = URI.parse(\"#{{mock_server_url}}/fixtures/{fixture_id}\")"
-    );
-    let _ = writeln!(out, "      _http = Net::HTTP.new(_uri.host, _uri.port)");
-    let _ = writeln!(out, "      _http.use_ssl = _uri.scheme == 'https'");
-    // Disable automatic redirect following so 3xx status codes can be asserted.
-    let _ = writeln!(out, "      _req = Net::HTTP::{method_class}.new(_uri.request_uri)");
-
-    let has_body = req
-        .body
-        .as_ref()
-        .is_some_and(|b| !matches!(b, serde_json::Value::String(s) if s.is_empty()));
-    if has_body {
-        let ruby_body = json_to_ruby(req.body.as_ref().unwrap());
-        let _ = writeln!(out, "      _req.body = {ruby_body}.to_json");
-        let _ = writeln!(out, "      _req['Content-Type'] = 'application/json'");
-    }
-
-    for (k, v) in &req.headers {
-        // Skip Content-Type when already set from the body above to avoid duplicates.
-        if has_body && k.to_lowercase() == "content-type" {
-            continue;
+        let has_body = ctx
+            .body
+            .is_some_and(|b| !matches!(b, serde_json::Value::String(s) if s.is_empty()));
+        if has_body {
+            let ruby_body = json_to_ruby(ctx.body.unwrap());
+            let _ = writeln!(out, "      _req.body = {ruby_body}.to_json");
+            let _ = writeln!(out, "      _req['Content-Type'] = 'application/json'");
         }
-        let rk = ruby_string_literal(k);
-        let rv = ruby_string_literal(v);
-        let _ = writeln!(out, "      _req[{rk}] = {rv}");
+
+        for (k, v) in ctx.headers {
+            // Skip Content-Type when already set from the body above.
+            if has_body && k.to_lowercase() == "content-type" {
+                continue;
+            }
+            let rk = ruby_string_literal(k);
+            let rv = ruby_string_literal(v);
+            let _ = writeln!(out, "      _req[{rk}] = {rv}");
+        }
+
+        let _ = writeln!(out, "      {} = _http.request(_req)", ctx.response_var);
     }
 
-    let _ = writeln!(out, "      response = _http.request(_req)");
-}
+    /// Emit `expect(response.code.to_i).to eq(status)`.
+    ///
+    /// Net::HTTP returns the HTTP status as a `String`; `.to_i` converts it for
+    /// comparison with the integer literal from the fixture.
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let _ = writeln!(out, "      expect({response_var}.code.to_i).to eq({status})");
+    }
 
-/// Emit body assertions for an HTTP expected response.
-fn render_ruby_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
-    if let Some(body) = &expected.body {
-        match body {
-            // Empty string body: 204 No Content or empty response — no body assertion.
-            serde_json::Value::String(s) if s.is_empty() => {}
-            // Null body: no assertion.
-            serde_json::Value::Null => {}
-            // Plain string body: mock server sends it as raw text, not JSON-encoded.
-            serde_json::Value::String(s) => {
-                let ruby_val = ruby_string_literal(s);
-                let _ = writeln!(out, "      expect(response.body).to eq({ruby_val})");
-            }
-            _ => {
-                let ruby_val = json_to_ruby(body);
-                // response.body may be nil for 204 No Content or empty responses.
-                let _ = writeln!(
-                    out,
-                    "      _body = response.body && !response.body.empty? ? JSON.parse(response.body) : nil"
-                );
-                let _ = writeln!(out, "      expect(_body).to eq({ruby_val})");
-            }
-        }
-    }
-    if let Some(partial) = &expected.body_partial {
-        if let Some(obj) = partial.as_object() {
-            let _ = writeln!(out, "      _body = JSON.parse(response.body)");
-            for (key, val) in obj {
-                let ruby_key = ruby_string_literal(key);
-                let ruby_val = json_to_ruby(val);
-                let _ = writeln!(out, "      expect(_body[{ruby_key}]).to eq({ruby_val})");
-            }
-        }
-    }
-    if let Some(errors) = &expected.validation_errors {
-        if expected.body.is_none() {
-            // Only check validation_errors when no full body assertion is present.
-            for err in errors {
-                let msg_lit = ruby_string_literal(&err.msg);
-                let _ = writeln!(out, "      _body = JSON.parse(response.body)");
-                let _ = writeln!(out, "      _errors = _body['errors'] || []");
-                let _ = writeln!(
-                    out,
-                    "      expect(_errors.map {{ |e| e['msg'] }}).to include({msg_lit})"
-                );
-            }
-        }
-    }
-}
-
-/// Emit header assertions for an HTTP expected response.
-///
-/// Special tokens:
-/// - `"<<present>>"` — assert the header key exists
-/// - `"<<absent>>"` — assert the header key is absent
-/// - `"<<uuid>>"` — assert the header value matches a UUID regex
-fn render_ruby_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
-    for (name, value) in &expected.headers {
+    /// Emit a header assertion using `response[header_key]`.
+    ///
+    /// Handles the three special tokens: `<<present>>`, `<<absent>>`, `<<uuid>>`.
+    fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
         let header_key = name.to_lowercase();
-        // The mock server serves uncompressed bodies, so content-encoding is never set.
-        // Skip this assertion to avoid false failures.
-        if header_key == "content-encoding" {
-            continue;
-        }
-        // Net::HTTP response headers are accessed via response[key]
-        let header_expr = format!("response[{}]", ruby_string_literal(&header_key));
-        match value.as_str() {
+        let header_expr = format!("{response_var}[{}]", ruby_string_literal(&header_key));
+        match expected {
             "<<present>>" => {
                 let _ = writeln!(out, "      expect({header_expr}).not_to be_nil");
             }
@@ -597,6 +523,101 @@ fn render_ruby_header_assertions(out: &mut String, expected: &HttpExpectedRespon
                 let _ = writeln!(out, "      expect({header_expr}).to eq({ruby_val})");
             }
         }
+    }
+
+    /// Emit a full JSON body equality assertion.
+    ///
+    /// Plain string bodies are compared as raw text; structured bodies are parsed
+    /// with `JSON.parse` and compared as Ruby Hash/Array values.
+    fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        match expected {
+            serde_json::Value::String(s) => {
+                let ruby_val = ruby_string_literal(s);
+                let _ = writeln!(out, "      expect({response_var}.body).to eq({ruby_val})");
+            }
+            _ => {
+                let ruby_val = json_to_ruby(expected);
+                let _ = writeln!(
+                    out,
+                    "      _body = {response_var}.body && !{response_var}.body.empty? ? JSON.parse({response_var}.body) : nil"
+                );
+                let _ = writeln!(out, "      expect(_body).to eq({ruby_val})");
+            }
+        }
+    }
+
+    /// Emit partial body assertions: one `expect(_body[key]).to eq(val)` per field.
+    fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(out, "      _body = JSON.parse({response_var}.body)");
+            for (key, val) in obj {
+                let ruby_key = ruby_string_literal(key);
+                let ruby_val = json_to_ruby(val);
+                let _ = writeln!(out, "      expect(_body[{ruby_key}]).to eq({ruby_val})");
+            }
+        }
+    }
+
+    /// Emit validation-error assertions, checking each expected `msg` against the
+    /// parsed body's `errors` array.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        for err in errors {
+            let msg_lit = ruby_string_literal(&err.msg);
+            let _ = writeln!(out, "      _body = JSON.parse({response_var}.body)");
+            let _ = writeln!(out, "      _errors = _body['errors'] || []");
+            let _ = writeln!(
+                out,
+                "      expect(_errors.map {{ |e| e['msg'] }}).to include({msg_lit})"
+            );
+        }
+    }
+}
+
+/// Render an RSpec example for an HTTP server test fixture via the shared driver.
+///
+/// Delegates to [`client::http_call::render_http_test`] after handling the one
+/// Ruby-specific pre-condition: HTTP 101 (WebSocket upgrade) cannot be exercised
+/// via `Net::HTTP` and is emitted as a pending `it` block directly.
+fn render_http_example(out: &mut String, fixture: &Fixture) {
+    // HTTP 101 (WebSocket upgrade) cannot be tested via Net::HTTP.
+    // Emit the skip block directly rather than pushing a skip directive through
+    // the shared driver, which would require a full `fixture.skip` entry.
+    if fixture
+        .http
+        .as_ref()
+        .is_some_and(|h| h.expected_response.status_code == 101)
+    {
+        if let Some(http) = fixture.http.as_ref() {
+            let description = fixture.description.replace('\'', "\\'");
+            let method = http.request.method.to_uppercase();
+            let path = &http.request.path;
+            let _ = writeln!(out, "  describe '{method} {path}' do");
+            let _ = writeln!(out, "    it '{description}' do");
+            let _ = writeln!(
+                out,
+                "      skip 'HTTP 101 WebSocket upgrade cannot be tested via Net::HTTP'"
+            );
+            let _ = writeln!(out, "    end");
+            let _ = writeln!(out, "  end");
+        }
+        return;
+    }
+
+    client::http_call::render_http_test(out, &RubyTestClientRenderer, fixture);
+}
+
+/// Convert an uppercase HTTP method string to Ruby's Net::HTTP class name.
+/// Ruby uses title-cased names: Get, Post, Put, Delete, Patch, Head, Options, Trace.
+fn http_method_class(method: &str) -> String {
+    let mut chars = method.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
     }
 }
 

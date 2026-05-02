@@ -3,11 +3,15 @@
 //! Generates `e2e/rust/Cargo.toml` and `tests/{category}_test.rs` files from
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
+use crate::codegen::client::{self, CallCtx};
 use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{escape_rust, rust_raw_string, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, CorsConfig, Fixture, FixtureGroup, StaticFilesConfig};
+use crate::fixture::{
+    Assertion, CallbackAction, CorsConfig, Fixture, FixtureGroup, HttpFixture, StaticFilesConfig,
+    ValidationErrorExpectation,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -1068,6 +1072,276 @@ fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// TestClientRenderer implementation
+// ---------------------------------------------------------------------------
+
+/// Per-fixture Rust axum-test renderer.
+///
+/// Carries the `dep_name` (crate identifier used in generated `use` paths) and
+/// a reference to the `HttpFixture` so that `render_call` can emit the full
+/// app + TestServer setup including any middleware (CORS, etc.) that is
+/// specific to the fixture's handler config.
+struct RustTestClientRenderer<'a> {
+    dep_name: &'a str,
+    http: &'a HttpFixture,
+}
+
+impl<'a> client::TestClientRenderer for RustTestClientRenderer<'a> {
+    fn language_name(&self) -> &'static str {
+        "rust"
+    }
+
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let _ = writeln!(out, "#[tokio::test]");
+        if let Some(reason) = skip_reason {
+            let _ = writeln!(out, "#[ignore = \"{reason}\"]");
+        }
+        let _ = writeln!(out, "async fn test_{fn_name}() {{");
+        let _ = writeln!(out, "    // {description}");
+    }
+
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "}}");
+    }
+
+    fn render_call(&self, out: &mut String, ctx: &CallCtx<'_>) {
+        let dep_name = self.dep_name;
+        let http = self.http;
+        let route = &http.handler.route;
+        let status = http.expected_response.status_code;
+
+        // Serialize expected response body for the handler closure.
+        let body_str = match &http.expected_response.body {
+            Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
+            None => String::new(),
+        };
+        let body_literal = rust_raw_string(&body_str);
+
+        // Serialize request body (if any).
+        let req_body_str = match &ctx.body {
+            Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
+            None => String::new(),
+        };
+        let has_req_body = !req_body_str.is_empty();
+
+        let route_reg = route_registration_for_method(&http.handler.method);
+        let server_call = server_call_for_method(ctx.method);
+        let cors_cfg = http.handler.middleware.as_ref().and_then(|m| m.cors.as_ref());
+
+        let _ = writeln!(out, "    let expected_body = {body_literal}.to_string();");
+        let _ = writeln!(out, "    let mut app = {dep_name}::App::new();");
+
+        // Route registration.
+        match &route_reg {
+            RouteRegistration::Shorthand(method) => {
+                let _ = writeln!(
+                    out,
+                    "    app.route({dep_name}::{method}({route:?}), move |_ctx: {dep_name}::RequestContext| {{"
+                );
+            }
+            RouteRegistration::Explicit(variant) => {
+                let _ = writeln!(
+                    out,
+                    "    app.route({dep_name}::RouteBuilder::new({dep_name}::Method::{variant}, {route:?}), move |_ctx: {dep_name}::RequestContext| {{"
+                );
+            }
+        }
+        let _ = writeln!(out, "        let body = expected_body.clone();");
+        let _ = writeln!(out, "        async move {{");
+        let _ = writeln!(out, "            Ok(axum::http::Response::builder()");
+        let _ = writeln!(out, "                .status({status}u16)");
+        let _ = writeln!(out, "                .header(\"content-type\", \"application/json\")");
+        let _ = writeln!(out, "                .body(axum::body::Body::from(body))");
+        let _ = writeln!(out, "                .unwrap())");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}).unwrap();");
+
+        let _ = writeln!(out, "    let router = app.into_router().unwrap();");
+        if let Some(cors) = cors_cfg {
+            render_cors_layer(out, cors);
+        }
+        let _ = writeln!(out, "    let server = axum_test::TestServer::new(router);");
+
+        // Build and send the request.
+        let req_path = ctx.path;
+        match &server_call {
+            ServerCall::Shorthand(method) => {
+                let _ = writeln!(out, "    let {} = server.{method}({req_path:?})", ctx.response_var);
+            }
+            ServerCall::AxumMethod(method) => {
+                let _ = writeln!(
+                    out,
+                    "    let {} = server.method(axum::http::Method::{method}, {req_path:?})",
+                    ctx.response_var
+                );
+            }
+        }
+
+        // Add request headers.
+        for (name, value) in ctx.headers {
+            let n = rust_raw_string(name);
+            let v = rust_raw_string(value);
+            let _ = writeln!(out, "        .add_header({n}, {v})");
+        }
+
+        // Add request body if present.
+        if has_req_body {
+            let req_body_literal = rust_raw_string(&req_body_str);
+            let _ = writeln!(
+                out,
+                "        .bytes(bytes::Bytes::copy_from_slice({req_body_literal}.as_bytes()))"
+            );
+        }
+
+        let _ = writeln!(out, "        .await;");
+    }
+
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let cors_cfg = self.http.handler.middleware.as_ref().and_then(|m| m.cors.as_ref());
+        // When a CorsLayer is applied and the fixture expects a 2xx status, tower-http
+        // may return 200 instead of 204 for preflight — accept any 2xx in that case.
+        if cors_cfg.is_some() && (200..300).contains(&status) {
+            let _ = writeln!(
+                out,
+                "    assert!({response_var}.status_code().is_success(), \"expected CORS success status, got {{}}\", {response_var}.status_code());"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    assert_eq!({response_var}.status_code().as_u16(), {status}u16);"
+            );
+        }
+    }
+
+    fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
+        match expected {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "    assert!({response_var}.maybe_header({name:?}).is_some(), \"expected header {name} to be present\");"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(
+                    out,
+                    "    assert!({response_var}.maybe_header({name:?}).is_none(), \"expected header {name} to be absent\");"
+                );
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(out, "    {{");
+                let _ = writeln!(
+                    out,
+                    "        let _hval = {response_var}.maybe_header({name:?}).expect(\"expected header {name} to be present\");"
+                );
+                let _ = writeln!(
+                    out,
+                    "        let _hstr = _hval.to_str().expect(\"header {name} should be valid UTF-8\");"
+                );
+                let _ = writeln!(
+                    out,
+                    "        assert!(_hstr.len() == 36 && _hstr.chars().filter(|c| *c == '-').count() == 4, \"expected header {name} to be a UUID, got {{_hstr}}\");"
+                );
+                let _ = writeln!(out, "    }}");
+            }
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "    assert_eq!({response_var}.maybe_header({name:?}).and_then(|v| v.to_str().ok()), Some({expected:?}), \"header {name} mismatch\");"
+                );
+            }
+        }
+    }
+
+    fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        let expected_str = serde_json::to_string(expected).unwrap_or_else(|_| "{}".to_string());
+        let expected_literal = rust_raw_string(&expected_str);
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        let body: serde_json::Value = {response_var}.json();");
+        let _ = writeln!(
+            out,
+            "        let expected: serde_json::Value = serde_json::from_str({expected_literal}).unwrap();"
+        );
+        let _ = writeln!(out, "        assert_eq!(body, expected, \"response body mismatch\");");
+        let _ = writeln!(out, "    }}");
+    }
+
+    fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        let expected_str = serde_json::to_string(expected).unwrap_or_else(|_| "{}".to_string());
+        let expected_literal = rust_raw_string(&expected_str);
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        let body: serde_json::Value = {response_var}.json();");
+        let _ = writeln!(
+            out,
+            "        let partial: serde_json::Value = serde_json::from_str({expected_literal}).unwrap();"
+        );
+        let _ = writeln!(
+            out,
+            "        if let (serde_json::Value::Object(body_map), serde_json::Value::Object(partial_map)) = (&body, &partial) {{"
+        );
+        let _ = writeln!(out, "            for (k, v) in partial_map {{");
+        let _ = writeln!(
+            out,
+            "                assert_eq!(body_map.get(k), Some(v), \"partial body field {{k}} mismatch\");"
+        );
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            assert_eq!(body, partial, \"partial body mismatch\");");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+    }
+
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        let body: serde_json::Value = {response_var}.json();");
+        let _ = writeln!(
+            out,
+            "        let detail = body.get(\"detail\").expect(\"validation error response must have 'detail' field\");"
+        );
+        let _ = writeln!(
+            out,
+            "        let errs = detail.as_array().expect(\"'detail' must be an array\");"
+        );
+        let _ = writeln!(
+            out,
+            "        assert_eq!(errs.len(), {}, \"expected {} validation error(s)\");",
+            errors.len(),
+            errors.len()
+        );
+        for (i, err) in errors.iter().enumerate() {
+            let loc_json = serde_json::to_string(&err.loc).unwrap_or_else(|_| "[]".to_string());
+            let loc_literal = rust_raw_string(&loc_json);
+            let msg_escaped = escape_rust(&err.msg);
+            let type_escaped = escape_rust(&err.error_type);
+            let _ = writeln!(out, "        {{");
+            let _ = writeln!(out, "            let e = &errs[{i}];");
+            let _ = writeln!(
+                out,
+                "            let loc: serde_json::Value = serde_json::from_str({loc_literal}).unwrap();"
+            );
+            let _ = writeln!(
+                out,
+                "            assert_eq!(e.get(\"loc\"), Some(&loc), \"validation error [{i}] loc mismatch\");"
+            );
+            let _ = writeln!(
+                out,
+                "            assert_eq!(e.get(\"msg\").and_then(|v| v.as_str()), Some(\"{msg_escaped}\"), \"validation error [{i}] msg mismatch\");"
+            );
+            let _ = writeln!(
+                out,
+                "            assert_eq!(e.get(\"type\").and_then(|v| v.as_str()), Some(\"{type_escaped}\"), \"validation error [{i}] type mismatch\");"
+            );
+            let _ = writeln!(out, "        }}");
+        }
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Http integration test helpers
 // ---------------------------------------------------------------------------
 
@@ -1087,25 +1361,9 @@ enum RouteRegistration<'a> {
     Explicit(&'a str),
 }
 
-/// Generate a complete integration test function for an http fixture.
-///
-/// Builds a real spikard `App` with a handler that returns the expected
-/// response, then uses `axum_test::TestServer` to send the request and
-/// assert the status code.
-fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str) {
-    let http = match &fixture.http {
-        Some(h) => h,
-        None => return,
-    };
-
-    let fn_name = sanitize_ident(&fixture.id);
-    let description = &fixture.description;
-
-    let route = &http.handler.route;
-
-    // spikard provides convenience functions for GET/POST/PUT/PATCH/DELETE.
-    // All other methods (HEAD, OPTIONS, TRACE, etc.) must use RouteBuilder::new directly.
-    let route_reg = match http.handler.method.to_lowercase().as_str() {
+/// Map a handler HTTP method string to a [`RouteRegistration`] variant.
+fn route_registration_for_method(method: &str) -> RouteRegistration<'static> {
+    match method.to_lowercase().as_str() {
         "get" => RouteRegistration::Shorthand("get"),
         "post" => RouteRegistration::Shorthand("post"),
         "put" => RouteRegistration::Shorthand("put"),
@@ -1115,11 +1373,12 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
         "options" => RouteRegistration::Explicit("Options"),
         "trace" => RouteRegistration::Explicit("Trace"),
         _ => RouteRegistration::Shorthand("get"),
-    };
+    }
+}
 
-    // axum_test::TestServer has shorthand methods for GET/POST/PUT/PATCH/DELETE.
-    // For HEAD and other methods, use server.method(axum::http::Method::HEAD, path).
-    let server_call = match http.request.method.to_uppercase().as_str() {
+/// Map a request HTTP method string to a [`ServerCall`] variant.
+fn server_call_for_method(method: &str) -> ServerCall<'static> {
+    match method.to_uppercase().as_str() {
         "GET" => ServerCall::Shorthand("get"),
         "POST" => ServerCall::Shorthand("post"),
         "PUT" => ServerCall::Shorthand("put"),
@@ -1129,121 +1388,39 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
         "OPTIONS" => ServerCall::AxumMethod("OPTIONS"),
         "TRACE" => ServerCall::AxumMethod("TRACE"),
         _ => ServerCall::Shorthand("get"),
+    }
+}
+
+/// Generate a complete integration test function for an http fixture.
+///
+/// Handles the static-files special case directly, then delegates to the
+/// shared [`client::http_call::render_http_test`] driver with a
+/// [`RustTestClientRenderer`] for the standard axum-test code path.
+fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str) {
+    let http = match &fixture.http {
+        Some(h) => h,
+        None => return,
     };
 
-    let req_path = &http.request.path;
-    let status = http.expected_response.status_code;
-
-    // Serialize expected response body (if any).
-    let body_str = match &http.expected_response.body {
-        Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
-        None => String::new(),
-    };
-    let body_literal = rust_raw_string(&body_str);
-
-    // Serialize request body (if any).
-    let req_body_str = match &http.request.body {
-        Some(b) => serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string()),
-        None => String::new(),
-    };
-    let has_req_body = !req_body_str.is_empty();
-
-    // Extract middleware from handler (if any).
-    let middleware = http.handler.middleware.as_ref();
-    let cors_cfg: Option<&CorsConfig> = middleware.and_then(|m| m.cors.as_ref());
-    let static_files_cfgs: Option<&Vec<StaticFilesConfig>> = middleware.and_then(|m| m.static_files.as_ref());
-    let has_static_files = static_files_cfgs.is_some_and(|v| !v.is_empty());
-
-    let _ = writeln!(out, "#[tokio::test]");
-    let _ = writeln!(out, "async fn test_{fn_name}() {{");
-    let _ = writeln!(out, "    // {description}");
-
-    // When static-files middleware is configured, serve from a temp dir via ServeDir.
-    if has_static_files {
+    // Static-files fixtures bypass the standard App + TestServer setup entirely.
+    // They are handled here before the shared driver so the driver never sees them.
+    let static_files_cfgs: Option<&Vec<StaticFilesConfig>> =
+        http.handler.middleware.as_ref().and_then(|m| m.static_files.as_ref());
+    if static_files_cfgs.is_some_and(|v| !v.is_empty()) {
+        let fn_name = sanitize_ident(&fixture.id);
+        let description = &fixture.description;
+        let req_path = &http.request.path;
+        let status = http.expected_response.status_code;
+        let server_call = server_call_for_method(&http.request.method);
+        let _ = writeln!(out, "#[tokio::test]");
+        let _ = writeln!(out, "async fn test_{fn_name}() {{");
+        let _ = writeln!(out, "    // {description}");
         render_static_files_test(out, fixture, static_files_cfgs.unwrap(), &server_call, req_path, status);
         return;
     }
 
-    // Build handler that returns the expected response.
-    let _ = writeln!(out, "    let expected_body = {body_literal}.to_string();");
-    let _ = writeln!(out, "    let mut app = {dep_name}::App::new();");
-
-    // Emit route registration.
-    match &route_reg {
-        RouteRegistration::Shorthand(method) => {
-            let _ = writeln!(
-                out,
-                "    app.route({dep_name}::{method}({route:?}), move |_ctx: {dep_name}::RequestContext| {{"
-            );
-        }
-        RouteRegistration::Explicit(variant) => {
-            let _ = writeln!(
-                out,
-                "    app.route({dep_name}::RouteBuilder::new({dep_name}::Method::{variant}, {route:?}), move |_ctx: {dep_name}::RequestContext| {{"
-            );
-        }
-    }
-    let _ = writeln!(out, "        let body = expected_body.clone();");
-    let _ = writeln!(out, "        async move {{");
-    let _ = writeln!(out, "            Ok(axum::http::Response::builder()");
-    let _ = writeln!(out, "                .status({status}u16)");
-    let _ = writeln!(out, "                .header(\"content-type\", \"application/json\")");
-    let _ = writeln!(out, "                .body(axum::body::Body::from(body))");
-    let _ = writeln!(out, "                .unwrap())");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "    }}).unwrap();");
-
-    // Build axum-test TestServer from the app router, optionally wrapping with CorsLayer.
-    let _ = writeln!(out, "    let router = app.into_router().unwrap();");
-    if let Some(cors) = cors_cfg {
-        render_cors_layer(out, cors);
-    }
-    let _ = writeln!(out, "    let server = axum_test::TestServer::new(router);");
-
-    // Build and send the request.
-    match &server_call {
-        ServerCall::Shorthand(method) => {
-            let _ = writeln!(out, "    let response = server.{method}({req_path:?})");
-        }
-        ServerCall::AxumMethod(method) => {
-            let _ = writeln!(
-                out,
-                "    let response = server.method(axum::http::Method::{method}, {req_path:?})"
-            );
-        }
-    }
-
-    // Add request headers (axum_test::TestRequest::add_header accepts &str via TryInto).
-    for (name, value) in &http.request.headers {
-        let n = rust_raw_string(name);
-        let v = rust_raw_string(value);
-        let _ = writeln!(out, "        .add_header({n}, {v})");
-    }
-
-    // Add request body if present (pass as a JSON string so axum-test's bytes() API gets a Bytes value).
-    if has_req_body {
-        let req_body_literal = rust_raw_string(&req_body_str);
-        let _ = writeln!(
-            out,
-            "        .bytes(bytes::Bytes::copy_from_slice({req_body_literal}.as_bytes()))"
-        );
-    }
-
-    let _ = writeln!(out, "        .await;");
-
-    // Assert status code.
-    // When a CorsLayer is applied and the fixture expects a 2xx status, tower-http may
-    // return 200 instead of 204 for preflight. Accept any 2xx status in that case.
-    if cors_cfg.is_some() && (200..300).contains(&status) {
-        let _ = writeln!(
-            out,
-            "    assert!(response.status_code().is_success(), \"expected CORS success status, got {{}}\", response.status_code());"
-        );
-    } else {
-        let _ = writeln!(out, "    assert_eq!(response.status_code().as_u16(), {status}u16);");
-    }
-
-    let _ = writeln!(out, "}}");
+    let renderer = RustTestClientRenderer { dep_name, http };
+    client::http_call::render_http_test(out, &renderer, fixture);
 }
 
 /// Emit lines that wrap the axum router with a `tower_http::cors::CorsLayer`.
