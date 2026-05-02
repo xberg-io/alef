@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assertions and generate valid guards for array element length checks.
 - fix(e2e-rust): honor call-level `result_is_simple` and `result_is_option`
   flags so optional scalar results are unwrapped before equality assertions.
+- fix(codegen): preserve sanitized `Cow<str>` fields in Rust binding DTO serde and binding-to-core conversions.
+  Python bindings previously dropped required string fields such as `ProcessConfig.language`, causing generated e2e
+  tests to fail with missing-field deserialization errors.
 - fix(alef-backend-dart, alef-backend-swift): honor `[crates.dart] frb_version` and `[crates.swift] swift_bridge_version` overrides — the fields were deserialized but every callsite hardcoded the compiled-in default constant.
 - fix(alef-cli/migrate): preserve legacy `[crate]` scalars at the top of the generated `[[crates]]` entry by recursively clearing toml_edit position metadata so the resulting document is well-formed even when many language sub-tables follow.
 - fix(alef-cli/version-pin): write `[workspace] alef_version` after a successful generate instead of a top-level `version =` line. The legacy detector rejected the top-level form on the next run, breaking re-generation.

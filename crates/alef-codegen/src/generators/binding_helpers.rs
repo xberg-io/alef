@@ -950,7 +950,7 @@ fn gen_lossy_binding_to_core_fields_inner(
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
     for field in &typ.fields {
         let name = &field.name;
-        if field.sanitized {
+        if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
             writeln!(out, "            {name}: Default::default(),").ok();
         } else {
             let expr = match &field.ty {

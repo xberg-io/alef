@@ -1,7 +1,7 @@
 use crate::builder::StructBuilder;
 use crate::generators::RustBindingConfig;
 use crate::type_mapper::TypeMapper;
-use alef_core::ir::{TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
 use std::fmt::Write;
 
 /// Check if a type's fields can all be safely defaulted.
@@ -133,11 +133,9 @@ pub fn gen_struct_with_per_field_attrs(
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         attrs.extend(extra_field_attrs(field));
         // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
-        // Opaque fields use Arc<T> which is not Serialize/Deserialize.
-        // Sanitized fields have types replaced with String placeholders (e.g. CancellationToken →
-        // String, OutputFormat → String) — including them in serde JSON round-trips causes
-        // "unknown field" or "unknown variant" errors at runtime.
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || field.sanitized) {
+        // Cow-backed strings are lossless String bindings, so they must remain serializable.
+        let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field) {
             attrs.push("serde(skip)".to_string());
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
@@ -218,8 +216,10 @@ pub fn gen_struct_with_rename(
         };
         // Add #[serde(skip)] for opaque fields or sanitized fields — same rationale as in
         // gen_struct_with_per_field_attrs: sanitized fields have placeholder String types that
-        // cause JSON round-trip failures with "unknown variant ''" errors.
-        if has_serde && (opaque_fields.contains(&field.name.as_str()) || field.sanitized) {
+        // cause JSON round-trip failures with "unknown variant ''" errors. Cow-backed strings
+        // are lossless String bindings, so they must remain serializable/deserializable.
+        let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field) {
             attrs.push("serde(skip)".to_string());
         }
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());

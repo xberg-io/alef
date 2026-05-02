@@ -5,7 +5,8 @@ use super::ConversionConfig;
 use super::helpers::{core_prim_str, core_type_path_remapped, is_newtype, is_tuple_type_name, needs_i64_cast};
 
 /// Generate `impl From<BindingType> for core::Type` (binding -> core).
-/// Sanitized fields use `Default::default()` (lossy but functional).
+/// Sanitized fields use `Default::default()` unless the sanitizer only removed a
+/// core wrapper that can be reconstructed losslessly from the binding value.
 pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
     gen_from_binding_to_core_cfg(typ, core_import, &ConversionConfig::default())
 }
@@ -69,7 +70,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             if field.cfg.is_some() {
                 continue;
             }
-            if field.sanitized {
+            if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
                 // sanitized fields keep the default value — skip
                 continue;
             }
@@ -134,7 +135,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if references_excluded && typ.has_stripped_cfg_fields {
             continue;
         }
-        let conversion = if field.sanitized || references_excluded {
+        let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
             format!("{}: Default::default()", field.name)
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
@@ -803,5 +804,57 @@ fn apply_core_wrapper_to_core(
                 conversion.to_string()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gen_from_binding_to_core;
+    use alef_core::ir::{CoreWrapper, DefaultValue, FieldDef, TypeDef, TypeRef};
+
+    fn type_with_field(field: FieldDef) -> TypeDef {
+        TypeDef {
+            name: "ProcessConfig".to_string(),
+            rust_path: "crate::ProcessConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![field],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        }
+    }
+
+    #[test]
+    fn sanitized_cow_string_field_converts_to_core() {
+        let field = FieldDef {
+            name: "language".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: true,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: Some(DefaultValue::Empty),
+            core_wrapper: CoreWrapper::Cow,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        };
+
+        let out = gen_from_binding_to_core(&type_with_field(field), "crate");
+
+        assert!(out.contains("language: val.language.into()"));
+        assert!(!out.contains("language: Default::default()"));
     }
 }
