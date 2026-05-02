@@ -45,32 +45,16 @@ fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<Formatte
             work_dir: "packages/python/".to_owned(),
         }),
         Language::Node => Some(FormatterSpec {
-            // Run biome from the repo root so it picks up `e2e/node/`,
-            // `packages/typescript/`, and `packages/node/` together — the prek
-            // hook also runs from the root, so any directory-scope mismatch
-            // between the two would leave generated files in a state that
-            // alef-verify rejects.
-            //
-            // We need both `biome format` (whitespace/quotes/indent) AND
-            // `biome check --write` (style fixes such as removing redundant
-            // escapes inside differently-quoted strings). The default
-            // pre-commit hook runs both, so alef must too — otherwise the
-            // hash that `alef finalise` records on the freshly-written file
-            // will not match the post-prek state and `alef verify` rejects
-            // the file.
+            // Run the Oxc formatter and linter from the repo root so package,
+            // e2e, and registry-mode test app output are normalized consistently.
             commands: vec![
                 FormatterCommand {
-                    command: "biome".to_owned(),
-                    args: vec!["format".to_owned(), "--write".to_owned(), ".".to_owned()],
+                    command: "npx".to_owned(),
+                    args: vec!["oxfmt".to_owned(), ".".to_owned()],
                 },
                 FormatterCommand {
-                    command: "biome".to_owned(),
-                    args: vec![
-                        "check".to_owned(),
-                        "--write".to_owned(),
-                        "--no-errors-on-unmatched".to_owned(),
-                        ".".to_owned(),
-                    ],
+                    command: "npx".to_owned(),
+                    args: vec!["oxlint".to_owned(), "--fix".to_owned(), ".".to_owned()],
                 },
             ],
             work_dir: ".".to_owned(),

@@ -23,7 +23,7 @@
 //! are unchanged.
 //!
 //! `alef generate` finalises the embedded hash *after* downstream formatters
-//! (rustfmt, rubocop, dotnet format, spotless, biome, mix format, php-cs-fixer,
+//! (rustfmt, rubocop, dotnet format, spotless, oxfmt, mix format, php-cs-fixer,
 //! mix format, …) have run, so the embedded hash describes the actual
 //! on-disk byte-content. `alef verify` reads the file, strips the
 //! `alef:hash:` line, recomputes the same hash, and compares — no

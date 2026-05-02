@@ -1035,7 +1035,7 @@ fn main() -> Result<()> {
             // formatter or non-zero exit must not abort the pipeline.
             // Two passes when enabled:
             //  1. `format_generated` runs language-native defaults (cargo fmt,
-            //     ruff format, mix format, biome format, etc.) on the freshly
+            //     ruff format, mix format, oxfmt, etc.) on the freshly
             //     emitted files.
             //  2. `fmt_post_generate` runs any extra repo-configured
             //     `[lint.<lang>].format` commands (linters, custom passes).
