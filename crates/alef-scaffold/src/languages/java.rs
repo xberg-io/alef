@@ -463,7 +463,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     <property name="fileExtensions" value="java"/>
 
     <module name="SuppressionFilter">
-        <property name="file" value="${config_loc}/checkstyle-suppressions.xml"/>
+        <property name="file" value="packages/java/checkstyle-suppressions.xml"/>
         <property name="optional" value="false"/>
     </module>
 

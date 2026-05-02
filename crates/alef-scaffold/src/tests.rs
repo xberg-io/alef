@@ -878,7 +878,7 @@ fn test_scaffold_java_checkstyle_suppressions_use_config_location() {
     let xml = files.iter().find(|f| f.path.ends_with("checkstyle.xml")).unwrap();
     assert!(
         xml.content
-            .contains(r#"value="${config_loc}/checkstyle-suppressions.xml""#),
+            .contains(r#"value="packages/java/checkstyle-suppressions.xml""#),
         "checkstyle suppressions path must work from repo root and Maven; content:\n{}",
         xml.content
     );
