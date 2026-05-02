@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
   top-level parameter to `convert()`.
 
+- fix(backend-wasm): use `is_default` variant for generated `Default` impl on wasm enums instead
+  of always using the first variant, fixing incorrect defaults for `HeadingStyle`, `CodeBlockStyle`,
+  and `PreprocessingPreset`.
+
+- fix(backend-wasm): visitor bridge methods now dispatch `{custom: "..."}` JS objects to
+  `VisitResult::Custom(s)` and `{error: "..."}` objects to `VisitResult::Continue`, making the
+  full `VisitResult` variant set reachable from JavaScript.
+
+- fix(e2e/wasm): merge visitor into the options object (2nd arg) rather than appending it as a
+  standalone 3rd argument, matching the wasm binding's single-object options API.
+
 - fix(backend-napi): use generated `From` conversions for named reference parameters instead of
   JSON round-tripping when let-binding delegation is possible.
 

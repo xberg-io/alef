@@ -736,6 +736,36 @@ fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &Ha
     )
     .unwrap();
     writeln!(out, "                    }}").unwrap();
+    writeln!(out, "                }} else if val.is_object() {{").unwrap();
+    writeln!(
+        out,
+        "                    let custom_key = wasm_bindgen::JsValue::from_str(\"custom\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                    let error_key = wasm_bindgen::JsValue::from_str(\"error\");"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                    if let Ok(cv) = js_sys::Reflect::get(&val, &custom_key) {{"
+    )
+    .unwrap();
+    writeln!(out, "                        if let Some(s) = cv.as_string() {{").unwrap();
+    writeln!(out, "                            return {ret_ty}::Custom(s);").unwrap();
+    writeln!(out, "                        }}").unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(
+        out,
+        "                    if let Ok(ev) = js_sys::Reflect::get(&val, &error_key) {{"
+    )
+    .unwrap();
+    writeln!(out, "                        if ev.as_string().is_some() {{").unwrap();
+    writeln!(out, "                            return {ret_ty}::Continue;").unwrap();
+    writeln!(out, "                        }}").unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(out, "                    {ret_ty}::Continue").unwrap();
     writeln!(out, "                }} else {{").unwrap();
     writeln!(out, "                    {ret_ty}::Continue").unwrap();
     writeln!(out, "                }}").unwrap();
