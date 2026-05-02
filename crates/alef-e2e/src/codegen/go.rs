@@ -703,6 +703,12 @@ fn render_test_function(
         }
     }
 
+    if result_is_simple && result_is_option && has_usable_assertion && !simple_option_expects_value {
+        let _ = writeln!(out, "\tif {result_var} != nil {{");
+        let _ = writeln!(out, "\t\tt.Errorf(\"expected empty value, got %v\", {result_var})");
+        let _ = writeln!(out, "\t}}");
+    }
+
     // For result_is_simple functions, assertions reference `value` (the dereferenced result).
     let effective_result_var =
         if result_is_simple && has_usable_assertion && (!result_is_option || simple_option_expects_value) {
