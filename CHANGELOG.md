@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(e2e): honor call-level Rust option result flags and use the crate version for registry-mode Rust e2e dependencies when no package override is set.
+
 ### Fixed
 
 - fix(backend-php): resolve compile errors when `bind_via = "options_field"` is used

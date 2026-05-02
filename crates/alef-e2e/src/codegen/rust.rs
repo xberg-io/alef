@@ -73,7 +73,7 @@ impl super::E2eCodegen for RustE2eCodegen {
             .any(|c| c.r#async);
         let needs_tokio = needs_mock_server || needs_http_tests || any_async_call;
 
-        let crate_version = resolve_crate_version(e2e_config);
+        let crate_version = resolve_crate_version(e2e_config).or_else(|| alef_config.resolved_version());
         files.push(GeneratedFile {
             path: output_base.join("Cargo.toml"),
             content: render_cargo_toml(
@@ -620,7 +620,7 @@ fn render_test_function(
     let result_is_vec = call_config.result_is_vec || rust_overrides.is_some_and(|o| o.result_is_vec);
     // When result_is_option is set, the function returns Option<T>. Field-path
     // assertions unwrap first via `.as_ref().expect("Option should be Some")`.
-    let result_is_option = rust_overrides.is_some_and(|o| o.result_is_option);
+    let result_is_option = call_config.result_is_option || rust_overrides.is_some_and(|o| o.result_is_option);
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
