@@ -32,7 +32,8 @@ pub use languages::{
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
-    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
+    ScaffoldCargo, ScaffoldCargoEnvValue, ScaffoldCargoTargets, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig,
+    TextReplacement, UpdateConfig,
 };
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use tools::{DEFAULT_RUST_DEV_TOOLS, LangContext, ToolsConfig, require_tool, require_tools};

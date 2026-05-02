@@ -624,6 +624,7 @@ fn cargo_toml_has_license_field() {
         homepage: None,
         authors: vec![],
         keywords: vec![],
+        cargo: None,
     });
 
     let api = ApiSurface {

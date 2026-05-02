@@ -820,6 +820,7 @@ mod tests {
                 homepage: None,
                 authors: vec![],
                 keywords: vec![],
+                cargo: None,
             }),
             readme: None,
             lint: None,

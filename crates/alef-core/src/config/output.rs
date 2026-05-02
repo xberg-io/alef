@@ -52,6 +52,75 @@ pub struct ScaffoldConfig {
     pub authors: Vec<String>,
     #[serde(default)]
     pub keywords: Vec<String>,
+    /// Opt-in workspace `.cargo/config.toml` management. When present, alef writes
+    /// the full file with hash-based drift detection. Absent = legacy behavior
+    /// (wasm32 block only, create-if-missing, unmanaged).
+    pub cargo: Option<ScaffoldCargo>,
+}
+
+/// Opt-in management of workspace-level `.cargo/config.toml`.
+///
+/// All fields default to canonical values that produce the same `.cargo/config.toml`
+/// across polyglot repos. Override individual targets via `targets`, or inject
+/// repo-specific `[env]` entries via `env`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScaffoldCargo {
+    /// Per-target cross-compile / rustflags overrides. Defaults emit the canonical
+    /// 6-target template (macOS dynamic_lookup, Windows MSVC rust-lld x64+i686,
+    /// aarch64-linux-gnu cross-gcc, x86_64-linux-musl, wasm32 bulk-memory).
+    #[serde(default)]
+    pub targets: ScaffoldCargoTargets,
+    /// Free-form `[env]` entries copied verbatim into the generated file.
+    /// Values can be a plain string or `{ value, relative }`. Empty by default.
+    #[serde(default)]
+    pub env: HashMap<String, ScaffoldCargoEnvValue>,
+}
+
+/// Per-target opt-out flags. All default to `true`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScaffoldCargoTargets {
+    #[serde(default = "default_true")]
+    pub macos_dynamic_lookup: bool,
+    #[serde(default = "default_true")]
+    pub x86_64_pc_windows_msvc: bool,
+    #[serde(default = "default_true")]
+    pub i686_pc_windows_msvc: bool,
+    #[serde(default = "default_true")]
+    pub aarch64_unknown_linux_gnu: bool,
+    #[serde(default = "default_true")]
+    pub x86_64_unknown_linux_musl: bool,
+    #[serde(default = "default_true")]
+    pub wasm32_unknown_unknown: bool,
+}
+
+impl Default for ScaffoldCargoTargets {
+    fn default() -> Self {
+        Self {
+            macos_dynamic_lookup: true,
+            x86_64_pc_windows_msvc: true,
+            i686_pc_windows_msvc: true,
+            aarch64_unknown_linux_gnu: true,
+            x86_64_unknown_linux_musl: true,
+            wasm32_unknown_unknown: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Value for a `[scaffold.cargo.env]` entry. Either a bare string (renders as
+/// `KEY = "value"`) or a structured form with `value` + optional `relative`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ScaffoldCargoEnvValue {
+    Plain(String),
+    Structured {
+        value: String,
+        #[serde(default)]
+        relative: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
