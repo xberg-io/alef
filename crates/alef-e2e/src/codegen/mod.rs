@@ -1,7 +1,25 @@
 //! E2e test code generation trait and language dispatch.
+//!
+//! ## DRY layer ([`client`])
+//!
+//! Per-language e2e codegen historically duplicated the structural shape of every
+//! test (function header, request build, response assert) and only differed in
+//! syntax. The [`client`] submodule pulls that shape into trait + driver pairs
+//! ([`client::TestClientRenderer`] + [`client::http_call::render_http_test`])
+//! so each language can be migrated to TestClient-driven tests by:
+//!
+//! 1. Implementing `TestClientRenderer` once per language (small, mechanical).
+//! 2. Replacing the language's monolithic `render_http_test_function` with a
+//!    call to `client::http_call::render_http_test(out, &MyRenderer, fixture)`.
+//! 3. Optionally splitting the per-language file into a directory
+//!    `<lang>/{mod.rs,client.rs,ws.rs,helpers.rs}` when the file gets unwieldy.
+//!
+//! Until a language migrates, it continues using the legacy monolithic renderer —
+//! both can coexist behind the per-language [`E2eCodegen::generate`] entry.
 
 pub mod brew;
 pub mod c;
+pub mod client;
 pub mod csharp;
 pub mod dart;
 pub mod elixir;
