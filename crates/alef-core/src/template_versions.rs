@@ -367,7 +367,7 @@ pub mod precommit {
     pub const CARGO_DENY_REV: &str = "0.19.4";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.85";
+    pub const RUMDL_REV: &str = "v0.1.86";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
     pub const TYPOS_REV: &str = "v1.46.0";
