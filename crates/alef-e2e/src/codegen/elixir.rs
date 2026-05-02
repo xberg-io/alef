@@ -82,10 +82,15 @@ impl E2eCodegen for ElixirCodegen {
             ""
         };
 
-        // Generate mix.exs. The dep atom must match the binding's mix package
-        // name (e.g. `:spikard`), not a hardcoded value, otherwise consumer
-        // mix.exs files reference the wrong package.
-        let pkg_atom = alef_config.crate_config.name.replace('-', "_");
+        // Generate mix.exs. The dep atom must match the binding package's
+        // mix `app:` value, not the crate name. Use the configured
+        // `[elixir].app_name` (the same source the package's own mix.exs
+        // uses); fall back to the crate name only when unset. Without this,
+        // mix's path-dep resolution silently misroutes — the path-dep's
+        // own deps (notably `:rustler_precompiled`) never load during its
+        // compilation and the parent build fails with `RustlerPrecompiled
+        // is not loaded`.
+        let pkg_atom = alef_config.elixir_app_name();
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
             content: render_mix_exs(&pkg_atom, pkg_path, e2e_config.dep_mode, has_http_tests, has_nif_tests),
