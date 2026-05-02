@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`if any_written && !changed_languages.is_empty()`) would skip formatting entirely,
   leaving stub files unformatted and the hash stale after the next formatter run.
 
+- fix(cli): always add stub file paths to `current_gen_paths` before the orphan-sweep pass
+  in `alef generate`. When the stub cache was warm, stub paths were not registered,
+  causing the sweep to delete freshly-generated stub files (e.g. `.pyi`) as orphans
+  on the second generate run.
+
 ## [0.14.0] - 2026-05-02
 
 ### Changed

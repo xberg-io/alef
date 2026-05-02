@@ -590,16 +590,21 @@ fn main() -> Result<()> {
                     let stubs_match =
                         !stub_hashes.is_empty() && stub_hashes.iter().all(|(p, h)| stored_stubs.get(p) == Some(h));
 
+                    // Always register stub paths in `current_gen_paths` so the
+                    // orphan-sweep pass never deletes them when the cache is warm.
+                    for (_, files) in &stub_files {
+                        for file in files {
+                            current_gen_paths.insert(base_dir.join(&file.path));
+                        }
+                    }
+
                     if !stubs_match || clean {
                         let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
                         eprintln!("Generated {stub_count} type stub files");
                         any_written = true;
                         let _ = cache::write_generation_hashes(&stubs_cache_key, &stub_hashes);
 
-                        for (lang, files) in &stub_files {
-                            for file in files {
-                                current_gen_paths.insert(base_dir.join(&file.path));
-                            }
+                        for (lang, _) in &stub_files {
                             // Track stub-changed languages so formatters run even when
                             // no bindings changed for this language (e.g. ruff on .pyi).
                             changed_languages.insert(*lang);
