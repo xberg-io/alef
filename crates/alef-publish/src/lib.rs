@@ -18,7 +18,12 @@ use platform::RustTarget;
 use std::path::Path;
 
 /// Prepare a language package for publishing: vendor dependencies, stage FFI artifacts.
-pub fn prepare(config: &ResolvedCrateConfig, languages: &[Language], target: Option<&RustTarget>, dry_run: bool) -> Result<()> {
+pub fn prepare(
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    target: Option<&RustTarget>,
+    dry_run: bool,
+) -> Result<()> {
     for &lang in languages {
         let lang_config = publish_config_for_language(config, lang);
 
@@ -116,7 +121,12 @@ fn validate_identifier(s: &str, label: &str) -> Result<()> {
 }
 
 /// Build release artifacts for a specific platform.
-pub fn build(config: &ResolvedCrateConfig, languages: &[Language], target: Option<&RustTarget>, use_cross: bool) -> Result<()> {
+pub fn build(
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    target: Option<&RustTarget>,
+    use_cross: bool,
+) -> Result<()> {
     let crate_name = &config.name;
     validate_identifier(crate_name, "crate_name")?;
     if let Some(t) = target {
@@ -214,7 +224,12 @@ pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Languag
 /// Generate the build command for a language, deriving crate names from output path config.
 ///
 /// Falls back to `{crate_name}-{suffix}` when no output path is configured.
-fn build_command_for_lang(lang: Language, config: &ResolvedCrateConfig, target: Option<&RustTarget>, use_cross: bool) -> String {
+fn build_command_for_lang(
+    lang: Language,
+    config: &ResolvedCrateConfig,
+    target: Option<&RustTarget>,
+    use_cross: bool,
+) -> String {
     let crate_name = &config.name;
     let cargo = if use_cross { "cross" } else { "cargo" };
     let target_flag = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();

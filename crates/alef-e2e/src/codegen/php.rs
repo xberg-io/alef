@@ -7,9 +7,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{
-    Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation,
-};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_backend_php::naming::php_autoload_namespace;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;

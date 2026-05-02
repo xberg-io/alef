@@ -50,8 +50,7 @@ pub(super) fn resolve_options_via(e2e_config: &E2eConfig) -> &str {
 
 /// Resolve enum field mappings from the Python override config.
 pub(super) fn resolve_enum_fields(e2e_config: &E2eConfig) -> &HashMap<String, String> {
-    static EMPTY: std::sync::LazyLock<HashMap<String, String>> =
-        std::sync::LazyLock::new(HashMap::new);
+    static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
     e2e_config
         .call
         .overrides
@@ -62,8 +61,7 @@ pub(super) fn resolve_enum_fields(e2e_config: &E2eConfig) -> &HashMap<String, St
 
 /// Resolve handle nested type mappings from the Python override config.
 pub(super) fn resolve_handle_nested_types(e2e_config: &E2eConfig) -> &HashMap<String, String> {
-    static EMPTY: std::sync::LazyLock<HashMap<String, String>> =
-        std::sync::LazyLock::new(HashMap::new);
+    static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
     e2e_config
         .call
         .overrides
@@ -74,8 +72,7 @@ pub(super) fn resolve_handle_nested_types(e2e_config: &E2eConfig) -> &HashMap<St
 
 /// Resolve handle dict type set from the Python override config.
 pub(super) fn resolve_handle_dict_types(e2e_config: &E2eConfig) -> &HashSet<String> {
-    static EMPTY: std::sync::LazyLock<HashSet<String>> =
-        std::sync::LazyLock::new(HashSet::new);
+    static EMPTY: std::sync::LazyLock<HashSet<String>> = std::sync::LazyLock::new(HashSet::new);
     e2e_config
         .call
         .overrides

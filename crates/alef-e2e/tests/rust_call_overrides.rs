@@ -8,11 +8,11 @@
 //! Without them the generator emits `&options` against an `Option<T>` slot, omits
 //! the trailing arg, and produces uncompilable output (E0061, E0308, E0609).
 
+use alef_core::config::e2e::E2eConfig;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::rust::RustE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
-use alef_core::config::e2e::E2eConfig;
 
 fn resolve_one(cfg: &NewAlefConfig) -> (ResolvedCrateConfig, E2eConfig) {
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);

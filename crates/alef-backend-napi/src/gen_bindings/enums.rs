@@ -194,7 +194,6 @@ pub(super) fn tagged_enum_binding_struct_fields<'a>(
     result
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::gen_enum;
@@ -205,14 +204,17 @@ mod tests {
             name: name.to_string(),
             rust_path: format!("test::{name}"),
             original_rust_path: String::new(),
-            variants: variants.iter().map(|v| EnumVariant {
-                name: v.to_string(),
-                fields: vec![],
-                is_tuple: false,
-                doc: String::new(),
-                is_default: false,
-                serde_rename: None,
-            }).collect(),
+            variants: variants
+                .iter()
+                .map(|v| EnumVariant {
+                    name: v.to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                })
+                .collect(),
             doc: String::new(),
             cfg: None,
             is_copy: true,

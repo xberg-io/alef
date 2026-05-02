@@ -43,9 +43,9 @@ pub(super) fn emit_return_marshalling(
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
 ) {
+    use super::{returns_bool_via_int, returns_json_object, returns_string};
     use crate::type_map::csharp_type;
     use heck::ToPascalCase;
-    use super::{returns_string, returns_bool_via_int, returns_json_object};
 
     if *return_type == TypeRef::Unit {
         // void — nothing to return
@@ -122,9 +122,9 @@ pub(super) fn emit_return_marshalling_indented(
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
 ) {
+    use super::{returns_bool_via_int, returns_json_object, returns_string};
     use crate::type_map::csharp_type;
     use heck::ToPascalCase;
-    use super::{returns_string, returns_bool_via_int, returns_json_object};
 
     if *return_type == TypeRef::Unit {
         return;

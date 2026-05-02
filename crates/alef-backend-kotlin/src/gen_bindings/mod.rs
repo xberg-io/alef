@@ -9,10 +9,10 @@ mod shared;
 mod traits;
 mod typealiases;
 
+use crate::naming::kotlin_target;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{KotlinTarget, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
-use crate::naming::kotlin_target;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

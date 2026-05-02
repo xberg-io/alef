@@ -99,11 +99,7 @@ impl Backend for PhpBackend {
         let exclude_functions = php_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = php_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
 
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("php"),
-            &config.name,
-            "crates/{name}-php/src/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("php"), &config.name, "crates/{name}-php/src/");
         let has_serde = detect_serde_available(&output_dir);
         let cfg = Self::binding_config(&core_import, has_serde);
 
@@ -468,7 +464,11 @@ impl Backend for PhpBackend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 
@@ -604,7 +604,11 @@ impl Backend for PhpBackend {
         }])
     }
 
-    fn generate_type_stubs(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_type_stubs(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 

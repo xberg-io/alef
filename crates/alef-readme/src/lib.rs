@@ -31,10 +31,7 @@ fn generate_readme(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Languag
     // Try template-based generation first when readme config is present
     if let Some(readme_cfg) = &config.readme {
         if let Some(template_dir) = &readme_cfg.template_dir {
-            let workspace_root = config
-                .workspace_root
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("."));
+            let workspace_root = config.workspace_root.clone().unwrap_or_else(|| PathBuf::from("."));
             let abs_template_dir = workspace_root.join(template_dir);
             if abs_template_dir.exists() {
                 if let Some(file) =
@@ -463,7 +460,11 @@ fn json_to_minijinja_value(json: &serde_json::Value) -> Value {
 // Hardcoded fallback generator (original implementation)
 // ---------------------------------------------------------------------------
 
-fn generate_readme_hardcoded(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
+fn generate_readme_hardcoded(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    lang: Language,
+) -> anyhow::Result<GeneratedFile> {
     let name = &config.name;
     let description = config
         .scaffold

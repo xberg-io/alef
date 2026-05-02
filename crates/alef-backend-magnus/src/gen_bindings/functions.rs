@@ -95,13 +95,19 @@ fn gen_scan_args_prologue(
 
     // Destructure required
     if !req_names.is_empty() {
-        let pat = format!("({})", req_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", "));
+        let pat = format!(
+            "({})",
+            req_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+        );
         lines.push(format!("let {pat} = args.required;"));
     }
 
     // Destructure optional
     if !opt_names.is_empty() {
-        let pat = format!("({})", opt_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", "));
+        let pat = format!(
+            "({})",
+            opt_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+        );
         lines.push(format!("let {pat} = args.optional;"));
     }
 
@@ -608,8 +614,7 @@ pub(super) fn gen_module_init(
         // satisfy trait bounds (the fn doesn't take &[Value]). For all other functions we use
         // variadic arity (-1) so Ruby callers can omit trailing optional arguments; the
         // generated body uses scan_args to unpack.
-        let has_bridge_param =
-            crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
+        let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
         let param_count: i32 = if !has_bridge_param && needs_variadic_arity(&func.params) {
             -1
         } else {
@@ -727,10 +732,7 @@ gem_name = "test_lib"
         let func = simple_func("process", true);
         let mapper = crate::type_map::MagnusMapper;
         let code = gen_function(&func, &mapper, &Default::default(), "test_lib");
-        assert!(
-            code.contains("Result<"),
-            "error function must return Result"
-        );
+        assert!(code.contains("Result<"), "error function must return Result");
     }
 
     #[test]
@@ -747,10 +749,7 @@ gem_name = "test_lib"
         let code = gen_module_init("TestLib", &api, &config, &Default::default(), &Default::default());
         assert!(code.contains("#[magnus::init]"), "must emit #[magnus::init]");
         assert!(code.contains("fn init(ruby: &Ruby)"), "must emit init fn");
-        assert!(
-            code.contains("define_module(\"TestLib\")"),
-            "must define the module"
-        );
+        assert!(code.contains("define_module(\"TestLib\")"), "must define the module");
     }
 
     #[test]
@@ -767,8 +766,14 @@ gem_name = "test_lib"
             newtype_wrapper: None,
             original_type: None,
         };
-        let optional = ParamDef { optional: true, ..required.clone() };
-        assert!(!needs_variadic_arity(std::slice::from_ref(&required)), "required-only: no variadic");
+        let optional = ParamDef {
+            optional: true,
+            ..required.clone()
+        };
+        assert!(
+            !needs_variadic_arity(std::slice::from_ref(&required)),
+            "required-only: no variadic"
+        );
         assert!(needs_variadic_arity(&[optional]), "optional param: needs variadic");
     }
 }

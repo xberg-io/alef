@@ -84,11 +84,7 @@ pub fn render_rust_arg(
             let binding = format!(
                 "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../test_documents/{path_str}\")).expect(\"test_documents/{path_str} must exist\");"
             );
-            let call_expr = if owned {
-                name.to_string()
-            } else {
-                format!("&{name}")
-            };
+            let call_expr = if owned { name.to_string() } else { format!("&{name}") };
             return (vec![binding], call_expr);
         }
         // Null optional bytes → None binding.
@@ -260,11 +256,7 @@ pub fn resolve_visitor_trait(module: &str) -> String {
 /// generated visitor body never references them — the body always returns a
 /// fixed `VisitResult` variant — so we'd otherwise hit `unused_variables`
 /// warnings that fail prek's `cargo clippy -D warnings` hook.
-pub fn emit_rust_visitor_method(
-    out: &mut String,
-    method_name: &str,
-    action: &crate::fixture::CallbackAction,
-) {
+pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &crate::fixture::CallbackAction) {
     use std::fmt::Write as FmtWrite;
     // Each entry: parameters typed exactly as `HtmlVisitor` expects them,
     // bound to `_` patterns so the generated body needn't introduce unused

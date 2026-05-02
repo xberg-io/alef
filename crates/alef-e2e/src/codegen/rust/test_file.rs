@@ -24,10 +24,7 @@ pub(super) fn resolve_module(e2e_config: &E2eConfig, dep_name: &str) -> String {
     resolve_module_for_call(&e2e_config.call, dep_name)
 }
 
-pub(super) fn resolve_module_for_call(
-    call_config: &crate::config::CallConfig,
-    dep_name: &str,
-) -> String {
+pub(super) fn resolve_module_for_call(call_config: &crate::config::CallConfig, dep_name: &str) -> String {
     // For Rust, the module name is the crate identifier (underscores).
     // Priority: override.crate_name > override.module > dep_name
     let overrides = call_config.overrides.get("rust");

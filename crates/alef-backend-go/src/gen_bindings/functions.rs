@@ -12,10 +12,7 @@ use std::fmt::Write;
 /// Such parameters use `json.Marshal` internally, which is fallible. When the surrounding
 /// function has no declared `error_type`, we must still propagate the marshal error rather
 /// than panicking — so we synthesize an error return in the generated signature.
-pub(super) fn params_require_marshal(
-    params: &[ParamDef],
-    opaque_names: &std::collections::HashSet<&str>,
-) -> bool {
+pub(super) fn params_require_marshal(params: &[ParamDef], opaque_names: &std::collections::HashSet<&str>) -> bool {
     params.iter().any(|p| match &p.ty {
         TypeRef::Named(name) => !opaque_names.contains(name.as_str()),
         TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
@@ -132,7 +129,13 @@ pub(super) fn gen_function_wrapper(
         write!(
             out,
             "{}",
-            gen_param_to_c(param, returns_value_and_error, can_return_error, ffi_prefix, opaque_names)
+            gen_param_to_c(
+                param,
+                returns_value_and_error,
+                can_return_error,
+                ffi_prefix,
+                opaque_names
+            )
         )
         .ok();
     }
@@ -300,8 +303,10 @@ mod tests {
 
     #[test]
     fn test_params_require_marshal_for_vec() {
-        let params =
-            vec![make_param("items", TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))))];
+        let params = vec![make_param(
+            "items",
+            TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+        )];
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         assert!(params_require_marshal(&params, &opaque));
     }

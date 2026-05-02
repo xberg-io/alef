@@ -3,13 +3,16 @@ use crate::{
     scaffold_meta,
 };
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{ResolvedCrateConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_elixir_cargo(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
     let nif_name = format!("{app_name}_nif");

@@ -684,7 +684,10 @@ name = "spikard"
 sources = ["src/lib.rs"]
 "#,
         );
-        assert!(result.is_err(), "unknown top-level key should be rejected by deny_unknown_fields");
+        assert!(
+            result.is_err(),
+            "unknown top-level key should be rejected by deny_unknown_fields"
+        );
     }
 
     // --- new backfill tests ---

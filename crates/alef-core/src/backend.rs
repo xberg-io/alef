@@ -90,11 +90,7 @@ pub trait Backend: Send + Sync {
     fn capabilities(&self) -> Capabilities;
 
     /// Generate binding source code.
-    fn generate_bindings(
-        &self,
-        api: &ApiSurface,
-        config: &ResolvedCrateConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>>;
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>>;
 
     /// Generate type stubs (.pyi, .rbs, .d.ts). Optional — default returns empty.
     fn generate_type_stubs(
@@ -128,4 +124,3 @@ pub trait Backend: Send + Sync {
         None
     }
 }
-

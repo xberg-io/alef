@@ -10,18 +10,14 @@ impl ResolvedCrateConfig {
     /// Returns `[crate] core_import` if set, otherwise derives it from the
     /// crate name by replacing hyphens with underscores.
     pub fn core_import_name(&self) -> String {
-        self.core_import
-            .clone()
-            .unwrap_or_else(|| self.name.replace('-', "_"))
+        self.core_import.clone().unwrap_or_else(|| self.name.replace('-', "_"))
     }
 
     /// Get the crate error type name (e.g., `"KreuzbergError"`).
     ///
     /// Returns `[crate] error_type` if set, otherwise `"Error"`.
     pub fn error_type_name(&self) -> String {
-        self.error_type
-            .clone()
-            .unwrap_or_else(|| "Error".to_string())
+        self.error_type.clone().unwrap_or_else(|| "Error".to_string())
     }
 
     /// Get the error constructor pattern. `{msg}` is replaced with the message expression.

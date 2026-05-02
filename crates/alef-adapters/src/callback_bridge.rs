@@ -5,7 +5,11 @@ use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 /// Returns `(struct_code, impl_code)` where:
 /// - `struct_code` is a standalone struct definition for the bridge
 /// - `impl_code` is the trait impl block
-pub fn generate(adapter: &AdapterConfig, language: Language, config: &ResolvedCrateConfig) -> anyhow::Result<(String, String)> {
+pub fn generate(
+    adapter: &AdapterConfig,
+    language: Language,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<(String, String)> {
     let result = match language {
         Language::Python => gen_python_body(adapter, config),
         Language::Node => gen_node_body(adapter, config),

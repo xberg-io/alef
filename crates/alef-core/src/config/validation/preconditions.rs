@@ -82,7 +82,11 @@ pub(super) fn build_main_fields(c: &BuildCommandConfig) -> Vec<&'static str> {
 }
 
 pub(super) fn setup_main_fields(c: &SetupConfig) -> Vec<&'static str> {
-    if c.install.is_some() { vec!["install"] } else { Vec::new() }
+    if c.install.is_some() {
+        vec!["install"]
+    } else {
+        Vec::new()
+    }
 }
 
 pub(super) fn update_main_fields(c: &UpdateConfig) -> Vec<&'static str> {

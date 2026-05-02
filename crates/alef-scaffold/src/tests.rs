@@ -1,6 +1,8 @@
 use super::*;
 use crate::languages::generate_pre_commit_config;
-use alef_core::config::{Language, NewAlefConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig};
+use alef_core::config::{
+    Language, NewAlefConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig,
+};
 use std::path::{Path, PathBuf};
 
 fn test_config() -> ResolvedCrateConfig {

@@ -1,12 +1,11 @@
 //! C# wrapper class and method code generation.
 
 use super::errors::{
-    emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement,
-    emit_return_statement_indented,
+    emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
 };
 use super::{
-    csharp_file_header, emit_named_param_setup, emit_named_param_teardown,
-    emit_named_param_teardown_indented, is_bridge_param, native_call_arg, returns_ptr,
+    csharp_file_header, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
+    is_bridge_param, native_call_arg, returns_ptr,
 };
 use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;

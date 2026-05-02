@@ -23,7 +23,7 @@ mod helpers;
 
 use std::fmt::Write;
 
-pub use callbacks::{CallbackSpec, ExtraParam, CALLBACKS};
+pub use callbacks::{CALLBACKS, CallbackSpec, ExtraParam};
 
 // ---------------------------------------------------------------------------
 // Public API: generate visitor-related Java source files
@@ -37,13 +37,22 @@ pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String
         ("NodeContext.java".to_string(), files::gen_node_context(package)),
         ("VisitContext.java".to_string(), files::gen_visit_context(package)),
         ("VisitResult.java".to_string(), files::gen_visit_result(package)),
-        ("Visitor.java".to_string(), files::gen_visitor_interface(package, class_name)),
+        (
+            "Visitor.java".to_string(),
+            files::gen_visitor_interface(package, class_name),
+        ),
         (
             "VisitorBridge.java".to_string(),
             files::gen_visitor_bridge(package, class_name),
         ),
-        ("TestVisitor.java".to_string(), files::gen_test_visitor_interface(package)),
-        ("TestVisitorAdapter.java".to_string(), files::gen_test_visitor_adapter(package)),
+        (
+            "TestVisitor.java".to_string(),
+            files::gen_test_visitor_interface(package),
+        ),
+        (
+            "TestVisitorAdapter.java".to_string(),
+            files::gen_test_visitor_adapter(package),
+        ),
     ]
 }
 
@@ -223,7 +232,10 @@ mod tests {
         assert!(names.contains(&"Visitor.java"), "must include Visitor.java");
         assert!(names.contains(&"VisitorBridge.java"), "must include VisitorBridge.java");
         assert!(names.contains(&"TestVisitor.java"), "must include TestVisitor.java");
-        assert!(names.contains(&"TestVisitorAdapter.java"), "must include TestVisitorAdapter.java");
+        assert!(
+            names.contains(&"TestVisitorAdapter.java"),
+            "must include TestVisitorAdapter.java"
+        );
     }
 
     #[test]
@@ -231,7 +243,10 @@ mod tests {
         let out = gen_native_lib_visitor_handles("htm");
         assert!(out.contains("HTM_VISITOR_CREATE"), "must have visitor create handle");
         assert!(out.contains("HTM_VISITOR_FREE"), "must have visitor free handle");
-        assert!(out.contains("HTM_CONVERT_WITH_VISITOR"), "must have convert with visitor handle");
+        assert!(
+            out.contains("HTM_CONVERT_WITH_VISITOR"),
+            "must have convert with visitor handle"
+        );
     }
 
     #[test]
@@ -239,6 +254,9 @@ mod tests {
         let out = gen_convert_with_visitor_method("Htm", "htm");
         assert!(out.contains("convertWithVisitor"), "must define convertWithVisitor");
         assert!(out.contains("HtmException"), "must use correct exception type");
-        assert!(out.contains("NativeLib.HTM_VISITOR_CREATE"), "must call correct native handle");
+        assert!(
+            out.contains("NativeLib.HTM_VISITOR_CREATE"),
+            "must call correct native handle"
+        );
     }
 }

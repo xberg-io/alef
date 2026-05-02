@@ -1,7 +1,7 @@
+use crate::naming::gleam_nif_module;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
-use crate::naming::gleam_nif_module;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 

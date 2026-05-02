@@ -21,8 +21,7 @@ pub(crate) fn emit_cargo_toml(
         Some(name) => name.to_string(),
         None => source_crate_name.to_string(),
     };
-    let same_as_workspace =
-        dart_override.is_none() && core_crate_dir == *crate_name && config.workspace_root.is_none();
+    let same_as_workspace = dart_override.is_none() && core_crate_dir == *crate_name && config.workspace_root.is_none();
     let core_path = if same_as_workspace {
         "../../..".to_string()
     } else {

@@ -15,7 +15,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Stage the FFI shared library for a specific language and target.
-pub fn stage_ffi(config: &ResolvedCrateConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
+pub fn stage_ffi(
+    config: &ResolvedCrateConfig,
+    lang: Language,
+    target: &RustTarget,
+    workspace_root: &Path,
+) -> Result<PathBuf> {
     let lib_name = config.ffi_lib_name();
     let shared_lib = target.shared_lib_name(&lib_name);
 
@@ -71,7 +76,12 @@ fn find_built_library(workspace_root: &Path, target: &RustTarget, shared_lib: &s
 }
 
 /// Determine the staging directory for a language + target combination.
-fn staging_dir(config: &ResolvedCrateConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
+fn staging_dir(
+    config: &ResolvedCrateConfig,
+    lang: Language,
+    target: &RustTarget,
+    workspace_root: &Path,
+) -> Result<PathBuf> {
     let pkg_dir = config.package_dir(lang);
     let platform = target.platform_for(lang);
 

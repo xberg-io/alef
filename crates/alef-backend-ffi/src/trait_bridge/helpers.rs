@@ -63,30 +63,15 @@ mod tests {
         assert_eq!(default_for_type(&TypeRef::Unit), "()");
         assert_eq!(default_for_type(&TypeRef::String), "String::new()");
         assert_eq!(default_for_type(&TypeRef::Bytes), "Vec::new()");
-        assert_eq!(
-            default_for_type(&TypeRef::Primitive(PrimitiveType::Bool)),
-            "false"
-        );
-        assert_eq!(
-            default_for_type(&TypeRef::Primitive(PrimitiveType::F64)),
-            "0.0"
-        );
-        assert_eq!(
-            default_for_type(&TypeRef::Primitive(PrimitiveType::I32)),
-            "0"
-        );
+        assert_eq!(default_for_type(&TypeRef::Primitive(PrimitiveType::Bool)), "false");
+        assert_eq!(default_for_type(&TypeRef::Primitive(PrimitiveType::F64)), "0.0");
+        assert_eq!(default_for_type(&TypeRef::Primitive(PrimitiveType::I32)), "0");
     }
 
     #[test]
     fn default_for_type_complex() {
-        assert_eq!(
-            default_for_type(&TypeRef::Optional(Box::new(TypeRef::String))),
-            "None"
-        );
-        assert_eq!(
-            default_for_type(&TypeRef::Vec(Box::new(TypeRef::String))),
-            "Vec::new()"
-        );
+        assert_eq!(default_for_type(&TypeRef::Optional(Box::new(TypeRef::String))), "None");
+        assert_eq!(default_for_type(&TypeRef::Vec(Box::new(TypeRef::String))), "Vec::new()");
         assert_eq!(default_for_type(&TypeRef::Duration), "std::time::Duration::ZERO");
     }
 }

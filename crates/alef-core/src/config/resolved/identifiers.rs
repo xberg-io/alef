@@ -115,7 +115,6 @@ impl ResolvedCrateConfig {
                 self.name.to_pascal_case()
             })
     }
-
 }
 
 #[cfg(test)]

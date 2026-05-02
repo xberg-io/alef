@@ -1,7 +1,11 @@
 use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate just the function body (what goes inside `{ ... }`) for a sync function adapter.
-pub fn generate_body(adapter: &AdapterConfig, language: Language, config: &ResolvedCrateConfig) -> anyhow::Result<String> {
+pub fn generate_body(
+    adapter: &AdapterConfig,
+    language: Language,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<String> {
     let body = match language {
         Language::Python => gen_python_body(adapter, config),
         Language::Node => gen_node_body(adapter, config),

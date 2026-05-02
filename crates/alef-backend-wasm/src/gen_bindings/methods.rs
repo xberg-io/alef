@@ -2,8 +2,8 @@
 
 use crate::type_map::WasmMapper;
 use ahash::AHashSet;
-use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_codegen::type_mapper::TypeMapper;
+use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_core::ir::MethodDef;
 
 use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
@@ -139,7 +139,11 @@ pub(super) fn gen_method(
                 )
             }
         } else {
-            super::functions::gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+            super::functions::gen_wasm_unimplemented_body(
+                &method.return_type,
+                &method.name,
+                method.error_type.is_some(),
+            )
         };
         format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
@@ -195,7 +199,11 @@ pub(super) fn gen_method(
                 )
             }
         } else {
-            super::functions::gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+            super::functions::gen_wasm_unimplemented_body(
+                &method.return_type,
+                &method.name,
+                method.error_type.is_some(),
+            )
         };
         format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \

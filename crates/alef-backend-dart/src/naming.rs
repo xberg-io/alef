@@ -94,6 +94,10 @@ sources = ["src/lib.rs"]
 frb_version = "2.9.0"
 "#,
         );
-        assert_eq!(dart_frb_version(&r), "2.9.0", "explicit frb_version override should win");
+        assert_eq!(
+            dart_frb_version(&r),
+            "2.9.0",
+            "explicit frb_version override should win"
+        );
     }
 }

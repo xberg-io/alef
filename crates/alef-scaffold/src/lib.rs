@@ -170,7 +170,11 @@ pub(crate) fn core_dep_features(config: &ResolvedCrateConfig, lang: Language) ->
     }
 }
 
-pub fn scaffold(api: &ApiSurface, config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn scaffold(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![];
     for &lang in languages {
         files.extend(scaffold_language(api, config, lang)?);
@@ -375,7 +379,11 @@ use languages::{
     scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
 };
 
-fn scaffold_language(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<Vec<GeneratedFile>> {
+fn scaffold_language(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    lang: Language,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     match lang {
         Language::Python => {
             let mut files = scaffold_python(api, config)?;

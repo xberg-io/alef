@@ -1,11 +1,14 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{ResolvedCrateConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_ruby_cargo(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();

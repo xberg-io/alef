@@ -38,10 +38,7 @@ pub(super) fn render_assertion(
                     || f_lower == "output_format"
                     || f_lower == "extraction_method")
             {
-                let _ = writeln!(
-                    out,
-                    "    # skipped: field '{f}' not applicable for simple result type"
-                );
+                let _ = writeln!(out, "    # skipped: field '{f}' not applicable for simple result type");
                 return;
             }
         }
@@ -102,12 +99,7 @@ pub(super) fn render_assertion(
     );
 }
 
-fn render_synthetic_field(
-    out: &mut String,
-    assertion: &Assertion,
-    result_var: &str,
-    field: &str,
-) -> bool {
+fn render_synthetic_field(out: &mut String, assertion: &Assertion, result_var: &str, field: &str) -> bool {
     match field {
         "chunks_have_content" => {
             let pred = format!("all(c.content for c in ({result_var}.chunks or []))");
@@ -115,9 +107,8 @@ fn render_synthetic_field(
             true
         }
         "chunks_have_embeddings" => {
-            let pred = format!(
-                "all(c.embedding is not None and len(c.embedding) > 0 for c in ({result_var}.chunks or []))"
-            );
+            let pred =
+                format!("all(c.embedding is not None and len(c.embedding) > 0 for c in ({result_var}.chunks or []))");
             emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
             true
         }
@@ -133,17 +124,13 @@ fn render_synthetic_field(
             let pred = match field {
                 "embeddings_valid" => format!("all(bool(e) for e in {result_var})"),
                 "embeddings_finite" => {
-                    format!(
-                        "all(v == v and abs(v) != float('inf') for e in {result_var} for v in e)"
-                    )
+                    format!("all(v == v and abs(v) != float('inf') for e in {result_var} for v in e)")
                 }
                 "embeddings_non_zero" => {
                     format!("all(any(v != 0.0 for v in e) for e in {result_var})")
                 }
                 "embeddings_normalized" => {
-                    format!(
-                        "all(abs(sum(v * v for v in e) - 1.0) < 1e-3 for e in {result_var})"
-                    )
+                    format!("all(abs(sum(v * v for v in e) - 1.0) < 1e-3 for e in {result_var})")
                 }
                 _ => unreachable!(),
             };
@@ -251,11 +238,9 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let op = if val.is_boolean() || val.is_null() { "is" } else { "==" };
                 if val.is_string() {
-                    let _ =
-                        writeln!(out, "    assert {field_access}.strip() {op} {expected}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {field_access}.strip() {op} {expected}  # noqa: S101");
                 } else {
-                    let _ =
-                        writeln!(out, "    assert {field_access} {op} {expected}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {field_access} {op} {expected}  # noqa: S101");
                 }
             }
         }
@@ -367,19 +352,13 @@ fn render_standard_assertion(
         "starts_with" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let _ = writeln!(
-                    out,
-                    "    assert {field_access}.startswith({expected})  # noqa: S101"
-                );
+                let _ = writeln!(out, "    assert {field_access}.startswith({expected})  # noqa: S101");
             }
         }
         "ends_with" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let _ = writeln!(
-                    out,
-                    "    assert {field_access}.endswith({expected})  # noqa: S101"
-                );
+                let _ = writeln!(out, "    assert {field_access}.endswith({expected})  # noqa: S101");
             }
         }
         "min_length" => {
@@ -559,11 +538,7 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
-    fn make_assertion(
-        assertion_type: &str,
-        field: Option<&str>,
-        value: Option<serde_json::Value>,
-    ) -> Assertion {
+    fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),
@@ -587,8 +562,7 @@ mod tests {
     #[test]
     fn render_assertion_equals_string_uses_strip() {
         let resolver = empty_resolver();
-        let assertion =
-            make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
+        let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
         render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
         assert!(out.contains(".strip()"), "got: {out}");

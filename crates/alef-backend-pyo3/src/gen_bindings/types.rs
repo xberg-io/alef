@@ -774,7 +774,11 @@ pub(super) fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut AHashSe
 
 /// Collect only Named types that appear in `enum_names` (recursing into Vec/Optional/Map).
 /// Used to find enum-typed fields in has_default types for generating (str, Enum) classes.
-pub(super) fn collect_named_types_filtered(ty: &alef_core::ir::TypeRef, enum_names: &AHashSet<&str>, out: &mut AHashSet<String>) {
+pub(super) fn collect_named_types_filtered(
+    ty: &alef_core::ir::TypeRef,
+    enum_names: &AHashSet<&str>,
+    out: &mut AHashSet<String>,
+) {
     use alef_core::ir::TypeRef;
     match ty {
         TypeRef::Named(n) if enum_names.contains(n.as_str()) => {

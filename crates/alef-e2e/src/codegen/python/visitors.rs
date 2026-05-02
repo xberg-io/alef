@@ -6,11 +6,7 @@ use crate::escape::escape_python;
 use crate::fixture::CallbackAction;
 
 /// Emit a Python visitor method for a callback action.
-pub(super) fn emit_python_visitor_method(
-    out: &mut String,
-    method_name: &str,
-    action: &CallbackAction,
-) {
+pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
     let params = match method_name {
         "visit_link" => "self, ctx, href, text, title",
         "visit_image" => "self, ctx, src, alt, title",
@@ -38,10 +34,9 @@ pub(super) fn emit_python_visitor_method(
         "visit_input" => "self, ctx, input_type, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "self, ctx, src",
         "visit_details" => "self, ctx, is_open",
-        "visit_element_end"
-        | "visit_table_end"
-        | "visit_definition_list_end"
-        | "visit_figure_end" => "self, ctx, output, *args",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "self, ctx, output, *args"
+        }
         "visit_list_start" => "self, ctx, ordered, *args",
         "visit_list_end" => "self, ctx, ordered, output, *args",
         _ => "self, ctx, *args",

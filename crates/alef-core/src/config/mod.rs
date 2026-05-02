@@ -24,6 +24,7 @@ pub mod validation;
 pub mod workspace;
 
 // Re-exports for backward compatibility — all types were previously flat in config.rs.
+pub use derive::{derive_go_module_from_repo, derive_repo_org, derive_reverse_dns_package};
 pub use dto::{
     CsharpDtoStyle, DtoConfig, ElixirDtoStyle, GoDtoStyle, JavaDtoStyle, NodeDtoStyle, PhpDtoStyle, PythonDtoStyle,
     RDtoStyle, RubyDtoStyle,
@@ -35,7 +36,6 @@ pub use languages::{
     ElixirConfig, FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, KotlinTarget, NodeConfig, PhpConfig,
     PythonConfig, RConfig, RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
-pub use derive::{derive_go_module_from_repo, derive_repo_org, derive_reverse_dns_package};
 pub use legacy::{LegacyConfigError, LegacyKey, detect_legacy_keys};
 pub use new_config::{NewAlefConfig, ResolveError};
 pub use output::{

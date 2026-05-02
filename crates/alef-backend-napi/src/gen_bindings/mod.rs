@@ -70,11 +70,7 @@ impl Backend for NapiBackend {
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("node"),
-            &config.name,
-            "crates/{name}-node/src/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
         let has_serde = alef_core::config::detect_serde_available(&output_dir);
         let cfg = Self::binding_config(&core_import, &prefix, has_serde);
 
@@ -332,11 +328,7 @@ impl Backend for NapiBackend {
 
         let content = builder.build();
 
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("node"),
-            &config.name,
-            "crates/{name}-node/src/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),
@@ -345,7 +337,11 @@ impl Backend for NapiBackend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
 
         // Separate exports into functions (plain export) and types (export type)
@@ -421,7 +417,11 @@ impl Backend for NapiBackend {
         }])
     }
 
-    fn generate_type_stubs(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_type_stubs(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
         let exclude_functions: ahash::AHashSet<String> = config
             .node
@@ -434,11 +434,7 @@ impl Backend for NapiBackend {
         // `index.d.ts` belongs at the crate root, one level up from `src/`.
         // When the configured path ends in `src/` or `src`, strip that suffix to get the crate root.
         // Falls back to `crates/{name}-node/` if no node output is configured.
-        let src_dir = resolve_output_dir(
-            config.output_paths.get("node"),
-            &config.name,
-            "crates/{name}-node/src/",
-        );
+        let src_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
         let crate_root = {
             let p = PathBuf::from(&src_dir);
             match p.file_name().and_then(|n| n.to_str()) {

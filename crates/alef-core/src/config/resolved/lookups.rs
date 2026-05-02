@@ -59,20 +59,44 @@ impl ResolvedCrateConfig {
     /// Get the extra_lint_paths for a language.
     pub fn extra_lint_paths_for_language(&self, lang: Language) -> &[String] {
         match lang {
-            Language::Python => self.python.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            Language::Python => self
+                .python
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             Language::Node => self.node.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Ruby => self.ruby.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Php => self.php.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            Language::Elixir => self.elixir.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            Language::Elixir => self
+                .elixir
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             Language::Wasm => self.wasm.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Go => self.go.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Java => self.java.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            Language::Csharp => self.csharp.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            Language::Csharp => self
+                .csharp
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             Language::R => self.r.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            Language::Kotlin => self.kotlin.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            Language::Kotlin => self
+                .kotlin
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             Language::Dart => self.dart.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            Language::Swift => self.swift.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            Language::Gleam => self.gleam.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            Language::Swift => self
+                .swift
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            Language::Gleam => self
+                .gleam
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
             Language::Zig => self.zig.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Ffi | Language::Rust => &[],
         }

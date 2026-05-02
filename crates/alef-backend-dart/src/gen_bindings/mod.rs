@@ -4,9 +4,9 @@ mod functions;
 mod render_type;
 mod types;
 
+use crate::naming::dart_style;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, resolve_output_dir};
-use crate::naming::dart_style;
 use alef_core::ir::{ApiSurface, FunctionDef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;

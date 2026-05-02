@@ -83,8 +83,7 @@ pub fn write_alef_toml_version(config_path: &Path) -> Result<()> {
     workspace["alef_version"] = value(cli);
 
     let new_content = doc.to_string();
-    std::fs::write(config_path, &new_content)
-        .with_context(|| format!("failed to write {}", config_path.display()))?;
+    std::fs::write(config_path, &new_content).with_context(|| format!("failed to write {}", config_path.display()))?;
     tracing::info!("Updated {} `[workspace] alef_version` to {cli}", config_path.display());
     Ok(())
 }
@@ -181,7 +180,10 @@ mod tests {
 
         write_alef_toml_version(&path).expect("write ok");
         let updated = fs::read_to_string(&path).unwrap();
-        assert!(updated.contains("[workspace]"), "[workspace] must be inserted: {updated}");
+        assert!(
+            updated.contains("[workspace]"),
+            "[workspace] must be inserted: {updated}"
+        );
         assert!(
             updated.contains(&format!("alef_version = \"{}\"", cli_version())),
             "alef_version must be set under [workspace]: {updated}"

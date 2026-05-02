@@ -1,5 +1,5 @@
-use alef_backend_gleam::naming::gleam_app_name;
 use crate::scaffold_meta;
+use alef_backend_gleam::naming::gleam_app_name;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;

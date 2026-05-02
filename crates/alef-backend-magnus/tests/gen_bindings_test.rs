@@ -1,7 +1,7 @@
 use alef_backend_magnus::MagnusBackend;
 use alef_core::backend::Backend;
-use alef_core::config::new_config::NewAlefConfig;
 use alef_core::config::ResolvedCrateConfig;
+use alef_core::config::new_config::NewAlefConfig;
 use alef_core::ir::*;
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {

@@ -325,6 +325,7 @@ node = "interface"
 ```
 
 The new schema supports multiple crates published from a single workspace. Configuration splits into:
+
 - `[workspace]` — shared defaults (tools, DTO styles, pipelines, formatters).
 - `[[crates]]` — per-crate settings (name, sources, language-specific config, output paths).
 

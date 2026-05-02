@@ -3,8 +3,8 @@
 use crate::type_map::WasmMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::ImplBuilder;
-use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_codegen::type_mapper::TypeMapper;
+use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use std::fmt::Write;
 

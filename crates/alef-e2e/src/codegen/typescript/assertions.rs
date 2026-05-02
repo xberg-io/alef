@@ -40,17 +40,10 @@ pub(super) fn render_assertion(
 }
 
 /// Try to render a synthetic/virtual field assertion. Returns `true` when the field was handled.
-fn render_synthetic_field_assertion(
-    out: &mut String,
-    assertion: &Assertion,
-    result_var: &str,
-    field: &str,
-) -> bool {
+fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field: &str) -> bool {
     match field {
         "chunks_have_content" => {
-            let pred = format!(
-                "({result_var}.chunks ?? []).every((c: {{ content?: string }}) => !!c.content)"
-            );
+            let pred = format!("({result_var}.chunks ?? []).every((c: {{ content?: string }}) => !!c.content)");
             emit_bool_assertion(out, &pred, assertion.assertion_type.as_str(), field);
             true
         }
@@ -75,9 +68,7 @@ fn render_synthetic_field_assertion(
                     format!("{result_var}.every((e: number[]) => e.length > 0)")
                 }
                 "embeddings_finite" => {
-                    format!(
-                        "{result_var}.every((e: number[]) => e.every((v: number) => isFinite(v)))"
-                    )
+                    format!("{result_var}.every((e: number[]) => e.every((v: number) => isFinite(v)))")
                 }
                 "embeddings_non_zero" => {
                     format!("{result_var}.every((e: number[]) => e.some((v: number) => v !== 0))")
@@ -131,10 +122,7 @@ fn render_embeddings_assertion(out: &mut String, assertion: &Assertion, result_v
         "count_min" => {
             if let Some(val) = &assertion.value {
                 let js_val = json_to_js(val);
-                let _ = writeln!(
-                    out,
-                    "    expect({result_var}.length).toBeGreaterThanOrEqual({js_val});"
-                );
+                let _ = writeln!(out, "    expect({result_var}.length).toBeGreaterThanOrEqual({js_val});");
             }
         }
         "not_empty" => {
@@ -190,13 +178,8 @@ fn render_standard_assertion(
                 let js_val = json_to_js(expected);
                 if expected.is_string() {
                     let resolved = assertion.field.as_deref().unwrap_or("");
-                    if !resolved.is_empty()
-                        && field_resolver.is_optional(field_resolver.resolve(resolved))
-                    {
-                        let _ = writeln!(
-                            out,
-                            "    expect(({field_expr} ?? \"\").trim()).toBe({js_val});"
-                        );
+                    if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
+                        let _ = writeln!(out, "    expect(({field_expr} ?? \"\").trim()).toBe({js_val});");
                     } else {
                         let _ = writeln!(out, "    expect({field_expr}.trim()).toBe({js_val});");
                     }
@@ -236,10 +219,7 @@ fn render_standard_assertion(
         "not_empty" => {
             let resolved = assertion.field.as_deref().unwrap_or("");
             if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(
-                    out,
-                    "    expect(({field_expr} ?? \"\").length).toBeGreaterThan(0);"
-                );
+                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBeGreaterThan(0);");
             } else {
                 let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThan(0);");
             }
@@ -290,28 +270,20 @@ fn render_standard_assertion(
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
                 let resolved = assertion.field.as_deref().unwrap_or("");
-                if !resolved.is_empty()
-                    && field_resolver.is_optional(field_resolver.resolve(resolved))
-                {
+                if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
                     let _ = writeln!(
                         out,
                         "    expect(({field_expr} ?? \"\").startsWith({js_val})).toBe(true);"
                     );
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.startsWith({js_val})).toBe(true);"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.startsWith({js_val})).toBe(true);");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
                 }
             }
         }
@@ -334,30 +306,21 @@ fn render_standard_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.length).toBeLessThanOrEqual({n});"
-                    );
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeLessThanOrEqual({n});");
                 }
             }
         }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                let _ = writeln!(
-                    out,
-                    "    expect({field_expr}.endsWith({js_val})).toBe(true);"
-                );
+                let _ = writeln!(out, "    expect({field_expr}.endsWith({js_val})).toBe(true);");
             }
         }
         "matches_regex" => {
@@ -405,10 +368,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
             "count_min" => {
                 if let Some(val) = &assertion.value {
                     let n = val.as_u64().unwrap_or(0);
-                    let _ = writeln!(
-                        out,
-                        "    expect({call_expr}.length).toBeGreaterThanOrEqual({n});"
-                    );
+                    let _ = writeln!(out, "    expect({call_expr}.length).toBeGreaterThanOrEqual({n});");
                 }
             }
             "contains" => {
@@ -421,9 +381,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
                 let _ = writeln!(out, "    expect(() => {{ {call_expr}; }}).toThrow();");
             }
             other_check => {
-                panic!(
-                    "TypeScript e2e generator: unsupported method_result check type: {other_check}"
-                );
+                panic!("TypeScript e2e generator: unsupported method_result check type: {other_check}");
             }
         }
     } else {
@@ -432,11 +390,7 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
 }
 
 /// Build a TypeScript call expression for a method_result assertion on a tree-sitter Tree.
-pub(super) fn build_ts_method_call(
-    result_var: &str,
-    method_name: &str,
-    args: Option<&serde_json::Value>,
-) -> String {
+pub(super) fn build_ts_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
     match method_name {
         "root_child_count" => format!("{result_var}.rootNode.childCount"),
         "root_node_type" => format!("{result_var}.rootNode.type"),
@@ -500,11 +454,7 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
-    fn make_assertion(
-        assertion_type: &str,
-        field: Option<&str>,
-        value: Option<serde_json::Value>,
-    ) -> Assertion {
+    fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),
@@ -528,8 +478,7 @@ mod tests {
     #[test]
     fn render_assertion_equals_string_trims() {
         let resolver = empty_resolver();
-        let assertion =
-            make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
+        let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
         render_assertion(&mut out, &assertion, "result", &resolver);
         assert!(out.contains(".trim()"), "got: {out}");

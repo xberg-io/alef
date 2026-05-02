@@ -76,8 +76,7 @@ pub(super) fn render_embeddings_assertion(out: &mut String, result_var: &str, as
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
                     if n <= 1 {
-                        let _ =
-                            writeln!(out, "    assert!(!{embed_list}.is_empty(), \"expected >= {n}\");");
+                        let _ = writeln!(out, "    assert!(!{embed_list}.is_empty(), \"expected >= {n}\");");
                     } else {
                         let _ = writeln!(
                             out,
@@ -136,12 +135,7 @@ pub(super) fn render_embedding_dimensions(out: &mut String, result_var: &str, as
     }
 }
 
-pub(super) fn render_embedding_quality(
-    out: &mut String,
-    result_var: &str,
-    field: &str,
-    assertion_type: &str,
-) {
+pub(super) fn render_embedding_quality(out: &mut String, result_var: &str, field: &str, assertion_type: &str) {
     let embed_list = result_var;
     let pred = match field {
         "embeddings_valid" => {
@@ -227,11 +221,7 @@ pub(super) fn render_keywords_assertion(out: &mut String, result_var: &str, asse
     }
 }
 
-pub(super) fn render_keywords_count_assertion(
-    out: &mut String,
-    result_var: &str,
-    assertion: &Assertion,
-) {
+pub(super) fn render_keywords_count_assertion(out: &mut String, result_var: &str, assertion: &Assertion) {
     let expr = format!("{result_var}.extracted_keywords.as_ref().map_or(0, |v| v.len())");
     match assertion.assertion_type.as_str() {
         "equals" => {

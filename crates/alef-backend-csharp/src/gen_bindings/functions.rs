@@ -4,7 +4,7 @@ use super::{csharp_file_header, is_bridge_param, pinvoke_param_type, pinvoke_ret
 use alef_codegen::naming::to_csharp_name;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase, ToPascalCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 
 #[allow(clippy::too_many_arguments)]

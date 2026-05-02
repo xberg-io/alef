@@ -5,8 +5,8 @@ pub(super) mod types;
 use functions::gen_function_wrapper;
 use methods::gen_method_wrapper;
 use types::{
-    gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type,
-    gen_opaque_type_free_only, gen_struct_type, gen_unmarshal_bytes_helper,
+    gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
+    gen_struct_type, gen_unmarshal_bytes_helper,
 };
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -192,7 +192,11 @@ impl Backend for GoBackend {
     /// Go bindings are already the public API (single .go file wrapping C FFI).
     /// This returns empty since the binding.go file serves as both the FFI layer
     /// and the high-level public API for consumers.
-    fn generate_public_api(&self, _api: &ApiSurface, _config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         // Go's binding.go IS the public API — no additional wrapper needed.
         Ok(vec![])
     }

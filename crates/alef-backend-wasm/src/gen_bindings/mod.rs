@@ -438,11 +438,7 @@ impl Backend for WasmBackend {
 
         let content = builder.build();
 
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("wasm"),
-            &config.name,
-            "crates/{name}-wasm/src/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("wasm"), &config.name, "crates/{name}-wasm/src/");
 
         let cargo_toml_path = PathBuf::from(&output_dir)
             .parent()
@@ -463,7 +459,11 @@ impl Backend for WasmBackend {
         ])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let wasm_config = config.wasm.as_ref();
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();

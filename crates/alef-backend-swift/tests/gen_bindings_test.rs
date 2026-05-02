@@ -527,10 +527,10 @@ fn output_path_uses_pascal_case_module_name() {
     // The Swift wrapper must be a .swift file with PascalCase module name.
     // When using ResolvedCrateConfig, output_paths["swift"] is set from the template
     // to packages/swift/, so the file lands at packages/swift/DemoCrate.swift.
-    let swift_file = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
     let path = swift_file.path.to_string_lossy();
-    assert!(
-        path.contains("DemoCrate.swift"),
-        "unexpected output path: {path}"
-    );
+    assert!(path.contains("DemoCrate.swift"), "unexpected output path: {path}");
 }

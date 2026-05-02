@@ -23,11 +23,7 @@ pub(super) fn build_typescript_visitor(
 }
 
 /// Emit a TypeScript visitor method for a callback action.
-pub(super) fn emit_typescript_visitor_method(
-    out: &mut String,
-    method_name: &str,
-    action: &CallbackAction,
-) {
+pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
     let camel_method = method_name.to_lower_camel_case();
     let params = match method_name {
         "visit_link" => "ctx, href, text, title",
@@ -56,10 +52,7 @@ pub(super) fn emit_typescript_visitor_method(
         "visit_input" => "ctx, inputType, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
         "visit_details" => "ctx, isOpen",
-        "visit_element_end"
-        | "visit_table_end"
-        | "visit_definition_list_end"
-        | "visit_figure_end" => "ctx, output",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
         "visit_list_start" => "ctx, ordered",
         "visit_list_end" => "ctx, ordered, output",
         _ => "ctx",

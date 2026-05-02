@@ -508,7 +508,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out, "            case VisitResult.Custom c -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(c.markdown());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(c.markdown());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -522,7 +526,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "            case VisitResult.Error e -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(e.message());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(e.message());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -555,7 +563,10 @@ mod tests {
     fn gen_node_context_produces_java_record() {
         let out = gen_node_context("dev.kreuzberg");
         assert!(out.contains("package dev.kreuzberg;"), "must have package decl");
-        assert!(out.contains("public record NodeContext("), "must define NodeContext record");
+        assert!(
+            out.contains("public record NodeContext("),
+            "must define NodeContext record"
+        );
         assert!(out.contains("int nodeType"), "must have nodeType field");
         assert!(out.contains("String tagName"), "must have tagName field");
         assert!(out.contains("boolean isInline"), "must have isInline field");
@@ -564,17 +575,26 @@ mod tests {
     #[test]
     fn gen_visit_result_produces_sealed_interface() {
         let out = gen_visit_result("dev.kreuzberg");
-        assert!(out.contains("public sealed interface VisitResult"), "must define sealed VisitResult");
+        assert!(
+            out.contains("public sealed interface VisitResult"),
+            "must define sealed VisitResult"
+        );
         assert!(out.contains("record Continue()"), "must have Continue variant");
         assert!(out.contains("record Skip()"), "must have Skip variant");
-        assert!(out.contains("record Custom(String markdown)"), "must have Custom variant");
+        assert!(
+            out.contains("record Custom(String markdown)"),
+            "must have Custom variant"
+        );
         assert!(out.contains("record Error(String message)"), "must have Error variant");
     }
 
     #[test]
     fn gen_visitor_interface_has_all_callbacks() {
         let out = gen_visitor_interface("dev.kreuzberg", "Demo");
-        assert!(out.contains("public interface Visitor"), "must define Visitor interface");
+        assert!(
+            out.contains("public interface Visitor"),
+            "must define Visitor interface"
+        );
         assert!(out.contains("visitText"), "must include visitText");
         assert!(out.contains("visitTableRow"), "must include visitTableRow");
         assert!(out.contains("visitFigureEnd"), "must include visitFigureEnd");
@@ -584,7 +604,10 @@ mod tests {
     fn gen_visitor_bridge_produces_class_with_stubs() {
         let out = gen_visitor_bridge("dev.kreuzberg", "Demo");
         assert!(out.contains("final class VisitorBridge"), "must define VisitorBridge");
-        assert!(out.contains("MemorySegment callbacksStruct()"), "must have callbacksStruct method");
+        assert!(
+            out.contains("MemorySegment callbacksStruct()"),
+            "must have callbacksStruct method"
+        );
         assert!(out.contains("Arena.ofConfined()"), "must use confined Arena");
         assert!(out.contains("LINKER.upcallStub("), "must register upcall stubs");
     }
@@ -592,10 +615,7 @@ mod tests {
     #[test]
     fn gen_visitor_bridge_has_encode_visit_result() {
         let out = gen_visitor_bridge("dev.kreuzberg", "Demo");
-        assert!(
-            out.contains("encodeVisitResult"),
-            "must have encodeVisitResult helper"
-        );
+        assert!(out.contains("encodeVisitResult"), "must have encodeVisitResult helper");
         assert!(
             out.contains("VISIT_RESULT_CONTINUE"),
             "must have VISIT_RESULT_CONTINUE constant"

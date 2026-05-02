@@ -268,11 +268,7 @@ impl Backend for ExtendrBackend {
         );
         builder.add_item(&module_items);
 
-        let output_path = resolve_output_dir(
-            config.output_paths.get("r"),
-            &config.name,
-            "packages/r/src/rust/src",
-        );
+        let output_path = resolve_output_dir(config.output_paths.get("r"), &config.name, "packages/r/src/rust/src");
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_path).join("lib.rs"),
@@ -281,7 +277,11 @@ impl Backend for ExtendrBackend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let package_name = config.r_package_name();
         let prefix = config.ffi_prefix();
 
@@ -370,8 +370,8 @@ impl Backend for ExtendrBackend {
 mod tests {
     use super::ExtendrBackend;
     use alef_core::backend::Backend;
-    use alef_core::config::new_config::NewAlefConfig;
     use alef_core::config::ResolvedCrateConfig;
+    use alef_core::config::new_config::NewAlefConfig;
     use alef_core::ir::*;
 
     fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -476,7 +476,10 @@ package_name = "testlib"
         let api = make_api_surface();
         let files = backend.generate_bindings(&api, &config).unwrap();
         let content = &files[0].content;
-        assert!(content.contains("#[extendr]"), "functions must carry #[extendr] attribute");
+        assert!(
+            content.contains("#[extendr]"),
+            "functions must carry #[extendr] attribute"
+        );
         assert!(content.contains("fn process"), "process function must be generated");
     }
 
@@ -501,6 +504,9 @@ package_name = "testlib"
         let files = backend.generate_public_api(&api, &config).unwrap();
         assert_eq!(files.len(), 1);
         let path_str = files[0].path.to_string_lossy();
-        assert!(path_str.ends_with("testlib.R"), "public API file must be {{package_name}}.R");
+        assert!(
+            path_str.ends_with("testlib.R"),
+            "public API file must be {{package_name}}.R"
+        );
     }
 }

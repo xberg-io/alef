@@ -13,7 +13,12 @@ use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::c::CCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-fn resolve_one(cfg: &NewAlefConfig) -> (alef_core::config::ResolvedCrateConfig, alef_core::config::e2e::E2eConfig) {
+fn resolve_one(
+    cfg: &NewAlefConfig,
+) -> (
+    alef_core::config::ResolvedCrateConfig,
+    alef_core::config::e2e::E2eConfig,
+) {
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     (resolved, e2e)

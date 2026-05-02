@@ -13,9 +13,7 @@ use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 
 use super::assertions::render_assertion;
-use super::helpers::{
-    is_skipped, resolve_function_name_for_call, BytesKind, classify_bytes_value,
-};
+use super::helpers::{BytesKind, classify_bytes_value, is_skipped, resolve_function_name_for_call};
 use super::json::json_to_python_literal;
 use super::visitors::emit_python_visitor_method;
 
@@ -106,7 +104,16 @@ pub(super) fn render_test_function(
         return;
     }
 
-    emit_result_and_assertions(out, fixture, e2e_config, call_config, &call_expr, result_var, field_resolver, result_is_simple);
+    emit_result_and_assertions(
+        out,
+        fixture,
+        e2e_config,
+        call_config,
+        &call_expr,
+        result_var,
+        field_resolver,
+        result_is_simple,
+    );
 }
 
 fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {
@@ -190,7 +197,14 @@ fn emit_result_and_assertions(
             }
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver, fields_enum, result_is_simple);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            field_resolver,
+            fields_enum,
+            result_is_simple,
+        );
     }
 }
 
@@ -285,7 +299,11 @@ fn build_args_and_setup(
         }
 
         let literal = json_to_python_literal(value);
-        let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+        let noqa = if literal.contains("/tmp/") {
+            "  # noqa: S108"
+        } else {
+            ""
+        };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
         kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
     }
@@ -307,9 +325,7 @@ fn emit_handle_arg(
 ) {
     let constructor_name = format!("create_{}", arg.name.to_snake_case());
     let config_value = resolve_field(&fixture.input, &arg.field);
-    if config_value.is_null()
-        || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
-    {
+    if config_value.is_null() || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty()) {
         arg_bindings.push(format!("    {var_name} = {constructor_name}(None)"));
     } else if let Some(obj) = config_value.as_object() {
         let kwargs: Vec<String> = obj
@@ -387,7 +403,11 @@ fn emit_json_object_arg(
     match options_via {
         "dict" => {
             let literal = json_to_python_literal(value);
-            let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+            let noqa = if literal.contains("/tmp/") {
+                "  # noqa: S108"
+            } else {
+                ""
+            };
             arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
             kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             true
@@ -468,12 +488,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     fn empty_resolver() -> FieldResolver {
-        FieldResolver::new(
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-        )
+        FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
     #[test]

@@ -11,9 +11,7 @@ use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{
-    AdapterPattern, Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir,
-};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -79,11 +77,7 @@ impl Backend for Pyo3Backend {
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("python"),
-            &config.name,
-            "crates/{name}-py/src/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
         let has_serde = detect_serde_available(&output_dir);
         let mut cfg = Self::binding_config(&core_import, has_serde);
 
@@ -566,7 +560,11 @@ impl Backend for Pyo3Backend {
         }])
     }
 
-    fn generate_type_stubs(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_type_stubs(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let stubs_config = match config.python.as_ref().and_then(|c| c.stubs.as_ref()) {
             Some(s) => s,
             None => return Ok(vec![]),
@@ -587,7 +585,11 @@ impl Backend for Pyo3Backend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_name = config.python_module_name();
 
         // Use stubs output path as the package directory (e.g., packages/python/html_to_markdown/)
@@ -666,7 +668,7 @@ fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct, Pyo3Backend};
+    use super::{Pyo3Backend, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct};
     use alef_core::backend::Backend;
     use alef_core::config::Language;
 

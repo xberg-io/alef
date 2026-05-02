@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::output::{OutputConfig, OutputTemplate};
 use super::extras::Language;
+use super::output::{OutputConfig, OutputTemplate};
 use super::raw_crate::RawCrateConfig;
 
 /// Compute resolved output paths for a crate: per-crate explicit wins; else use template.
@@ -52,7 +52,10 @@ pub(crate) fn per_crate_explicit_output(output: &OutputConfig, lang: &Language) 
 }
 
 /// Merge two HashMaps: per-crate values win; workspace values fill in missing keys.
-pub(crate) fn merge_map<V: Clone>(workspace: &HashMap<String, V>, per_crate: &HashMap<String, V>) -> HashMap<String, V> {
+pub(crate) fn merge_map<V: Clone>(
+    workspace: &HashMap<String, V>,
+    per_crate: &HashMap<String, V>,
+) -> HashMap<String, V> {
     let mut merged = workspace.clone();
     for (k, v) in per_crate {
         merged.insert(k.clone(), v.clone());

@@ -610,13 +610,19 @@ mod tests {
 
     #[test]
     fn visit_table_row_has_is_header() {
-        let row = CALLBACKS.iter().find(|s| s.c_field == "visit_table_row").expect("must have visit_table_row");
+        let row = CALLBACKS
+            .iter()
+            .find(|s| s.c_field == "visit_table_row")
+            .expect("must have visit_table_row");
         assert!(row.has_is_header, "visit_table_row must have has_is_header = true");
     }
 
     #[test]
     fn callbacks_with_no_extra_have_empty_extra_slice() {
-        let start = CALLBACKS.iter().find(|s| s.c_field == "visit_element_start").expect("must have visit_element_start");
+        let start = CALLBACKS
+            .iter()
+            .find(|s| s.c_field == "visit_element_start")
+            .expect("must have visit_element_start");
         assert!(start.extra.is_empty(), "visit_element_start must have no extra params");
     }
 

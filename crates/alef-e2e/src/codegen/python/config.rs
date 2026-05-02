@@ -10,12 +10,7 @@ use super::helpers::resolve_module;
 // pyproject.toml
 // ---------------------------------------------------------------------------
 
-pub(super) fn render_pyproject(
-    pkg_name: &str,
-    pkg_path: &str,
-    pkg_version: &str,
-    dep_mode: DependencyMode,
-) -> String {
+pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: DependencyMode) -> String {
     let (deps_line, uv_sources_block) = match dep_mode {
         DependencyMode::Registry => (
             format!(
@@ -80,10 +75,7 @@ ini_options.timeout = 300
 
 pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
-    let has_http_fixtures = groups
-        .iter()
-        .flat_map(|g| g.fixtures.iter())
-        .any(|f| f.is_http_test());
+    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
     let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
         let cc = e2e_config.resolve_call(f.call.as_deref());

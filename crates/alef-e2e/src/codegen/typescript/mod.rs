@@ -15,12 +15,9 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
-use config::{
-    render_file_setup, render_global_setup, render_package_json, render_tsconfig,
-    render_vitest_config,
-};
-use test_file::resolve_node_function_name;
+use config::{render_file_setup, render_global_setup, render_package_json, render_tsconfig, render_vitest_config};
 pub use test_file::render_test_file;
+use test_file::resolve_node_function_name;
 
 /// TypeScript e2e code generator.
 pub struct TypeScriptCodegen;
@@ -44,13 +41,10 @@ impl E2eCodegen for TypeScriptCodegen {
             .and_then(|o| o.module.as_ref())
             .cloned()
             .unwrap_or_else(|| call.module.clone());
-        let function_name = overrides
-            .and_then(|o| o.function.as_ref())
-            .cloned()
-            .unwrap_or_else(|| {
-                let default_cc = e2e_config.resolve_call(None);
-                resolve_node_function_name(default_cc)
-            });
+        let function_name = overrides.and_then(|o| o.function.as_ref()).cloned().unwrap_or_else(|| {
+            let default_cc = e2e_config.resolve_call(None);
+            resolve_node_function_name(default_cc)
+        });
         let client_factory = overrides.and_then(|o| o.client_factory.as_deref());
 
         // Resolve package config.
@@ -71,8 +65,7 @@ impl E2eCodegen for TypeScriptCodegen {
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
 
-        let has_http_fixtures =
-            groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
             let cc = e2e_config.resolve_call(f.call.as_deref());
@@ -142,10 +135,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 continue;
             }
 
-            let filename = format!(
-                "{}.test.ts",
-                crate::escape::sanitize_filename(&group.category)
-            );
+            let filename = format!("{}.test.ts", crate::escape::sanitize_filename(&group.category));
             let content = render_test_file(
                 "node",
                 &group.category,

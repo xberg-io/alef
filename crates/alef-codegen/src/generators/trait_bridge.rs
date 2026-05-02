@@ -1822,8 +1822,7 @@ mod tests {
             Some("ConversionOptions"),
             None,
         )];
-        let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges)
-            .expect("bridge field match");
+        let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges).expect("bridge field match");
         assert_eq!(m.param_index, 1);
         assert_eq!(m.param_name, "options");
         assert_eq!(m.options_type, "ConversionOptions");

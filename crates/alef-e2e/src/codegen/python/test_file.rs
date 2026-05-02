@@ -11,9 +11,9 @@ use crate::fixture::Fixture;
 use alef_core::hash::{self, CommentStyle};
 
 use super::helpers::{
-    is_skipped, resolve_enum_fields, resolve_function_name, resolve_function_name_for_call,
-    resolve_handle_dict_types, resolve_handle_nested_types, resolve_module, resolve_options_type,
-    resolve_options_via, BytesKind, classify_bytes_value, python_method_helper_import,
+    BytesKind, classify_bytes_value, is_skipped, python_method_helper_import, resolve_enum_fields,
+    resolve_function_name, resolve_function_name_for_call, resolve_handle_dict_types, resolve_handle_nested_types,
+    resolve_module, resolve_options_type, resolve_options_via,
 };
 use super::http::render_http_test_function;
 use super::test_function::render_test_function;

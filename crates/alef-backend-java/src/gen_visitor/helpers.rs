@@ -169,11 +169,7 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
         call_args.join(", ")
     )
     .ok();
-    writeln!(
-        out,
-        "            return encodeVisitResult(result, outCustom, outLen);"
-    )
-    .ok();
+    writeln!(out, "            return encodeVisitResult(result, outCustom, outLen);").ok();
     writeln!(out, "        }} catch (Throwable ignored) {{").ok();
     writeln!(out, "            return 0;").ok();
     writeln!(out, "        }}").ok();
@@ -199,8 +195,8 @@ pub(super) fn raw_var_name(java_name: &str, c_idx: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::callbacks::CALLBACKS;
+    use super::*;
 
     #[test]
     fn stub_var_name_capitalises_first_letter() {
@@ -232,7 +228,10 @@ mod tests {
     fn callback_descriptor_includes_ctx_and_user_data() {
         let spec = &CALLBACKS[0]; // visit_text
         let descriptor = callback_descriptor(spec);
-        assert!(descriptor.contains("FunctionDescriptor.of("), "must be FunctionDescriptor.of");
+        assert!(
+            descriptor.contains("FunctionDescriptor.of("),
+            "must be FunctionDescriptor.of"
+        );
         assert!(descriptor.contains("ValueLayout.JAVA_INT"), "must have int return type");
         // ctx + user_data always present
         assert!(descriptor.contains("ValueLayout.ADDRESS"), "must have ADDRESS layouts");
@@ -242,7 +241,10 @@ mod tests {
     fn callback_method_type_includes_int_return() {
         let spec = &CALLBACKS[0];
         let method_type = callback_method_type(spec);
-        assert!(method_type.contains("MethodType.methodType("), "must be MethodType.methodType");
+        assert!(
+            method_type.contains("MethodType.methodType("),
+            "must be MethodType.methodType"
+        );
         assert!(method_type.contains("int.class"), "must have int return type");
     }
 

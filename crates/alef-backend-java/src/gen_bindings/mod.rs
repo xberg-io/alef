@@ -267,7 +267,11 @@ impl Backend for JavaBackend {
         Ok(files)
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let package = config.java_package();
         let prefix = config.ffi_prefix();
         let main_class = Self::resolve_main_class(api);

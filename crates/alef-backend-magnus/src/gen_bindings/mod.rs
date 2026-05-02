@@ -14,7 +14,6 @@ use std::path::PathBuf;
 
 use crate::type_map::MagnusMapper;
 
-
 /// Names that conflict with magnus imports or generated code.
 /// `Error` conflicts with `magnus::Error`, `init` conflicts with `#[magnus::init]`.
 const MAGNUS_RESERVED_ENUM_NAMES: &[&str] = &["Error"];
@@ -64,11 +63,7 @@ impl Backend for MagnusBackend {
         }
     }
 
-    fn generate_bindings(
-        &self,
-        api: &ApiSurface,
-        config: &ResolvedCrateConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mapper = MagnusMapper;
         let core_import = config.core_import_name();
 
@@ -105,14 +100,14 @@ impl Backend for MagnusBackend {
         }
 
         // Only import HashMap when Map-typed fields or returns are present
-        let has_maps = api
-            .types
-            .iter()
-            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, alef_core::ir::TypeRef::Map(_, _))))
-            || api
-                .functions
+        let has_maps = api.types.iter().any(|t| {
+            t.fields
                 .iter()
-                .any(|f| matches!(&f.return_type, alef_core::ir::TypeRef::Map(_, _)));
+                .any(|f| matches!(&f.ty, alef_core::ir::TypeRef::Map(_, _)))
+        }) || api
+            .functions
+            .iter()
+            .any(|f| matches!(&f.return_type, alef_core::ir::TypeRef::Map(_, _)));
         if has_maps {
             builder.add_import("std::collections::HashMap");
         }
@@ -439,11 +434,7 @@ impl Backend for MagnusBackend {
         version_content.push_str(&format!("  VERSION = \"{version}\"\n"));
         version_content.push_str("end\n");
 
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("ruby"),
-            &config.name,
-            "packages/ruby/lib/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("ruby"), &config.name, "packages/ruby/lib/");
 
         Ok(vec![
             GeneratedFile {
@@ -588,7 +579,10 @@ gem_name = "test_lib"
         let files = backend.generate_public_api(&api, &config).unwrap();
         assert_eq!(files.len(), 2, "must generate main rb file + version file");
         let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
-        assert!(paths.iter().any(|p| p.ends_with("test_lib.rb")), "must have main gem file");
+        assert!(
+            paths.iter().any(|p| p.ends_with("test_lib.rb")),
+            "must have main gem file"
+        );
         assert!(
             paths.iter().any(|p| p.ends_with("version.rb")),
             "must have version file"

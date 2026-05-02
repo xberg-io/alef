@@ -515,8 +515,14 @@ mod tests {
         let spec = make_spec(&trait_def, &bridge_cfg);
 
         let out = generator.gen_vtable_struct(&spec);
-        assert!(out.contains("unsafe impl Send for MlBackendVTable"), "vtable must be Send");
-        assert!(out.contains("unsafe impl Sync for MlBackendVTable"), "vtable must be Sync");
+        assert!(
+            out.contains("unsafe impl Send for MlBackendVTable"),
+            "vtable must be Send"
+        );
+        assert!(
+            out.contains("unsafe impl Sync for MlBackendVTable"),
+            "vtable must be Sync"
+        );
     }
 
     #[test]
@@ -528,7 +534,10 @@ mod tests {
 
         let out = generator.gen_bridge_struct(&spec);
         assert!(out.contains("vtable: MlBackendVTable"), "must hold vtable");
-        assert!(out.contains("user_data: *const std::ffi::c_void"), "must hold user_data");
+        assert!(
+            out.contains("user_data: *const std::ffi::c_void"),
+            "must hold user_data"
+        );
         assert!(out.contains("cached_name: String"), "must hold cached_name");
     }
 
@@ -577,7 +586,10 @@ mod tests {
         let spec = make_spec(&trait_def, &bridge_cfg);
 
         let out = generator.gen_ffi_plugin_impl(&spec).expect("must produce Some");
-        assert!(out.contains("impl my_lib::Plugin for MlBackendBridge"), "must impl correct path");
+        assert!(
+            out.contains("impl my_lib::Plugin for MlBackendBridge"),
+            "must impl correct path"
+        );
         assert!(out.contains("fn name(&self)"), "must have name()");
         assert!(out.contains("fn initialize(&self)"), "must have initialize()");
         assert!(out.contains("fn shutdown(&self)"), "must have shutdown()");

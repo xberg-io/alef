@@ -461,8 +461,14 @@ mod tests {
 
         let out = generator.gen_registration_fn(&spec);
         assert!(out.contains("#[unsafe(no_mangle)]"), "must be no_mangle");
-        assert!(out.contains("extern \"C\" fn ml_register_backend"), "must have correct name");
-        assert!(out.contains("extern \"C\" fn ml_unregister_backend"), "must have unregister fn");
+        assert!(
+            out.contains("extern \"C\" fn ml_register_backend"),
+            "must have correct name"
+        );
+        assert!(
+            out.contains("extern \"C\" fn ml_unregister_backend"),
+            "must have unregister fn"
+        );
     }
 
     #[test]

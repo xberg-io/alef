@@ -5,8 +5,8 @@ use std::fmt::Write as FmtWrite;
 use crate::escape::{escape_python, sanitize_ident};
 use crate::fixture::{Fixture, ValidationErrorExpectation};
 
-use super::json::json_to_python_literal;
 use super::super::client;
+use super::json::json_to_python_literal;
 
 /// Pytest/urllib test renderer.
 ///

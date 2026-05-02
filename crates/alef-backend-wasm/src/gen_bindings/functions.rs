@@ -2,8 +2,8 @@
 
 use crate::type_map::WasmMapper;
 use ahash::AHashSet;
-use alef_codegen::{generators, naming::to_node_name};
 use alef_codegen::type_mapper::TypeMapper;
+use alef_codegen::{generators, naming::to_node_name};
 use alef_core::ir::{FunctionDef, TypeRef};
 
 /// Format a doc string as rustdoc comment lines.
@@ -355,7 +355,9 @@ pub(super) fn gen_function(
                     }
                 }
                 TypeRef::Vec(inner)
-                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.sanitized && p.original_type.is_some() =>
+                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                        && p.sanitized
+                        && p.original_type.is_some() =>
                 {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
@@ -708,4 +710,3 @@ pub(super) fn wasm_wrap_return_fn(
         _ => expr.to_string(),
     }
 }
-

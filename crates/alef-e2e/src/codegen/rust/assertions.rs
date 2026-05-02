@@ -7,15 +7,13 @@ use crate::field_access::FieldResolver;
 use crate::fixture::Assertion;
 
 use super::assertion_helpers::{
-    render_count_equals_assertion, render_count_min_assertion, render_equals_assertion,
-    render_gte_assertion, render_is_empty_assertion, render_method_result_assertion,
-    render_not_empty_assertion,
+    render_count_equals_assertion, render_count_min_assertion, render_equals_assertion, render_gte_assertion,
+    render_is_empty_assertion, render_method_result_assertion, render_not_empty_assertion,
 };
 use super::assertion_synthetic::{
-    numeric_literal, render_chunks_have_content, render_chunks_have_embeddings,
-    render_embedding_dimensions, render_embedding_quality, render_embeddings_assertion,
-    render_keywords_assertion, render_keywords_count_assertion, tree_field_access_expr,
-    value_to_rust_string,
+    numeric_literal, render_chunks_have_content, render_chunks_have_embeddings, render_embedding_dimensions,
+    render_embedding_quality, render_embeddings_assertion, render_keywords_assertion, render_keywords_count_assertion,
+    tree_field_access_expr, value_to_rust_string,
 };
 
 /// Render a single assertion into the test function body.
@@ -119,10 +117,7 @@ pub fn render_assertion(
                 render_embedding_dimensions(out, result_var, assertion);
                 return;
             }
-            "embeddings_valid"
-            | "embeddings_finite"
-            | "embeddings_non_zero"
-            | "embeddings_normalized" => {
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
                 render_embedding_quality(out, result_var, f, assertion.assertion_type.as_str());
                 return;
             }
@@ -362,11 +357,7 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
-    fn make_assertion(
-        assertion_type: &str,
-        field: Option<&str>,
-        value: Option<serde_json::Value>,
-    ) -> Assertion {
+    fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),

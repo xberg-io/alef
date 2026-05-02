@@ -133,7 +133,10 @@ pub(super) fn render_is_empty_assertion(
                 "    assert!({field_access}.as_ref().is_none_or(|v| v.is_empty()), \"expected {f} to be empty or absent\");"
             );
         } else if is_opt {
-            let _ = writeln!(out, "    assert!({field_access}.is_none(), \"expected {f} to be absent\");");
+            let _ = writeln!(
+                out,
+                "    assert!({field_access}.is_none(), \"expected {f} to be absent\");"
+            );
         } else {
             let _ = writeln!(out, "    assert!({field_access}.is_empty(), \"expected empty value\");");
         }
@@ -259,12 +262,7 @@ pub(super) fn render_method_result_assertion(
         // type), methods like `root_child_count` do not exist on `Tree` directly —
         // they are free functions in the crate or are accessed via `root_node()`.
         let call_expr = if result_is_tree {
-            super::assertion_synthetic::build_tree_call_expr(
-                field_access,
-                method_name,
-                assertion.args.as_ref(),
-                module,
-            )
+            super::assertion_synthetic::build_tree_call_expr(field_access, method_name, assertion.args.as_ref(), module)
         } else if let Some(args) = &assertion.args {
             let arg_lit = json_to_rust_literal(args, "");
             format!("{field_access}.{method_name}({arg_lit})")
@@ -274,8 +272,7 @@ pub(super) fn render_method_result_assertion(
 
         // Determine whether the call expression returns a numeric type so we can
         // choose the right comparison strategy for `greater_than_or_equal`.
-        let returns_numeric =
-            result_is_tree && super::assertion_synthetic::is_tree_numeric_method(method_name);
+        let returns_numeric = result_is_tree && super::assertion_synthetic::is_tree_numeric_method(method_name);
 
         let check = assertion.check.as_deref().unwrap_or("is_true");
         match check {
@@ -319,15 +316,12 @@ pub(super) fn render_method_result_assertion(
                     let lit = numeric_literal(val);
                     if returns_numeric {
                         // Numeric return (e.g., child_count()) — always use >= comparison.
-                        let _ =
-                            writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
+                        let _ = writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
                     } else if val.as_u64() == Some(1) {
                         // Clippy prefers !is_empty() over len() >= 1 for collections.
-                        let _ =
-                            writeln!(out, "    assert!(!{call_expr}.is_empty(), \"expected >= 1\");");
+                        let _ = writeln!(out, "    assert!(!{call_expr}.is_empty(), \"expected >= 1\");");
                     } else {
-                        let _ =
-                            writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
+                        let _ = writeln!(out, "    assert!({call_expr} >= {lit}, \"expected >= {lit}\");");
                     }
                 }
             }
@@ -391,11 +385,7 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
-    fn make_assertion(
-        assertion_type: &str,
-        field: Option<&str>,
-        value: Option<serde_json::Value>,
-    ) -> Assertion {
+    fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),
@@ -410,8 +400,7 @@ mod tests {
     #[test]
     fn render_equals_assertion_string_produces_trim_call() {
         let resolver = empty_resolver();
-        let assertion =
-            make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
+        let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
         render_equals_assertion(&mut out, &assertion, "result", false, &resolver);
         assert!(out.contains(".trim()"), "got: {out}");

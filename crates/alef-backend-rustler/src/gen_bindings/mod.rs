@@ -346,7 +346,11 @@ impl Backend for RustlerBackend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         let app_name = config.elixir_app_name();
         let app_module = app_name.to_pascal_case();
         let native_mod = format!("{app_module}.Native");
@@ -519,33 +523,29 @@ impl Backend for RustlerBackend {
 
             // Detect options_field visitor bridge: visitor is embedded in the options struct.
             // Returns (options_param_idx, field_name) when matched.
-            let options_field_bridge: Option<(usize, String)> = func
-                .params
-                .iter()
-                .enumerate()
-                .find_map(|(idx, p)| {
-                    let type_name = match &p.ty {
-                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                        alef_core::ir::TypeRef::Optional(inner) => {
-                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                Some(n.as_str())
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
-                    };
-                    config.trait_bridges.iter().find_map(|b| {
-                        if b.bind_via == BridgeBinding::OptionsField
-                            && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
-                        {
-                            let field = b.resolved_options_field().unwrap_or("visitor").to_string();
-                            Some((idx, field))
+            let options_field_bridge: Option<(usize, String)> = func.params.iter().enumerate().find_map(|(idx, p)| {
+                let type_name = match &p.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
                         } else {
                             None
                         }
-                    })
-                });
+                    }
+                    _ => None,
+                };
+                config.trait_bridges.iter().find_map(|b| {
+                    if b.bind_via == BridgeBinding::OptionsField
+                        && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                    {
+                        let field = b.resolved_options_field().unwrap_or("visitor").to_string();
+                        Some((idx, field))
+                    } else {
+                        None
+                    }
+                })
+            });
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.

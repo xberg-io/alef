@@ -1,7 +1,7 @@
-use alef_backend_php::naming::php_autoload_namespace;
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
+use alef_backend_php::naming::php_autoload_namespace;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{ResolvedCrateConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;

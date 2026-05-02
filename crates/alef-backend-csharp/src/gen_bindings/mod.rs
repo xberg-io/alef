@@ -74,11 +74,7 @@ impl Backend for CsharpBackend {
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
-        let output_dir = resolve_output_dir(
-            config.output_paths.get("csharp"),
-            &config.name,
-            "packages/csharp/",
-        );
+        let output_dir = resolve_output_dir(config.output_paths.get("csharp"), &config.name, "packages/csharp/");
 
         let base_path = PathBuf::from(&output_dir).join(namespace.replace('.', "/"));
 
@@ -309,7 +305,11 @@ impl Backend for CsharpBackend {
     /// The `gen_wrapper_class` (generated in `generate_bindings`) provides high-level public methods
     /// that wrap NativeMethods (P/Invoke), marshal types, and handle errors.
     /// No additional facade is needed.
-    fn generate_public_api(&self, _api: &ApiSurface, _config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         // C#'s wrapper class IS the public API — no additional wrapper needed.
         Ok(vec![])
     }

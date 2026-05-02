@@ -36,8 +36,7 @@ pub fn render_test_file(
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "import {{ describe, expect, it }} from 'vitest';");
 
-    let has_non_http_fixtures =
-        fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
+    let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
     let needs_options_import = options_type.is_some()
         && fixtures.iter().any(|f| {
@@ -209,9 +208,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let _ = writeln!(out, "    expect(response.status).toBe({status});");
 
     if let Some(expected_body) = &http.expected_response.body {
-        if !(expected_body.is_null()
-            || expected_body.is_string() && expected_body.as_str() == Some(""))
-        {
+        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
             if let serde_json::Value::String(s) = expected_body {
                 let escaped = escape_js(s);
                 let _ = writeln!(out, "    const text = await response.text();");
@@ -250,10 +247,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
                 );
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toBeNull();"
-                );
+                let _ = writeln!(out, "    expect(response.headers.get('{escaped_name}')).toBeNull();");
             }
             "<<uuid>>" => {
                 let _ = writeln!(
@@ -281,8 +275,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
             );
             let _ = writeln!(out, "    const errors = body.errors ?? [];");
             for ve in validation_errors {
-                let loc_js: Vec<String> =
-                    ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
+                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
                 let loc_str = loc_js.join(", ");
                 let expanded_msg = expand_fixture_templates(&ve.msg);
                 let escaped_msg = escape_js(&expanded_msg);
@@ -317,8 +310,7 @@ fn render_test_case(
     let async_kw = if is_async { "async " } else { "" };
     let await_kw = if is_async { "await " } else { "" };
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, options_type, &fixture.id);
+    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, options_type, &fixture.id);
 
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
@@ -339,8 +331,7 @@ fn render_test_case(
         format!("{function_name}({final_args})")
     };
 
-    let base_url_expr =
-        format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
+    let base_url_expr = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
@@ -403,11 +394,7 @@ fn render_test_case(
 }
 
 /// Check whether any arg at index `idx` or later has a non-null value in `input`.
-fn has_later_arg_value(
-    args: &[ArgMapping],
-    from_idx: usize,
-    input: &serde_json::Value,
-) -> bool {
+fn has_later_arg_value(args: &[ArgMapping], from_idx: usize, input: &serde_json::Value) -> bool {
     args[from_idx..].iter().any(|arg| {
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
@@ -448,8 +435,7 @@ fn build_args_and_setup(
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
             if config_value.is_null()
-                || config_value.is_object()
-                    && config_value.as_object().is_some_and(|o| o.is_empty())
+                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
                 setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
             } else {
@@ -504,7 +490,6 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,8 +522,14 @@ mod tests {
     #[test]
     fn sanitize_filename_produces_expected_names() {
         let groups = [
-            FixtureGroup { category: "basic tests".to_string(), fixtures: vec![] },
-            FixtureGroup { category: "edge cases".to_string(), fixtures: vec![] },
+            FixtureGroup {
+                category: "basic tests".to_string(),
+                fixtures: vec![],
+            },
+            FixtureGroup {
+                category: "edge cases".to_string(),
+                fixtures: vec![],
+            },
         ];
         let names: Vec<String> = groups
             .iter()

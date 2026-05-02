@@ -475,7 +475,10 @@ mod tests {
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
         let body = generator.gen_vtable_call_body(&method, &spec);
-        assert!(body.contains("Err(Box::from("), "fallible method must return Err on failure");
+        assert!(
+            body.contains("Err(Box::from("),
+            "fallible method must return Err on failure"
+        );
         assert!(body.contains("_out_error"), "must use out_error param");
     }
 

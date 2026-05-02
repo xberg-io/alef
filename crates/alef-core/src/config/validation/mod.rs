@@ -20,8 +20,8 @@ mod preconditions;
 use super::resolved::ResolvedCrateConfig;
 use crate::error::AlefError;
 use preconditions::{
-    build_main_fields, clean_main_fields, lint_main_fields, setup_main_fields, test_main_fields,
-    update_main_fields, validate_section, validate_tools,
+    build_main_fields, clean_main_fields, lint_main_fields, setup_main_fields, test_main_fields, update_main_fields,
+    validate_section, validate_tools,
 };
 
 /// Validate user-supplied pipeline overrides in a resolved per-crate config.
@@ -33,14 +33,13 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
     validate_tools(&config.tools)?;
     validate_section("lint", &config.lint, lint_main_fields, |c| c.precondition.as_deref())?;
     validate_section("test", &config.test, test_main_fields, |c| c.precondition.as_deref())?;
-    validate_section(
-        "build_commands",
-        &config.build_commands,
-        build_main_fields,
-        |c| c.precondition.as_deref(),
-    )?;
+    validate_section("build_commands", &config.build_commands, build_main_fields, |c| {
+        c.precondition.as_deref()
+    })?;
     validate_section("setup", &config.setup, setup_main_fields, |c| c.precondition.as_deref())?;
-    validate_section("update", &config.update, update_main_fields, |c| c.precondition.as_deref())?;
+    validate_section("update", &config.update, update_main_fields, |c| {
+        c.precondition.as_deref()
+    })?;
     validate_section("clean", &config.clean, clean_main_fields, |c| c.precondition.as_deref())?;
     Ok(())
 }
@@ -273,8 +272,7 @@ sources = ["src/lib.rs"]
                 base = base_config()
             );
             let config = resolve_first(&toml);
-            validate_resolved(&config)
-                .unwrap_or_else(|e| panic!("[{section}] with precondition should validate: {e}"));
+            validate_resolved(&config).unwrap_or_else(|e| panic!("[{section}] with precondition should validate: {e}"));
         }
     }
 
@@ -285,9 +283,9 @@ sources = ["src/lib.rs"]
     #[traced_test]
     #[test]
     fn lint_verbatim_default_emits_warning() {
+        use crate::config::extras::Language;
         use crate::config::lint_defaults;
         use crate::config::tools::LangContext;
-        use crate::config::extras::Language;
         let config = resolve_first(base_config());
         let ctx = LangContext::default(&config.tools);
         let default = lint_defaults::default_lint_config(Language::Python, "packages/python", &ctx);
@@ -339,5 +337,4 @@ check = "custom-linter src/"
         validate_resolved(&config).expect("custom node lint must validate");
         assert!(!logs_contain("matches the built-in default"));
     }
-
 }

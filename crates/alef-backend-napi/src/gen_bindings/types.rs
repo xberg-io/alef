@@ -1,7 +1,7 @@
 //! NAPI-RS struct, opaque type, and static method code generation.
 
-use ahash::AHashSet;
 use crate::type_map::NapiMapper;
+use ahash::AHashSet;
 use alef_codegen::builder::{ImplBuilder, StructBuilder};
 use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
