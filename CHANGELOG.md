@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(codegen): resolve C# signature mismatch in generated binding code that surfaced during trait-bridge auto-exclusion wiring.
 
+- fix(backend-rustler): emit `if(...)` function-call form instead of `(if ...)` outer-parens form for JSON-encoding options.
+  `mix format` rewrites `(if x, do: y, else: z)` → `if(x, do: y, else: z)`, so the outer-parens form caused a hash drift
+  on every prek run. The generator now emits the formatter-stable `if(...)` form directly.
+
 - fix(e2e): honor call-level Rust option result flags and use the crate version for registry-mode Rust e2e dependencies when no package override is set.
 - fix(e2e): generate valid Go array guards for length assertions on array element fields.
 - fix(e2e): honor call-level simple/optional result flags in Go tests and render contains assertions for struct slices.
