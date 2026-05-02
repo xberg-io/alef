@@ -18,6 +18,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// Java e2e code generator.
 pub struct JavaCodegen;
@@ -396,22 +397,261 @@ fn render_test_file(
     out
 }
 
-/// Render an HTTP server test method using java.net.http.HttpClient against MOCK_SERVER_URL.
-///
-/// The mock server registers each fixture at `/fixtures/<fixture_id>` and returns the
-/// pre-canned response. Tests send the correct HTTP method and headers to that endpoint.
-fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let method_name = fixture.id.to_upper_camel_case();
-    let description = &fixture.description;
-    let request = &http.request;
-    let expected = &http.expected_response;
-    let method = request.method.to_uppercase();
-    let fixture_id = &fixture.id;
-    let expected_status = expected.status_code;
+// ---------------------------------------------------------------------------
+// HTTP test rendering — shared-driver integration
+// ---------------------------------------------------------------------------
 
-    // Skip tests that expect a 101 Switching Protocols response — Java's HttpClient
-    // cannot handle protocol-switch responses and throws an EOFException.
-    if expected_status == 101 {
+/// Thin renderer that emits JUnit 5 test methods targeting a mock server via
+/// `java.net.http.HttpClient`. Satisfies [`client::TestClientRenderer`] so the
+/// shared [`client::http_call::render_http_test`] driver drives the call sequence.
+struct JavaTestClientRenderer;
+
+impl client::TestClientRenderer for JavaTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "java"
+    }
+
+    /// Convert a fixture id to the UpperCamelCase suffix appended to `test`.
+    ///
+    /// The emitted method name is `test{fn_name}`, matching the pre-existing shape.
+    fn sanitize_test_name(&self, id: &str) -> String {
+        id.to_upper_camel_case()
+    }
+
+    /// Emit `@Test void test{fn_name}() throws Exception {`.
+    ///
+    /// When `skip_reason` is `Some`, the body is a single
+    /// `Assumptions.assumeTrue(false, ...)` call and `render_test_close` closes
+    /// the brace symmetrically.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let _ = writeln!(out, "    @Test");
+        if let Some(reason) = skip_reason {
+            let escaped_reason = escape_java(reason);
+            let _ = writeln!(out, "    void test{fn_name}() {{");
+            let _ = writeln!(out, "        // {description}");
+            let _ = writeln!(
+                out,
+                "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"{escaped_reason}\");"
+            );
+        } else {
+            let _ = writeln!(out, "    void test{fn_name}() throws Exception {{");
+            let _ = writeln!(out, "        // {description}");
+            // Resolve base URL once at the top of every non-skipped test.
+            let _ = writeln!(out, "        String baseUrl = System.getenv(\"MOCK_SERVER_URL\");");
+            let _ = writeln!(out, "        if (baseUrl == null) baseUrl = \"http://localhost:8080\";");
+        }
+    }
+
+    /// Emit the closing `}` for a test method.
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "    }}");
+    }
+
+    /// Emit a `java.net.http.HttpClient` request to `baseUrl + path`.
+    ///
+    /// Binds the response to `response` (the `ctx.response_var`). Java's
+    /// `HttpClient` disallows a fixed set of restricted headers; those are
+    /// silently dropped so the test compiles.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        // Java's HttpClient throws IllegalArgumentException for these headers.
+        const JAVA_RESTRICTED_HEADERS: &[&str] = &["connection", "content-length", "expect", "host", "upgrade"];
+
+        let method = ctx.method.to_uppercase();
+
+        // Build the path, appending query params when present.
+        let path = if ctx.query_params.is_empty() {
+            ctx.path.to_string()
+        } else {
+            let pairs: Vec<String> = ctx
+                .query_params
+                .iter()
+                .map(|(k, v)| {
+                    let val_str = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    format!("{}={}", k, escape_java(&val_str))
+                })
+                .collect();
+            format!("{}?{}", ctx.path, pairs.join("&"))
+        };
+        let _ = writeln!(
+            out,
+            "        java.net.URI uri = java.net.URI.create(baseUrl + \"{path}\");"
+        );
+
+        let body_publisher = if let Some(body) = ctx.body {
+            let json = serde_json::to_string(body).unwrap_or_default();
+            let escaped = escape_java(&json);
+            format!("java.net.http.HttpRequest.BodyPublishers.ofString(\"{escaped}\")")
+        } else {
+            "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
+        };
+
+        let _ = writeln!(out, "        var builder = java.net.http.HttpRequest.newBuilder(uri)");
+        let _ = writeln!(out, "            .method(\"{method}\", {body_publisher});");
+
+        // Content-Type header — only when a body is present.
+        if ctx.body.is_some() {
+            let content_type = ctx.content_type.unwrap_or("application/json");
+            // Only emit when not already in ctx.headers (avoid duplicate Content-Type).
+            if !ctx.headers.keys().any(|k| k.to_lowercase() == "content-type") {
+                let _ = writeln!(
+                    out,
+                    "        builder = builder.header(\"Content-Type\", \"{content_type}\");"
+                );
+            }
+        }
+
+        // Explicit request headers — skip Java-restricted ones.
+        for (name, value) in ctx.headers {
+            if JAVA_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
+                continue;
+            }
+            let escaped_name = escape_java(name);
+            let escaped_value = escape_java(value);
+            let _ = writeln!(
+                out,
+                "        builder = builder.header(\"{escaped_name}\", \"{escaped_value}\");"
+            );
+        }
+
+        // Cookies as a single `Cookie` header.
+        if !ctx.cookies.is_empty() {
+            let cookie_str: Vec<String> = ctx.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            let cookie_header = escape_java(&cookie_str.join("; "));
+            let _ = writeln!(
+                out,
+                "        builder = builder.header(\"Cookie\", \"{cookie_header}\");"
+            );
+        }
+
+        let response_var = ctx.response_var;
+        let _ = writeln!(
+            out,
+            "        var {response_var} = java.net.http.HttpClient.newHttpClient()"
+        );
+        let _ = writeln!(
+            out,
+            "            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());"
+        );
+    }
+
+    /// Emit `assertEquals(status, response.statusCode(), ...)`.
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let _ = writeln!(
+            out,
+            "        assertEquals({status}, {response_var}.statusCode(), \"status code mismatch\");"
+        );
+    }
+
+    /// Emit a header assertion using `response.headers().firstValue(...)`.
+    ///
+    /// Handles special tokens: `<<present>>`, `<<absent>>`, `<<uuid>>`.
+    fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
+        let escaped_name = escape_java(name);
+        match expected {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isPresent(), \"header {escaped_name} should be present\");"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isEmpty(), \"header {escaped_name} should be absent\");"
+                );
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").matches(\"[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}\"), \"header {escaped_name} should be a UUID\");"
+                );
+            }
+            literal => {
+                let escaped_value = escape_java(literal);
+                let _ = writeln!(
+                    out,
+                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\");"
+                );
+            }
+        }
+    }
+
+    /// Emit a JSON body equality assertion using Jackson's `MAPPER.readTree`.
+    fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        match expected {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let json_str = serde_json::to_string(expected).unwrap_or_default();
+                let escaped = escape_java(&json_str);
+                let _ = writeln!(out, "        var bodyJson = MAPPER.readTree({response_var}.body());");
+                let _ = writeln!(out, "        var expectedJson = MAPPER.readTree(\"{escaped}\");");
+                let _ = writeln!(out, "        assertEquals(expectedJson, bodyJson, \"body mismatch\");");
+            }
+            serde_json::Value::String(s) => {
+                let escaped = escape_java(s);
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");"
+                );
+            }
+            other => {
+                let escaped = escape_java(&other.to_string());
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");"
+                );
+            }
+        }
+    }
+
+    /// Emit partial JSON body assertions: parse once, then assert each expected field.
+    fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(out, "        var partialJson = MAPPER.readTree({response_var}.body());");
+            for (key, val) in obj {
+                let escaped_key = escape_java(key);
+                let json_str = serde_json::to_string(val).unwrap_or_default();
+                let escaped_val = escape_java(&json_str);
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(MAPPER.readTree(\"{escaped_val}\"), partialJson.get(\"{escaped_key}\"), \"body field '{escaped_key}' mismatch\");"
+                );
+            }
+        }
+    }
+
+    /// Emit validation-error assertions: parse the body and check each expected message.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        response_var: &str,
+        errors: &[crate::fixture::ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(out, "        var veBody = {response_var}.body();");
+        for err in errors {
+            let escaped_msg = escape_java(&err.msg);
+            let _ = writeln!(
+                out,
+                "        assertTrue(veBody.contains(\"{escaped_msg}\"), \"expected validation error message: {escaped_msg}\");"
+            );
+        }
+    }
+}
+
+/// Render an HTTP server test method using `java.net.http.HttpClient` against
+/// `MOCK_SERVER_URL`. Delegates to the shared
+/// [`client::http_call::render_http_test`] driver via [`JavaTestClientRenderer`].
+///
+/// The one Java-specific pre-condition — HTTP 101 (WebSocket upgrade) causing an
+/// `EOFException` in `HttpClient` — is handled here before delegating.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    // HTTP 101 (WebSocket upgrade) causes Java's HttpClient to throw EOFException.
+    // Emit an assumeTrue(false, ...) stub so the test is skipped rather than failing.
+    if http.expected_response.status_code == 101 {
+        let method_name = fixture.id.to_upper_camel_case();
+        let description = &fixture.description;
         let _ = writeln!(out, "    @Test");
         let _ = writeln!(out, "    void test{method_name}() {{");
         let _ = writeln!(out, "        // {description}");
@@ -423,124 +663,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         return;
     }
 
-    let _ = writeln!(out, "    @Test");
-    let _ = writeln!(out, "    void test{method_name}() throws Exception {{");
-    let _ = writeln!(out, "        // {description}");
-    let _ = writeln!(out, "        String baseUrl = System.getenv(\"MOCK_SERVER_URL\");",);
-    let _ = writeln!(out, "        if (baseUrl == null) baseUrl = \"http://localhost:8080\";");
-
-    // The mock server serves each fixture at /fixtures/<fixture_id>.
-    // We send the correct HTTP method and headers to that endpoint.
-    let _ = writeln!(
-        out,
-        "        java.net.URI uri = java.net.URI.create(baseUrl + \"/fixtures/{fixture_id}\");"
-    );
-
-    // Build request.
-    let body_publisher = if let Some(body) = &request.body {
-        let json = serde_json::to_string(body).unwrap_or_default();
-        let escaped = escape_java(&json);
-        format!("java.net.http.HttpRequest.BodyPublishers.ofString(\"{escaped}\")")
-    } else {
-        "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
-    };
-
-    let _ = writeln!(out, "        var builder = java.net.http.HttpRequest.newBuilder(uri)");
-    let _ = writeln!(out, "            .method(\"{method}\", {body_publisher});");
-
-    // Java's HttpClient restricts certain headers that cannot be set programmatically.
-    const JAVA_RESTRICTED_HEADERS: &[&str] = &["connection", "content-length", "expect", "host", "upgrade"];
-
-    // Add headers.
-    let content_type = request.content_type.as_deref().unwrap_or("application/json");
-    if request.body.is_some() {
-        let _ = writeln!(
-            out,
-            "        builder = builder.header(\"Content-Type\", \"{content_type}\");"
-        );
-    }
-    for (name, value) in &request.headers {
-        // Skip restricted headers — Java's HttpClient throws IllegalArgumentException for these.
-        if JAVA_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
-            continue;
-        }
-        let escaped_name = escape_java(name);
-        let escaped_value = escape_java(value);
-        let _ = writeln!(
-            out,
-            "        builder = builder.header(\"{escaped_name}\", \"{escaped_value}\");"
-        );
-    }
-
-    // Add cookies as Cookie header.
-    if !request.cookies.is_empty() {
-        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        let cookie_header = escape_java(&cookie_str.join("; "));
-        let _ = writeln!(
-            out,
-            "        builder = builder.header(\"Cookie\", \"{cookie_header}\");"
-        );
-    }
-
-    let _ = writeln!(out, "        var response = java.net.http.HttpClient.newHttpClient()");
-    let _ = writeln!(
-        out,
-        "            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());"
-    );
-
-    // Assert status code.
-    let _ = writeln!(
-        out,
-        "        assertEquals({expected_status}, response.statusCode(), \"status code mismatch\");"
-    );
-
-    // Assert body if expected.
-    if let Some(expected_body) = &expected.body {
-        match expected_body {
-            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
-                let escaped = escape_java(&json_str);
-                let _ = writeln!(out, "        var bodyJson = MAPPER.readTree(response.body());");
-                let _ = writeln!(out, "        var expectedJson = MAPPER.readTree(\"{escaped}\");");
-                let _ = writeln!(out, "        assertEquals(expectedJson, bodyJson, \"body mismatch\");");
-            }
-            serde_json::Value::String(s) => {
-                let escaped = escape_java(s);
-                let _ = writeln!(
-                    out,
-                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\");"
-                );
-            }
-            other => {
-                let escaped = escape_java(&other.to_string());
-                let _ = writeln!(
-                    out,
-                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\");"
-                );
-            }
-        }
-    }
-
-    // Assert response headers if specified (skip special tokens and non-applicable headers).
-    for (name, value) in &expected.headers {
-        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
-            // Skip special-token assertions for now.
-            continue;
-        }
-        // content-encoding is set by the real spikard server (compression middleware)
-        // but the mock server doesn't compress response bodies, so skip this assertion.
-        if name.to_lowercase() == "content-encoding" {
-            continue;
-        }
-        let escaped_name = escape_java(name);
-        let escaped_value = escape_java(value);
-        let _ = writeln!(
-            out,
-            "        assertTrue(response.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\");"
-        );
-    }
-
-    let _ = writeln!(out, "    }}");
+    client::http_call::render_http_test(out, &JavaTestClientRenderer, fixture);
 }
 
 #[allow(clippy::too_many_arguments)]

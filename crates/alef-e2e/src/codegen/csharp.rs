@@ -4,9 +4,9 @@
 //! files from JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 use crate::config::E2eConfig;
-use crate::escape::{escape_csharp, sanitize_filename};
+use crate::escape::{escape_csharp, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -18,6 +18,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// C# e2e code generator.
 pub struct CSharpCodegen;
@@ -252,108 +253,216 @@ fn render_test_file(
     out
 }
 
-/// Render an HTTP server test method using System.Net.Http.HttpClient against MOCK_SERVER_URL.
-fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let method_name = fixture.id.to_upper_camel_case();
-    let description = &fixture.description;
-    let request = &http.request;
-    let expected = &http.expected_response;
-    // C#'s System.Net.Http.HttpMethod static properties are PascalCase: Get, Post, Put, Delete, ...
-    let method = {
-        let lower = request.method.to_ascii_lowercase();
-        let mut chars = lower.chars();
-        match chars.next() {
-            Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
-            None => String::new(),
-        }
-    };
-    let fixture_id = &fixture.id;
-    let expected_status = expected.status_code;
+// ---------------------------------------------------------------------------
+// HTTP test rendering — shared-driver integration
+// ---------------------------------------------------------------------------
 
-    let _ = writeln!(out, "    [Fact]");
-    let _ = writeln!(out, "    public async Task Test_{method_name}()");
-    let _ = writeln!(out, "    {{");
-    let _ = writeln!(out, "        // {description}");
-    let _ = writeln!(
-        out,
-        "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
-    );
-    // Disable auto-follow so redirect-status fixtures (3xx) can assert the
-    // server's status code rather than the followed-target's status.
-    let _ = writeln!(
-        out,
-        "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
-    );
-    let _ = writeln!(
-        out,
-        "        using var client = new System.Net.Http.HttpClient(handler);"
-    );
-    let _ = writeln!(
-        out,
-        "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}/fixtures/{fixture_id}\");"
-    );
+/// Renderer that emits xUnit `[Fact] public async Task Test_*()` methods using
+/// `System.Net.Http.HttpClient` against the mock server at `MOCK_SERVER_URL`.
+/// Satisfies [`client::TestClientRenderer`] so the shared
+/// [`client::http_call::render_http_test`] driver drives the call sequence.
+struct CSharpTestClientRenderer;
 
-    // Set Content-Type header if there's a body.
-    let content_type = request.content_type.as_deref().unwrap_or("application/json");
-    if request.body.is_some() {
-        let json_str = serde_json::to_string(&request.body).unwrap_or_default();
-        let escaped = escape_csharp(&json_str);
-        let _ = writeln!(
-            out,
-            "        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");"
-        );
+/// C# HttpMethod static properties are PascalCase (Get, Post, Put, Delete, …).
+fn to_csharp_http_method(method: &str) -> String {
+    let lower = method.to_ascii_lowercase();
+    let mut chars = lower.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Headers that belong to `request.Content.Headers` rather than `request.Headers`.
+///
+/// Adding these to `request.Headers` causes .NET to throw "Misused header name".
+const CSHARP_RESTRICTED_REQUEST_HEADERS: &[&str] = &[
+    "content-length",
+    "host",
+    "connection",
+    "expect",
+    "transfer-encoding",
+    "upgrade",
+    // Content-Type is owned by request.Content.Headers and is set when
+    // StringContent is constructed; adding it to request.Headers throws.
+    "content-type",
+    // Other entity headers also belong to request.Content.Headers.
+    "content-encoding",
+    "content-language",
+    "content-location",
+    "content-md5",
+    "content-range",
+    "content-disposition",
+];
+
+/// Whether `name` (any case) belongs to `response.Content.Headers` rather than
+/// `response.Headers`. Picking the wrong collection causes .NET to throw
+/// "Misused header name".
+fn is_csharp_content_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "content-type"
+            | "content-length"
+            | "content-encoding"
+            | "content-language"
+            | "content-location"
+            | "content-md5"
+            | "content-range"
+            | "content-disposition"
+            | "expires"
+            | "last-modified"
+            | "allow"
+    )
+}
+
+impl client::TestClientRenderer for CSharpTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "csharp"
     }
 
-    // Add headers (skip restricted headers).
-    const CSHARP_RESTRICTED_HEADERS: &[&str] = &[
-        "content-length",
-        "host",
-        "connection",
-        "expect",
-        "transfer-encoding",
-        "upgrade",
-        // Content-Type is owned by request.Content.Headers and is set when
-        // StringContent is constructed; adding it to request.Headers throws.
-        "content-type",
-        // Other entity headers also belong to request.Content.Headers.
-        "content-encoding",
-        "content-language",
-        "content-location",
-        "content-md5",
-        "content-range",
-        "content-disposition",
-    ];
+    /// Convert a fixture id to the PascalCase identifier used in `Test_{name}`.
+    fn sanitize_test_name(&self, id: &str) -> String {
+        id.to_upper_camel_case()
+    }
 
-    for (name, value) in &request.headers {
-        if CSHARP_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
-            continue;
+    /// Emit `[Fact]` (or `[Fact(Skip = "…")]` for skipped tests), the method
+    /// signature, the opening brace, and the description comment.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        if let Some(reason) = skip_reason {
+            let escaped_reason = escape_csharp(reason);
+            let _ = writeln!(out, "    [Fact(Skip = \"{escaped_reason}\")]");
+            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
+        } else {
+            let _ = writeln!(out, "    [Fact]");
+            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
         }
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        // {description}");
+    }
+
+    /// Emit the closing `}` for a test method.
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "    }}");
+    }
+
+    /// Emit the `HttpRequestMessage` construction, headers, cookies, body, and
+    /// `var response = await client.SendAsync(request)`.
+    ///
+    /// The fixture path follows the mock-server convention `/fixtures/<id>`.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = to_csharp_http_method(ctx.method);
+        let path = escape_csharp(ctx.path);
+
+        let _ = writeln!(
+            out,
+            "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
+        );
+        // Disable auto-follow so redirect-status fixtures (3xx) can assert the
+        // server's status code rather than the followed-target's status.
+        let _ = writeln!(
+            out,
+            "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
+        );
+        let _ = writeln!(
+            out,
+            "        using var client = new System.Net.Http.HttpClient(handler);"
+        );
+        let _ = writeln!(
+            out,
+            "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");"
+        );
+
+        // Set body + Content-Type when a request body is present.
+        if let Some(body) = ctx.body {
+            let content_type = ctx.content_type.unwrap_or("application/json");
+            let json_str = serde_json::to_string(body).unwrap_or_default();
+            let escaped = escape_csharp(&json_str);
+            let _ = writeln!(
+                out,
+                "        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");"
+            );
+        }
+
+        // Add request headers (skip restricted headers that belong to Content.Headers).
+        for (name, value) in ctx.headers {
+            if CSHARP_RESTRICTED_REQUEST_HEADERS.contains(&name.to_lowercase().as_str()) {
+                continue;
+            }
+            let escaped_name = escape_csharp(name);
+            let escaped_value = escape_csharp(value);
+            let _ = writeln!(
+                out,
+                "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");"
+            );
+        }
+
+        // Combine cookies into a single `Cookie` header.
+        if !ctx.cookies.is_empty() {
+            let mut pairs: Vec<String> = ctx.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            pairs.sort();
+            let cookie_header = escape_csharp(&pairs.join("; "));
+            let _ = writeln!(out, "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");");
+        }
+
+        let _ = writeln!(out, "        var response = await client.SendAsync(request);");
+    }
+
+    /// Emit `Assert.Equal(status, (int)response.StatusCode)`.
+    fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
+        let _ = writeln!(out, "        Assert.Equal({status}, (int)response.StatusCode);");
+    }
+
+    /// Emit a response-header assertion.
+    ///
+    /// Handles special tokens: `<<present>>`, `<<absent>>`, `<<uuid>>`.
+    /// Picks `response.Content.Headers` vs `response.Headers` based on the header name.
+    fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
+        let target = if is_csharp_content_header(name) {
+            "response.Content.Headers"
+        } else {
+            "response.Headers"
+        };
         let escaped_name = escape_csharp(name);
-        let escaped_value = escape_csharp(value);
-        let _ = writeln!(
-            out,
-            "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");"
-        );
+        match expected {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "        Assert.True({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be present\");"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(
+                    out,
+                    "        Assert.False({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be absent\");"
+                );
+            }
+            "<<uuid>>" => {
+                // UUID regex: 8-4-4-4-12 hex groups.
+                let _ = writeln!(
+                    out,
+                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(\", \", _uuidHdr), @\"^[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}$\"), \"header {escaped_name} is not a UUID\");"
+                );
+            }
+            literal => {
+                // Use a deterministic local-variable name derived from the header name so
+                // multiple header assertions in the same method body do not redeclare.
+                let var_name = format!("hdr{}", sanitize_ident(name));
+                let escaped_value = escape_csharp(literal);
+                let _ = writeln!(
+                    out,
+                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
+                );
+            }
+        }
     }
 
-    // Add cookies as Cookie header.
-    if !request.cookies.is_empty() {
-        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        let cookie_header = escape_csharp(&cookie_str.join("; "));
-        let _ = writeln!(out, "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");");
-    }
-
-    let _ = writeln!(out, "        var response = await client.SendAsync(request);");
-    let _ = writeln!(
-        out,
-        "        Assert.Equal({expected_status}, (int)response.StatusCode);"
-    );
-
-    // Assert body if expected.
-    if let Some(expected_body) = &expected.body {
-        match expected_body {
+    /// Emit a JSON body equality assertion via `JsonDocument`.
+    ///
+    /// Plain-string bodies are compared with `Assert.Equal` after trimming.
+    fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        match expected {
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let json_str = serde_json::to_string(expected).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
                 let _ = writeln!(
                     out,
@@ -388,54 +497,60 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         }
     }
 
-    // Assert response headers if specified (skip special tokens). Use unique
-    // variable names per assertion since `out var` introduces a new local in
-    // method scope and C# disallows redeclaration.
-    //
-    // HttpResponseMessage splits headers between `.Headers` (general HTTP
-    // headers like Cache-Control) and `.Content.Headers` (entity headers like
-    // Content-Type, Content-Length, Content-Encoding). Pick the right one or
-    // .NET throws "Misused header name".
-    let mut header_idx = 0usize;
-    for (name, value) in &expected.headers {
-        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
-            continue;
+    /// Emit per-field equality assertions for a partial body match.
+    ///
+    /// Uses a separate `partialBodyText` local so it does not collide with
+    /// `bodyText` if `render_assert_json_body` was also called.
+    fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(
+                out,
+                "        var partialBodyText = await response.Content.ReadAsStringAsync();"
+            );
+            let _ = writeln!(
+                out,
+                "        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;"
+            );
+            for (key, val) in obj {
+                let escaped_key = escape_csharp(key);
+                let json_str = serde_json::to_string(val).unwrap_or_default();
+                let escaped_val = escape_csharp(&json_str);
+                let var_name = format!("expected{}", key.to_upper_camel_case());
+                let _ = writeln!(
+                    out,
+                    "        var {var_name} = JsonDocument.Parse(\"{escaped_val}\").RootElement;"
+                );
+                let _ = writeln!(
+                    out,
+                    "        Assert.True(partialBody.TryGetProperty(\"{escaped_key}\", out var _partialProp{var_name}) && _partialProp{var_name}.GetRawText() == {var_name}.GetRawText(), \"partial body field '{escaped_key}' mismatch\");"
+                );
+            }
         }
-        // Skip content-encoding since the mock server doesn't compress.
-        if name.to_lowercase() == "content-encoding" {
-            continue;
-        }
-        let lower = name.to_ascii_lowercase();
-        let is_content_header = matches!(
-            lower.as_str(),
-            "content-type"
-                | "content-length"
-                | "content-encoding"
-                | "content-language"
-                | "content-location"
-                | "content-md5"
-                | "content-range"
-                | "content-disposition"
-                | "expires"
-                | "last-modified"
-                | "allow"
-        );
-        let target = if is_content_header {
-            "response.Content.Headers"
-        } else {
-            "response.Headers"
-        };
-        let escaped_name = escape_csharp(name);
-        let escaped_value = escape_csharp(value);
-        let var_name = format!("hdr{header_idx}");
-        header_idx += 1;
-        let _ = writeln!(
-            out,
-            "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
-        );
     }
 
-    let _ = writeln!(out, "    }}");
+    /// Emit validation-error assertions by checking each expected `msg` string
+    /// appears in the JSON-encoded body.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        _response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(
+            out,
+            "        var validationBodyText = await response.Content.ReadAsStringAsync();"
+        );
+        for err in errors {
+            let escaped_msg = escape_csharp(&err.msg);
+            let _ = writeln!(out, "        Assert.Contains(\"{escaped_msg}\", validationBodyText);");
+        }
+    }
+}
+
+/// Render an HTTP server test method using the shared [`client::http_call::render_http_test`]
+/// driver via [`CSharpTestClientRenderer`].
+fn render_http_test_method(out: &mut String, fixture: &Fixture, _http: &HttpFixture) {
+    client::http_call::render_http_test(out, &CSharpTestClientRenderer, fixture);
 }
 
 #[allow(clippy::too_many_arguments)]

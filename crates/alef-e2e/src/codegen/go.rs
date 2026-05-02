@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -14,6 +14,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// Go e2e code generator.
 pub struct GoCodegen;
@@ -165,8 +166,28 @@ fn render_test_file(
     });
 
     // Determine if we need "encoding/json" (handle args with non-null config,
-    // or json_object args that will be unmarshalled into a typed struct).
+    // json_object args that will be unmarshalled into a typed struct, or HTTP
+    // body/partial/validation-error assertions that use json.Unmarshal).
     let needs_json = fixtures.iter().any(|f| {
+        // HTTP body assertions use json.Unmarshal for Object/Array bodies;
+        // partial body and validation-error assertions always use json.Unmarshal.
+        if let Some(http) = &f.http {
+            let body_needs_json = http
+                .expected_response
+                .body
+                .as_ref()
+                .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
+            let partial_needs_json = http.expected_response.body_partial.is_some();
+            let ve_needs_json = http
+                .expected_response
+                .validation_errors
+                .as_ref()
+                .is_some_and(|v| !v.is_empty());
+            if body_needs_json || partial_needs_json || ve_needs_json {
+                return true;
+            }
+        }
+
         let call = e2e_config.resolve_call(f.call.as_deref());
         let call_args = &call.args;
         // handle args with non-null config value
@@ -274,19 +295,20 @@ fn render_test_file(
     // Determine if we need "net/http" and "io" (HTTP server tests via HTTP client).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
     let needs_http = has_http_fixtures;
-    // io.ReadAll is only emitted when an HTTP fixture has a body assertion.
-    let needs_io = fixtures
-        .iter()
-        .any(|f| f.http.as_ref().is_some_and(|h| h.expected_response.body.is_some()));
+    // io.ReadAll is emitted for every HTTP fixture (render_call always reads the body).
+    let needs_io = has_http_fixtures;
 
-    // Determine if we need "reflect" (for HTTP response body JSON comparison).
+    // Determine if we need "reflect" (for HTTP response body JSON comparison
+    // and partial-body assertions, both of which use reflect.DeepEqual).
     let needs_reflect = fixtures.iter().any(|f| {
         if let Some(http) = &f.http {
-            if let Some(body) = &http.expected_response.body {
-                matches!(body, serde_json::Value::Object(_) | serde_json::Value::Array(_))
-            } else {
-                false
-            }
+            let body_needs_reflect = http
+                .expected_response
+                .body
+                .as_ref()
+                .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
+            let partial_needs_reflect = http.expected_response.body_partial.is_some();
+            body_needs_reflect || partial_needs_reflect
         } else {
             false
         }
@@ -368,9 +390,9 @@ fn render_test_function(
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
 
-    // Delegate HTTP fixtures to the HTTP-specific renderer.
-    if let Some(http) = &fixture.http {
-        render_http_test_function(out, fixture, http);
+    // Delegate HTTP fixtures to the shared driver via GoTestClientRenderer.
+    if fixture.http.is_some() {
+        render_http_test_function(out, fixture);
         return;
     }
 
@@ -667,107 +689,180 @@ fn render_test_function(
 
 /// Render an HTTP server test function using net/http against MOCK_SERVER_URL.
 ///
-/// The mock server registers each fixture at `/fixtures/<fixture_id>` and returns the
-/// pre-canned response. Tests send the correct HTTP method and headers to that endpoint.
-fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let fn_name = fixture.id.to_upper_camel_case();
-    let description = &fixture.description;
-    let request = &http.request;
-    let expected = &http.expected_response;
-    let method = request.method.to_uppercase();
-    let fixture_id = &fixture.id;
-    let expected_status = expected.status_code;
+/// Delegates to the shared driver [`client::http_call::render_http_test`] via
+/// [`GoTestClientRenderer`]. The emitted test shape is unchanged: `func Test_<Name>(t *testing.T)`
+/// with a `net/http` client that hits `$MOCK_SERVER_URL/fixtures/<id>`.
+fn render_http_test_function(out: &mut String, fixture: &Fixture) {
+    client::http_call::render_http_test(out, &GoTestClientRenderer, fixture);
+}
 
-    let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
-    let _ = writeln!(out, "\t// {description}");
-    let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
-    let _ = writeln!(out, "\tif baseURL == \"\" {{");
-    let _ = writeln!(out, "\t\tbaseURL = \"http://localhost:8080\"");
-    let _ = writeln!(out, "\t}}");
+// ---------------------------------------------------------------------------
+// HTTP test rendering — GoTestClientRenderer
+// ---------------------------------------------------------------------------
 
-    // Build request body.
-    let body_expr = if let Some(body) = &request.body {
-        let json = serde_json::to_string(body).unwrap_or_default();
-        let escaped = go_string_literal(&json);
-        format!("strings.NewReader({})", escaped)
-    } else {
-        "strings.NewReader(\"\")".to_string()
-    };
+/// Go `net/http` test renderer.
+///
+/// Go HTTP e2e tests send a request to `$MOCK_SERVER_URL/fixtures/<id>` using
+/// the standard library `net/http` client. The trait primitives emit the
+/// request-build, response-capture, and assertion code that the previous
+/// monolithic renderer produced, so generated output is unchanged after the
+/// migration.
+struct GoTestClientRenderer;
 
-    let _ = writeln!(out, "\tbody := {body_expr}");
-    let _ = writeln!(
-        out,
-        "\treq, err := http.NewRequest(\"{method}\", baseURL+\"/fixtures/{fixture_id}\", body)"
-    );
-    let _ = writeln!(out, "\tif err != nil {{");
-    let _ = writeln!(out, "\t\tt.Fatalf(\"new request failed: %v\", err)");
-    let _ = writeln!(out, "\t}}");
-
-    // Set headers.
-    let content_type = request.content_type.as_deref().unwrap_or("application/json");
-    if request.body.is_some() {
-        let _ = writeln!(out, "\treq.Header.Set(\"Content-Type\", \"{content_type}\")");
+impl client::TestClientRenderer for GoTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "go"
     }
 
-    for (name, value) in &request.headers {
-        let escaped_name = go_string_literal(name);
-        let escaped_value = go_string_literal(value);
-        let _ = writeln!(out, "\treq.Header.Set({escaped_name}, {escaped_value})");
+    /// Go test names use `UpperCamelCase` so they form valid exported identifiers
+    /// (e.g. `Test_MyFixtureId`). Override the default `sanitize_ident` which
+    /// produces `lower_snake_case`.
+    fn sanitize_test_name(&self, id: &str) -> String {
+        id.to_upper_camel_case()
     }
 
-    // Add cookies.
-    if !request.cookies.is_empty() {
-        for (name, value) in &request.cookies {
-            let escaped_name = go_string_literal(name);
-            let escaped_value = go_string_literal(value);
-            let _ = writeln!(
-                out,
-                "\treq.AddCookie(&http.Cookie{{Name: {escaped_name}, Value: {escaped_value}}})"
-            );
+    /// Emit `func Test_<fn_name>(t *testing.T) {`, a description comment, and the
+    /// `baseURL` / request scaffolding. Skipped fixtures get `t.Skip(...)` inline.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
+        let _ = writeln!(out, "\t// {description}");
+        if let Some(reason) = skip_reason {
+            let escaped = go_string_literal(reason);
+            let _ = writeln!(out, "\tt.Skip({escaped})");
         }
     }
 
-    // Send request.
-    // Disable auto-follow so redirect-status fixtures (3xx) can assert the
-    // server's response status code rather than the followed target's status.
-    let _ = writeln!(out, "\tnoRedirectClient := &http.Client{{");
-    let _ = writeln!(
-        out,
-        "\t\tCheckRedirect: func(req *http.Request, via []*http.Request) error {{"
-    );
-    let _ = writeln!(out, "\t\t\treturn http.ErrUseLastResponse");
-    let _ = writeln!(out, "\t\t}},");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\tresp, err := noRedirectClient.Do(req)");
-    let _ = writeln!(out, "\tif err != nil {{");
-    let _ = writeln!(out, "\t\tt.Fatalf(\"request failed: %v\", err)");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\tdefer resp.Body.Close()");
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "}}");
+    }
 
-    // Read body — only declare bodyBytes if a body assertion will use it.
-    let body_used = expected.body.is_some();
-    if body_used {
+    /// Emit the full `net/http` request scaffolding: URL construction, body,
+    /// headers, cookies, a no-redirect client, and `io.ReadAll` for the body.
+    ///
+    /// `bodyBytes` is always declared (with `_ = bodyBytes` to avoid the Go
+    /// "declared and not used" compile error on tests with no body assertion).
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_uppercase();
+        let path = ctx.path;
+
+        let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
+        let _ = writeln!(out, "\tif baseURL == \"\" {{");
+        let _ = writeln!(out, "\t\tbaseURL = \"http://localhost:8080\"");
+        let _ = writeln!(out, "\t}}");
+
+        // Build request body expression.
+        let body_expr = if let Some(body) = ctx.body {
+            let json = serde_json::to_string(body).unwrap_or_default();
+            let escaped = go_string_literal(&json);
+            format!("strings.NewReader({})", escaped)
+        } else {
+            "strings.NewReader(\"\")".to_string()
+        };
+
+        let _ = writeln!(out, "\tbody := {body_expr}");
+        let _ = writeln!(
+            out,
+            "\treq, err := http.NewRequest(\"{method}\", baseURL+\"{path}\", body)"
+        );
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"new request failed: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+
+        // Content-Type header (only when a body is present).
+        if ctx.body.is_some() {
+            let content_type = ctx.content_type.unwrap_or("application/json");
+            let _ = writeln!(out, "\treq.Header.Set(\"Content-Type\", \"{content_type}\")");
+        }
+
+        // Explicit request headers (sorted for deterministic output).
+        let mut header_names: Vec<&String> = ctx.headers.keys().collect();
+        header_names.sort();
+        for name in header_names {
+            let value = &ctx.headers[name];
+            let escaped_name = go_string_literal(name);
+            let escaped_value = go_string_literal(value);
+            let _ = writeln!(out, "\treq.Header.Set({escaped_name}, {escaped_value})");
+        }
+
+        // Cookies.
+        if !ctx.cookies.is_empty() {
+            let mut cookie_names: Vec<&String> = ctx.cookies.keys().collect();
+            cookie_names.sort();
+            for name in cookie_names {
+                let value = &ctx.cookies[name];
+                let escaped_name = go_string_literal(name);
+                let escaped_value = go_string_literal(value);
+                let _ = writeln!(
+                    out,
+                    "\treq.AddCookie(&http.Cookie{{Name: {escaped_name}, Value: {escaped_value}}})"
+                );
+            }
+        }
+
+        // No-redirect client so 3xx fixtures assert the redirect response itself.
+        let _ = writeln!(out, "\tnoRedirectClient := &http.Client{{");
+        let _ = writeln!(
+            out,
+            "\t\tCheckRedirect: func(req *http.Request, via []*http.Request) error {{"
+        );
+        let _ = writeln!(out, "\t\t\treturn http.ErrUseLastResponse");
+        let _ = writeln!(out, "\t\t}},");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tresp, err := noRedirectClient.Do(req)");
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"request failed: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tdefer resp.Body.Close()");
+
+        // Always read the response body so body-assertion methods can reference
+        // `bodyBytes`. Suppress the "declared and not used" compile error with
+        // `_ = bodyBytes` for tests that have no body assertion.
         let _ = writeln!(out, "\tbodyBytes, err := io.ReadAll(resp.Body)");
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"read body failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\t_ = bodyBytes");
     }
 
-    // Assert status code.
-    let _ = writeln!(out, "\tif resp.StatusCode != {expected_status} {{");
-    let _ = writeln!(
-        out,
-        "\t\tt.Fatalf(\"status: got %d want {expected_status}\", resp.StatusCode)"
-    );
-    let _ = writeln!(out, "\t}}");
+    fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
+        let _ = writeln!(out, "\tif resp.StatusCode != {status} {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"status: got %d want {status}\", resp.StatusCode)");
+        let _ = writeln!(out, "\t}}");
+    }
 
-    // Assert body if expected.
-    if let Some(expected_body) = &expected.body {
-        match expected_body {
+    /// Emit a header assertion, skipping special tokens (`<<present>>`, `<<absent>>`,
+    /// `<<uuid>>`) and hop-by-hop headers (`Connection`) that `net/http` strips.
+    fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
+        // Skip special-token assertions.
+        if matches!(expected, "<<absent>>" | "<<present>>" | "<<uuid>>") {
+            return;
+        }
+        // Connection is a hop-by-hop header that Go's net/http strips.
+        if name.eq_ignore_ascii_case("connection") {
+            return;
+        }
+        let escaped_name = go_string_literal(name);
+        let escaped_value = go_string_literal(expected);
+        let _ = writeln!(
+            out,
+            "\tif !strings.Contains(resp.Header.Get({escaped_name}), {escaped_value}) {{"
+        );
+        let _ = writeln!(
+            out,
+            "\t\tt.Fatalf(\"header %s mismatch: got %q want to contain %q\", {escaped_name}, resp.Header.Get({escaped_name}), {escaped_value})"
+        );
+        let _ = writeln!(out, "\t}}");
+    }
+
+    /// Emit an exact-equality body assertion.
+    ///
+    /// JSON objects and arrays are round-tripped via `json.Unmarshal` + `reflect.DeepEqual`.
+    /// Scalar values are compared as trimmed strings.
+    fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        match expected {
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let json_str = serde_json::to_string(expected).unwrap_or_default();
                 let escaped = go_string_literal(&json_str);
-                // Use `any` so JSON objects and arrays both decode correctly.
                 let _ = writeln!(out, "\tvar got any");
                 let _ = writeln!(out, "\tvar want any");
                 let _ = writeln!(out, "\tif err := json.Unmarshal(bodyBytes, &got); err != nil {{");
@@ -800,33 +895,82 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
         }
     }
 
-    // Assert response headers if specified (skip special tokens and non-applicable headers).
-    for (name, value) in &expected.headers {
-        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
-            // Skip special-token assertions for now.
-            continue;
+    /// Emit partial-body assertions: every key in `expected` must appear in the
+    /// parsed JSON response with the matching value.
+    fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(out, "\tvar _partialGot map[string]any");
+            let _ = writeln!(
+                out,
+                "\tif err := json.Unmarshal(bodyBytes, &_partialGot); err != nil {{"
+            );
+            let _ = writeln!(out, "\t\tt.Fatalf(\"json unmarshal partial: %v\", err)");
+            let _ = writeln!(out, "\t}}");
+            for (key, val) in obj {
+                let escaped_key = go_string_literal(key);
+                let json_val = serde_json::to_string(val).unwrap_or_default();
+                let escaped_val = go_string_literal(&json_val);
+                let _ = writeln!(out, "\t{{");
+                let _ = writeln!(out, "\t\tvar _wantVal any");
+                let _ = writeln!(
+                    out,
+                    "\t\tif err := json.Unmarshal([]byte({escaped_val}), &_wantVal); err != nil {{"
+                );
+                let _ = writeln!(out, "\t\t\tt.Fatalf(\"json unmarshal partial want: %v\", err)");
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(
+                    out,
+                    "\t\tif !reflect.DeepEqual(_partialGot[{escaped_key}], _wantVal) {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "\t\t\tt.Fatalf(\"partial body field {key}: got %v want %v\", _partialGot[{escaped_key}], _wantVal)"
+                );
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(out, "\t}}");
+            }
         }
-        // Skip headers the mock server cannot reproduce: content-encoding (no
-        // compression) and Connection (Go's net/http strips hop-by-hop headers
-        // when reading the response).
-        let lower = name.to_ascii_lowercase();
-        if lower == "content-encoding" || lower == "connection" {
-            continue;
-        }
-        let escaped_name = go_string_literal(name);
-        let escaped_value = go_string_literal(value);
-        let _ = writeln!(
-            out,
-            "\tif !strings.Contains(resp.Header.Get({escaped_name}), {escaped_value}) {{"
-        );
-        let _ = writeln!(
-            out,
-            "\t\tt.Fatalf(\"header %s mismatch: got %q want to contain %q\", {escaped_name}, resp.Header.Get({escaped_name}), {escaped_value})"
-        );
-        let _ = writeln!(out, "\t}}");
     }
 
-    let _ = writeln!(out, "}}");
+    /// Emit validation-error assertions for 422 responses.
+    ///
+    /// Checks that each expected `msg` appears in at least one element of the
+    /// parsed body's `"errors"` array.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        _response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(out, "\tvar _veBody map[string]any");
+        let _ = writeln!(out, "\tif err := json.Unmarshal(bodyBytes, &_veBody); err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"json unmarshal validation errors: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\t_veErrors, _ := _veBody[\"errors\"].([]any)");
+        for ve in errors {
+            let escaped_msg = go_string_literal(&ve.msg);
+            let _ = writeln!(out, "\t{{");
+            let _ = writeln!(out, "\t\t_found := false");
+            let _ = writeln!(out, "\t\tfor _, _e := range _veErrors {{");
+            let _ = writeln!(out, "\t\t\tif _em, ok := _e.(map[string]any); ok {{");
+            let _ = writeln!(
+                out,
+                "\t\t\t\tif _msg, ok := _em[\"msg\"].(string); ok && strings.Contains(_msg, {escaped_msg}) {{"
+            );
+            let _ = writeln!(out, "\t\t\t\t\t_found = true");
+            let _ = writeln!(out, "\t\t\t\t\tbreak");
+            let _ = writeln!(out, "\t\t\t\t}}");
+            let _ = writeln!(out, "\t\t\t}}");
+            let _ = writeln!(out, "\t\t}}");
+            let _ = writeln!(out, "\t\tif !_found {{");
+            let _ = writeln!(
+                out,
+                "\t\t\tt.Fatalf(\"validation error with msg containing %q not found in errors\", {escaped_msg})"
+            );
+            let _ = writeln!(out, "\t\t}}");
+            let _ = writeln!(out, "\t}}");
+        }
+    }
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
