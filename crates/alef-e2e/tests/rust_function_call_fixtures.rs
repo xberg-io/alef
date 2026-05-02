@@ -208,6 +208,161 @@ result_is_simple = true
 }
 
 #[test]
+fn rust_codegen_passes_owned_bytes_arg_by_value_not_reference() {
+    // When [e2e.calls.<n>.args] sets owned = true on a `bytes` arg whose value
+    // is a relative file path, the codegen must emit `let <name> = std::fs::read(...);`
+    // followed by passing `<name>` by value (not `&<name>`). Mirror for string args.
+    let toml_src = r#"
+languages = ["rust"]
+
+[crate]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[e2e.call]
+function = "detect_image_format"
+module = "mylib"
+result_var = "result"
+async = false
+args = [
+  { name = "data", field = "input.data", type = "bytes", owned = true },
+]
+
+[e2e.call.overrides.rust]
+crate_name = "mylib"
+function = "detect_image_format"
+result_is_simple = true
+"#;
+    let config: AlefConfig = toml::from_str(toml_src).expect("config parses");
+    let groups = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![Fixture {
+            id: "owned_bytes_filepath".to_string(),
+            category: Some("smoke".to_string()),
+            description: "owned bytes arg loaded from test_documents".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            call: None,
+            input: serde_json::json!({ "data": "images/hello.png" }),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                field: None,
+                value: None,
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+            }],
+            source: "test.json".to_string(),
+            http: None,
+        }],
+    }];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("std::fs::read"),
+        "expected std::fs::read for file-path bytes value:\n{content}"
+    );
+    assert!(
+        content.contains("detect_image_format(data)"),
+        "expected owned `data` passed by value (no &), got:\n{content}"
+    );
+    assert!(
+        !content.contains("detect_image_format(&data)"),
+        "owned bytes must not be passed by reference:\n{content}"
+    );
+}
+
+#[test]
+fn rust_codegen_passes_owned_string_arg_by_value_not_reference() {
+    // detect_mime_type takes a `String` by value; with owned = true the codegen
+    // must call `.to_string()` on the literal and pass by value.
+    let toml_src = r#"
+languages = ["rust"]
+
+[crate]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[e2e.call]
+function = "detect_mime_type"
+module = "mylib"
+result_var = "result"
+async = false
+returns_result = true
+args = [
+  { name = "path", field = "input.path", type = "string", owned = true },
+  { name = "check_exists", field = "input.check_exists", type = "bool" },
+]
+
+[e2e.call.overrides.rust]
+crate_name = "mylib"
+function = "detect_mime_type"
+result_is_simple = true
+"#;
+    let config: AlefConfig = toml::from_str(toml_src).expect("config parses");
+    let groups = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![Fixture {
+            id: "owned_string_arg".to_string(),
+            category: Some("smoke".to_string()),
+            description: "owned string arg passed by value".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            call: None,
+            input: serde_json::json!({ "path": "doc.pdf", "check_exists": false }),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                field: None,
+                value: None,
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+            }],
+            source: "test.json".to_string(),
+            http: None,
+        }],
+    }];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("path.to_string()"),
+        "expected `path.to_string()` to convert &str → String for owned arg:\n{content}"
+    );
+    assert!(
+        content.contains("detect_mime_type(path.to_string()"),
+        "expected owned `path.to_string()` passed by value:\n{content}"
+    );
+}
+
+#[test]
 fn rust_codegen_imports_function_for_non_mock_call_fixture() {
     // Regression: imports were previously gated on mock_response; non-mock
     // function-call fixtures rendered without their `use mylib::extract_file;`

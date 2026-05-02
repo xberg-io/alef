@@ -808,7 +808,8 @@ fn render_rust_arg(
                 let lines = vec![format!(
                     "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{raw}\")).expect(\"fixture file should exist\");"
                 )];
-                return (lines, format!("&{name}"));
+                let pass = if owned { name.to_string() } else { format!("&{name}") };
+                return (lines, pass);
             }
         }
     }
@@ -818,7 +819,12 @@ fn render_rust_arg(
                 let lines = vec![format!(
                     "let {name} = Some(std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{raw}\")).expect(\"fixture file should exist\"));"
                 )];
-                return (lines, format!("{name}.as_deref().map(|v| v.as_slice())"));
+                let pass = if owned {
+                    name.to_string()
+                } else {
+                    format!("{name}.as_deref().map(|v| v.as_slice())")
+                };
+                return (lines, pass);
             }
         }
     }
@@ -840,14 +846,24 @@ fn render_rust_arg(
         return (vec![format!("let {name} = {default_val};")], expr);
     }
     let literal = json_to_rust_literal(value, arg_type);
-    // String args are raw string literals (`r#"..."#`) — already `&str`, no extra `&` needed.
-    // Bytes args are passed by reference using `.as_bytes()` in the `expr` closure below.
+    // String args default to `&str` (raw string literal) and bytes default to `&[u8]`
+    // (via `.as_bytes()`). When the call config sets `owned = true`, the binding
+    // type and pass expression flip to owned (`String::from(...)` / `.as_bytes().to_vec()`)
+    // and the value is passed by value rather than reference.
     let pass_by_ref = arg_type == "bytes";
     let optional_expr = |n: &str| {
         if arg_type == "string" {
-            format!("{n}.as_deref()")
+            if owned {
+                n.to_string()
+            } else {
+                format!("{n}.as_deref()")
+            }
         } else if arg_type == "bytes" {
-            format!("{n}.as_deref().map(|v| v.as_slice())")
+            if owned {
+                n.to_string()
+            } else {
+                format!("{n}.as_deref().map(|v| v.as_slice())")
+            }
         } else {
             // Owned numeric / bool / generic: pass the Option<T> by value.
             // Function signature shape `Option<T>` matches without `.as_ref()`,
@@ -857,7 +873,17 @@ fn render_rust_arg(
     };
     let expr = |n: &str| {
         if arg_type == "bytes" {
-            format!("{n}.as_bytes()")
+            if owned {
+                format!("{n}.to_vec()")
+            } else {
+                format!("{n}.as_bytes()")
+            }
+        } else if arg_type == "string" {
+            if owned {
+                format!("{n}.to_string()")
+            } else {
+                n.to_string()
+            }
         } else if pass_by_ref {
             format!("&{n}")
         } else {
@@ -866,13 +892,28 @@ fn render_rust_arg(
     };
     if optional && value.is_null() {
         let none_decl = match arg_type {
+            "string" if owned => format!("let {name}: Option<String> = None;"),
             "string" => format!("let {name}: Option<String> = None;"),
+            "bytes" if owned => format!("let {name}: Option<Vec<u8>> = None;"),
             "bytes" => format!("let {name}: Option<Vec<u8>> = None;"),
             _ => format!("let {name} = None;"),
         };
         (vec![none_decl], optional_expr(name))
     } else if optional {
-        (vec![format!("let {name} = Some({literal});")], optional_expr(name))
+        // For owned bytes optional, wrap as Some(Vec<u8>) so the call passes Option<Vec<u8>>.
+        if arg_type == "bytes" && owned {
+            (
+                vec![format!("let {name} = Some(({literal}).to_vec());")],
+                optional_expr(name),
+            )
+        } else if arg_type == "string" && owned {
+            (
+                vec![format!("let {name} = Some(({literal}).to_string());")],
+                optional_expr(name),
+            )
+        } else {
+            (vec![format!("let {name} = Some({literal});")], optional_expr(name))
+        }
     } else {
         (vec![format!("let {name} = {literal};")], expr(name))
     }
