@@ -223,6 +223,11 @@ fn render_mix_exs(
             }
         };
         deps.push(nif_dep);
+        // rustler_precompiled provides the precompiled NIF loader.
+        deps.push(format!(
+            "      {{:rustler_precompiled, \"{rp}\"}}",
+            rp = tv::hex::RUSTLER_PRECOMPILED
+        ));
         // rustler must be a direct dep in the consumer project for force_build to work.
         deps.push(format!(
             "      {{:rustler, \"{rustler}\", optional: true, runtime: false}}",
