@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-rustler): wrap inline `if/do/else` JSON-encoding expressions in parentheses
+  so the generated NIF call args parse as Elixir when the conditional is followed by a
+  visitor parameter. Previously emitted `convert_with_visitor(html, if ..., do: ..., else: ..., visitor)`
+  which is invalid syntax — Elixir keyword lists must be the final argument.
+
 - fix(backend-php): resolve compile errors when `bind_via = "options_field"` is used
   in `[[trait_bridges]]` with an options type that has an opaque handle field:
   - `gen_php_struct` now receives `opaque_type_names` from `mod.rs` so
