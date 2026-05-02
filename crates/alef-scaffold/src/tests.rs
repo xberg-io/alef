@@ -847,6 +847,59 @@ fn test_scaffold_elixir_cargo_no_tokio_when_sync_only() {
         "sync-only API must not include tokio; content:\n{}",
         cargo_toml.content
     );
+    assert!(
+        !cargo_toml.content.contains("async-trait"),
+        "sync-only API without trait bridges must not include async-trait; content:\n{}",
+        cargo_toml.content
+    );
+}
+
+#[test]
+fn test_scaffold_ruby_cargo_no_tokio_when_sync_only() {
+    let mut config = test_config();
+    config.languages = vec![Language::Ruby];
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    assert!(
+        !cargo_toml.content.contains("tokio"),
+        "sync-only Ruby API must not include tokio; content:\n{}",
+        cargo_toml.content
+    );
+}
+
+#[test]
+fn test_scaffold_java_checkstyle_suppressions_use_config_location() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
+    let files = language_files(&all_files);
+    let properties = files
+        .iter()
+        .find(|f| f.path.ends_with("checkstyle.properties"))
+        .unwrap();
+    assert!(
+        properties
+            .content
+            .contains("checkstyle.suppressions.file=${config_loc}/checkstyle-suppressions.xml"),
+        "checkstyle suppressions path must work from repo root and package cwd; content:\n{}",
+        properties.content
+    );
+}
+
+#[test]
+fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
+    let files = language_files(&all_files);
+    let fixer = files.iter().find(|f| f.path.ends_with("php-cs-fixer.php")).unwrap();
+    assert!(
+        fixer.content.contains("is_dir(__DIR__ . '/tests')"),
+        "php-cs-fixer config must not require a tests directory; content:\n{}",
+        fixer.content
+    );
 }
 
 #[test]

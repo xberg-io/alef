@@ -174,8 +174,10 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
             content: r#"<?php
 
 $finder = (new PhpCsFixer\Finder())
-    ->in(__DIR__ . '/src')
-    ->in(__DIR__ . '/tests');
+    ->in(array_values(array_filter([
+        __DIR__ . '/src',
+        is_dir(__DIR__ . '/tests') ? __DIR__ . '/tests' : null,
+    ])));
 
 return (new PhpCsFixer\Config())
     ->setRules([

@@ -83,10 +83,9 @@ pub(super) fn gen_native_ex(
         out,
         "    force_build:\n      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or\n        Mix.env() in [:test, :dev],"
     );
-    let _ = writeln!(out, "    targets:");
     let _ = writeln!(
         out,
-        "      ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
+        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
     );
     let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"]");
     let _ = writeln!(out);

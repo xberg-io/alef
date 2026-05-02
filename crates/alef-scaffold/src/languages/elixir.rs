@@ -35,12 +35,18 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
     };
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    // Trait bridges generate a tokio::sync::oneshot-based reply channel, so tokio is required
-    // whenever there are active Elixir trait bridges even if no API functions are async.
+    // Trait bridges generate async_trait impls and a tokio::sync::oneshot-based
+    // reply channel, so async-trait and tokio are required whenever there are
+    // active Elixir trait bridges even if no API functions are async.
     let has_trait_bridges = config
         .trait_bridges
         .iter()
         .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    let async_trait_dep = if has_trait_bridges {
+        format!("\nasync-trait = \"{}\"", tv::cargo::ASYNC_TRAIT)
+    } else {
+        String::new()
+    };
     let tokio_dep = if has_async || has_trait_bridges {
         "\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }"
     } else {
@@ -62,9 +68,8 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 rustler = "{rustler}"
-async-trait = "{async_trait}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{tokio_dep}{futures_util_dep}{extra_deps_section}
+serde_json = "1"{async_trait_dep}{tokio_dep}{futures_util_dep}{extra_deps_section}
 
 [workspace]
 "#,
@@ -74,7 +79,7 @@ serde_json = "1"{tokio_dep}{futures_util_dep}{extra_deps_section}
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
         rustler = tv::cargo::RUSTLER,
-        async_trait = tv::cargo::ASYNC_TRAIT,
+        async_trait_dep = async_trait_dep,
         tokio_dep = tokio_dep,
         futures_util_dep = futures_util_dep,
         extra_deps_section = extra_deps_section,

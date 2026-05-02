@@ -38,6 +38,13 @@ pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyh
     } else {
         format!("\n{all_deps}")
     };
+    let has_async =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let tokio_dep = if has_async || has_trait_bridges {
+        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\"] }"
+    } else {
+        ""
+    };
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
     let content = format!(
         r#"{pkg_header}
@@ -51,8 +58,7 @@ crate-type = ["cdylib"]
 {crate_name} = {{ path = "../../../../../crates/{core_crate_dir}"{features} }}
 magnus = "{magnus}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
-tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
+serde_json = "1"{tokio_dep}{extra_deps_section}
 
 [lints]
 workspace = true
@@ -63,6 +69,7 @@ workspace = true
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
         magnus = tv::cargo::MAGNUS,
+        tokio_dep = tokio_dep,
         extra_deps_section = extra_deps_section,
     );
 

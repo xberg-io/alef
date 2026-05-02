@@ -775,7 +775,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     // aliases to them. Split native_type_imports into runtime and TYPE_CHECKING-only groups.
     let mut runtime_native_imports: Vec<String> = native_type_imports
         .iter()
-        .filter(|n| needed_enums.contains(*n))
+        .filter(|n| needed_enums.contains(*n) && !data_enum_names.contains(n.as_str()))
         .cloned()
         .collect();
     runtime_native_imports.sort();

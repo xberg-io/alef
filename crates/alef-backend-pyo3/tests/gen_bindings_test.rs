@@ -2711,3 +2711,68 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         init_py.content
     );
 }
+
+#[test]
+fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "StructureItem".to_string(),
+            rust_path: "test_lib::StructureItem".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("kind", TypeRef::Named("StructureKind".to_string()), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "A structural item.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "StructureKind".to_string(),
+            rust_path: "test_lib::StructureKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Function".to_string(),
+                fields: vec![make_field("name", TypeRef::String, false)],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: "The kind of structural item.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("type".to_string()),
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).expect("generate public API");
+    let options_py = files.iter().find(|f| f.path.ends_with("options.py")).unwrap();
+
+    assert!(
+        !options_py
+            .content
+            .contains("from ._test_lib import (\n    StructureKind,"),
+        "data enum aliases must not be imported from the native module and then redefined;\ncontent:\n{}",
+        options_py.content
+    );
+    assert!(
+        options_py.content.contains("StructureKind = str"),
+        "data enum alias should still be emitted for Python-side annotations;\ncontent:\n{}",
+        options_py.content
+    );
+}
