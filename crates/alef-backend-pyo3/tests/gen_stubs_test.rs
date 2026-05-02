@@ -1216,3 +1216,147 @@ fn test_async_method_stub_uses_async_def() {
         content
     );
 }
+
+#[test]
+fn test_enum_stub_emits_screaming_snake_case_aliases() {
+    let backend = Pyo3Backend;
+
+    // EnumDef whose PascalCase variant names differ from their SCREAMING_SNAKE_CASE form.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "CodeStyle".to_string(),
+            rust_path: "test_lib::CodeStyle".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Backticks".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Tildes".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    // PascalCase variants must still be present.
+    assert!(
+        content.contains("Backticks: CodeStyle = ..."),
+        "PascalCase variant Backticks must be present"
+    );
+    assert!(
+        content.contains("Tildes: CodeStyle = ..."),
+        "PascalCase variant Tildes must be present"
+    );
+
+    // SCREAMING_SNAKE_CASE aliases must also be present so mypy accepts attribute access.
+    assert!(
+        content.contains("BACKTICKS: CodeStyle = ..."),
+        "SCREAMING_SNAKE_CASE alias BACKTICKS must be present"
+    );
+    assert!(
+        content.contains("TILDES: CodeStyle = ..."),
+        "SCREAMING_SNAKE_CASE alias TILDES must be present"
+    );
+}
+
+#[test]
+fn test_bridge_field_init_param_uses_object_type() {
+    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
+
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Options".to_string(),
+            rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("name", TypeRef::String, false),
+                make_field("visitor", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    // Set up a bridge that overrides the `visitor` field on `Options`.
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "TestVisitor".to_string(),
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("Options".to_string()),
+        options_field: Some("visitor".to_string()),
+        param_name: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }];
+
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    // The field annotation should be `object | None`.
+    assert!(
+        content.contains("visitor: object | None"),
+        "Bridge field annotation must be `object | None`, got:\n{}",
+        content
+    );
+
+    // The __init__ parameter must also be `object | None = None` (not `VisitorHandle | None`).
+    assert!(
+        content.contains("visitor: object | None = None"),
+        "__init__ bridge param must be `object | None = None`, got:\n{}",
+        content
+    );
+
+    // Ensure `VisitorHandle | None` does NOT appear in the __init__ for this type.
+    assert!(
+        !content.contains("visitor: VisitorHandle"),
+        "__init__ must not use VisitorHandle type for bridge param, got:\n{}",
+        content
+    );
+}

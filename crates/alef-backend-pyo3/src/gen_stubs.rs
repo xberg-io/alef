@@ -2,6 +2,7 @@ use crate::type_map::python_type;
 use alef_core::config::{AlefConfig, BridgeBinding, Language, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use heck::ToShoutySnakeCase;
 
 /// Convert an identifier to a Python-safe name by escaping reserved keywords.
 ///
@@ -224,7 +225,7 @@ fn gen_type_stub(
     }
 
     // Add __init__ signature
-    lines.push(gen_type_init_stub(typ, api, config));
+    lines.push(gen_type_init_stub(typ, api, config, bridge_field_overrides));
 
     // Add instance methods
     for method in &typ.methods {
@@ -244,7 +245,12 @@ fn gen_type_stub(
 }
 
 /// Generate __init__ signature stub for a struct.
-fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> String {
+fn gen_type_init_stub(
+    typ: &TypeDef,
+    api: &ApiSurface,
+    config: &AlefConfig,
+    bridge_field_overrides: &std::collections::HashMap<&str, &str>,
+) -> String {
     // Partition fields into required (non-optional) and optional.
     //
     // When `typ.has_default` is true, the Rust binding uses
@@ -267,10 +273,23 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> S
     // For constructor params, use str instead of enum types (PyO3 accepts any string).
     // Field names that are Python reserved keywords are emitted with their escaped name
     // (e.g. `class_`) so the generated `__init__` signature is valid Python syntax.
+    //
+    // Bridge fields (e.g. `visitor`) accept any Python object — use `object | None`
+    // to match the field annotation and avoid mypy incompatible-argument errors.
+    let is_bridge_field = |f: &alef_core::ir::FieldDef| {
+        bridge_field_overrides
+            .get(typ.name.as_str())
+            .is_some_and(|&bridge_field_name| f.name == bridge_field_name)
+    };
+
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
-            let param_type = constructor_param_type(&f.ty, api);
+            let param_type = if is_bridge_field(f) {
+                "object".to_string()
+            } else {
+                constructor_param_type(&f.ty, api)
+            };
             let param_name = config
                 .resolve_field_name(Language::Python, &typ.name, &f.name)
                 .unwrap_or_else(|| f.name.clone());
@@ -279,7 +298,11 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> S
         .collect();
 
     params.extend(optional.iter().map(|f| {
-        let type_str = constructor_param_type(&f.ty, api);
+        let type_str = if is_bridge_field(f) {
+            "object".to_string()
+        } else {
+            constructor_param_type(&f.ty, api)
+        };
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -424,6 +447,10 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 }
 
 /// Generate a Python enum stub.
+///
+/// For unit enums, emits both the PascalCase variant names (as PyO3 exposes them) and the
+/// SCREAMING_SNAKE_CASE aliases that `options.py` adds at runtime via attribute assignment.
+/// This allows mypy to resolve both forms without errors.
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
     use alef_codegen::generators::enum_has_data_variants;
     let mut lines = vec![];
@@ -433,12 +460,25 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
         gen_data_enum_typeddicts(&mut lines, enum_def);
     } else {
         lines.push(format!("class {}:", enum_def.name));
+        // PascalCase variants — as exposed by the PyO3 #[pyclass] enum.
         for variant in &enum_def.variants {
             lines.push(format!(
                 "    {}: {} = ...",
                 python_safe_name(&variant.name),
                 enum_def.name
             ));
+        }
+        // SCREAMING_SNAKE_CASE aliases — added at runtime in options.py so callers can use
+        // e.g. `CodeBlockStyle.BACKTICKS` in addition to `CodeBlockStyle.Backticks`.
+        // Declaring them here lets mypy resolve both forms without attr-defined errors.
+        for variant in &enum_def.variants {
+            let screaming = variant.name.to_shouty_snake_case();
+            let pascal = python_safe_name(&variant.name);
+            // Only emit an alias if it differs from the PascalCase form (e.g. `Backticks` →
+            // `BACKTICKS`). Skip identical duplicates (e.g. single-word all-caps names).
+            if screaming != pascal {
+                lines.push(format!("    {}: {} = ...", screaming, enum_def.name));
+            }
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
     }
