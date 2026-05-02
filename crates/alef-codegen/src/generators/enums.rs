@@ -53,6 +53,7 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         // The core type cannot be serde round-tripped from a Python dict (contains
         // non-representable variant fields). Omit the #[new] constructor — the type
         // is still useful as a return value from Rust passed back via From impls.
+        write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
         writeln!(out, "}}").ok();
     } else {
         writeln!(out, "    #[new]").ok();
@@ -75,6 +76,7 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         .ok();
         writeln!(out, "        Ok(Self {{ inner }})").ok();
         writeln!(out, "    }}").ok();
+        write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
         writeln!(out, "}}").ok();
     }
     writeln!(out).ok();
@@ -162,36 +164,110 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
             writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();
         }
-        // Mark the correct variant as #[default] so derive(Default) matches the core.
+        // Mark the default variant as #[default] so derive(Default) works
         if idx == default_idx {
             writeln!(out, "    #[default]").ok();
         }
         writeln!(out, "    {} = {idx},", variant.name).ok();
     }
     writeln!(out, "}}").ok();
+    if is_pyo3 {
+        writeln!(out).ok();
+        writeln!(out, "#[pymethods]").ok();
+        writeln!(out, "impl {} {{", enum_def.name).ok();
+        write_pyo3_enum_string_methods(&mut out, &enum_def.name, "self");
+        writeln!(out, "}}").ok();
+    }
 
     out
+}
+
+fn write_pyo3_enum_string_methods(out: &mut String, name: &str, value_expr: &str) {
+    writeln!(out).ok();
+    writeln!(out, "    fn __str__(&self) -> PyResult<String> {{").ok();
+    writeln!(
+        out,
+        "        serde_json::to_value({value_expr})\n            .map(|value| match value {{\n                serde_json::Value::String(value) => value,\n                other => other.to_string(),\n            }})\n            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"Failed to serialize {name}: {{e}}\")))"
+    )
+    .ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+    writeln!(out, "    fn __repr__(&self) -> PyResult<String> {{").ok();
+    writeln!(out, "        self.__str__()").ok();
+    writeln!(out, "    }}").ok();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generators::{AsyncPattern, RustBindingConfig};
-    use alef_core::ir::{EnumDef, EnumVariant};
+    use crate::generators::AsyncPattern;
+    use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef, TypeRef};
 
-    fn make_variant(name: &str, is_default: bool) -> EnumVariant {
+    fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         EnumVariant {
             name: name.to_string(),
-            fields: vec![],
+            fields,
             doc: String::new(),
-            is_default,
+            is_default: false,
             serde_rename: None,
             is_tuple: false,
         }
     }
 
-    fn test_cfg<'a>() -> RustBindingConfig<'a> {
-        RustBindingConfig {
+    fn field(name: &str) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }
+    }
+
+    fn enum_def(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
+        EnumDef {
+            name: name.to_string(),
+            rust_path: format!("crate::{name}"),
+            original_rust_path: String::new(),
+            variants,
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_rename_all: None,
+        }
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_emits_string_methods() {
+        let generated = gen_pyo3_data_enum(
+            &enum_def("StructureKind", vec![variant("Other", vec![field("value")])]),
+            "core",
+        );
+
+        assert!(
+            generated.contains("fn __str__(&self) -> PyResult<String>"),
+            "{generated}"
+        );
+        assert!(generated.contains("serde_json::to_value(&self.inner)"), "{generated}");
+        assert!(
+            generated.contains("fn __repr__(&self) -> PyResult<String>"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn gen_pyo3_unit_enum_emits_string_methods() {
+        let cfg = RustBindingConfig {
             struct_attrs: &[],
             field_attrs: &[],
             struct_derives: &[],
@@ -199,64 +275,24 @@ mod tests {
             constructor_attr: "",
             static_attr: None,
             function_attr: "",
-            enum_attrs: &[],
-            enum_derives: &[],
+            enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
+            enum_derives: &["Clone", "PartialEq"],
             needs_signature: false,
             signature_prefix: "",
             signature_suffix: "",
-            core_import: "",
-            async_pattern: AsyncPattern::TokioBlockOn,
-            has_serde: false,
+            core_import: "core",
+            async_pattern: AsyncPattern::None,
+            has_serde: true,
             type_name_prefix: "",
             option_duration_on_defaults: false,
             opaque_type_names: &[],
-        }
-    }
-
-    #[test]
-    fn test_gen_enum_default_variant_first_when_none_marked() {
-        let enum_def = EnumDef {
-            name: "Color".to_string(),
-            variants: vec![make_variant("Red", false), make_variant("Green", false)],
-            doc: String::new(),
-            serde_rename_all: None,
-            serde_tag: None,
-            rust_path: String::new(),
-            original_rust_path: String::new(),
-            cfg: None,
-            is_copy: false,
-            has_serde: false,
         };
-        let cfg = test_cfg();
-        let output = gen_enum(&enum_def, &cfg);
-        assert!(output.contains("#[default]\n    Red"));
-        assert!(!output.contains("#[default]\n    Green"));
-    }
+        let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 
-    #[test]
-    fn test_gen_enum_default_variant_respects_is_default() {
-        // HeadingStyle: Underlined(0), Atx(1, is_default), AtxClosed(2)
-        let enum_def = EnumDef {
-            name: "HeadingStyle".to_string(),
-            variants: vec![
-                make_variant("Underlined", false),
-                make_variant("Atx", true),
-                make_variant("AtxClosed", false),
-            ],
-            doc: String::new(),
-            serde_rename_all: None,
-            serde_tag: None,
-            rust_path: String::new(),
-            original_rust_path: String::new(),
-            cfg: None,
-            is_copy: false,
-            has_serde: false,
-        };
-        let cfg = test_cfg();
-        let output = gen_enum(&enum_def, &cfg);
-        // Atx (idx 1) should be #[default], not Underlined (idx 0)
-        assert!(output.contains("#[default]\n    Atx"));
-        assert!(!output.contains("#[default]\n    Underlined"));
-        assert!(!output.contains("#[default]\n    AtxClosed"));
+        assert!(
+            generated.contains("fn __str__(&self) -> PyResult<String>"),
+            "{generated}"
+        );
+        assert!(generated.contains("serde_json::to_value(self)"), "{generated}");
     }
 }

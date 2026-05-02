@@ -88,6 +88,10 @@ pub(super) fn render_assertion(
         }
         _ => false,
     };
+    let field_is_array = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
 
     render_standard_assertion(
         out,
@@ -96,6 +100,7 @@ pub(super) fn render_assertion(
         &field_access,
         field_is_enum,
         field_is_optional,
+        field_is_array,
     );
 }
 
@@ -227,6 +232,7 @@ fn render_standard_assertion(
     field_access: &str,
     field_is_enum: bool,
     field_is_optional: bool,
+    field_is_array: bool,
 ) {
     let _ = (result_var, python_string_literal); // available for potential future use
     match assertion.assertion_type.as_str() {
@@ -247,16 +253,13 @@ fn render_standard_assertion(
         "contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let cmp_expr = if field_is_enum && val.is_string() {
-                    format!("str({field_access}).lower()")
-                } else {
-                    field_access.to_string()
-                };
+                let cmp_expr =
+                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
                 if field_is_optional {
                     let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                    let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                 } else {
-                    let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                 }
             }
         }
@@ -264,16 +267,13 @@ fn render_standard_assertion(
             if let Some(values) = &assertion.values {
                 for val in values {
                     let expected = value_to_python_string(val);
-                    let cmp_expr = if field_is_enum && val.is_string() {
-                        format!("str({field_access}).lower()")
-                    } else {
-                        field_access.to_string()
-                    };
+                    let cmp_expr =
+                        python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
                     if field_is_optional {
                         let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                        let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
+                        let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                     } else {
-                        let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
+                        let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                     }
                 }
             }
@@ -281,18 +281,15 @@ fn render_standard_assertion(
         "not_contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let cmp_expr = if field_is_enum && val.is_string() {
-                    format!("str({field_access}).lower()")
-                } else {
-                    field_access.to_string()
-                };
+                let cmp_expr =
+                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
                 if field_is_optional {
                     let _ = writeln!(
                         out,
-                        "    assert {field_access} is None or {expected} not in {cmp_expr}  # noqa: S101"
+                        "    assert {field_access} is None or not ({cmp_expr})  # noqa: S101"
                     );
                 } else {
-                    let _ = writeln!(out, "    assert {expected} not in {cmp_expr}  # noqa: S101");
+                    let _ = writeln!(out, "    assert not ({cmp_expr})  # noqa: S101");
                 }
             }
         }
@@ -306,22 +303,20 @@ fn render_standard_assertion(
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(value_to_python_string).collect();
                 let list_str = items.join(", ");
-                let cmp_expr = if field_is_enum {
-                    format!("str({field_access}).lower()")
+                let cmp_expr = if field_is_array {
+                    format!(
+                        "any(any(v in text for text in _alef_e2e_item_texts(item)) for item in {field_access} for v in [{list_str}])"
+                    )
+                } else if field_is_enum {
+                    format!("any(v in str({field_access}).lower() for v in [{list_str}])")
                 } else {
-                    field_access.to_string()
+                    format!("any(v in {field_access} for v in [{list_str}])")
                 };
                 if field_is_optional {
                     let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                    let _ = writeln!(
-                        out,
-                        "    assert any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
-                    );
+                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    assert any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
-                    );
+                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
                 }
             }
         }
@@ -412,6 +407,22 @@ fn render_standard_assertion(
             panic!("unsupported assertion type: {other}");
         }
     }
+}
+
+fn python_contains_expr(
+    field_access: &str,
+    expected: &str,
+    field_is_enum: bool,
+    field_is_array: bool,
+    expected_is_string: bool,
+) -> String {
+    if field_is_array && expected_is_string {
+        return format!("any({expected} in text for item in {field_access} for text in _alef_e2e_item_texts(item))");
+    }
+    if field_is_enum && expected_is_string {
+        return format!("{expected} in str({field_access}).lower()");
+    }
+    format!("{expected} in {field_access}")
 }
 
 fn render_method_result(out: &mut String, assertion: &Assertion, result_var: &str) {
@@ -538,6 +549,15 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
+    fn resolver_with_array_field(field: &str) -> FieldResolver {
+        FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::from([field.to_string()]),
+        )
+    }
+
     fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
@@ -566,6 +586,21 @@ mod tests {
         let mut out = String::new();
         render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
         assert!(out.contains(".strip()"), "got: {out}");
+    }
+
+    #[test]
+    fn render_assertion_contains_string_array_uses_item_texts() {
+        let resolver = resolver_with_array_field("structure");
+        let assertion = make_assertion(
+            "contains",
+            Some("structure"),
+            Some(serde_json::Value::String("Function".into())),
+        );
+        let mut out = String::new();
+        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
+
+        assert!(out.contains("_alef_e2e_item_texts(item)"), "got: {out}");
+        assert!(out.contains("for item in result.structure"), "got: {out}");
     }
 
     #[test]

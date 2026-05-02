@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi): `core_to_binding` conversion now emits `Default::default()` for opaque Named fields
+  with `CoreWrapper::None` (e.g. `visitor: Object<'static>`) instead of trying to wrap them
+  with `Arc::new` — mirrors the same fix previously applied to `binding_to_core`.
+
+- fix(napi): `gen_opaque_struct_methods` no longer emits `#[napi]` methods whose parameters
+  include opaque-typed values by value; NAPI class types don't implement `FromNapiValue`
+  and cannot appear as plain method params. Methods without an explicit adapter body are skipped.
+
+- fix(napi/types): opaque Named types in `#[napi(object)]` struct fields are now mapped to
+  `napi::bindgen_prelude::Object<'static>` instead of the NAPI class type, which fails the
+  `FromNapiValue` bound required by `#[napi(object)]`.
+
+- fix(napi/dts): opaque trait types (e.g. `JsHtmlVisitor`) are now included in the generated
+  `index.d.ts`; previously they were excluded by the `!is_trait` filter.
+
+- fix(napi/dts): optional fields in `#[napi(object)]` structs are now correctly marked `?`
+  when the field type is `TypeRef::Optional`, `field.optional` is set, or the parent type
+  has `has_default = true`.
+
+- fix(e2e/node): removed `"strictNullChecks": false` from e2e tsconfig; strict mode is now
+  fully enabled.
+
+- fix(e2e/node): visitor method template double-brace bug fixed and string literals in
+  `Custom` callback returns are now properly quoted.
+
+- fix(e2e/node): visitor method parameters are annotated `: any` to satisfy `noImplicitAny`.
+
 - fix(java): bare `catch (Throwable ignored) { return 0; }` in VisitorBridge upcall stubs swallowed
   visitor exceptions silently. The catch clause now captures the first throwable in a sticky
   `volatile Throwable visitorError` field, returns `VISIT_RESULT_ERROR` (4), and surfaces the
@@ -84,11 +111,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
   top-level parameter to `convert()`.
 
+- fix(backend-wasm): use `is_default` variant for generated `Default` impl on wasm enums instead
+  of always using the first variant, fixing incorrect defaults for `HeadingStyle`, `CodeBlockStyle`,
+  and `PreprocessingPreset`.
+
+- fix(backend-wasm): visitor bridge methods now dispatch `{custom: "..."}` JS objects to
+  `VisitResult::Custom(s)` and `{error: "..."}` objects to `VisitResult::Continue`, making the
+  full `VisitResult` variant set reachable from JavaScript.
+
+- fix(e2e/wasm): merge visitor into the options object (2nd arg) rather than appending it as a
+  standalone 3rd argument, matching the wasm binding's single-object options API.
+
+- fix(backend-napi): use generated `From` conversions for named reference parameters instead of
+  JSON round-tripping when let-binding delegation is possible.
+
+- fix(backend-pyo3): generate `__str__` and `__repr__` for Rust-backed enum wrappers so returned
+  enum values are inspectable from Python.
+
+- fix(e2e/python): render string containment assertions over configured array fields by checking common DTO text
+  attributes instead of comparing directly against the object list.
+
 - fix(alef-cli/format): format WASM binding crates with `cargo fmt --manifest-path`
   derived from the resolved output path so renamed or workspace-excluded crates are handled correctly.
 
 - fix(codegen): use generated `From` conversions for named reference parameters instead of JSON round-tripping when a
   direct let-binding is possible. This preserves fields such as Python `ProcessConfig.language` in free functions.
+- fix(codegen): convert Cow-backed string fields with `.into()` when reconstructing `core_self` for binding methods.
 
 - fix(cli): run language-native formatters on stubs before finalising the embedded `alef:hash:` line.
   `alef stubs` previously skipped the format step and computed the hash over raw codegen output.

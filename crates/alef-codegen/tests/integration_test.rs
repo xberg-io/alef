@@ -5963,6 +5963,19 @@ fn test_gen_lossy_binding_to_core_fields_string_field() {
 }
 
 #[test]
+fn test_gen_lossy_binding_to_core_fields_cow_string_field() {
+    let mut typ = simple_type_def();
+    typ.fields[0].core_wrapper = CoreWrapper::Cow;
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false);
+
+    assert!(
+        result.contains("name: self.name.clone().into(),"),
+        "Cow-backed String field should convert back into Cow"
+    );
+}
+
+#[test]
 fn test_gen_lossy_binding_to_core_fields_named_field() {
     let mut typ = simple_type_def();
     typ.fields.push(FieldDef {

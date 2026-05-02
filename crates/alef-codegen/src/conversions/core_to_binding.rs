@@ -151,12 +151,21 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             base_conversion
         };
+        // Opaque Named fields without CoreWrapper::Arc (e.g. visitor: Object<'static>) cannot be
+        // auto-converted via Arc::new — the binding stores a raw host object that needs a bridge.
+        // Emit Default::default() and let the caller (e.g. the convert function) set it separately.
+        let is_opaque_no_wrapper_field = field.core_wrapper == CoreWrapper::None
+            && matches!(&field.ty, TypeRef::Named(n) if config
+                .opaque_types
+                .is_some_and(|opaque| opaque.contains(n.as_str())));
         // CoreWrapper: unwrap Arc, convert Cow→String, Bytes→Vec<u8>
         // For sanitized fields, still apply Cow→String conversion: Cow<'_, str> sanitizes to
         // TypeRef::String and the Debug-formatted fallback produces quotes, but Cow implements
         // Display so .to_string() (emitted by apply_core_wrapper_from_core for Cow) is correct.
         // Other sanitized fields (unknown Named types) still fall through to Debug formatting.
-        let conversion = if !field.sanitized || field.core_wrapper == alef_core::ir::CoreWrapper::Cow {
+        let conversion = if is_opaque_no_wrapper_field {
+            format!("{}: Default::default()", field.name)
+        } else if !field.sanitized || field.core_wrapper == alef_core::ir::CoreWrapper::Cow {
             apply_core_wrapper_from_core(
                 &conversion,
                 &field.name,

@@ -31,7 +31,7 @@ pub fn render_test_file(
     client_factory: Option<&str>,
     e2e_config: &E2eConfig,
 ) -> String {
-    let _ = lang; // used by wasm codegen for override routing; typescript uses "node" implicitly
+    // `lang` is used for wasm visitor arg placement and override routing
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "import {{ describe, expect, it }} from 'vitest';");
@@ -122,6 +122,7 @@ pub fn render_test_file(
                 options_type,
                 field_resolver,
                 e2e_config,
+                lang,
             );
         }
         if i + 1 < fixtures.len() {
@@ -298,6 +299,7 @@ fn render_test_case(
     options_type: Option<&str>,
     field_resolver: &FieldResolver,
     e2e_config: &E2eConfig,
+    lang: &str,
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
@@ -319,6 +321,26 @@ fn render_test_case(
 
     let final_args = if visitor_arg.is_empty() {
         args_str
+    } else if lang == "wasm" {
+        // WASM: visitor must be merged into the options object (2nd arg), not appended as a
+        // separate argument. The wasm binding accepts a single plain-object options param.
+        if args_str.is_empty() {
+            format!("{{ visitor: {visitor_arg} }}")
+        } else if let Some(as_pos) = args_str.rfind(" as unknown as ") {
+            let (before_cast, type_suffix) = args_str.split_at(as_pos);
+            let merged_obj = if before_cast.ends_with("{}") {
+                let prefix = &before_cast[..before_cast.len() - 2];
+                format!("{prefix}{{ visitor: {visitor_arg} }}")
+            } else if let Some(close_brace) = before_cast.rfind('}') {
+                let (obj_body, _) = before_cast.split_at(close_brace);
+                format!("{obj_body}, visitor: {visitor_arg} }}")
+            } else {
+                format!("{before_cast}, {{ visitor: {visitor_arg} }}")
+            };
+            format!("{merged_obj}{type_suffix}")
+        } else {
+            format!("{args_str}, {{ visitor: {visitor_arg} }}")
+        }
     } else if args_str.is_empty() {
         format!("{{ visitor: {visitor_arg} }}")
     } else {

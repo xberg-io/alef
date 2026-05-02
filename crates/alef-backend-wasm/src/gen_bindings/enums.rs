@@ -27,12 +27,17 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
 
     lines.push("}".to_string());
 
-    // Default impl (first variant) for use in config constructor unwrap_or_default()
-    if let Some(first) = enum_def.variants.first() {
+    // Default impl — prefer the variant marked `is_default`, fall back to first
+    let default_variant = enum_def
+        .variants
+        .iter()
+        .find(|v| v.is_default)
+        .or_else(|| enum_def.variants.first());
+    if let Some(dv) = default_variant {
         lines.push(String::new());
         lines.push("#[allow(clippy::derivable_impls)]".to_string());
         lines.push(format!("impl Default for {} {{", js_name));
-        lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
+        lines.push(format!("    fn default() -> Self {{ Self::{} }}", dv.name));
         lines.push("}".to_string());
     }
 

@@ -968,7 +968,13 @@ fn gen_lossy_binding_to_core_fields_inner(
                         format!("std::time::Duration::from_millis(self.{name})")
                     }
                 }
-                TypeRef::String => format!("self.{name}.clone()"),
+                TypeRef::String => {
+                    if field.core_wrapper == CoreWrapper::Cow {
+                        format!("self.{name}.clone().into()")
+                    } else {
+                        format!("self.{name}.clone()")
+                    }
+                }
                 // Bytes: binding stores Vec<u8>. When core_wrapper == Bytes, core expects
                 // bytes::Bytes so we must call .into() to convert Vec<u8> → Bytes.
                 // When core_wrapper == None, the core field is also Vec<u8> (plain clone).

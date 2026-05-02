@@ -100,6 +100,19 @@ pub(super) fn gen_opaque_struct_methods(
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
+        // Skip methods that accept opaque-typed params by value — NAPI class types don't implement
+        // FromNapiValue and cannot appear as plain `#[napi]` method params. These methods (e.g.
+        // ConversionOptionsBuilder::visitor) require custom adapter code or bridge patterns.
+        let has_opaque_by_value_param = method.params.iter().any(|p| {
+            let inner_ty = match &p.ty {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            matches!(inner_ty, TypeRef::Named(name) if opaque_types.contains(name) && !p.is_ref)
+        });
+        if has_opaque_by_value_param && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         impl_builder.add_method(&gen_opaque_instance_method(
             method,
             mapper,
