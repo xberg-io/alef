@@ -162,18 +162,7 @@ impl Backend for GoBackend {
         // is embedded in the options struct and handled entirely in binding.go; emitting
         // visitor.go with the old visitor_create / convert_with_visitor symbols would
         // reference stale FFI functions that no longer exist.
-        let has_direct_visitor_bridge = visitor_callbacks_enabled
-            && config
-                .trait_bridges
-                .iter()
-                .any(|b| b.bind_via != BridgeBinding::OptionsField);
-
-        // visitor.go (ConvertWithVisitor + callback trampolines) is only generated for
-        // direct-parameter visitor bridges.  When bind_via = "options_field", the visitor
-        // is embedded in the options struct and handled entirely in binding.go; emitting
-        // visitor.go with the old visitor_create / convert_with_visitor symbols would
-        // reference stale FFI functions that no longer exist.
-        let has_direct_visitor_bridge = visitor_callbacks_enabled
+        let _has_direct_visitor_bridge = visitor_callbacks_enabled
             && config
                 .trait_bridges
                 .iter()
@@ -252,7 +241,7 @@ impl Backend for GoBackend {
         // Generate visitor.go only for direct-parameter visitor bridges.
         // Options-field bridges embed the visitor in the options struct (handled in binding.go)
         // and must NOT generate visitor.go, which would reference stale FFI symbols.
-        if has_direct_visitor_bridge {
+        if _has_direct_visitor_bridge {
             // Use the first direct-param bridge's trait name for the VTable type derivation.
             let vtable_trait_name = config
                 .trait_bridges
@@ -573,6 +562,21 @@ fn gen_go_file(
         .map(|t| t.name.as_str())
         .collect();
 
+    // Collect names of non-opaque types that have a corresponding {Name}Update sibling.
+    // When such an Update type exists the FFI does not have a `{prefix}_{snake}_from_json`
+    // helper — only `{prefix}_{snake}_update_from_json` + `{prefix}_{snake}_from` exist.
+    let all_non_opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_opaque)
+        .map(|t| t.name.as_str())
+        .collect();
+    let update_type_names: std::collections::HashSet<&str> = all_non_opaque_type_names
+        .iter()
+        .filter(|name| all_non_opaque_type_names.contains(format!("{}Update", name).as_str()))
+        .copied()
+        .collect();
+
     // Collect all enum type names (both unit and data enums from api.enums).
     // These types do NOT have _from_json/_to_json/_free helpers in the FFI header —
     // only non-opaque api.types have those helpers. Functions that use an enum type
@@ -632,6 +636,7 @@ fn gen_go_file(
                 func,
                 ffi_prefix,
                 &opaque_names,
+                &update_type_names,
                 bridge_param_names,
                 bridge_type_aliases,
                 &api.types,
@@ -670,7 +675,12 @@ fn gen_go_file(
             if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
                 continue;
             }
-            writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix, &opaque_names)).ok();
+            writeln!(
+                out,
+                "{}\n",
+                gen_method_wrapper(typ, method, ffi_prefix, &opaque_names, &update_type_names)
+            )
+            .ok();
         }
     }
 
@@ -1151,6 +1161,7 @@ fn gen_function_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    update_type_names: &std::collections::HashSet<&str>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     api_types: &[TypeDef],
@@ -1238,7 +1249,8 @@ fn gen_function_wrapper(
                 returns_value_and_error,
                 can_return_error,
                 ffi_prefix,
-                opaque_names
+                opaque_names,
+                update_type_names,
             )
         )
         .ok();
@@ -1393,6 +1405,7 @@ fn gen_method_wrapper(
     method: &MethodDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    update_type_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -1474,7 +1487,8 @@ fn gen_method_wrapper(
                     returns_value_and_error,
                     method_can_return_error,
                     ffi_prefix,
-                    opaque_names
+                    opaque_names,
+                    update_type_names,
                 )
             )
             .ok();
@@ -1531,26 +1545,48 @@ fn gen_method_wrapper(
             }
         } else {
             // Non-opaque structs: marshal to JSON, create a temporary handle, use it, and free it.
+            // When the type has a corresponding {Name}Update sibling use the two-step pattern.
             let err_prefix = if returns_value_and_error { "nil, " } else { "" };
             // method_can_return_error is always true here (receiver_requires_marshal is true for
             // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
-            writeln!(
-                out,
-                "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
-                 if err != nil {{\n\t\t\
-                 {err_action}\n\t\
-                 }}\n\t\
-                 tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
-                 cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n\t\
-                 C.free(unsafe.Pointer(tmpStrRecv))\n\t\
-                 defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
-                recv = receiver_name,
-                err_action = err_action,
-                ffi_prefix = ffi_prefix,
-                type_snake = type_snake,
-            )
-            .ok();
+            if update_type_names.contains(typ.name.as_str()) {
+                writeln!(
+                    out,
+                    "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
+                     if err != nil {{\n\t\t\
+                     {err_action}\n\t\
+                     }}\n\t\
+                     tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
+                     tmpUpdateRecv := C.{ffi_prefix}_{type_snake}_update_from_json(tmpStrRecv)\n\t\
+                     C.free(unsafe.Pointer(tmpStrRecv))\n\t\
+                     cRecv := C.{ffi_prefix}_{type_snake}_from(tmpUpdateRecv)\n\t\
+                     C.{ffi_prefix}_{type_snake}_update_free(tmpUpdateRecv)\n\t\
+                     defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
+                    recv = receiver_name,
+                    err_action = err_action,
+                    ffi_prefix = ffi_prefix,
+                    type_snake = type_snake,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
+                     if err != nil {{\n\t\t\
+                     {err_action}\n\t\
+                     }}\n\t\
+                     tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
+                     cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n\t\
+                     C.free(unsafe.Pointer(tmpStrRecv))\n\t\
+                     defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
+                    recv = receiver_name,
+                    err_action = err_action,
+                    ffi_prefix = ffi_prefix,
+                    type_snake = type_snake,
+                )
+                .ok();
+            }
             if c_params.is_empty() {
                 format!("C.{}_{}_{}(cRecv)", ffi_prefix, type_snake, method_snake)
             } else {
@@ -1693,6 +1729,7 @@ fn gen_param_to_c(
     can_return_error: bool,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    update_type_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(512);
     // Go param names must be lowerCamelCase (no underscores), and internal C-side
@@ -1758,31 +1795,56 @@ fn gen_param_to_c(
                 )
                 .ok();
             } else {
-                // Non-opaque Named types: marshal to JSON, create a handle via _from_json,
-                // and pass that to the C function.
+                // Non-opaque Named types: marshal to JSON and create a handle.
+                // When the type has a corresponding {Name}Update sibling the FFI does not
+                // expose `{prefix}_{snake}_from_json`; instead use the two-step pattern:
+                //   1. `{prefix}_{snake}_update_from_json` → *Update
+                //   2. `{prefix}_{snake}_from` → *Type  (then free the Update)
                 let type_snake = name.to_snake_case();
                 let err_action = if can_return_error {
                     format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
                 } else {
                     "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
                 };
-                writeln!(
-                    out,
-                    "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
-                     if err != nil {{\n\t\t\
-                     {err_action}\n\t\
-                     }}\n\t\
-                     tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
-                     {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n\t\
-                     C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
-                     defer C.{ffi_prefix}_{type_snake}_free({c_name})",
-                    c_name = c_name,
-                    param = go_param,
-                    err_action = err_action,
-                    ffi_prefix = ffi_prefix,
-                    type_snake = type_snake,
-                )
-                .ok();
+                if update_type_names.contains(name.as_str()) {
+                    writeln!(
+                        out,
+                        "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
+                         if err != nil {{\n\t\t\
+                         {err_action}\n\t\
+                         }}\n\t\
+                         tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
+                         tmpUpdate{c_name} := C.{ffi_prefix}_{type_snake}_update_from_json(tmpStr{c_name})\n\t\
+                         C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
+                         {c_name} := C.{ffi_prefix}_{type_snake}_from(tmpUpdate{c_name})\n\t\
+                         C.{ffi_prefix}_{type_snake}_update_free(tmpUpdate{c_name})\n\t\
+                         defer C.{ffi_prefix}_{type_snake}_free({c_name})",
+                        c_name = c_name,
+                        param = go_param,
+                        err_action = err_action,
+                        ffi_prefix = ffi_prefix,
+                        type_snake = type_snake,
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        out,
+                        "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
+                         if err != nil {{\n\t\t\
+                         {err_action}\n\t\
+                         }}\n\t\
+                         tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
+                         {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n\t\
+                         C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
+                         defer C.{ffi_prefix}_{type_snake}_free({c_name})",
+                        c_name = c_name,
+                        param = go_param,
+                        err_action = err_action,
+                        ffi_prefix = ffi_prefix,
+                        type_snake = type_snake,
+                    )
+                    .ok();
+                }
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {

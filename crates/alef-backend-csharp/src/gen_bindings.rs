@@ -1382,7 +1382,7 @@ fn gen_wrapper_function(
         let update_free_method = format!("{}UpdateFree", opts_pascal);
         let default_method = format!("{}Default", opts_pascal);
         let field_pascal = bridge.field_name.to_pascal_case();
-        let bridge_type = &bridge.bridge_cs_type;
+        let _bridge_type = &bridge.bridge_cs_type;
         let setter = bridge.cs_setter_name();
 
         // Build the options handle from the C# options object (if non-null).
@@ -1425,16 +1425,15 @@ fn gen_wrapper_function(
         }
 
         // Attach the visitor bridge to the options handle when the visitor is set.
+        // `{opts_name}.{field_pascal}` is already a `{bridge_type}Bridge` — access _vtable directly
+        // without double-wrapping.
         if opts_param.optional {
             out.push_str("        // options-field bridge: attach visitor when present\n");
             out.push_str(&format!(
                 "        if ({opts_name} != null && {opts_name}.{field_pascal} != null)\n        {{\n"
             ));
             out.push_str(&format!(
-                "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
-            ));
-            out.push_str(&format!(
-                "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+                "            NativeMethods.{setter}({opts_handle}, {opts_name}.{field_pascal}._vtable);\n"
             ));
             out.push_str("        }\n");
         } else {
@@ -1443,10 +1442,7 @@ fn gen_wrapper_function(
                 "        if ({opts_name}.{field_pascal} != null)\n        {{\n"
             ));
             out.push_str(&format!(
-                "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
-            ));
-            out.push_str(&format!(
-                "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+                "            NativeMethods.{setter}({opts_handle}, {opts_name}.{field_pascal}._vtable);\n"
             ));
             out.push_str("        }\n");
         }

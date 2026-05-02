@@ -41,6 +41,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `Optional<T>` fields are passed directly to avoid "incompatible types" errors.
 - fix(backend-go): preserve `None` as nil for optional string returns.
 
+- fix(backend-go): correct two codegen bugs that produced uncompilable Go bindings when
+  `bind_via = "options_field"` is used with an options type that has an Update sibling:
+  - Bug A: `ffi_c_struct_name` previously inserted an extra PascalCase prefix segment,
+    producing double-prefixed C type names (e.g. `HTMHtmNodeContext`) that do not exist
+    in the cbindgen header; the formula now maps Rust struct basenames directly to their
+    cbindgen names (e.g. `HTMNodeContext`).
+  - Bug B: visitor.go is no longer emitted when all `[[trait_bridges]]` entries use
+    `bind_via = "options_field"`; the stale FFI symbols `htm_conversion_options_from_json`,
+    `htm_visitor_create`, `htm_visitor_free`, and `htm_convert_with_visitor` are absent
+    from the options-field bridge API and caused undefined-symbol link errors.
+  - Additionally, non-opaque Named parameters and method receivers whose type has a
+    corresponding `{Name}Update` sibling now use the two-step
+    `{prefix}_{snake}_update_from_json` + `{prefix}_{snake}_from` pattern instead of the
+    removed `{prefix}_{snake}_from_json` helper.
+
 - fix(backend-pyo3): emit SCREAMING_SNAKE_CASE aliases alongside PascalCase variants in
   `.pyi` enum stubs so mypy resolves `CodeBlockStyle.BACKTICKS` without `attr-defined`
   errors. Previously only the raw PyO3 names (e.g. `Backticks`) were declared in the stub
@@ -169,6 +184,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `Python::attach(|py| v.clone_ref(py))` to extract the visitor from
     `Option<Py<PyAny>>`, replacing the former `.clone()` call that requires
     the `py-clone` feature (not enabled in most consumers).
+
+- fix(backend-csharp): drop stale `[DllImport]` declarations and fix the visitor
+  attach path when `bind_via = "options_field"` is active:
+  - `gen_native_methods` no longer emits `{prefix}_conversion_options_from_json`
+    for options types owned by an options-field bridge; those types are constructed
+    via the `UpdateFromJson` + `FromUpdate` pair that still exists in the FFI surface.
+  - `gen_native_methods_visitor` now returns an empty string when an options-field
+    bridge is present, suppressing the stale `{prefix}_convert_with_visitor`,
+    `{prefix}_visitor_create`, and `{prefix}_visitor_free` P/Invoke declarations.
+  - `gen_wrapper_function` now emits `{opts}.{Field}._vtable` directly instead of
+    double-wrapping the already-constructed `{bridge_type}Bridge` in a second `new
+    {bridge_type}Bridge(...)`, eliminating the `CS1503` type mismatch compile error.
+  - `ffi_symbol()` on `OptionsFieldBridgeInfo` now produces
+    `{prefix}_options_set_{field}` (matching `alef-backend-ffi::gen_bridge_field`)
+    instead of the former `{prefix}_{opts_snake}_set_{field}` mismatch.
 
 ### Added
 

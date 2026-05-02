@@ -143,7 +143,7 @@ fn go_codegen_loads_bytes_arg_from_file_path_value() {
 
     // Must emit a real test (not skipped).
     assert!(
-        content.contains("func Test_FilePath_Bytes(t *testing.T)"),
+        content.contains("func Test_FilePathBytes(t *testing.T)"),
         "test function not emitted: {content}"
     );
     assert!(
@@ -167,7 +167,7 @@ fn go_codegen_loads_bytes_arg_from_file_path_value() {
 
     // Must emit the real function call.
     assert!(
-        content.contains("ExtractTextFromPDF("),
+        content.contains("ExtractTextFromPdf("),
         "real function call missing: {content}"
     );
 }
@@ -187,7 +187,7 @@ fn go_codegen_emits_bytes_literal_for_inline_text_argument() {
 
     // Must emit a real test (not skipped).
     assert!(
-        content.contains("func Test_InlineText_Bytes(t *testing.T)"),
+        content.contains("func Test_InlineTextBytes(t *testing.T)"),
         "test function not emitted: {content}"
     );
     assert!(
@@ -231,7 +231,7 @@ fn go_codegen_emits_base64_decode_for_opaque_bytes_argument() {
 
     // Must emit a real test (not skipped).
     assert!(
-        content.contains("func Test_Base64_Bytes(t *testing.T)"),
+        content.contains("func Test_Base64Bytes(t *testing.T)"),
         "test function not emitted: {content}"
     );
     assert!(
@@ -255,7 +255,11 @@ fn go_codegen_emits_base64_decode_for_opaque_bytes_argument() {
         "file read should not be emitted for base64: {content}"
     );
     assert!(
-        content.lines().filter(|l| l.contains("[]byte(") && !l.contains("base64") && !l.contains("StdEncoding")).count() == 0,
+        content
+            .lines()
+            .filter(|l| l.contains("[]byte(") && !l.contains("base64") && !l.contains("StdEncoding"))
+            .count()
+            == 0,
         "raw bytes literal should not be emitted for base64: {content}"
     );
 }
