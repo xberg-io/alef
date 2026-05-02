@@ -159,6 +159,56 @@ impl Backend for ExtendrBackend {
             builder.add_item(&generators::gen_enum(e, &cfg));
         }
 
+        // Emit binding↔core From impls so generated bodies can use `.into()` /
+        // `Type::from(core)` to bridge between the extendr-facing binding types and
+        // the core Rust types.  Without these impls the generated `convert` and
+        // builder methods fail with E0277 unsatisfied trait bound errors.
+        let binding_to_core = alef_codegen::conversions::convertible_types(api);
+        let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
+        let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig::default();
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+            // binding→core: emit when type is used as input and all fields are
+            // convertible (mirrors pyo3/magnus emission paths).
+            if input_types.contains(&typ.name)
+                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
+            {
+                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                    typ,
+                    &core_import,
+                    &extendr_conversion_cfg,
+                ));
+            }
+            // core→binding: emit whenever the conversion can be generated.  Allows
+            // `core_value.into()` in return positions.
+            if alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
+                builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding_cfg(
+                    typ,
+                    &core_import,
+                    &opaque_types,
+                    &extendr_conversion_cfg,
+                ));
+            }
+        }
+        for e in &api.enums {
+            // Extendr emits enums as flat (unit-only) variants regardless of whether the
+            // core enum has data — emit lossy From impls so containing structs can call
+            // `.into()`.  Data is discarded across the boundary; the binding enum keeps
+            // only the variant tag.
+            if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
+                    e,
+                    &core_import,
+                ));
+            }
+            if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding(
+                    e,
+                    &core_import,
+                ));
+            }
+        }
+
         // Generate function bindings
         for func in &api.functions {
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);

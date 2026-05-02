@@ -842,7 +842,14 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
 }
 
 /// Generate an extendr (R) kwargs constructor for a type with `has_default`.
-/// Generates an R-callable function accepting named parameters with defaults.
+///
+/// Rust does not support function-parameter defaults, and extendr 0.9 only allows
+/// defaults via the per-parameter `#[extendr(default = "...")]` attribute (not via
+/// `param: T = expr` syntax).  Rather than encode every default in attribute form,
+/// we accept each field as `Option<T>` and unwrap it via `T::default()` (or via the
+/// type's own `Default::default()` for the whole struct as the base) inside the body.
+/// The R-side wrapper generated in `generate_public_api` already supplies named
+/// arguments with `NULL` defaults, so callers see ergonomic kwargs at the R level.
 pub fn gen_extendr_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
@@ -850,23 +857,29 @@ pub fn gen_extendr_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeR
     writeln!(out, "#[extendr]").ok();
     writeln!(out, "pub fn new_{}(", typ.name.to_lowercase()).ok();
 
-    // Add all fields as named parameters with defaults
+    // Add all fields as Option<T> parameters — extendr passes NULL → None which lets
+    // each field fall through to the struct's Default value when omitted.
     for (i, field) in typ.fields.iter().enumerate() {
         let field_type = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "r");
         let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: {} = {}{}", field.name, field_type, default_str, comma).ok();
+        writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
     }
 
     writeln!(out, ") -> {} {{", typ.name).ok();
-    writeln!(out, "    {} {{", typ.name).ok();
-
-    // Field assignments
+    // Use the type's Default impl as a base so unspecified fields keep their natural
+    // defaults rather than `Default::default()` for each individual field type (which
+    // would, for example, give an empty String for fields whose true default is
+    // `"utf-8"`).  Then overlay any caller-provided values.
+    writeln!(out, "    let mut __out = <{}>::default();", typ.name).ok();
     for field in &typ.fields {
-        writeln!(out, "        {},", field.name).ok();
+        writeln!(
+            out,
+            "    if let Some(v) = {name} {{ __out.{name} = v; }}",
+            name = field.name
+        )
+        .ok();
     }
-
-    writeln!(out, "    }}").ok();
+    writeln!(out, "    __out").ok();
     writeln!(out, "}}").ok();
 
     out
@@ -2045,52 +2058,48 @@ mod tests {
             output.contains("pub fn new_config("),
             "function name should be lowercase type name"
         );
-        // Fields appear as named parameters with defaults
+        // Fields appear as Option<T> parameters — Rust does not support param defaults.
         assert!(
-            output.contains("timeout: u64 = 30"),
-            "should include timeout with default"
-        );
-        // extendr passes "r" to default_value_for_field; BoolLiteral(true) → "TRUE" in R
-        assert!(
-            output.contains("enabled: bool = TRUE"),
-            "should include enabled with R bool default"
+            output.contains("timeout: Option<u64>"),
+            "should accept timeout as Option<u64>: {output}"
         );
         assert!(
-            output.contains("name: String = \"default\""),
-            "should include name with default"
+            output.contains("enabled: Option<bool>"),
+            "should accept enabled as Option<bool>: {output}"
+        );
+        assert!(
+            output.contains("name: Option<String>"),
+            "should accept name as Option<String>: {output}"
         );
         assert!(output.contains("-> Config {"), "should return Config");
-        assert!(output.contains("Config {"), "should construct Config");
-        assert!(output.contains("timeout,"), "should include timeout in struct literal");
-        assert!(output.contains("enabled,"), "should include enabled in struct literal");
-        assert!(output.contains("name,"), "should include name in struct literal");
+        assert!(
+            output.contains("let mut __out = <Config>::default();"),
+            "should base on Default impl: {output}"
+        );
+        assert!(
+            output.contains("if let Some(v) = timeout { __out.timeout = v; }"),
+            "should overlay caller-provided timeout"
+        );
+        assert!(
+            output.contains("if let Some(v) = enabled { __out.enabled = v; }"),
+            "should overlay caller-provided enabled"
+        );
+        assert!(
+            output.contains("if let Some(v) = name { __out.name = v; }"),
+            "should overlay caller-provided name"
+        );
     }
 
     #[test]
-    fn test_gen_extendr_kwargs_constructor_r_bool_default() {
-        // R language uses TRUE/FALSE; extendr calls default_value_for_field with "r"
-        let mut typ = make_test_type();
-        // Replace the enabled field so it has no typed_default, forcing fallback
-        typ.fields.retain(|f| f.name != "enabled");
-        typ.fields.push(FieldDef {
-            name: "verbose".to_string(),
-            ty: TypeRef::Primitive(PrimitiveType::Bool),
-            optional: false,
-            default: None,
-            doc: String::new(),
-            sanitized: false,
-            is_boxed: false,
-            type_rust_path: None,
-            cfg: None,
-            typed_default: None,
-            core_wrapper: CoreWrapper::None,
-            vec_inner_core_wrapper: CoreWrapper::None,
-            newtype_wrapper: None,
-        });
+    fn test_gen_extendr_kwargs_constructor_uses_option_for_all_fields() {
+        // Rust function-parameter defaults (`x: T = expr`) are a syntax error and
+        // extendr 0.9 only supports defaults via the `#[extendr(default = "...")]`
+        // attribute.  Verify that no field is emitted with a Rust-syntax default.
+        let typ = make_test_type();
         let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
-            output.contains("verbose: bool = FALSE"),
-            "R bool default should be FALSE: {output}"
+            !output.contains("= TRUE") && !output.contains("= FALSE") && !output.contains("= \"default\""),
+            "constructor must not use Rust-syntax param defaults: {output}"
         );
     }
 

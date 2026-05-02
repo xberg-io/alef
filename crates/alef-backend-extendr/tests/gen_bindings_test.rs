@@ -364,6 +364,170 @@ fn test_enum_generation() {
 }
 
 #[test]
+fn test_emits_binding_to_core_from_impls_for_input_types() {
+    // When a struct is used as a function parameter, the binding code calls
+    // `.into()` to bridge from the binding type to the core type.  Verify a
+    // matching `impl From<BindingType> for core::Type` is emitted.
+    let backend = ExtendrBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Options".to_string(),
+            rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("flag", TypeRef::Primitive(PrimitiveType::Bool), false),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "run".to_string(),
+            rust_path: "test_lib::run".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("Options".to_string()))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("impl From<Options> for test_lib::Options"),
+        "binding→core From impl missing for Options used as input:\n{content}"
+    );
+    assert!(
+        content.contains("impl From<test_lib::Options> for Options"),
+        "core→binding From impl missing for Options:\n{content}"
+    );
+}
+
+#[test]
+fn test_emits_lossy_from_impls_for_data_variant_enums() {
+    // Enums with data variants are flattened to unit variants in the binding layer
+    // (extendr cannot represent variant payloads).  Lossy From impls must still be
+    // emitted so containing structs that derive `From` can compile.
+    let backend = ExtendrBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Document".to_string(),
+            rust_path: "test_lib::Document".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field(
+                "kind",
+                TypeRef::Named("Kind".to_string()),
+                false,
+            )],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "parse".to_string(),
+            rust_path: "test_lib::parse".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Named("Document".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![EnumDef {
+            name: "Kind".to_string(),
+            rust_path: "test_lib::Kind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Heading".to_string(),
+                    fields: vec![make_field("level", TypeRef::Primitive(PrimitiveType::U32), false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let content = &files[0].content;
+    assert!(
+        content.contains("impl From<test_lib::Kind> for Kind"),
+        "expected lossy core→binding From impl for data-variant enum Kind:\n{content}"
+    );
+}
+
+#[test]
 fn test_generated_header() {
     let backend = ExtendrBackend;
 
