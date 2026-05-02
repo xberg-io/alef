@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   visitor parameter. Previously emitted `convert_with_visitor(html, if ..., do: ..., else: ..., visitor)`
   which is invalid syntax — Elixir keyword lists must be the final argument.
 
+- fix(backend-php): null-guard visitor access and correct PSR-4 namespace in generated PHP:
+  - `generate_public_api` now emits `$options?->visitor` (null-safe operator) instead of
+    `$options->visitor` when the options parameter is optional, eliminating the PHPStan
+    "Cannot access property on null" error.
+  - Added `generate_scaffold` to `PhpBackend` that emits a `functions.php` convenience
+    wrapper using the namespace from `config.php_autoload_namespace()` (which honours
+    `[php].namespace` in `alef.toml`), replacing the previously hard-coded wrong
+    namespace derived by mechanical case-splitting of the crate name.
+
 - fix(backend-php): resolve compile errors when `bind_via = "options_field"` is used
   in `[[trait_bridges]]` with an options type that has an opaque handle field:
   - `gen_php_struct` now receives `opaque_type_names` from `mod.rs` so

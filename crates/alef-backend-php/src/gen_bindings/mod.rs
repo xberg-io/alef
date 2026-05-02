@@ -496,6 +496,125 @@ impl Backend for PhpBackend {
         }])
     }
 
+    fn generate_scaffold(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Generate a global-namespace convenience functions file (`functions.php`) that wraps
+        // the first public API function under a short global name (e.g. `html_to_markdown_convert`).
+        // This file is registered under `autoload.files` in composer.json so it is loaded
+        // automatically; the implementations delegate to the PSR-4 facade class.
+        //
+        // The namespace is read from config (via `php_autoload_namespace`) so it always stays
+        // in sync with the `[php].namespace` / `[php].extension_name` settings in alef.toml,
+        // instead of being derived by mechanical case-splitting at the call site.
+        if api.functions.is_empty() {
+            return Ok(vec![]);
+        }
+        let extension_name = config.php_extension_name();
+        let class_name = extension_name.to_pascal_case();
+        let namespace = config.php_autoload_namespace();
+
+        // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
+        let output_dir = config
+            .php
+            .as_ref()
+            .and_then(|p| p.stubs.as_ref())
+            .map(|s| s.output.to_string_lossy().to_string())
+            .unwrap_or_else(|| "packages/php/src/".to_string());
+
+        let mut content = String::from("<?php\n\n");
+        content.push_str(&hash::header(CommentStyle::DoubleSlash));
+        content.push_str("declare(strict_types=1);\n\n");
+        // Emit a bracketed global-namespace block so that PSR-4 `use` imports work correctly
+        // alongside the inline class alias import.
+        content.push_str("namespace {\n\n");
+        content.push_str(&format!("    use {}\\{};\n\n", namespace, class_name));
+
+        for func in &api.functions {
+            // Skip functions that are not suitable for a simple global wrapper
+            // (async, void returns, or functions with more than two params).
+            if func.is_async {
+                continue;
+            }
+            let global_fn_name = format!("{}_{}", extension_name, func.name);
+            let return_php_type = php_type(&func.return_type);
+            let is_void = return_php_type == "void";
+
+            // Build PHPDoc and param list for visible params only.
+            let bridge_param_names: ahash::AHashSet<&str> = config
+                .trait_bridges
+                .iter()
+                .filter_map(|b| b.param_name.as_deref())
+                .collect();
+            let visible_params: Vec<_> = func
+                .params
+                .iter()
+                .filter(|p| !bridge_param_names.contains(p.name.as_str()))
+                .collect();
+
+            content.push_str(&format!("    if (!\\function_exists('{}')) {{\n", global_fn_name));
+            content.push_str("        /**\n");
+            for line in func.doc.lines() {
+                if line.is_empty() {
+                    content.push_str("         *\n");
+                } else {
+                    content.push_str(&format!("         * {}\n", line));
+                }
+            }
+            if func.doc.is_empty() {
+                content.push_str(&format!("         * {}.\n", global_fn_name));
+            }
+            content.push_str("         *\n");
+            for p in &visible_params {
+                let ptype = php_phpdoc_type(&p.ty);
+                let nullable_prefix = if p.optional { "?" } else { "" };
+                content.push_str(&format!("         * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
+            }
+            let return_phpdoc = php_phpdoc_type(&func.return_type);
+            content.push_str(&format!("         * @return {}\n", return_phpdoc));
+            if func.error_type.is_some() {
+                content.push_str(&format!("         * @throws \\{}\\{}Exception\n", namespace, class_name));
+            }
+            content.push_str("         */\n");
+
+            let mut sorted_params = visible_params.clone();
+            sorted_params.sort_by_key(|p| p.optional);
+            let params_str: Vec<String> = sorted_params
+                .iter()
+                .map(|p| {
+                    let ptype = php_type(&p.ty);
+                    if p.optional {
+                        format!("?{} ${} = null", ptype, p.name)
+                    } else {
+                        format!("{} ${}", ptype, p.name)
+                    }
+                })
+                .collect();
+            let method_name = func.name.to_lower_camel_case();
+            let call_args: Vec<String> = sorted_params.iter().map(|p| format!("${}", p.name)).collect();
+            let call_expr = format!("{}::{}({})", class_name, method_name, call_args.join(", "));
+            content.push_str(&format!(
+                "        function {}({}): {} {{\n",
+                global_fn_name,
+                params_str.join(", "),
+                return_php_type
+            ));
+            if is_void {
+                content.push_str(&format!("            {};\n", call_expr));
+            } else {
+                content.push_str(&format!("            return {};\n", call_expr));
+            }
+            content.push_str("        }\n");
+            content.push_str("    }\n\n");
+        }
+
+        content.push_str("} // end namespace\n");
+
+        Ok(vec![GeneratedFile {
+            path: PathBuf::from(&output_dir).join("functions.php"),
+            content,
+            generated_header: false,
+        }])
+    }
+
     fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
@@ -606,7 +725,11 @@ impl Backend for PhpBackend {
                 sorted_visible_params.iter().map(|p| format!("${}", p.name)).collect();
             if let Some(bfm) = bridge_field_funcs_pub.get(func.name.as_str()) {
                 let opts_param_name = &func.params[bfm.param_index].name;
-                call_arg_parts.push(format!("${}->{}", opts_param_name, bfm.field_name));
+                // Use the null-safe `?->` operator when the options parameter is optional so
+                // that PHPStan does not report "Cannot access property on null" when the caller
+                // passes `null` for the options argument.
+                let access_op = if bfm.param_is_optional { "?->" } else { "->" };
+                call_arg_parts.push(format!("${}{}{}", opts_param_name, access_op, bfm.field_name));
             }
             let call_expr = format!(
                 "\\{}\\{}Api::{}({})",
