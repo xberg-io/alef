@@ -2952,6 +2952,9 @@ fn simple_bridge_config() -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -3118,6 +3121,9 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,

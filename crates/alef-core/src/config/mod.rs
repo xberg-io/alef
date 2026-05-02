@@ -37,7 +37,7 @@ pub use output::{
 };
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use tools::{DEFAULT_RUST_DEV_TOOLS, LangContext, ToolsConfig, require_tool, require_tools};
-pub use trait_bridge::TraitBridgeConfig;
+pub use trait_bridge::{BridgeBinding, TraitBridgeConfig};
 
 /// Root configuration from alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]

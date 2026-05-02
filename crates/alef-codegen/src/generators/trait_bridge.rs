@@ -5,8 +5,8 @@
 //! to provide language-specific dispatch logic; the shared functions in this module
 //! handle the structural boilerplate.
 
-use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::config::{BridgeBinding, TraitBridgeConfig};
+use alef_core::ir::{FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -609,6 +609,10 @@ pub fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashM
 
 /// Find the first function parameter that matches a trait bridge configuration
 /// (by type alias or parameter name).
+///
+/// Bridges configured with `bind_via = "options_field"` are skipped — they live on a
+/// struct field rather than directly as a parameter, and are returned by
+/// [`find_bridge_field`] instead.
 pub fn find_bridge_param<'a>(
     func: &FunctionDef,
     bridges: &'a [TraitBridgeConfig],
@@ -626,6 +630,9 @@ pub fn find_bridge_param<'a>(
             _ => None,
         };
         for bridge in bridges {
+            if bridge.bind_via != BridgeBinding::FunctionParam {
+                continue;
+            }
             if let Some(type_name) = named {
                 if bridge.type_alias.as_deref() == Some(type_name) {
                     return Some((idx, bridge));
@@ -637,6 +644,103 @@ pub fn find_bridge_param<'a>(
         }
     }
     None
+}
+
+/// Match info for a trait bridge whose handle lives as a struct field
+/// (`bind_via = "options_field"`).
+#[derive(Debug, Clone)]
+pub struct BridgeFieldMatch<'a> {
+    /// Index of the function parameter that carries the owning struct.
+    pub param_index: usize,
+    /// Name of the parameter (e.g., `"options"`).
+    pub param_name: String,
+    /// IR type name of the parameter, with any `Option<>` wrapper unwrapped.
+    pub options_type: String,
+    /// True if the param is `Option<TypeName>` rather than `TypeName`.
+    pub param_is_optional: bool,
+    /// Name of the field on `options_type` that holds the bridge handle.
+    pub field_name: String,
+    /// The matching field definition (carries the field's `TypeRef`).
+    pub field: &'a FieldDef,
+    /// The bridge configuration that produced the match.
+    pub bridge: &'a TraitBridgeConfig,
+}
+
+/// Find the first function parameter whose IR type carries a bridge field
+/// (`bind_via = "options_field"`).
+///
+/// For each function parameter whose IR type is `Named(N)` or `Optional<Named(N)>`,
+/// look up `N` in `types`. If `N` matches any bridge's `options_type`, search its
+/// fields for one whose name matches the bridge's resolved options field (or whose
+/// type's `Named` alias matches the bridge's `type_alias`). Returns the first match.
+///
+/// Bridges configured with `bind_via = "function_param"` are skipped — those go
+/// through [`find_bridge_param`] instead.
+pub fn find_bridge_field<'a>(
+    func: &FunctionDef,
+    types: &'a [TypeDef],
+    bridges: &'a [TraitBridgeConfig],
+) -> Option<BridgeFieldMatch<'a>> {
+    fn unwrap_named(ty: &TypeRef) -> Option<(&str, bool)> {
+        match ty {
+            TypeRef::Named(n) => Some((n.as_str(), false)),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    Some((n.as_str(), true))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    for (idx, param) in func.params.iter().enumerate() {
+        let Some((type_name, is_optional)) = unwrap_named(&param.ty) else {
+            continue;
+        };
+        let Some(type_def) = types.iter().find(|t| t.name == type_name) else {
+            continue;
+        };
+        for bridge in bridges {
+            if bridge.bind_via != BridgeBinding::OptionsField {
+                continue;
+            }
+            if bridge.options_type.as_deref() != Some(type_name) {
+                continue;
+            }
+            let field_name = bridge.resolved_options_field();
+            for field in &type_def.fields {
+                let matches_name = field_name.is_some_and(|n| field.name == n);
+                let matches_alias = bridge
+                    .type_alias
+                    .as_deref()
+                    .is_some_and(|alias| field_type_matches_alias(&field.ty, alias));
+                if matches_name || matches_alias {
+                    return Some(BridgeFieldMatch {
+                        param_index: idx,
+                        param_name: param.name.clone(),
+                        options_type: type_name.to_string(),
+                        param_is_optional: is_optional,
+                        field_name: field.name.clone(),
+                        field,
+                        bridge,
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+/// True if `field_ty` references a `Named` type whose name equals `alias`,
+/// allowing for `Option<>` and `Vec<>` wrappers.
+fn field_type_matches_alias(field_ty: &TypeRef, alias: &str) -> bool {
+    match field_ty {
+        TypeRef::Named(n) => n == alias,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => field_type_matches_alias(inner, alias),
+        _ => false,
+    }
 }
 
 /// Convert a snake_case string to camelCase.
@@ -676,6 +780,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         }
     }
 
@@ -725,6 +832,43 @@ mod tests {
             returns_cow: false,
             return_newtype_wrapper: None,
             has_default_impl,
+        }
+    }
+
+    fn make_func(name: &str, params: Vec<ParamDef>) -> FunctionDef {
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("mylib::{name}"),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }
+    }
+
+    fn make_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: Default::default(),
+            vec_inner_core_wrapper: Default::default(),
+            newtype_wrapper: None,
         }
     }
 
@@ -1563,5 +1707,169 @@ mod tests {
             .find("impl mylib::OcrBackend for PyOcrBackendBridge")
             .unwrap();
         assert!(struct_pos < impl_pos, "struct should appear before trait impl");
+    }
+
+    // ---------------------------------------------------------------------------
+    // find_bridge_param / find_bridge_field
+    // ---------------------------------------------------------------------------
+
+    fn make_bridge(
+        type_alias: Option<&str>,
+        param_name: Option<&str>,
+        bind_via: BridgeBinding,
+        options_type: Option<&str>,
+        options_field: Option<&str>,
+    ) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: "HtmlVisitor".to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: None,
+            type_alias: type_alias.map(str::to_string),
+            param_name: param_name.map(str::to_string),
+            register_extra_args: None,
+            exclude_languages: vec![],
+            bind_via,
+            options_type: options_type.map(str::to_string),
+            options_field: options_field.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn find_bridge_param_returns_first_param_match_in_function_param_mode() {
+        let func = make_func(
+            "convert",
+            vec![
+                make_param("html", TypeRef::String, true),
+                make_param("visitor", TypeRef::Named("VisitorHandle".to_string()), false),
+            ],
+        );
+        let bridges = vec![make_bridge(
+            Some("VisitorHandle"),
+            Some("visitor"),
+            BridgeBinding::FunctionParam,
+            None,
+            None,
+        )];
+        let result = find_bridge_param(&func, &bridges).expect("bridge match");
+        assert_eq!(result.0, 1);
+    }
+
+    #[test]
+    fn find_bridge_param_skips_options_field_bridges() {
+        let func = make_func(
+            "convert",
+            vec![
+                make_param("html", TypeRef::String, true),
+                make_param("visitor", TypeRef::Named("VisitorHandle".to_string()), false),
+            ],
+        );
+        let bridges = vec![make_bridge(
+            Some("VisitorHandle"),
+            Some("visitor"),
+            BridgeBinding::OptionsField,
+            Some("ConversionOptions"),
+            Some("visitor"),
+        )];
+        assert!(
+            find_bridge_param(&func, &bridges).is_none(),
+            "bridges configured with bind_via=options_field must not be returned by find_bridge_param"
+        );
+    }
+
+    #[test]
+    fn find_bridge_field_detects_field_via_alias() {
+        let opts_type = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "mylib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("debug", TypeRef::Primitive(PrimitiveType::Bool)),
+                make_field(
+                    "visitor",
+                    TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+                ),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let func = make_func(
+            "convert",
+            vec![
+                make_param("html", TypeRef::String, true),
+                make_param(
+                    "options",
+                    TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                    false,
+                ),
+            ],
+        );
+        let bridges = vec![make_bridge(
+            Some("VisitorHandle"),
+            Some("visitor"),
+            BridgeBinding::OptionsField,
+            Some("ConversionOptions"),
+            None,
+        )];
+        let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges)
+            .expect("bridge field match");
+        assert_eq!(m.param_index, 1);
+        assert_eq!(m.param_name, "options");
+        assert_eq!(m.options_type, "ConversionOptions");
+        assert!(m.param_is_optional);
+        assert_eq!(m.field_name, "visitor");
+    }
+
+    #[test]
+    fn find_bridge_field_returns_none_for_function_param_bridge() {
+        let opts_type = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "mylib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field(
+                "visitor",
+                TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+            )],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        };
+        let func = make_func(
+            "convert",
+            vec![make_param(
+                "options",
+                TypeRef::Named("ConversionOptions".to_string()),
+                false,
+            )],
+        );
+        let bridges = vec![make_bridge(
+            Some("VisitorHandle"),
+            Some("visitor"),
+            BridgeBinding::FunctionParam,
+            None,
+            None,
+        )];
+        assert!(find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges).is_none());
     }
 }

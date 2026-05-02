@@ -1234,6 +1234,9 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> alef_core::config::TraitBridgeCon
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -1247,6 +1250,9 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef_core::con
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -1417,6 +1423,9 @@ fn test_napi_plugin_bridge_validates_required_methods() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let api = make_api_napi();
 

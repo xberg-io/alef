@@ -91,6 +91,9 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -104,6 +107,9 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -274,6 +280,9 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

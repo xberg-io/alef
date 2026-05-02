@@ -1565,6 +1565,9 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
@@ -1811,6 +1814,9 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1844,6 +1850,9 @@ fn test_gen_registration_fn_validates_required_methods() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1895,6 +1904,9 @@ fn test_gen_registration_fn_calls_registry_getter() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1939,6 +1951,9 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let api = make_api_surface();
 
@@ -1972,6 +1987,9 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let api = make_api_surface();
 
@@ -2001,6 +2019,9 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let api = make_api_surface();
 
@@ -2042,6 +2063,9 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let api = make_api_surface();
 
@@ -2656,6 +2680,9 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             param_name: None,
             register_extra_args: None,
             exclude_languages: vec![],
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         },
         TraitBridgeConfig {
             trait_name: "EmbeddingBackend".to_string(),
@@ -2666,6 +2693,9 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             param_name: None,
             register_extra_args: None,
             exclude_languages: vec![],
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         },
     ];
 

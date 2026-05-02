@@ -1137,6 +1137,9 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1164,6 +1167,9 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1212,6 +1218,9 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1246,6 +1255,9 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1282,6 +1294,9 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1323,6 +1338,9 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1359,6 +1377,9 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1390,6 +1411,9 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1433,6 +1457,9 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1472,6 +1499,9 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1513,6 +1543,9 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1551,6 +1584,9 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     };
 
     let api = ApiSurface {

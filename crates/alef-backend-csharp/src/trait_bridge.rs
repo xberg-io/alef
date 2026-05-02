@@ -785,6 +785,9 @@ mod tests {
             registry_getter: None,
             register_fn: None,
             register_extra_args: None,
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         }
     }
 

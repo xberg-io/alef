@@ -490,6 +490,9 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> AlefConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }];
     config
 }

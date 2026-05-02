@@ -1460,6 +1460,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         }
     }
 
@@ -1631,6 +1634,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         };
         let api = sample_api();
 
@@ -1669,6 +1675,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         };
         let api = sample_api();
 
@@ -1705,6 +1714,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         };
         let api = sample_api();
 
@@ -1743,6 +1755,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         };
         let api = sample_api();
 
@@ -1775,6 +1790,9 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
         };
         let api = sample_api();
 

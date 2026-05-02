@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(core/codegen): trait bridges may now declare `bind_via = "options_field"`
+  on `[[trait_bridges]]` (with `options_type` and optional `options_field`)
+  to indicate that the bridge handle lives as a struct field on a function
+  parameter rather than as its own positional argument. Adds the
+  `BridgeBinding` enum, the `find_bridge_field` codegen helper, and updates
+  `find_bridge_param` to skip bridges configured for options-field binding.
+  Existing configs default to `function_param` (the legacy mode), so this is
+  fully backwards compatible.
+
 ### Fixed
 
 - fix(backend-php): generated public PHP wrapper files now include the

@@ -533,6 +533,9 @@ fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
     }
 }
 
