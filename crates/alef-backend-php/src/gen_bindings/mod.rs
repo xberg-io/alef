@@ -472,7 +472,7 @@ impl Backend for PhpBackend {
         let class_name = extension_name.to_pascal_case();
 
         // Generate PHP wrapper class
-        let mut content = String::from("<?php\n");
+        let mut content = String::from("<?php\n\n");
         content.push_str(&hash::header(CommentStyle::DoubleSlash));
         content.push_str("declare(strict_types=1);\n\n");
 

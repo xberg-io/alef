@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-php): generated public PHP wrapper files now include the
+  formatter-required blank line after `<?php` before the Alef header, keeping
+  `php-cs-fixer` from mutating generated files after hashes are finalized.
 - fix(scaffold/java,scaffold/php): generated Java Checkstyle suppressions now
   use a repo-root path in `checkstyle.xml` so both Maven and repo-root
   pre-commit invocations find the suppressions file, and the PHP CS Fixer
