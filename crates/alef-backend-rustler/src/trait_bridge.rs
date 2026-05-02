@@ -1197,3 +1197,251 @@ pub fn gen_bridge_function(
 
     out
 }
+
+/// Generate NIF functions for an `options_field` visitor bridge.
+///
+/// For `options_field` bridges the visitor is embedded in the options struct
+/// rather than being a direct function parameter.  We generate two NIFs:
+///
+/// 1. The plain NIF: `fn convert(html, options)` — no visitor, just deserialises
+///    options and calls the core function directly (same as `gen_nif_function`).
+///
+/// 2. The async visitor NIF: `fn convert_with_visitor(env, html, options, visitor)`
+///    — pops the visitor from the Elixir caller, builds the bridge struct, injects
+///    it as `options.visitor`, then spawns a system thread, runs conversion, and
+///    sends the result as `{:ok, result}` / `{:error, reason}` to the BEAM process.
+///
+/// The Elixir public-API wrapper in `html_to_markdown.ex` calls
+/// `Native.convert_with_visitor(html, clean_opts, visitor)` when a visitor map
+/// is present, or falls back to `Native.convert(html, opts_json)` otherwise.
+pub fn gen_bridge_field_function(
+    func: &alef_core::ir::FunctionDef,
+    bridge_match: &alef_codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &crate::type_map::RustlerMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    _default_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use alef_codegen::type_mapper::TypeMapper;
+    use alef_core::ir::TypeRef;
+
+    let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let func_name = &func.name;
+    let field_name = &bridge_match.field_name;
+    let options_param = &bridge_match.param_name;
+    let options_type = &bridge_match.options_type;
+    let core_options_type = format!("{core_import}::options::{options_type}");
+
+    // Whether the core function expects Option<ConversionOptions> (optional=true).
+    let options_param_is_optional = func
+        .params
+        .iter()
+        .find(|p| p.name == *options_param)
+        .is_some_and(|p| p.optional || matches!(&p.ty, TypeRef::Optional(_)));
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
+    // ── 1. Plain NIF (no visitor) ─────────────────────────────────────────────
+    // Parameters: all original params. Options type is passed as Option<String> (JSON).
+    let mut plain_sig: Vec<String> = Vec::new();
+    for p in &func.params {
+        let ty = if p.name == *options_param {
+            "Option<String>".to_string()
+        } else if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+            format!("Option<{}>", mapper.map_type(&p.ty))
+        } else if let TypeRef::Named(n) = &p.ty {
+            if opaque_types.contains(n) {
+                format!("rustler::ResourceArc<{n}>")
+            } else {
+                mapper.map_type(&p.ty)
+            }
+        } else {
+            mapper.map_type(&p.ty)
+        };
+        plain_sig.push(format!("{}: {}", p.name, ty));
+    }
+    let plain_params_str = plain_sig.join(", ");
+
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let err_conv = ".map_err(|e| e.to_string())";
+
+    // Build call args for the plain NIF.
+    let plain_call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == *options_param {
+                // Deserialise options JSON → core type.
+                // When the core param is Option<T>, keep it wrapped; otherwise unwrap to Default.
+                if options_param_is_optional {
+                    format!(
+                        "{options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default())"
+                    )
+                } else {
+                    format!(
+                        "{options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default()).unwrap_or_default()"
+                    )
+                }
+            } else {
+                match &p.ty {
+                    TypeRef::Named(n) if opaque_types.contains(n) => format!("&{}.inner", p.name),
+                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                    _ => p.name.clone(),
+                }
+            }
+        })
+        .collect();
+    let plain_call_args_str = plain_call_args.join(", ");
+
+    let plain_body = if func.error_type.is_some() {
+        format!("{core_fn_path}({plain_call_args_str})\n        .map(|val| val.into()){err_conv}")
+    } else {
+        format!("{core_fn_path}({plain_call_args_str}).into()")
+    };
+
+    let mut out = String::with_capacity(2048);
+    writeln!(out, "#[rustler::nif(schedule = \"DirtyCpu\")]").ok();
+    writeln!(out, "pub fn {func_name}({plain_params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {plain_body}").ok();
+    writeln!(out, "}}").ok();
+
+    // ── 2. Async visitor NIF ──────────────────────────────────────────────────
+    // Signature: env + original params + `visitor: Term<'_>` at the end.
+    let mut vis_sig: Vec<String> = vec!["env: rustler::Env<'_>".to_string()];
+    for p in &func.params {
+        let ty = if p.name == *options_param {
+            "Option<String>".to_string()
+        } else if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+            format!("Option<{}>", mapper.map_type(&p.ty))
+        } else if let TypeRef::Named(n) = &p.ty {
+            if opaque_types.contains(n) {
+                format!("rustler::ResourceArc<{n}>")
+            } else {
+                mapper.map_type(&p.ty)
+            }
+        } else {
+            mapper.map_type(&p.ty)
+        };
+        vis_sig.push(format!("{}: {}", p.name, ty));
+    }
+    vis_sig.push("visitor: rustler::Term<'_>".to_string());
+    let vis_params_str = vis_sig.join(", ");
+
+    // Clone stmts for non-String params that need to move into thread.
+    let clone_stmts: String = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == *options_param {
+                return String::new();
+            }
+            match &p.ty {
+                TypeRef::String | TypeRef::Char => format!("let {} = {}.clone();\n    ", p.name, p.name),
+                _ => String::new(),
+            }
+        })
+        .collect();
+
+    // Deser stmts: parse options JSON and set visitor field.
+    let deser_stmts = format!(
+        "let mut {options_param}_core: {core_options_type} = \
+         {options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default()).unwrap_or_default();\n    \
+         let bridge = {struct_name}::new(env, pid, visitor_term);\n    \
+         {options_param}_core.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path});"
+    );
+
+    // Build call args for the visitor variant.
+    let vis_call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == *options_param {
+                // Core expects Option<T> when optional=true.
+                if options_param_is_optional {
+                    format!("Some({options_param}_core)")
+                } else {
+                    format!("{options_param}_core")
+                }
+            } else {
+                match &p.ty {
+                    TypeRef::Named(n) if opaque_types.contains(n) => format!("&{}.inner", p.name),
+                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                    _ => p.name.clone(),
+                }
+            }
+        })
+        .collect();
+    let vis_call_args_str = vis_call_args.join(", ");
+
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "// Async visitor variant: pops visitor from options, builds bridge, spawns thread."
+    )
+    .ok();
+    writeln!(out, "#[rustler::nif]").ok();
+    writeln!(
+        out,
+        "pub fn {func_name}_with_visitor({vis_params_str}) -> Result<(), String> {{"
+    )
+    .ok();
+    writeln!(out, "    let pid = env.pid();").ok();
+    writeln!(out, "    let visitor_owned_env = rustler::OwnedEnv::new();").ok();
+    writeln!(out, "    let visitor_saved = visitor_owned_env.save(visitor);").ok();
+    writeln!(out, "    {clone_stmts}").ok();
+    writeln!(out, "    std::thread::spawn(move || {{").ok();
+    writeln!(out, "        visitor_owned_env.run(|env| {{").ok();
+    writeln!(out, "            let visitor_term = visitor_saved.load(env);").ok();
+    writeln!(out, "            {deser_stmts}").ok();
+    writeln!(out, "            let mut result_env = rustler::OwnedEnv::new();").ok();
+    writeln!(out, "            let _ = result_env.send_and_clear(&pid, |env| {{").ok();
+    writeln!(out, "                match {core_fn_path}({vis_call_args_str}) {{").ok();
+    writeln!(out, "                    Ok(val) => {{").ok();
+    writeln!(
+        out,
+        "                        let result: ConversionResult = val.into();"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                        let ok_atom = rustler::types::atom::Atom::from_str(env, \"ok\").unwrap().to_term(env);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                        rustler::types::tuple::make_tuple(env, &[ok_atom, result.encode(env)])"
+    )
+    .ok();
+    writeln!(out, "                    }},").ok();
+    writeln!(out, "                    Err(e) => {{").ok();
+    writeln!(
+        out,
+        "                        let err_atom = rustler::types::atom::Atom::from_str(env, \"error\").unwrap().to_term(env);"
+    )
+    .ok();
+    writeln!(out, "                        let reason = e.to_string().encode(env);").ok();
+    writeln!(
+        out,
+        "                        rustler::types::tuple::make_tuple(env, &[err_atom, reason])"
+    )
+    .ok();
+    writeln!(out, "                    }},").ok();
+    writeln!(out, "                }}").ok();
+    writeln!(out, "            }});").ok();
+    writeln!(out, "        }});").ok();
+    writeln!(out, "    }});").ok();
+    writeln!(out, "    Ok(())").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}

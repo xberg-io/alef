@@ -235,11 +235,23 @@ impl Backend for RustlerBackend {
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
+            let bridge_field =
+                alef_codegen::generators::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
                     param_idx,
                     bridge_cfg,
+                    &mapper,
+                    &opaque_types,
+                    &default_types,
+                    &core_import,
+                ));
+            } else if let Some(ref bm) = bridge_field {
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                    func,
+                    bm,
+                    bm.bridge,
                     &mapper,
                     &opaque_types,
                     &default_types,

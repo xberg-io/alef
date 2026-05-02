@@ -110,12 +110,48 @@ pub(super) fn gen_native_ex(
             .collect();
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
 
-        // For functions that have a visitor bridge, also emit the async visitor variant stub
-        // plus the visitor_reply NIF stub (once, for the first such function).
+        // For functions that have a visitor bridge (FunctionParam pattern), also emit the
+        // async visitor variant stub plus the visitor_reply NIF stub (once).
         let has_visitor_bridge = config.trait_bridges.iter().any(|b| {
-            func.params.iter().any(|p| {
-                b.param_name.as_deref() == Some(p.name.as_str()) || {
-                    let named = match &p.ty {
+            b.bind_via != alef_core::config::BridgeBinding::OptionsField
+                && func.params.iter().any(|p| {
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
+                            TypeRef::Named(n) => Some(n.as_str()),
+                            TypeRef::Optional(inner) => {
+                                if let TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                    }
+                })
+        });
+        if has_visitor_bridge {
+            // Params for convert_with_visitor: same as convert but visitor is required (not optional).
+            let with_visitor_params: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| format!("_{}", p.name.to_snake_case()))
+                .collect();
+            last_was_multiline = write_nif_stub(
+                &mut out,
+                &format!("{fn_name}_with_visitor"),
+                &with_visitor_params,
+                last_was_multiline,
+            );
+        }
+
+        // For functions that have an options_field visitor bridge, emit
+        // `{fn_name}_with_visitor` stub with the original params + `_visitor` appended.
+        let has_options_field_bridge = config.trait_bridges.iter().any(|b| {
+            b.bind_via == alef_core::config::BridgeBinding::OptionsField
+                && func.params.iter().any(|p| {
+                    let type_name = match &p.ty {
                         TypeRef::Named(n) => Some(n.as_str()),
                         TypeRef::Optional(inner) => {
                             if let TypeRef::Named(n) = inner.as_ref() {
@@ -126,17 +162,17 @@ pub(super) fn gen_native_ex(
                         }
                         _ => None,
                     };
-                    named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
-                }
-            })
+                    type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                })
         });
-        if has_visitor_bridge {
-            // Params for convert_with_visitor: same as convert but visitor is required (not optional).
-            let with_visitor_params: Vec<String> = func
+        if has_options_field_bridge {
+            // Params: all original params (options is Option<String>) + _visitor at the end.
+            let mut with_visitor_params: Vec<String> = func
                 .params
                 .iter()
                 .map(|p| format!("_{}", p.name.to_snake_case()))
                 .collect();
+            with_visitor_params.push("_visitor".to_string());
             last_was_multiline = write_nif_stub(
                 &mut out,
                 &format!("{fn_name}_with_visitor"),

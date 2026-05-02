@@ -1134,6 +1134,7 @@ pub fn gen_bridge_function(
 /// Error dispatch: uses the dedicated `{snake_error}_to_py_err` converter when
 /// the IR error type is a known PascalCase name; falls back to `PyRuntimeError`
 /// for generic/path-qualified types.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_field_function(
     func: &alef_core::ir::FunctionDef,
     bridge_match: &alef_codegen::generators::trait_bridge::BridgeFieldMatch<'_>,

@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declaration in `visitor.go` that caused a redeclaration compile error with `binding.go`'s
   `type NodeType string` has been removed.
 
+- fix(backend-rustler): `gen_native_ex` now emits a `convert_with_visitor/3` NIF stub when
+  a `bind_via = "options_field"` bridge is present. Previously only `FunctionParam` bridges
+  triggered the visitor-variant stub, causing an `on_load` failure at runtime.
+
+- fix(backend-rustler): `gen_bridge_field_function` now correctly handles optional options
+  params. When the core function expects `Option<ConversionOptions>`, the plain NIF no longer
+  calls `.unwrap_or_default()` (preserving `None`), and the visitor NIF wraps `options_core`
+  in `Some(...)` before passing to the core function.
+
+- fix(alef-codegen/enums): resolved merge-conflict marker in `gen_enum` that broke builds.
+  The `#[default]` attribute is now placed on the `is_default`-marked variant (falling back to
+  the first variant), matching the Rust core's explicit `#[default]` placement.
+
 - fix(napi): `core_to_binding` conversion now emits `Default::default()` for opaque Named fields
   with `CoreWrapper::None` (e.g. `visitor: Object<'static>`) instead of trying to wrap them
   with `Arc::new` — mirrors the same fix previously applied to `binding_to_core`.

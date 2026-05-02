@@ -328,8 +328,7 @@ fn render_test_case(
             format!("{{ visitor: {visitor_arg} }}")
         } else if let Some(as_pos) = args_str.rfind(" as unknown as ") {
             let (before_cast, type_suffix) = args_str.split_at(as_pos);
-            let merged_obj = if before_cast.ends_with("{}") {
-                let prefix = &before_cast[..before_cast.len() - 2];
+            let merged_obj = if let Some(prefix) = before_cast.strip_suffix("{}") {
                 format!("{prefix}{{ visitor: {visitor_arg} }}")
             } else if let Some(close_brace) = before_cast.rfind('}') {
                 let (obj_body, _) = before_cast.split_at(close_brace);

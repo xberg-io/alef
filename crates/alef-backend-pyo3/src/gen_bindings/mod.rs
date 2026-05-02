@@ -90,7 +90,7 @@ impl Backend for Pyo3Backend {
         let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
         let has_serde = detect_serde_available(&output_dir);
         let mut cfg = Self::binding_config(&core_import, has_serde);
-        let cfg_unsendable = Self::unsendable_binding_config(&core_import, has_serde);
+        let mut cfg_unsendable = Self::unsendable_binding_config(&core_import, has_serde);
 
         // Build adapter body map for method body substitution
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Python)?;
@@ -211,6 +211,7 @@ impl Backend for Pyo3Backend {
             }
         }
         cfg.opaque_type_names = &opaque_names_vec;
+        cfg_unsendable.opaque_type_names = &opaque_names_vec;
         let mutex_types: AHashSet<String> = api
             .types
             .iter()
@@ -424,6 +425,18 @@ impl Backend for Pyo3Backend {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }
         }
+        // Build the list of error converter function names available in the generated module.
+        // These follow the pattern `{snake_error}_to_py_err` for each error in api.errors.
+        // Used by bridge function generators to dispatch typed exceptions instead of PyRuntimeError
+        // when the IR records a generic error type like "anyhow::Error".
+        let error_converters: Vec<String> = api
+            .errors
+            .iter()
+            .map(|e| {
+                use heck::ToSnakeCase;
+                format!("{}_to_py_err", e.name.to_snake_case())
+            })
+            .collect();
         for f in &api.functions {
             if py_exclude_functions.contains(&f.name) {
                 continue;
@@ -443,6 +456,7 @@ impl Backend for Pyo3Backend {
                     &adapter_bodies,
                     &opaque_types,
                     &core_import,
+                    &error_converters,
                 ));
             } else if let Some(ref bm) = bridge_field {
                 builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
@@ -453,6 +467,7 @@ impl Backend for Pyo3Backend {
                     &cfg,
                     &opaque_types,
                     &core_import,
+                    &error_converters,
                 ));
             } else {
                 builder.add_item(&generators::gen_function(
