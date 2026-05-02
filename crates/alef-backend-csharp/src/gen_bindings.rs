@@ -21,23 +21,28 @@ struct OptionsFieldBridgeInfo {
     field_name: String,
     /// C# bridge type derived from the trait name (e.g. `"HtmlVisitor"` → `"HtmlVisitorBridge"`).
     bridge_cs_type: String,
-    /// FFI prefix for symbol derivation (e.g. `"htm"` → `htm_conversion_options_set_visitor`).
+    /// FFI prefix for symbol derivation (e.g. `"htm"` → `htm_options_set_visitor`).
     ffi_prefix: String,
 }
 
 impl OptionsFieldBridgeInfo {
-    /// Returns the C# P/Invoke method name for the FFI setter, e.g. `ConversionOptionsSetVisitor`.
+    /// Returns the C# P/Invoke method name for the FFI setter.
+    ///
+    /// Uses the options type name for disambiguation in multi-bridge scenarios,
+    /// e.g. `ConversionOptionsSetVisitor` for options type `ConversionOptions` and field `visitor`.
     fn cs_setter_name(&self) -> String {
         let opts_pascal = self.options_type.to_pascal_case();
         let field_pascal = self.field_name.to_pascal_case();
         format!("{}Set{}", opts_pascal, field_pascal)
     }
 
-    /// Returns the FFI entry-point symbol name, e.g. `htm_conversion_options_set_visitor`.
+    /// Returns the FFI entry-point symbol name, e.g. `htm_options_set_visitor`.
+    ///
+    /// Matches the symbol emitted by `alef-backend-ffi::gen_bridge_field`:
+    /// `{prefix}_options_set_{field_name}`.
     fn ffi_symbol(&self) -> String {
-        let opts_snake = self.options_type.to_snake_case();
         let field_snake = self.field_name.to_snake_case();
-        format!("{}_{}_set_{}", self.ffi_prefix, opts_snake, field_snake).replace("__", "_")
+        format!("{}_options_set_{}", self.ffi_prefix, field_snake)
     }
 }
 
@@ -138,11 +143,17 @@ impl Backend for CsharpBackend {
             .collect();
 
         // Functions explicitly excluded from C# bindings (e.g., not present in the C FFI layer).
-        let exclude_functions: HashSet<String> = config
+        let mut exclude_functions: HashSet<String> = config
             .csharp
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
+
+        // Automatically exclude trait-bridge registration functions to prevent double-emission:
+        // gen_trait_bridge emits them as idiomatic bridge functions, so gen_function should skip them.
+        let trait_bridge_reg_fns =
+            alef_codegen::generators::trait_bridge::collect_trait_bridge_registration_fn_names(&config.trait_bridges);
+        exclude_functions.extend(trait_bridge_reg_fns);
 
         let output_dir = resolve_output_dir(
             config.output.csharp.as_ref(),
@@ -610,14 +621,23 @@ fn gen_native_methods(
         .map(|t| t.name.clone())
         .collect();
 
+    // Types used as options-field bridge options: their options handle is constructed via
+    // the builder/setter pattern (`{type}_default` + `{type}_apply_update` or
+    // `{type}_from_update`), not via `{type}_from_json`.  Skip emitting the stale
+    // `from_json` helper for these types; `free` is still needed.
+    let options_field_bridge_options_types: HashSet<&str> =
+        options_field_bridges.iter().map(|b| b.options_type.as_str()).collect();
+
     // Emit from_json + free helpers for opaque types used as parameters.
     // Truly opaque handles (is_opaque = true) have no from_json — only free.
+    // Types that are options-field bridge options types also skip from_json (builder pattern).
     // E.g. `htm_conversion_options_from_json(const char *json) -> HTMConversionOptions*`
     let mut sorted_param_types: Vec<&String> = opaque_param_types.iter().collect();
     sorted_param_types.sort();
     for type_name in sorted_param_types {
         let snake = type_name.to_snake_case();
-        if !true_opaque_types.contains(type_name) {
+        let is_options_field_type = options_field_bridge_options_types.contains(type_name.as_str());
+        if !true_opaque_types.contains(type_name) && !is_options_field_type {
             let from_json_entry = format!("{prefix}_{snake}_from_json");
             let from_json_cs = format!("{}FromJson", type_name.to_pascal_case());
             if emitted.insert(from_json_entry.clone()) {
@@ -716,11 +736,16 @@ fn gen_native_methods(
     out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
 
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
+    // When options-field bridges are active, `gen_native_methods_visitor` suppresses the
+    // three deleted legacy symbols (`_visitor_create`, `_visitor_free`, `_convert_with_visitor`).
     if has_visitor_callbacks {
-        out.push('\n');
-        out.push_str(&crate::gen_visitor::gen_native_methods_visitor(
-            namespace, lib_name, prefix,
-        ));
+        let has_options_field_bridge = !options_field_bridges.is_empty();
+        let visitor_decls =
+            crate::gen_visitor::gen_native_methods_visitor(namespace, lib_name, prefix, has_options_field_bridge);
+        if !visitor_decls.is_empty() {
+            out.push('\n');
+            out.push_str(&visitor_decls);
+        }
     }
 
     // Inject trait bridge registration/unregistration P/Invoke declarations.
@@ -990,8 +1015,12 @@ fn gen_wrapper_class(
         }
     }
 
-    // Inject ConvertWithVisitor when a visitor bridge is configured.
-    if has_visitor_callbacks {
+    // Inject ConvertWithVisitor only when visitor_callbacks is enabled AND no options-field
+    // bridge is active.  In options-field mode the visitor is folded onto ConversionOptions
+    // and the standard Convert wrapper already handles it — ConvertWithVisitor is not needed
+    // and its legacy FFI entry-point (`_convert_with_visitor`) has been removed.
+    let has_options_field_bridge = !options_field_bridges.is_empty();
+    if has_visitor_callbacks && !has_options_field_bridge {
         out.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(
             exception_name,
             prefix,
@@ -1079,6 +1108,25 @@ fn emit_named_param_setup(
             _ => {}
         }
     }
+}
+
+/// Like [`emit_named_param_setup`] but skips params whose camelCase name is in `exclude`.
+///
+/// Used by `gen_wrapper_function` to skip options params that are handled by the
+/// options-field bridge inline path (which uses `{type}FromUpdate` instead of `{type}FromJson`).
+fn emit_named_param_setup_excluding(
+    out: &mut String,
+    params: &[alef_core::ir::ParamDef],
+    indent: &str,
+    true_opaque_types: &HashSet<String>,
+    exclude: &HashSet<String>,
+) {
+    let filtered: Vec<alef_core::ir::ParamDef> = params
+        .iter()
+        .filter(|p| !exclude.contains(&p.name.to_lower_camel_case()))
+        .cloned()
+        .collect();
+    emit_named_param_setup(out, &filtered, indent, true_opaque_types);
 }
 
 /// Returns true if the FFI return type is a pointer (IntPtr), as opposed to a numeric value.
@@ -1279,60 +1327,133 @@ fn gen_wrapper_function(
         }
     }
 
-    // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+    // When an options-field bridge is active, identify the options param so we can bypass
+    // the stale `{type}FromJson` path (which no longer exists in the FFI) and instead use
+    // the builder/update pattern: `{type}Default()` or `{type}FromUpdate(updateHandle)`.
+    let bridge_options_param: Option<(&alef_core::ir::ParamDef, &OptionsFieldBridgeInfo)> =
+        if let Some(bridge) = options_field_bridge {
+            visible_params
+                .iter()
+                .find(|p| {
+                    let type_name = match &p.ty {
+                        TypeRef::Named(n) => Some(n.as_str()),
+                        TypeRef::Optional(inner) => {
+                            if let TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    type_name == Some(bridge.options_type.as_str())
+                })
+                .map(|p| (p, bridge))
+        } else {
+            None
+        };
 
-    // Options-field bridge: if the function takes an options param that carries a bridge
-    // handle (e.g. `options.Visitor`), extract it, create the native bridge object, and
-    // attach it to the serialized options handle via the FFI setter before calling convert.
-    if let Some(bridge) = options_field_bridge {
-        let options_param = visible_params.iter().find(|p| {
-            let type_name = match &p.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            type_name == Some(bridge.options_type.as_str())
-        });
-        if let Some(opts_param) = options_param {
-            let opts_name = opts_param.name.to_lower_camel_case();
-            let opts_handle = format!("{opts_name}Handle");
-            let field_pascal = bridge.field_name.to_pascal_case();
-            let bridge_type = &bridge.bridge_cs_type;
-            let setter = bridge.cs_setter_name();
-            // Check nullability: if options param is optional, guard the entire block.
-            if opts_param.optional {
-                out.push_str("        // options-field bridge: attach visitor when present\n");
-                out.push_str(&format!(
-                    "        if ({opts_name} != null && {opts_name}.{field_pascal} != null)\n        {{\n"
-                ));
-                out.push_str(&format!(
-                    "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
-                ));
-                out.push_str(&format!(
-                    "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
-                ));
-                out.push_str("        }\n");
-            } else {
-                out.push_str("        // options-field bridge: attach visitor when present\n");
-                out.push_str(&format!(
-                    "        if ({opts_name}.{field_pascal} != null)\n        {{\n"
-                ));
-                out.push_str(&format!(
-                    "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
-                ));
-                out.push_str(&format!(
-                    "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
-                ));
-                out.push_str("        }\n");
-            }
+    // Params to skip in the standard emit_named_param_setup — handled inline below.
+    let skip_param_names: HashSet<String> = bridge_options_param
+        .iter()
+        .map(|(p, _)| p.name.to_lower_camel_case())
+        .collect();
+
+    // Serialize Named (opaque handle) params to JSON and obtain native handles.
+    // Skip any params handled by the options-field bridge inline path below.
+    emit_named_param_setup_excluding(
+        &mut out,
+        &visible_params,
+        "        ",
+        true_opaque_types,
+        &skip_param_names,
+    );
+
+    // Options-field bridge: build the options handle via the update-from-JSON path
+    // (`{type}FromUpdate` + `{type}UpdateFree`) then attach the visitor bridge via
+    // the FFI setter (`{type}Set{Field}`).  This replaces the deleted `{type}FromJson`
+    // helper that the standard path would otherwise call.
+    if let Some((opts_param, bridge)) = bridge_options_param {
+        let opts_name = opts_param.name.to_lower_camel_case();
+        let opts_handle = format!("{opts_name}Handle");
+        let opts_pascal = bridge.options_type.to_pascal_case();
+        let update_from_json_method = format!("{}UpdateFromJson", opts_pascal);
+        let from_update_method = format!("{}FromUpdate", opts_pascal);
+        let update_free_method = format!("{}UpdateFree", opts_pascal);
+        let default_method = format!("{}Default", opts_pascal);
+        let field_pascal = bridge.field_name.to_pascal_case();
+        let bridge_type = &bridge.bridge_cs_type;
+        let setter = bridge.cs_setter_name();
+
+        // Build the options handle from the C# options object (if non-null).
+        if opts_param.optional {
+            out.push_str("        // options-field bridge: build options handle via update pattern\n");
+            out.push_str(&format!("        var {opts_handle} = IntPtr.Zero;\n"));
+            out.push_str(&format!("        if ({opts_name} != null)\n        {{\n"));
+            out.push_str(&format!(
+                "            var {opts_name}Json = JsonSerializer.Serialize({opts_name}, JsonOptions);\n"
+            ));
+            out.push_str(&format!(
+                "            var {opts_name}UpdateHandle = NativeMethods.{update_from_json_method}({opts_name}Json);\n"
+            ));
+            out.push_str(&format!(
+                "            {opts_handle} = NativeMethods.{from_update_method}({opts_name}UpdateHandle);\n"
+            ));
+            out.push_str(&format!(
+                "            NativeMethods.{update_free_method}({opts_name}UpdateHandle);\n"
+            ));
+            out.push_str("        }\n");
+            out.push_str("        else\n        {\n");
+            out.push_str(&format!(
+                "            {opts_handle} = NativeMethods.{default_method}();\n"
+            ));
+            out.push_str("        }\n");
+        } else {
+            out.push_str("        // options-field bridge: build options handle via update pattern\n");
+            out.push_str(&format!(
+                "        var {opts_name}Json = JsonSerializer.Serialize({opts_name}, JsonOptions);\n"
+            ));
+            out.push_str(&format!(
+                "        var {opts_name}UpdateHandle = NativeMethods.{update_from_json_method}({opts_name}Json);\n"
+            ));
+            out.push_str(&format!(
+                "        var {opts_handle} = NativeMethods.{from_update_method}({opts_name}UpdateHandle);\n"
+            ));
+            out.push_str(&format!(
+                "        NativeMethods.{update_free_method}({opts_name}UpdateHandle);\n"
+            ));
         }
+
+        // Attach the visitor bridge to the options handle when the visitor is set.
+        if opts_param.optional {
+            out.push_str("        // options-field bridge: attach visitor when present\n");
+            out.push_str(&format!(
+                "        if ({opts_name} != null && {opts_name}.{field_pascal} != null)\n        {{\n"
+            ));
+            out.push_str(&format!(
+                "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
+            ));
+            out.push_str(&format!(
+                "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+            ));
+            out.push_str("        }\n");
+        } else {
+            out.push_str("        // options-field bridge: attach visitor when present\n");
+            out.push_str(&format!(
+                "        if ({opts_name}.{field_pascal} != null)\n        {{\n"
+            ));
+            out.push_str(&format!(
+                "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
+            ));
+            out.push_str(&format!(
+                "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+            ));
+            out.push_str("        }\n");
+        }
+
+        // The options handle free is handled by emit_named_param_teardown since we
+        // preserved the `{opts_name}Handle` variable name matching what teardown expects.
+        let _ = default_method; // used implicitly via opts_handle in teardown
     }
 
     // Method body - delegation to native method with proper marshalling

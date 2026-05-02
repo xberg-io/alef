@@ -1592,6 +1592,67 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
+    // collect_trait_bridge_registration_fn_names
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_collect_trait_bridge_registration_fn_names_empty() {
+        let bridges = vec![];
+        let result = collect_trait_bridge_registration_fn_names(&bridges);
+        assert!(result.is_empty(), "should return empty set when no bridges configured");
+    }
+
+    #[test]
+    fn test_collect_trait_bridge_registration_fn_names_collects_register_fns() {
+        let bridges = vec![
+            TraitBridgeConfig {
+                trait_name: "OcrBackend".to_string(),
+                super_trait: None,
+                registry_getter: None,
+                register_fn: Some("register_ocr_backend".to_string()),
+                type_alias: None,
+                param_name: None,
+                register_extra_args: None,
+                bind_via: alef_core::config::BridgeBinding::FunctionParam,
+                options_type: None,
+                options_field: None,
+                exclude_languages: vec![],
+            },
+            TraitBridgeConfig {
+                trait_name: "PostProcessor".to_string(),
+                super_trait: None,
+                registry_getter: None,
+                register_fn: Some("register_post_processor".to_string()),
+                type_alias: None,
+                param_name: None,
+                register_extra_args: None,
+                bind_via: alef_core::config::BridgeBinding::FunctionParam,
+                options_type: None,
+                options_field: None,
+                exclude_languages: vec![],
+            },
+            TraitBridgeConfig {
+                trait_name: "Validator".to_string(),
+                super_trait: None,
+                registry_getter: None,
+                register_fn: None, // No register_fn for this one
+                type_alias: None,
+                param_name: None,
+                register_extra_args: None,
+                bind_via: alef_core::config::BridgeBinding::FunctionParam,
+                options_type: None,
+                options_field: None,
+                exclude_languages: vec![],
+            },
+        ];
+        let result = collect_trait_bridge_registration_fn_names(&bridges);
+        assert_eq!(result.len(), 2, "should collect only bridges with register_fn set");
+        assert!(result.contains("register_ocr_backend"));
+        assert!(result.contains("register_post_processor"));
+        assert!(!result.contains("register_validator"));
+    }
+
+    // ---------------------------------------------------------------------------
     // gen_bridge_all
     // ---------------------------------------------------------------------------
 

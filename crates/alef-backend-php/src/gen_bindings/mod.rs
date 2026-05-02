@@ -571,7 +571,10 @@ impl Backend for PhpBackend {
             let return_phpdoc = php_phpdoc_type(&func.return_type);
             content.push_str(&format!("         * @return {}\n", return_phpdoc));
             if func.error_type.is_some() {
-                content.push_str(&format!("         * @throws \\{}\\{}Exception\n", namespace, class_name));
+                content.push_str(&format!(
+                    "         * @throws \\{}\\{}Exception\n",
+                    namespace, class_name
+                ));
             }
             content.push_str("         */\n");
 

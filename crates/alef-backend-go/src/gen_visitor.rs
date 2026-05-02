@@ -21,12 +21,29 @@ use std::fmt::Write;
 
 /// Derive the cbindgen-generated C struct name for a Rust FFI struct.
 ///
-/// cbindgen prepends the configured `prefix` (uppercased) to the Rust type name.
-/// FFI structs are named with a PascalCase prefix in Rust (e.g. `HtmNodeContext`,
-/// `HtmVisitorCallbacks`), so for `ffi_prefix = "htm"` cbindgen emits
-/// `HTMHtmNodeContext`, `HTMHtmVisitorCallbacks`.
+/// cbindgen prepends the configured `prefix` (uppercased) to the Rust struct name as-is.
+/// The Rust struct name may already include the pascal-case prefix (e.g. `HtmNodeContext`
+/// would be present in the Rust source as `NodeContext` without the FFI prefix, while
+/// `HtmHtmlVisitorBridge` already carries the `Htm` prefix in Rust).
+///
+/// For `ffi_prefix = "htm"`:
+/// - Rust struct `NodeContext` → cbindgen emits `HTMNodeContext`
+/// - Rust struct `HtmHtmlVisitorVTable` → cbindgen emits `HTMHtmHtmlVisitorVTable`
+///
+/// Pass the exact Rust struct basename (as cbindgen sees it) to get the correct C name.
 pub(crate) fn ffi_c_struct_name(ffi_prefix: &str, rust_basename: &str) -> String {
     let prefix_upper = ffi_prefix.to_uppercase();
+    format!("{prefix_upper}{rust_basename}")
+}
+
+/// Derive the cbindgen C name for the visitor VTable struct.
+///
+/// The Rust FFI generator emits `{PrefixPascal}{TraitName}VTable` as the Rust struct name.
+/// cbindgen then prepends the uppercase prefix, giving `{PREFIX_UPPER}{PrefixPascal}{TraitName}VTable`.
+///
+/// For `ffi_prefix = "htm"`, `vtable_trait_name = "HtmlVisitor"`:
+/// Rust struct `HtmHtmlVisitorVTable` → C type `HTMHtmHtmlVisitorVTable`.
+fn visitor_c_struct_name(ffi_prefix: &str, vtable_trait_name: &str) -> String {
     let prefix_pascal = {
         let mut chars = ffi_prefix.chars();
         match chars.next() {
@@ -34,11 +51,8 @@ pub(crate) fn ffi_c_struct_name(ffi_prefix: &str, rust_basename: &str) -> String
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         }
     };
-    format!("{prefix_upper}{prefix_pascal}{rust_basename}")
-}
-
-fn visitor_c_struct_name(ffi_prefix: &str) -> String {
-    ffi_c_struct_name(ffi_prefix, "VisitorCallbacks")
+    let rust_basename = format!("{prefix_pascal}{vtable_trait_name}VTable");
+    ffi_c_struct_name(ffi_prefix, &rust_basename)
 }
 
 /// A single visitor callback specification.
@@ -728,12 +742,15 @@ const CALLBACKS: &[CallbackSpec] = &[
 /// `ffi_header`: C header filename (e.g. `"html_to_markdown.h"`).
 /// `ffi_crate_dir`: path from go output dir to the FFI crate dir.
 /// `to_root`: relative path from go output dir to the repo root.
+/// `vtable_trait_name`: the trait name used to derive the VTable C struct name
+///   (e.g. `"HtmlVisitor"` → `HTMHtmHtmlVisitorVTable` for prefix `"htm"`).
 pub fn gen_visitor_file(
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
     ffi_crate_dir: &str,
     to_root: &str,
+    vtable_trait_name: &str,
 ) -> String {
     let mut out = String::with_capacity(32_768);
 
@@ -742,11 +759,14 @@ pub fn gen_visitor_file(
     writeln!(out).ok();
 
     // Construct C type names from the FFI prefix.
-    // cbindgen prepends prefix_upper + the Rust struct name (PascalCase),
-    // so the visitor callbacks struct is e.g. "HTMHtmVisitorCallbacks" for prefix "htm".
+    // cbindgen prepends the uppercase prefix to the Rust struct name verbatim.
+    // NodeContext is defined in Rust as `NodeContext` (no FFI prefix in its name),
+    // so cbindgen emits `HTMNodeContext`.
+    // The VTable struct is `{PrefixPascal}{TraitName}VTable` in Rust, so cbindgen emits
+    // `{PREFIX_UPPER}{PrefixPascal}{TraitName}VTable` (e.g. `HTMHtmHtmlVisitorVTable`).
     let prefix_upper = ffi_prefix.to_uppercase();
     let node_context_type = ffi_c_struct_name(ffi_prefix, "NodeContext");
-    let visitor_callbacks_type = visitor_c_struct_name(ffi_prefix);
+    let visitor_callbacks_type = visitor_c_struct_name(ffi_prefix, vtable_trait_name);
     let conversion_options_type = format!("{}ConversionOptions", prefix_upper);
 
     // -------------------------------------------------------------------------

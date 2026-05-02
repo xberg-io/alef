@@ -1514,7 +1514,7 @@ fn test_options_field_bridge_emits_setter_pinvoke() {
     let content = &nm_file.content;
 
     assert!(
-        content.contains("htm_conversion_options_set_visitor"),
+        content.contains("htm_options_set_visitor"),
         "NativeMethods.cs must declare the options setter entry-point; got:\n{content}"
     );
     assert!(
@@ -1559,6 +1559,76 @@ fn test_options_field_bridge_wrapper_calls_setter_not_convert_with_visitor() {
     assert!(
         !content.contains("ConvertWithVisitor"),
         "Wrapper must not expose ConvertWithVisitor in options-field mode; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_drops_stale_from_json_native_method() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_options_field_bridge_config("htm");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let nm_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs should be generated");
+
+    let content = &nm_file.content;
+
+    assert!(
+        !content.contains("htm_conversion_options_from_json"),
+        "NativeMethods.cs must NOT declare the deleted from_json entry-point; got:\n{content}"
+    );
+    assert!(
+        !content.contains("htm_convert_with_visitor"),
+        "NativeMethods.cs must NOT declare the deleted convert_with_visitor entry-point; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_wrapper_uses_update_from_json_not_from_json() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_options_field_bridge_config("htm");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let wrapper_file = files
+        .iter()
+        .find(|f| f.content.contains("public static") && f.content.contains("Convert("))
+        .expect("wrapper class file should be generated");
+
+    let content = &wrapper_file.content;
+
+    assert!(
+        content.contains("ConversionOptionsFromUpdate"),
+        "Wrapper Convert must use ConversionOptionsFromUpdate (not ConversionOptionsFromJson); got:\n{content}"
+    );
+    assert!(
+        !content.contains("ConversionOptionsFromJson"),
+        "Wrapper Convert must NOT call the deleted ConversionOptionsFromJson; got:\n{content}"
     );
 }
 

@@ -607,9 +607,19 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
     });
 
     // Collect non-opaque Named params that need FFI pointer cleanup after the call.
+    // The options param is excluded here because we pass JSON directly (no _from_json pointer to free).
     let ffi_ptr_params: Vec<(String, String)> = func
         .params
         .iter()
+        .filter(|p| {
+            // Exclude the options param — it is serialized to JSON and passed as a C string,
+            // not allocated by _from_json, so there is no pointer to free.
+            if let Some(opts_p) = opts_param {
+                p.name != opts_p.name
+            } else {
+                true
+            }
+        })
         .filter_map(|p| {
             let inner_name = match &p.ty {
                 TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => Some(n.clone()),
@@ -635,32 +645,40 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
         })
         .collect();
 
-    // Marshal all parameters normally (the options field is serialised to JSON by Jackson;
-    // the bridge field carries @JsonIgnore so it won't appear in the JSON payload).
+    // Marshal all parameters.
+    // The options param is serialized to JSON + arena.allocateFrom (no _from_json call —
+    // htm_conversion_options_from_json does not exist in the FFI surface).
+    // All other params use the standard marshal_param_to_ffi path.
     for param in &func.params {
-        let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
-            TypeRef::Optional(Box::new(param.ty.clone()))
+        let param_java_name = to_java_name(&param.name);
+        let is_options_param = opts_param.is_some_and(|op| op.name == param.name);
+        if is_options_param {
+            let cname = format!("c{param_java_name}");
+            writeln!(
+                out,
+                "            var {cname}Json = {param_java_name} != null ? createObjectMapper().writeValueAsString({param_java_name}) : null;"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            var {cname}JsonSeg = {cname}Json != null ? arena.allocateFrom({cname}Json) : MemorySegment.NULL;"
+            )
+            .ok();
         } else {
-            param.ty.clone()
-        };
-        marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
+            let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
+                TypeRef::Optional(Box::new(param.ty.clone()))
+            } else {
+                param.ty.clone()
+            };
+            marshal_param_to_ffi(out, &param_java_name, &effective_ty, opaque_types, prefix);
+        }
     }
 
     // After marshalling, if there is an options param with a bridge field, attach the bridge.
     if let Some(opts_p) = opts_param {
         let opts_java_name = to_java_name(&opts_p.name);
-        // The marshalled FFI pointer name follows the pattern used in marshal_param_to_ffi:
-        // "c" + capitalised camelCase name.
-        let opts_ffi_name = {
-            let camel = &opts_java_name;
-            let mut s = "c".to_string();
-            let mut chars = camel.chars();
-            if let Some(first) = chars.next() {
-                s.extend(first.to_uppercase());
-                s.push_str(chars.as_str());
-            }
-            s
-        };
+        // The JSON segment variable name matches what we emitted above.
+        let opts_ffi_name = format!("c{opts_java_name}JsonSeg");
         let field_getter = to_java_name(&bridge.field_name);
         let bridge_java_type = &bridge.bridge_java_type;
         let set_handle = format!(
@@ -668,33 +686,56 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
             prefix.to_uppercase(),
             bridge.field_name.to_uppercase()
         );
+        let is_opaque_bridge = opaque_types.contains(bridge_java_type.as_str());
         // Emit bridge attachment only when handle and visitor are both non-null.
         writeln!(
             out,
             "            if ({set_handle} != null && {opts_java_name}.{field_getter}() != null) {{"
         )
         .ok();
-        writeln!(
-            out,
-            "                var bridge = new {bridge_java_type}Bridge({opts_java_name}.{field_getter}());"
-        )
-        .ok();
-        writeln!(out, "                var bridgeSeg = bridge.toSegment(arena);").ok();
-        writeln!(out, "                {set_handle}.invoke({opts_ffi_name}, bridgeSeg);").ok();
+        if is_opaque_bridge {
+            // Opaque handle: pass the raw MemorySegment directly via .handle()
+            writeln!(
+                out,
+                "                {set_handle}.invoke({opts_ffi_name}, {opts_java_name}.{field_getter}().handle());"
+            )
+            .ok();
+        } else {
+            // Non-opaque / interface type: create a bridge wrapper and use callbacksStruct()
+            let bridge_class_name = if bridge_java_type.ends_with("Handle") {
+                format!("{}Bridge", &bridge_java_type[..bridge_java_type.len() - "Handle".len()])
+            } else {
+                format!("{bridge_java_type}Bridge")
+            };
+            writeln!(
+                out,
+                "                var bridge = new {bridge_class_name}({opts_java_name}.{field_getter}());"
+            )
+            .ok();
+            writeln!(out, "                var bridgeSeg = bridge.callbacksStruct();").ok();
+            writeln!(out, "                {set_handle}.invoke({opts_ffi_name}, bridgeSeg);").ok();
+        }
         writeln!(out, "            }}").ok();
     }
 
     // Build call args — all parameters are included (no bridge param to skip).
+    // For the options param, pass the JSON segment variable name directly.
     let call_args: Vec<String> = func
         .params
         .iter()
         .map(|p| {
-            let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
-                TypeRef::Optional(Box::new(p.ty.clone()))
+            let param_java_name = to_java_name(&p.name);
+            let is_options_param = opts_param.is_some_and(|op| op.name == p.name);
+            if is_options_param {
+                format!("c{param_java_name}JsonSeg")
             } else {
-                p.ty.clone()
-            };
-            ffi_param_name(&to_java_name(&p.name), &effective_ty, opaque_types)
+                let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
+                    TypeRef::Optional(Box::new(p.ty.clone()))
+                } else {
+                    p.ty.clone()
+                };
+                ffi_param_name(&param_java_name, &effective_ty, opaque_types)
+            }
         })
         .collect();
 

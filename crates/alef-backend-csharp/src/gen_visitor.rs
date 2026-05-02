@@ -622,7 +622,29 @@ pub fn gen_visitor_files(namespace: &str) -> Vec<(String, String)> {
 }
 
 /// Generate the P/Invoke declarations needed in NativeMethods.cs for visitor FFI.
-pub fn gen_native_methods_visitor(namespace: &str, lib_name: &str, prefix: &str) -> String {
+///
+/// When `has_options_field_bridge` is `true` (i.e. `bind_via = "options_field"` is
+/// configured), the three legacy symbols `{prefix}_visitor_create`,
+/// `{prefix}_visitor_free`, and `{prefix}_convert_with_visitor` are NOT emitted — they
+/// no longer exist in the FFI surface after the options-field refactor.  Only the
+/// `{prefix}_visitor_handle_free` entry-point (emitted separately by
+/// `gen_native_methods`) is needed in that mode.
+pub fn gen_native_methods_visitor(
+    namespace: &str,
+    lib_name: &str,
+    prefix: &str,
+    has_options_field_bridge: bool,
+) -> String {
+    let _ = namespace;
+    let _ = lib_name;
+
+    if has_options_field_bridge {
+        // In options-field mode the visitor handle is attached via
+        // `{prefix}_options_set_visitor` (emitted by the options-field bridge loop).
+        // The three legacy symbols are absent from the FFI surface.
+        return String::new();
+    }
+
     let mut out = String::with_capacity(512);
     writeln!(out).ok();
     writeln!(out, "    // Visitor FFI").ok();
@@ -654,8 +676,6 @@ pub fn gen_native_methods_visitor(namespace: &str, lib_name: &str, prefix: &str)
         "    internal static extern IntPtr ConvertWithVisitor([MarshalAs(UnmanagedType.LPStr)] string html, IntPtr options, IntPtr visitor);"
     )
     .ok();
-    let _ = namespace;
-    let _ = lib_name;
     out
 }
 

@@ -94,7 +94,7 @@ fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
     let package = config.kotlin_package();
     let module_name = to_pascal_case(&config.crate_config.name);
 
-    let exclude_functions: std::collections::HashSet<&str> = config
+    let mut exclude_functions: std::collections::HashSet<&str> = config
         .kotlin
         .as_ref()
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
@@ -104,6 +104,14 @@ fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
         .as_ref()
         .map(|c| c.exclude_types.iter().map(String::as_str).collect())
         .unwrap_or_default();
+
+    // Automatically exclude trait-bridge registration functions to prevent double-emission:
+    // gen_trait_bridge emits them as idiomatic bridge functions, so gen_function should skip them.
+    let trait_bridge_reg_fns =
+        alef_codegen::generators::trait_bridge::collect_trait_bridge_registration_fn_names(&config.trait_bridges);
+    for fn_name in trait_bridge_reg_fns {
+        exclude_functions.insert(Box::leak(fn_name.into_boxed_str()) as &str);
+    }
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();

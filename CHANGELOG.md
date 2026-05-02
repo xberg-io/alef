@@ -7,14 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(codegen): auto-exclude trait-bridge registration functions via `collect_trait_bridge_registration_fn_names()`. 
+  Each binding backend now automatically excludes `register_*` / `unregister_*` functions to prevent double-emit 
+  compile errors — kreuzberg no longer needs manual `exclude` entries in `alef.toml` for trait-bridge registration fns.
+
+- feat(e2e-go): support disk-path fixture loading in Go e2e harness in addition to HTTP URLs.
+  New test infrastructure in `crates/alef-e2e/tests/go_bytes_file_path_fixtures.rs` demonstrates the pattern.
+
+### Fixed
+
+- fix(codegen): resolve C# signature mismatch in generated binding code that surfaced during trait-bridge auto-exclusion wiring.
+
 - fix(e2e): honor call-level Rust option result flags and use the crate version for registry-mode Rust e2e dependencies when no package override is set.
 - fix(e2e): generate valid Go array guards for length assertions on array element fields.
 - fix(e2e): honor call-level simple/optional result flags in Go tests and render contains assertions for struct slices.
 - fix(e2e): emit nil checks for Go optional simple-result empty assertions.
 - fix(java): pass options-field bridge metadata into generated builder classes.
 - fix(backend-go): preserve `None` as nil for optional string returns.
-
-### Fixed
 
 - fix(backend-pyo3): emit SCREAMING_SNAKE_CASE aliases alongside PascalCase variants in
   `.pyi` enum stubs so mypy resolves `CodeBlockStyle.BACKTICKS` without `attr-defined`

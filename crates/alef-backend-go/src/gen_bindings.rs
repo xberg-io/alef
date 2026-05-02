@@ -168,6 +168,17 @@ impl Backend for GoBackend {
                 .iter()
                 .any(|b| b.bind_via != BridgeBinding::OptionsField);
 
+        // visitor.go (ConvertWithVisitor + callback trampolines) is only generated for
+        // direct-parameter visitor bridges.  When bind_via = "options_field", the visitor
+        // is embedded in the options struct and handled entirely in binding.go; emitting
+        // visitor.go with the old visitor_create / convert_with_visitor symbols would
+        // reference stale FFI functions that no longer exist.
+        let has_direct_visitor_bridge = visitor_callbacks_enabled
+            && config
+                .trait_bridges
+                .iter()
+                .any(|b| b.bind_via != BridgeBinding::OptionsField);
+
         // Determine if any plugin-style bridges (with register_fn) are configured.
         // These are independent of visitor_callbacks and generate trait_bridges.go.
         let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
