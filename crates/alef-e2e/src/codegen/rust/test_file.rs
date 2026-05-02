@@ -288,15 +288,16 @@ pub fn render_test_function(
     let await_suffix = if is_async { ".await" } else { "" };
 
     let result_is_tree = call_config.result_var == "tree";
-    // When the rust override sets result_is_simple, the function returns a plain type
-    // (String, Vec<T>, etc.) — field-access assertions use the result var directly.
-    let result_is_simple = rust_overrides.is_some_and(|o| o.result_is_simple);
+    // When the call config or rust override sets result_is_simple, the function
+    // returns a plain type (String, Vec<T>, etc.) — field-access assertions use
+    // the result var directly.
+    let result_is_simple = call_config.result_is_simple || rust_overrides.is_some_and(|o| o.result_is_simple);
     // When result_is_vec is set, the function returns Vec<T>. Field-path assertions
     // are wrapped in `.iter().all(|r| ...)` so every element is checked.
     let result_is_vec = rust_overrides.is_some_and(|o| o.result_is_vec);
     // When result_is_option is set, the function returns Option<T>. Field-path
     // assertions unwrap first via `.as_ref().expect("Option should be Some")`.
-    let result_is_option = rust_overrides.is_some_and(|o| o.result_is_option);
+    let result_is_option = call_config.result_is_option || rust_overrides.is_some_and(|o| o.result_is_option);
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");

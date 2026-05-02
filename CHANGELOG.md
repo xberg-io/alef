@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e-go): avoid double-wrapping `len(...)` in `min_length` / `max_length`
   assertions and generate valid guards for array element length checks.
+- fix(e2e-rust): honor call-level `result_is_simple` and `result_is_option`
+  flags so optional scalar results are unwrapped before equality assertions.
 - fix(alef-backend-dart, alef-backend-swift): honor `[crates.dart] frb_version` and `[crates.swift] swift_bridge_version` overrides — the fields were deserialized but every callsite hardcoded the compiled-in default constant.
 - fix(alef-cli/migrate): preserve legacy `[crate]` scalars at the top of the generated `[[crates]]` entry by recursively clearing toml_edit position metadata so the resulting document is well-formed even when many language sub-tables follow.
 - fix(alef-cli/version-pin): write `[workspace] alef_version` after a successful generate instead of a top-level `version =` line. The legacy detector rejected the top-level form on the next run, breaking re-generation.
