@@ -184,41 +184,12 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 
 /// Generate a Ruby enum stub.
 /// Unit-variant enums are represented as Ruby Symbols (e.g., :left_to_right).
+/// RBS stubs are minimal — actual return types use symbol unions in method signatures.
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
-    let mut lines = vec![];
-
-    lines.push(format!("  class {}", enum_def.name));
-
-    // Add docstring if present
-    if !enum_def.doc.is_empty() {
-        for doc_line in enum_def.doc.lines() {
-            lines.push(format!("    # {doc_line}"));
-        }
-        lines.push("".to_string());
-    }
-
-    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-
-    if has_data {
-        // Data enums are represented as hashes with type discriminant
-        lines.push("    type instance = Hash[Symbol, untyped] | nil".to_string());
-    } else {
-        // Unit-variant enums are literal symbol unions (:left_to_right | :right_to_left | :auto)
-        let symbol_union = enum_def
-            .variants
-            .iter()
-            .map(|v| {
-                let snake = pascal_to_snake(&v.name);
-                format!(":{snake}")
-            })
-            .collect::<Vec<_>>()
-            .join(" | ");
-        lines.push(format!("    type instance = {symbol_union}"));
-    }
-
-    lines.push("  end".to_string());
-
-    lines.join("\n")
+    // Empty class stub — the actual type is expressed where it's used (method returns, fields).
+    // RBS does not support standalone type declarations for symbol unions; they must be
+    // inline in type annotations or use class hierarchy.
+    format!("  class {}\n  end", enum_def.name)
 }
 
 /// Convert PascalCase to snake_case for symbol names.
