@@ -2,12 +2,21 @@
 
 use alef_core::config::ResolvedCrateConfig;
 
-/// Get the PHP Composer autoload namespace derived from the extension name.
+/// Get the PHP Composer autoload namespace.
 ///
-/// Converts the extension name (e.g. `html_to_markdown_rs`) into a
-/// PSR-4 namespace string (e.g. `Html\\To\\Markdown\\Rs`).
+/// If `[crates.php] namespace` is configured, uses that verbatim.
+/// Otherwise, derives the namespace from the extension name (e.g. `html_to_markdown_rs` → `Html\\To\\Markdown\\Rs`).
 pub fn php_autoload_namespace(config: &ResolvedCrateConfig) -> String {
     use heck::ToPascalCase;
+
+    // Respect explicit namespace configuration
+    if let Some(php_cfg) = &config.php {
+        if let Some(ns) = &php_cfg.namespace {
+            return ns.clone();
+        }
+    }
+
+    // Fall back to derived namespace from extension name
     let ext = config.php_extension_name();
     if ext.contains('_') {
         ext.split('_')
@@ -81,5 +90,24 @@ extension_name = "html_to_markdown_rs"
 "#,
         );
         assert_eq!(php_autoload_namespace(&r), "Html\\To\\Markdown\\Rs");
+    }
+
+    #[test]
+    fn php_autoload_namespace_explicit_namespace_override() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "html-to-markdown"
+sources = ["src/lib.rs"]
+
+[crates.php]
+extension_name = "html_to_markdown_rs"
+namespace = "HtmlToMarkdown"
+"#,
+        );
+        assert_eq!(php_autoload_namespace(&r), "HtmlToMarkdown");
     }
 }
