@@ -15,7 +15,7 @@ anyhow = { workspace = true }
 heck = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 insta = { workspace = true }
 
 [[bench]]
