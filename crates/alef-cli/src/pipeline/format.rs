@@ -124,7 +124,7 @@ fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<Formatte
         // Bug fix: derive wasm crate name from config instead of hardcoding "wasm".
         // Runs at workspace root so `cargo fmt -p <pkg>` can resolve the workspace member.
         Language::Wasm => {
-            let wasm_crate = format!("{}-wasm", config.crate_config.name);
+            let wasm_crate = format!("{}-wasm", config.core_crate_dir());
             Some(FormatterSpec {
                 commands: vec![FormatterCommand {
                     command: "cargo".to_owned(),
@@ -440,7 +440,21 @@ project_file = "{project_file}"
         .expect("valid config")
     }
 
-    // Bug 1: WASM crate name must be derived from config, not hardcoded to "wasm".
+    fn make_config_with_source(crate_name: &str, source: &str) -> AlefConfig {
+        toml::from_str(&format!(
+            r#"
+languages = ["wasm"]
+
+[crate]
+name = "{crate_name}"
+sources = ["{source}"]
+"#
+        ))
+        .expect("valid config")
+    }
+
+    // Bug 1: WASM crate name must be derived from the core crate dir, not the
+    // public package name.
     #[test]
     fn test_wasm_formatter_uses_config_crate_name() {
         let config = make_config("liter-llm");
@@ -454,10 +468,10 @@ project_file = "{project_file}"
 
     #[test]
     fn test_wasm_formatter_different_crate_name() {
-        let config = make_config("kreuzberg");
+        let config = make_config_with_source("kreuzberg", "crates/kreuzberg-core/src/lib.rs");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         let cmd = &spec.commands[0];
-        assert_eq!(cmd.args, vec!["fmt", "-p", "kreuzberg-wasm"]);
+        assert_eq!(cmd.args, vec!["fmt", "-p", "kreuzberg-core-wasm"]);
     }
 
     // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.

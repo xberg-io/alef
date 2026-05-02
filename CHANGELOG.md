@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(cli/format): the default WASM formatter now derives the generated crate
+  package from Alef's core crate directory (`core_crate_dir-wasm`) instead of
+  the public Rust crate name. This fixes repos where the public crate
+  (`tree-sitter-language-pack`) differs from the internal core crate directory
+  (`ts-pack-core`), avoiding `cargo fmt -p <missing-crate>` during generation.
 - fix(scaffold/generated-output): generated downstream projects now pass common pre-commit checks after trimming a public API surface: Python `options.py` no longer imports native data-enum aliases before redefining their Python-side aliases, Elixir/Ruby Cargo scaffolds omit `async-trait`/`tokio` when no generated code uses them, Java Checkstyle suppressions resolve from both Maven and repo-root hook invocations, PHP CS Fixer tolerates packages without a `tests/` directory, and Rustler `native.ex` target lists are emitted in `mix format` style.
 - fix(cli/format): the default Node formatter path now uses the Oxc toolchain (`npx oxfmt .` followed by `npx oxlint --fix .`) instead of invoking Biome. The Node scaffold, lint defaults, and generated pre-commit config already used `oxfmt`/`oxlint`; this removes the remaining stale Biome fallback that `alef all --clean` could hit in downstream repos with vendored Biome configs.
 - fix(backend-napi): `gen_dts` now applies the same filtering as `gen_function` (drops names listed in `[node].exclude_functions`, drops `sanitized` functions without a trait_bridge). Previously every public function in the API surface was declared in `index.d.ts`, even when its NAPI binding was filtered out of `lib.rs` because it took a tuple-typed param like `Vec<(Vec<u8>, String, Option<FileExtractionConfig>)>`. The mismatch surfaced as TS2614 / TS2345 in downstream e2e suites that imported the phantom names. The d.ts is now generated from the same filtered set as the lib.rs, keeping the two in lockstep.
