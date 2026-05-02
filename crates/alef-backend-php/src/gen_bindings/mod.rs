@@ -101,7 +101,27 @@ impl Backend for PhpBackend {
 
         let output_dir = resolve_output_dir(config.output_paths.get("php"), &config.name, "crates/{name}-php/src/");
         let has_serde = detect_serde_available(&output_dir);
-        let cfg = Self::binding_config(&core_import, has_serde);
+
+        // Build the opaque type names list: IR opaque types + bridge type aliases.
+        // Bridge type aliases (e.g. `VisitorHandle`) wrap Rc-based handles and cannot
+        // implement serde::Serialize/Deserialize.  Including them ensures gen_php_struct
+        // emits #[serde(skip)] for fields of those types so derives on the enclosing
+        // struct (e.g. ConversionOptions) still compile.
+        let bridge_type_aliases_php: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+        let mut opaque_names_vec_php: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
+        opaque_names_vec_php.extend(bridge_type_aliases_php);
+
+        let mut cfg = Self::binding_config(&core_import, has_serde);
+        cfg.opaque_type_names = &opaque_names_vec_php;
 
         // Build the inner module content (types, methods, conversions)
         let mut builder = RustFileBuilder::new().with_generated_header();
@@ -455,7 +475,22 @@ impl Backend for PhpBackend {
             "#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{\n    module{class_registrations}\n}}"
         ));
 
-        let content = builder.build();
+        let mut content = builder.build();
+
+        // Post-process generated code to fix bridge type builder methods.
+        // Builder methods on opaque types with bridge parameters
+        // (e.g., visitor: Option<&VisitorHandle>) should not attempt to access .inner,
+        // as there is no From impl from Arc<VisitorHandle> to the core visitor type.
+        // Replace patterns like .visitor(visitor.as_ref().map(|v| &v.inner))
+        // with .visitor(None) to skip setting the visitor on the core builder.
+        for bridge in &config.trait_bridges {
+            if let Some(field_name) = bridge.resolved_options_field() {
+                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
+                let replacement = format!(".{}(None)", field_name);
+                content = content.replace(&pattern, &replacement);
+            }
+        }
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),

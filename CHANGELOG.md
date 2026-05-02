@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-wasm): bridge type aliases (e.g. `VisitorHandle`) are now treated as opaque in
+  WASM binding-to-core `From` conversions. Fields of these types now emit `Default::default()`
+  instead of `val.visitor.map(Into::into)` (which failed E0277 because `WasmVisitorHandle`
+  has no `From` impl to the core `Rc<RefCell<dyn HtmlVisitor>>`). Builder methods on
+  has-default structs with bridge parameters also use `.visitor(None)` instead of
+  `.visitor(visitor.as_ref().map(|v| &v.inner))` to avoid E0308 type mismatch.
+
+- fix(backend-php): bridge type aliases (e.g. `VisitorHandle`) are now included in
+  `opaque_type_names` so that `gen_php_struct` emits `#[serde(skip)]` for fields of those
+  types. Without this, structs like `ConversionOptions` that derive `serde::Serialize` +
+  `serde::Deserialize` failed E0277 because `VisitorHandle` (an `Arc<Rc<RefCell<dyn
+  HtmlVisitor>>>` wrapper) does not implement those traits. Builder methods with bridge
+  parameters also use `.visitor(None)` to avoid E0308 type mismatch.
+
 - fix(backend-pyo3): fixed three remaining codegen bugs for PyO3 bindings: (1) `PyVisitorRef::extract` now uses `Borrowed::to_owned()` instead of non-existent `Borrowed::clone()` to avoid E0507 "cannot move out of dereference"; (2) builder methods on has_default structs no longer attempt to access `.inner` for bridge type parameters—visitor parameter skips the core builder's `.visitor()` call and uses `None` instead to avoid E0308 type mismatch; (3) wrapper functions that pass has_default parameters to core functions now wrap the deserialized value in `Some()` when core expects `Option<T>` to fix E0308 "expected Option, found T".
 
 - fix(backend-pyo3): `PyVisitorRef` now uses PyO3 0.28 API correctly. Updated `FromPyObject<'a, 'py>` to accept two lifetimes and use `extract(Borrowed<'a, 'py, PyAny>)` instead of the deprecated `extract_bound()`. Fixed `IntoPyObject` error type to use `Infallible` (conversion cannot fail). Resolves E0407, E0107, E0277, E0308 errors when building against PyO3 0.28.3.

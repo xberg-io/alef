@@ -258,6 +258,19 @@ impl Backend for WasmBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Trait bridge type aliases (e.g. `VisitorHandle`) are opaque — they map to
+        // `Arc<core::VisitorHandle>` in the binding layer and must not attempt From/Into
+        // conversion in generated From impls.  Include them so struct fields referencing
+        // these types use Default::default() instead of val.visitor.map(Into::into).
+        let bridge_type_aliases: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+        let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
+        opaque_names_vec.extend(bridge_type_aliases);
+        let opaque_names_set: AHashSet<String> = opaque_names_vec.iter().cloned().collect();
+
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Wasm)?;
 
@@ -372,6 +385,9 @@ impl Backend for WasmBackend {
             option_duration_on_defaults: true,
             exclude_types: &exclude_types,
             source_crate_remaps: &source_remaps_borrowed,
+            // Treat bridge type aliases (e.g. VisitorHandle) as opaque so binding→core
+            // From impls emit Default::default() instead of val.visitor.map(Into::into).
+            opaque_types: if opaque_names_set.is_empty() { None } else { Some(&opaque_names_set) },
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
@@ -436,7 +452,22 @@ impl Backend for WasmBackend {
             builder.add_item(&gen_error_converter(error, &core_import));
         }
 
-        let content = builder.build();
+        let mut content = builder.build();
+
+        // Post-process generated code to fix bridge type builder methods.
+        // Builder methods on has_default types with opaque bridge parameters
+        // (e.g., visitor: WasmVisitorHandle) should not attempt to access .inner,
+        // as there is no From impl from Arc<VisitorHandle> to the core visitor type.
+        // Replace patterns like .visitor(visitor.as_ref().map(|v| &v.inner))
+        // with .visitor(None) to skip setting the visitor on the core builder.
+        for bridge in &config.trait_bridges {
+            if let Some(field_name) = bridge.resolved_options_field() {
+                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
+                let replacement = format!(".{}(None)", field_name);
+                content = content.replace(&pattern, &replacement);
+            }
+        }
 
         let output_dir = resolve_output_dir(config.output_paths.get("wasm"), &config.name, "crates/{name}-wasm/src/");
 
