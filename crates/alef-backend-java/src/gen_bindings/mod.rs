@@ -1,7 +1,7 @@
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -19,6 +19,57 @@ use ffi_class::gen_main_class;
 use helpers::gen_exception_class;
 use native_lib::gen_native_lib;
 use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
+
+/// Info about a single `bind_via = "options_field"` trait bridge.
+///
+/// Collected once at the start of `generate_bindings` / `generate_public_api` and
+/// threaded through to the per-file generators that need it.
+#[derive(Clone, Debug)]
+pub(crate) struct OptionsFieldBridgeInfo {
+    /// IR type name that owns the bridge field (e.g. `"ConversionOptions"`).
+    pub options_type: String,
+    /// Field name on that type that holds the bridge handle (e.g. `"visitor"`).
+    pub field_name: String,
+    /// Java type for the bridge interface (e.g. `"HtmlVisitor"` from trait name or
+    /// `type_alias`).
+    pub bridge_java_type: String,
+}
+
+/// Collect all `options_field` bridge descriptors from the config.
+fn collect_options_field_bridges(config: &AlefConfig) -> Vec<OptionsFieldBridgeInfo> {
+    let mut result = Vec::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::OptionsField {
+            continue;
+        }
+        if bridge_cfg
+            .exclude_languages
+            .contains(&Language::Java.to_string())
+        {
+            continue;
+        }
+        let options_type = match bridge_cfg.options_type.as_deref() {
+            Some(t) => t.to_string(),
+            None => continue,
+        };
+        let field_name = match bridge_cfg.resolved_options_field() {
+            Some(f) => f.to_string(),
+            None => continue,
+        };
+        // Prefer type_alias as the Java type; fall back to trait_name.
+        let bridge_java_type = bridge_cfg
+            .type_alias
+            .clone()
+            .unwrap_or_else(|| bridge_cfg.trait_name.clone());
+
+        result.push(OptionsFieldBridgeInfo {
+            options_type,
+            field_name,
+            bridge_java_type,
+        });
+    }
+    result
+}
 
 pub struct JavaBackend;
 
@@ -93,6 +144,9 @@ impl Backend for JavaBackend {
         // Only generate visitor support if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
+        // Collect options-field bridge descriptors (bind_via = "options_field").
+        let options_field_bridges = collect_options_field_bridges(config);
+
         let mut files = Vec::new();
 
         // 0. package-info.java - required by Checkstyle
@@ -114,7 +168,7 @@ impl Backend for JavaBackend {
         // 1. NativeLib.java - FFI method handles
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),
-            content: gen_native_lib(api, config, &package, &prefix, has_visitor_pattern),
+            content: gen_native_lib(api, config, &package, &prefix, has_visitor_pattern, &options_field_bridges),
             generated_header: true,
         });
 
@@ -130,6 +184,7 @@ impl Backend for JavaBackend {
                 &bridge_param_names,
                 &bridge_type_aliases,
                 has_visitor_pattern,
+                &options_field_bridges,
             ),
             generated_header: true,
         });
@@ -168,7 +223,7 @@ impl Backend for JavaBackend {
                 }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all),
+                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all, &options_field_bridges),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults
@@ -302,6 +357,9 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
+        // Legacy visitor pattern (visitor_callbacks = true) drives the TestVisitor overload.
+        // options_field bridges do NOT need the TestVisitor overload — the visitor is already on
+        // the ConversionOptions record.
         let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         // Generate a high-level public API class that wraps the raw FFI class.

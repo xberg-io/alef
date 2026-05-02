@@ -12,6 +12,7 @@ use super::helpers::is_bridge_param_java;
 use super::marshal::{
     ffi_param_name, gen_helper_methods, is_ffi_string_return, java_ffi_return_cast, marshal_param_to_ffi,
 };
+use super::OptionsFieldBridgeInfo;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
@@ -23,6 +24,7 @@ pub(crate) fn gen_main_class(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     // Build the set of opaque type names so we can distinguish opaque handles from records
     let opaque_types: AHashSet<String> = api
@@ -41,16 +43,50 @@ pub(crate) fn gen_main_class(
 
     // Generate static methods for free functions
     for func in &api.functions {
-        // Always generate sync method (bridge params stripped from signature)
-        gen_sync_function_method(
-            &mut body,
-            func,
-            prefix,
-            class_name,
-            &opaque_types,
-            bridge_param_names,
-            bridge_type_aliases,
-        );
+        // Detect whether any options-field bridge applies to this function.
+        // A bridge applies when the function has a parameter whose Named type matches
+        // `bridge.options_type` (the options struct that carries the bridge field).
+        let opts_bridge: Option<&OptionsFieldBridgeInfo> = options_field_bridges.iter().find(|bridge| {
+            func.params.iter().any(|p| {
+                let inner = match &p.ty {
+                    TypeRef::Named(n) => n.as_str(),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            n.as_str()
+                        } else {
+                            ""
+                        }
+                    }
+                    _ => "",
+                };
+                inner == bridge.options_type.as_str()
+            })
+        });
+
+        if let Some(bridge) = opts_bridge {
+            // Options-field bridge mode: emit a wrapper that reads the visitor from the
+            // options object, attaches it via the FFI setter, then delegates to the main
+            // 2-arg FFI. No separate `convertWithVisitor` method is emitted.
+            gen_sync_function_method_with_options_field_bridge(
+                &mut body,
+                func,
+                prefix,
+                class_name,
+                &opaque_types,
+                bridge,
+            );
+        } else {
+            // Legacy path: generate sync method, stripping any bridge params.
+            gen_sync_function_method(
+                &mut body,
+                func,
+                prefix,
+                class_name,
+                &opaque_types,
+                bridge_param_names,
+                bridge_type_aliases,
+            );
+        }
         writeln!(body).ok();
 
         // Also generate async wrapper if marked as async
@@ -60,7 +96,8 @@ pub(crate) fn gen_main_class(
         }
     }
 
-    // Inject convertWithVisitor when a visitor bridge is configured.
+    // Inject convertWithVisitor only for the legacy visitor_callbacks pattern.
+    // Options-field bridges surface the visitor via ConversionOptions — no extra method needed.
     if has_visitor_bridge {
         body.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(class_name, prefix));
         writeln!(body).ok();
@@ -507,6 +544,322 @@ pub(crate) fn gen_sync_function_method(
 
     writeln!(out, "    }}").ok();
 }
+
+/// Generate a sync method that uses the options-field bridge pattern.
+///
+/// Instead of receiving the visitor as an extra function argument, it is embedded as a field
+/// on the options record. The generated wrapper:
+///   1. Takes the same public signature as the normal method (no extra visitor param).
+///   2. Reads `options.<field>()` (e.g. `options.visitor()`).
+///   3. If non-null, creates the bridge object via `new <Bridge>(options.visitor())` and
+///      attaches it via the `{PU}_OPTIONS_SET_{FIELD}` handle before the main FFI call.
+///   4. Calls the main FFI function with the (now-mutated) options pointer.
+pub(crate) fn gen_sync_function_method_with_options_field_bridge(
+    out: &mut String,
+    func: &FunctionDef,
+    prefix: &str,
+    class_name: &str,
+    opaque_types: &AHashSet<String>,
+    bridge: &OptionsFieldBridgeInfo,
+) {
+    // Build the public Java parameter list — same as normal path (no bridge param to strip).
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty)
+            } else {
+                java_type(&p.ty)
+            };
+            format!("final {} {}", ptype, to_java_name(&p.name))
+        })
+        .collect();
+
+    let return_type = java_return_type(&func.return_type);
+
+    writeln!(
+        out,
+        "    public static {} {}({}) throws {}Exception {{",
+        return_type,
+        to_java_name(&func.name),
+        params.join(", "),
+        class_name
+    )
+    .ok();
+
+    writeln!(out, "        try (var arena = Arena.ofConfined()) {{").ok();
+
+    // Find the options param (whose Named type == bridge.options_type).
+    let opts_param = func.params.iter().find(|p| {
+        let inner = match &p.ty {
+            TypeRef::Named(n) => n.as_str(),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    n.as_str()
+                } else {
+                    ""
+                }
+            }
+            _ => "",
+        };
+        inner == bridge.options_type.as_str()
+    });
+
+    // Collect non-opaque Named params that need FFI pointer cleanup after the call.
+    let ffi_ptr_params: Vec<(String, String)> = func
+        .params
+        .iter()
+        .filter_map(|p| {
+            let inner_name = match &p.ty {
+                TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => Some(n.clone()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if !opaque_types.contains(n.as_str()) {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            inner_name.map(|type_name| {
+                let cname = "c".to_string() + &to_java_name(&p.name);
+                let type_snake = type_name.to_snake_case();
+                let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+                (cname, free_handle)
+            })
+        })
+        .collect();
+
+    // Marshal all parameters normally (the options field is serialised to JSON by Jackson;
+    // the bridge field carries @JsonIgnore so it won't appear in the JSON payload).
+    for param in &func.params {
+        let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
+            TypeRef::Optional(Box::new(param.ty.clone()))
+        } else {
+            param.ty.clone()
+        };
+        marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
+    }
+
+    // After marshalling, if there is an options param with a bridge field, attach the bridge.
+    if let Some(opts_p) = opts_param {
+        let opts_java_name = to_java_name(&opts_p.name);
+        // The marshalled FFI pointer name follows the pattern used in marshal_param_to_ffi:
+        // "c" + capitalised camelCase name.
+        let opts_ffi_name = {
+            let camel = &opts_java_name;
+            let mut s = "c".to_string();
+            let mut chars = camel.chars();
+            if let Some(first) = chars.next() {
+                s.extend(first.to_uppercase());
+                s.push_str(chars.as_str());
+            }
+            s
+        };
+        let field_getter = to_java_name(&bridge.field_name);
+        let bridge_java_type = &bridge.bridge_java_type;
+        let set_handle = format!(
+            "NativeLib.{}_OPTIONS_SET_{}",
+            prefix.to_uppercase(),
+            bridge.field_name.to_uppercase()
+        );
+        // Emit bridge attachment only when handle and visitor are both non-null.
+        writeln!(
+            out,
+            "            if ({set_handle} != null && {opts_java_name}.{field_getter}() != null) {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "                var bridge = new {bridge_java_type}Bridge({opts_java_name}.{field_getter}());"
+        )
+        .ok();
+        writeln!(out, "                var bridgeSeg = bridge.toSegment(arena);").ok();
+        writeln!(out, "                {set_handle}.invoke({opts_ffi_name}, bridgeSeg);").ok();
+        writeln!(out, "            }}").ok();
+    }
+
+    // Build call args — all parameters are included (no bridge param to skip).
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
+                TypeRef::Optional(Box::new(p.ty.clone()))
+            } else {
+                p.ty.clone()
+            };
+            ffi_param_name(&to_java_name(&p.name), &effective_ty, opaque_types)
+        })
+        .collect();
+
+    let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
+
+    let emit_ffi_ptr_cleanup = |out: &mut String| {
+        for (cname, free_handle) in &ffi_ptr_params {
+            writeln!(out, "            if (!{}.equals(MemorySegment.NULL)) {{", cname).ok();
+            writeln!(out, "                {}.invoke({});", free_handle, cname).ok();
+            writeln!(out, "            }}").ok();
+        }
+    };
+
+    let (is_optional_return, dispatch_return_type) = match &func.return_type {
+        TypeRef::Optional(inner) => (true, (**inner).clone()),
+        other => (false, other.clone()),
+    };
+
+    if matches!(dispatch_return_type, TypeRef::Unit) {
+        writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(out, "        }}").ok();
+    } else if is_ffi_string_return(&dispatch_return_type) {
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "                checkLastError();").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.empty();").ok();
+        } else {
+            writeln!(out, "                return null;").ok();
+        }
+        writeln!(out, "            }}").ok();
+        writeln!(out, "            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        let return_expr = if matches!(dispatch_return_type, TypeRef::Path) {
+            "java.nio.file.Path.of(str)"
+        } else {
+            "str"
+        };
+        if is_optional_return {
+            writeln!(out, "            return Optional.of({});", return_expr).ok();
+        } else {
+            writeln!(out, "            return {};", return_expr).ok();
+        }
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(out, "        }}").ok();
+    } else if matches!(dispatch_return_type, TypeRef::Named(_)) {
+        let return_type_name = match &dispatch_return_type {
+            TypeRef::Named(name) => name,
+            _ => unreachable!(),
+        };
+        let is_opaque = opaque_types.contains(return_type_name.as_str());
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "                checkLastError();").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.empty();").ok();
+        } else {
+            writeln!(out, "                return null;").ok();
+        }
+        writeln!(out, "            }}").ok();
+        if is_opaque {
+            if is_optional_return {
+                writeln!(out, "            return Optional.of(new {}(resultPtr));", return_type_name).ok();
+            } else {
+                writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
+            }
+        } else {
+            let type_snake = return_type_name.to_snake_case();
+            let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+            let to_json_handle =
+                format!("NativeLib.{}_{}_TO_JSON", prefix.to_uppercase(), type_snake.to_uppercase());
+            writeln!(out, "            var jsonPtr = (MemorySegment) {}.invoke(resultPtr);", to_json_handle).ok();
+            writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+            writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
+            writeln!(out, "                checkLastError();").ok();
+            if is_optional_return {
+                writeln!(out, "                return Optional.empty();").ok();
+            } else {
+                writeln!(out, "                return null;").ok();
+            }
+            writeln!(out, "            }}").ok();
+            writeln!(out, "            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
+            writeln!(out, "            NativeLib.{}_FREE_STRING.invoke(jsonPtr);", prefix.to_uppercase()).ok();
+            if is_optional_return {
+                writeln!(
+                    out,
+                    "            return Optional.of(createObjectMapper().readValue(json, {}.class));",
+                    return_type_name
+                )
+                .ok();
+            } else {
+                writeln!(out, "            return createObjectMapper().readValue(json, {}.class);", return_type_name)
+                    .ok();
+            }
+        }
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(out, "        }}").ok();
+    } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        let element_type = match &dispatch_return_type {
+            TypeRef::Vec(inner) => java_boxed_type(inner),
+            _ => unreachable!(),
+        };
+        let type_ref = format!(
+            "new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }}",
+            element_type
+        );
+        if is_optional_return {
+            writeln!(out, "            return Optional.of(readJsonList(resultPtr, {}));", type_ref).ok();
+        } else {
+            writeln!(out, "            return readJsonList(resultPtr, {});", type_ref).ok();
+        }
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(out, "        }}").ok();
+    } else {
+        writeln!(
+            out,
+            "            var primitiveResult = ({}) {}.invoke({});",
+            java_ffi_return_cast(&dispatch_return_type),
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        if is_optional_return {
+            writeln!(out, "            return Optional.of(primitiveResult);").ok();
+        } else {
+            writeln!(out, "            return primitiveResult;").ok();
+        }
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(out, "        }}").ok();
+    }
+
+    writeln!(out, "    }}").ok();
+}
+
 
 pub(crate) fn gen_async_wrapper_method(
     out: &mut String,

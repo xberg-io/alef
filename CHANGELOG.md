@@ -147,6 +147,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `options.{Field} != nil`, creates a `cgo.NewHandle`, defers `handle.Delete()`,
     and calls `C.{prefix}_options_set_{field}(cOptions, ...)` to pass the visitor to Rust.
   - Does NOT emit a separate `ConvertWithVisitor` function in this mode.
+- feat(backend-java): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the Java/Panama FFM backend now:
+  - Emits the bridge field as the bridge interface type (e.g. `HtmlVisitor`) annotated with
+    `@JsonIgnore` on the `ConversionOptions` record so Jackson excludes it from serialization.
+  - Emits a `static final MethodHandle {PU}_OPTIONS_SET_{FIELD}` in `NativeLib.java` using
+    `orElse(null)` so class initialization succeeds even when the dylib lacks the symbol.
+  - Generates a `convert` wrapper that marshals the options record normally (bridge field is
+    skipped by `@JsonIgnore`), then—if both the setter handle and `options.visitor()` are
+    non-null—creates the `{Trait}Bridge`, converts it to a `MemorySegment` via `toSegment`,
+    and calls the setter before the main FFI invocation.
+  - Does NOT emit a standalone `convertWithVisitor` method in this mode.
 - feat(backend-magnus): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Ruby/Magnus backend now:
   - Renders the bridge field as `Option<magnus::Value>` on the binding options struct

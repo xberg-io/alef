@@ -10,12 +10,15 @@ use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
     java_apply_rename_all, safe_java_field_name,
 };
+use super::OptionsFieldBridgeInfo;
+
 
 pub(crate) fn gen_record_type(
     package: &str,
     typ: &TypeDef,
     complex_enums: &AHashSet<String>,
     lang_rename_all: &str,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     // Single pass: build per-field (decl, doc) pairs and the comma-joined declaration
     // string simultaneously.  This avoids the map+unzip double-allocation and the
@@ -36,7 +39,15 @@ pub(crate) fn gen_record_type(
         // Complex enums (tagged unions with data) can't be simple Java enums.
         // Use Object for flexible Jackson deserialization.
         let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
-        let ftype = if is_complex {
+        // Check if this field is a bridge field for an options-field bridge.
+        // If so, substitute the IR type with the bridge interface type.
+        let bridge_for_field = options_field_bridges
+            .iter()
+            .find(|b| b.options_type == typ.name && b.field_name == f.name);
+
+        let ftype = if let Some(bridge) = bridge_for_field {
+            bridge.bridge_java_type.clone()
+        } else if is_complex {
             "Object".to_string()
         } else if f.optional {
             format!("Optional<{}>", java_boxed_type(&f.ty))
@@ -57,14 +68,21 @@ pub(crate) fn gen_record_type(
         // so Jackson serialises/deserialises using the correct snake_case key.
         let has_json_property = lang_rename_all == "camelCase" && f.name.contains('_');
 
-        let decl = match (has_json_property, needs_non_null) {
-            (true, true) => format!(
-                "@JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty(\"{}\") {} {}",
-                f.name, ftype, jname
-            ),
-            (true, false) => format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname),
-            (false, true) => format!("@JsonInclude(JsonInclude.Include.NON_NULL) {} {}", ftype, jname),
-            (false, false) => format!("{} {}", ftype, jname),
+        // For bridge fields, emit @JsonIgnore so Jackson won't try to serialize/deserialize
+        // the bridge interface value (it's not JSON-serialisable). The bridge is attached
+        // separately via the FFI setter before the native call.
+        let decl = if bridge_for_field.is_some() {
+            format!("@JsonIgnore {} {}", ftype, jname)
+        } else {
+            match (has_json_property, needs_non_null) {
+                (true, true) => format!(
+                    "@JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty(\"{}\") {} {}",
+                    f.name, ftype, jname
+                ),
+                (true, false) => format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname),
+                (false, true) => format!("@JsonInclude(JsonInclude.Include.NON_NULL) {} {}", ftype, jname),
+                (false, false) => format!("{} {}", ftype, jname),
+            }
         };
 
         if i > 0 {
@@ -180,6 +198,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_include {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonInclude;").ok();
+    }
+    if fields_joined.contains("@JsonIgnore") {
+        writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
     }
     writeln!(out).ok();
     write!(out, "{}", record_block).ok();

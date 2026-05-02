@@ -6,6 +6,7 @@ use heck::ToSnakeCase;
 use std::fmt::Write;
 
 use super::marshal::{gen_ffi_layout, gen_function_descriptor};
+use super::OptionsFieldBridgeInfo;
 
 pub(crate) fn gen_native_lib(
     api: &ApiSurface,
@@ -13,6 +14,7 @@ pub(crate) fn gen_native_lib(
     package: &str,
     prefix: &str,
     has_visitor_pattern: bool,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     // Generate the class body first, then scan it to determine which imports are needed.
     let mut body = String::with_capacity(2048);
@@ -711,6 +713,30 @@ pub(crate) fn gen_native_lib(
     // Inject visitor FFI method handles when a trait bridge is configured.
     if has_visitor_pattern {
         body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
+    }
+
+    // Emit OPTIONS_SET_* handles for options-field bridges (bind_via = "options_field").
+    // The setter symbol may be absent in the dylib during development, so use orElse(null).
+    for bridge in options_field_bridges {
+        let opts_snake = heck::AsSnakeCase(&bridge.options_type).to_string();
+        let field_name = &bridge.field_name;
+        let setter_ffi = format!("{prefix}_{opts_snake}_set_{field_name}");
+        let handle_name = format!(
+            "{}_OPTIONS_SET_{}",
+            prefix.to_uppercase(),
+            field_name.to_uppercase()
+        );
+        writeln!(body).ok();
+        writeln!(
+            body,
+            "    static final MethodHandle {handle_name} = LIB.find(\"{setter_ffi}\")"
+        )
+        .ok();
+        writeln!(
+            body,
+            "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);"
+        )
+        .ok();
     }
 
     writeln!(body, "}}").ok();
