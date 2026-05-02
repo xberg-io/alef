@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): trait bridge type aliases (e.g., `VisitorHandle`) now map to `Arc<Py<PyAny>>`
+  instead of bare `Py<PyAny>`, making the binding field type Clone-able. Type aliases are added
+  to the opaque_types set so binding→core conversions use `Default::default()` instead of
+  attempting unavailable `From` impls. **Partial fix:** `gen_lossy_binding_to_core_fields` helper
+  functions still need opaque_types awareness to skip conversions in apply_update and similar
+  manually-constructed binding helper methods.
+
 - fix(backend-go): `NodeContext.NodeType` field type is now emitted as `NodeType` (the package-defined
   type alias for `string`) instead of the raw `string` type. The redundant `type NodeType = string`
   declaration in `visitor.go` that caused a redeclaration compile error with `binding.go`'s
