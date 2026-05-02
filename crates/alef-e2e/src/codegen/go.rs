@@ -288,10 +288,10 @@ fn render_test_file(
                     false
                 }
             })
-        }) || f
-            .assertions
-            .iter()
-            .any(|a| matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains"))
+        }) || f.assertions.iter().any(|a| {
+            a.field.as_ref().is_some_and(|field| !field.is_empty())
+                && matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
+        })
     });
 
     // Determine if we need the "strings" import.
@@ -2660,19 +2660,37 @@ mod tests {
     fn test_classify_bytes_value_file_paths() {
         // File paths: directory/filename.ext
         assert!(matches!(classify_bytes_value("pdf/memo.pdf"), BytesKind::FilePath));
-        assert!(matches!(classify_bytes_value("images/hello_world.png"), BytesKind::FilePath));
-        assert!(matches!(classify_bytes_value("docs/nested/file.docx"), BytesKind::FilePath));
-        assert!(matches!(classify_bytes_value("_internal/test.bin"), BytesKind::FilePath));
+        assert!(matches!(
+            classify_bytes_value("images/hello_world.png"),
+            BytesKind::FilePath
+        ));
+        assert!(matches!(
+            classify_bytes_value("docs/nested/file.docx"),
+            BytesKind::FilePath
+        ));
+        assert!(matches!(
+            classify_bytes_value("_internal/test.bin"),
+            BytesKind::FilePath
+        ));
     }
 
     #[test]
     fn test_classify_bytes_value_inline_text() {
         // Inline text: HTML/JSON/XML or contains spaces
         assert!(matches!(classify_bytes_value("<!DOCTYPE html>"), BytesKind::InlineText));
-        assert!(matches!(classify_bytes_value("{\"key\": \"value\"}"), BytesKind::InlineText));
+        assert!(matches!(
+            classify_bytes_value("{\"key\": \"value\"}"),
+            BytesKind::InlineText
+        ));
         assert!(matches!(classify_bytes_value("[1, 2, 3]"), BytesKind::InlineText));
-        assert!(matches!(classify_bytes_value("plain text content"), BytesKind::InlineText));
-        assert!(matches!(classify_bytes_value("<html><body>test</body></html>"), BytesKind::InlineText));
+        assert!(matches!(
+            classify_bytes_value("plain text content"),
+            BytesKind::InlineText
+        ));
+        assert!(matches!(
+            classify_bytes_value("<html><body>test</body></html>"),
+            BytesKind::InlineText
+        ));
     }
 
     #[test]
