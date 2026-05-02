@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     are bridge fields (where the record stores the raw handle type); regular
     `Optional<T>` fields are passed directly to avoid "incompatible types" errors.
 - fix(backend-go): preserve `None` as nil for optional string returns.
+- fix(backend-go): decode externally tagged Rust enums with string payload fallback
+  variants (for example `Other(String)`) as string-like Go enums instead of empty
+  structs, and match Rust serde's default unit-variant wire names.
+- fix(e2e-go): render `contains` assertions for structured values through JSON
+  instead of `%v`, so pointer fields are checked by value.
 
 - fix(backend-go): correct two codegen bugs that produced uncompilable Go bindings when
   `bind_via = "options_field"` is used with an options type that has an Update sibling:

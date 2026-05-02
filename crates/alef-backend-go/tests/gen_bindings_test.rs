@@ -399,10 +399,61 @@ fn test_enum_generation() {
         "Should have StatusCompleted constant"
     );
 
-    // Verify string values in snake_case
-    assert!(content.contains("\"pending\""), "Should use snake_case values");
-    assert!(content.contains("\"active\""), "Should use snake_case values");
-    assert!(content.contains("\"completed\""), "Should use snake_case values");
+    // Verify string values match Rust serde's default externally tagged names.
+    assert!(content.contains("\"Pending\""), "Should use Rust serde values");
+    assert!(content.contains("\"Active\""), "Should use Rust serde values");
+    assert!(content.contains("\"Completed\""), "Should use Rust serde values");
+}
+
+#[test]
+fn test_string_like_data_enum_generation() {
+    let backend = GoBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "StructureKind".to_string(),
+            rust_path: "test_lib::StructureKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Function".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Other".to_string(),
+                    fields: vec![make_field("_0", TypeRef::String, false)],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Structure kind".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let result = backend.generate_bindings(&api, &make_config());
+    assert!(result.is_ok());
+
+    let content = &result.unwrap()[0].content;
+    assert!(content.contains("type StructureKind string"));
+    assert!(content.contains("StructureKindFunction StructureKind = \"Function\""));
+    assert!(content.contains("func (e *StructureKind) UnmarshalJSON(data []byte) error"));
+    assert!(content.contains("var tagged map[string]string"));
 }
 
 #[test]

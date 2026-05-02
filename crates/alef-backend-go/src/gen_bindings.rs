@@ -536,12 +536,12 @@ fn gen_go_file(
         }
     }
 
-    // Generate enum types and constants
-    // Only unit enums map to `type X string` — data enums are generated as Go structs below.
-    let unit_enum_names: std::collections::HashSet<&str> = api
+    // Generate enum types and constants. Unit enums and externally tagged enums
+    // with string payload fallback variants both map to `type X string`.
+    let string_enum_names: std::collections::HashSet<&str> = api
         .enums
         .iter()
-        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()))
+        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()) || is_string_like_externally_tagged_enum(e))
         .map(|e| e.name.as_str())
         .collect();
     for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
@@ -603,7 +603,7 @@ fn gen_go_file(
             writeln!(
                 out,
                 "{}\n",
-                gen_struct_type(typ, &unit_enum_names, options_field_bridges)
+                gen_struct_type(typ, &string_enum_names, options_field_bridges)
             )
             .ok();
             // Generate functional options pattern if type has defaults.
@@ -614,7 +614,7 @@ fn gen_go_file(
                 writeln!(
                     out,
                     "{}\n",
-                    gen_config_options(typ, &unit_enum_names, options_field_bridges)
+                    gen_config_options(typ, &string_enum_names, options_field_bridges)
                 )
                 .ok();
             }
@@ -800,12 +800,15 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
 /// Priority order:
 /// 1. Explicit `#[serde(rename = "...")]` on the variant (`serde_rename`).
 /// 2. Enum-level `#[serde(rename_all = "...")]` applied to the variant name.
-/// 3. Default: snake_case of the variant name.
+/// 3. Default: Rust serde's externally-tagged unit variant name.
 fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &EnumDef) -> String {
     if let Some(rename) = &variant.serde_rename {
         return rename.clone();
     }
-    apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref())
+    match enum_def.serde_rename_all.as_deref() {
+        Some(rename_all) => apply_serde_rename(&variant.name.to_snake_case(), Some(rename_all)),
+        None => variant.name.clone(),
+    }
 }
 
 /// Generate a Go unit enum as `type X string` with const block.
@@ -864,6 +867,10 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
 /// All fields from all variants are collected and deduplicated by name.
 /// Fields that don't appear in every variant are made optional (pointer type).
 fn gen_data_enum_type(enum_def: &EnumDef) -> String {
+    if is_string_like_externally_tagged_enum(enum_def) {
+        return gen_string_like_data_enum_type(enum_def);
+    }
+
     let mut out = String::with_capacity(1024);
 
     // Collect variant names for the doc comment
@@ -928,6 +935,82 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         writeln!(out, "\t{} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
     }
 
+    writeln!(out, "}}").ok();
+    out
+}
+
+/// Returns true for Rust serde's externally tagged enums that are representable as
+/// strings in Go: unit variants plus tuple variants carrying a single string payload
+/// (for example `Other(String)`). Rust serializes unit variants as `"Variant"` and
+/// tuple variants as `{"Variant":"payload"}`.
+fn is_string_like_externally_tagged_enum(enum_def: &EnumDef) -> bool {
+    if enum_def.serde_tag.is_some() {
+        return false;
+    }
+
+    enum_def.variants.iter().all(|variant| {
+        variant.fields.is_empty()
+            || (variant.is_tuple
+                && variant.fields.len() == 1
+                && matches!(variant.fields[0].ty, TypeRef::String | TypeRef::Char | TypeRef::Path))
+    })
+}
+
+/// Generate a Go enum for externally tagged Rust enums with optional string payload
+/// fallback variants. The Go value stores the wire string directly, so known unit
+/// variants and unknown `Other(String)`-style payloads are both usable.
+fn gen_string_like_data_enum_type(enum_def: &EnumDef) -> String {
+    let mut out = String::with_capacity(2048);
+    let go_enum_name = go_type_name(&enum_def.name);
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+    emit_type_doc(
+        &mut out,
+        &go_enum_name,
+        &enum_def.doc,
+        "is a tagged union type represented as a string in Go.",
+    );
+    writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
+    writeln!(out, "type {} string", go_enum_name).ok();
+    writeln!(out).ok();
+    writeln!(out, "const (").ok();
+
+    for variant in enum_def.variants.iter().filter(|variant| variant.fields.is_empty()) {
+        let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
+        let wire_value = enum_variant_wire_value(variant, enum_def);
+        if !variant.doc.is_empty() {
+            for line in variant.doc.lines() {
+                writeln!(out, "\t// {}", line.trim()).ok();
+            }
+        } else {
+            writeln!(
+                out,
+                "\t// {} is the {} variant of {}.",
+                const_name, variant.name, enum_def.name
+            )
+            .ok();
+        }
+        writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
+    }
+
+    writeln!(out, ")").ok();
+    writeln!(out).ok();
+    writeln!(out, "func (e *{}) UnmarshalJSON(data []byte) error {{", go_enum_name).ok();
+    writeln!(out, "\tvar value string").ok();
+    writeln!(out, "\tif err := json.Unmarshal(data, &value); err == nil {{").ok();
+    writeln!(out, "\t\t*e = {}(value)", go_enum_name).ok();
+    writeln!(out, "\t\treturn nil").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tvar tagged map[string]string").ok();
+    writeln!(out, "\tif err := json.Unmarshal(data, &tagged); err != nil {{").ok();
+    writeln!(out, "\t\treturn err").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tfor _, value := range tagged {{").ok();
+    writeln!(out, "\t\t*e = {}(value)", go_enum_name).ok();
+    writeln!(out, "\t\treturn nil").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\t*e = \"\"").ok();
+    writeln!(out, "\treturn nil").ok();
     writeln!(out, "}}").ok();
     out
 }
@@ -1157,6 +1240,7 @@ fn is_bridge_param(
 }
 
 /// Generate a wrapper function for a free function.
+#[allow(clippy::too_many_arguments)]
 fn gen_function_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
@@ -1264,6 +1348,18 @@ fn gen_function_wrapper(
         let c_opts_name = go_param_name(&format!("c_{}", bfm.param_name));
         let go_field_name = to_go_name(&bfm.field_name);
         let field_snake = bfm.field_name.to_snake_case();
+        // Derive the C type name for the bridge struct.
+        // The Rust FFI generator emits `{PrefixPascal}{TraitName}Bridge`; cbindgen then
+        // prepends the uppercase prefix to yield `{PREFIX_UPPER}{PrefixPascal}{TraitName}Bridge`.
+        let prefix_pascal = {
+            let mut chars = ffi_prefix.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        };
+        let bridge_rust_basename = format!("{prefix_pascal}{}Bridge", bfm.bridge.trait_name);
+        let bridge_c_type = crate::gen_visitor::ffi_c_struct_name(ffi_prefix, &bridge_rust_basename);
         writeln!(out, "\tif {go_opts_param}.{go_field_name} != nil {{").ok();
         writeln!(
             out,
@@ -1273,7 +1369,7 @@ fn gen_function_wrapper(
         writeln!(out, "\t\tdefer visitorHandle.Delete()").ok();
         writeln!(
             out,
-            "\t\tC.{ffi_prefix}_options_set_{field_snake}({c_opts_name}, unsafe.Pointer(uintptr(visitorHandle)))"
+            "\t\tC.{ffi_prefix}_options_set_{field_snake}({c_opts_name}, (*C.{bridge_c_type})(unsafe.Pointer(uintptr(visitorHandle))))"
         )
         .ok();
         writeln!(out, "\t}}").ok();
@@ -2195,9 +2291,22 @@ fn gen_config_options(
     writeln!(out, "type {}Option func(*{})", go_name, go_name).ok();
     writeln!(out).ok();
 
+    // Bridge fields are replaced by synthetic interface fields — skip the raw IR field to
+    // avoid emitting a WithFieldName constructor that assigns an incompatible type.
+    let bridge_field_names_for_type: std::collections::HashSet<&str> = options_field_bridges
+        .iter()
+        .filter(|b| b.options_type == typ.name)
+        .map(|b| b.field_name.as_str())
+        .collect();
+
     // Generate WithFieldName constructors for each field
     for field in &typ.fields {
         if is_tuple_field(field) {
+            continue;
+        }
+
+        // Skip raw IR fields that are replaced by a synthetic Go interface field.
+        if bridge_field_names_for_type.contains(field.name.as_str()) {
             continue;
         }
 
