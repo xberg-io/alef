@@ -205,9 +205,21 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
+        // Subset of mutex_types where every &mut self method is async — the binding wrapper
+        // must use `tokio::sync::Mutex` (Send-across-await guard) to satisfy PyO3's `Send`
+        // future bound. See `type_needs_tokio_mutex` for rationale.
+        let tokio_mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && generators::type_needs_tokio_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
-            if !mutex_types.is_empty() {
+            // Only import std::sync::Mutex when at least one mutex type does NOT use the
+            // tokio variant; the rewriter substitutes `std::sync::Mutex` → `tokio::sync::Mutex`
+            // inline (so no separate import is needed for tokio types).
+            if mutex_types.iter().any(|n| !tokio_mutex_types.contains(n)) {
                 builder.add_import("std::sync::Mutex");
             }
         }
@@ -304,9 +316,14 @@ impl Backend for Pyo3Backend {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
-                let impl_block =
+                let mut struct_code = generators::gen_opaque_struct(typ, &cfg);
+                let mut impl_block =
                     generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
+                if tokio_mutex_types.contains(&typ.name) {
+                    struct_code = rewrite_to_tokio_mutex_struct(&struct_code);
+                    impl_block = rewrite_to_tokio_mutex_impl(&impl_block);
+                }
+                builder.add_item(&struct_code);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
@@ -2384,9 +2401,32 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     lines.join("\n")
 }
 
+/// Rewrite an opaque-struct definition emitted with `Arc<std::sync::Mutex<T>>` into
+/// the `Arc<tokio::sync::Mutex<T>>` form. Used for types whose `&mut self` methods
+/// are all async — `tokio::sync::MutexGuard` is `Send`, so the resulting future
+/// satisfies PyO3's `Send` bound (unlike `std::sync::MutexGuard`, which is `!Send`).
+///
+/// Operates on the rendered text of `gen_opaque_struct`. The rewrite is anchored on
+/// the exact `Arc<std::sync::Mutex<` substring; any future codegen output change that
+/// drops the fully-qualified path will be caught by the unit tests in this file.
+fn rewrite_to_tokio_mutex_struct(struct_code: &str) -> String {
+    struct_code.replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
+}
+
+/// Rewrite an opaque-impl block emitted with `.lock().unwrap()` into the
+/// `.lock().await` form. Applied only to types where `type_needs_tokio_mutex` returns
+/// true (every `&mut self` method is async), so every `.lock().unwrap()` call site
+/// is necessarily inside an async context.
+fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
+    impl_code
+        .replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
+        .replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(")
+        .replace(".lock().unwrap()", ".lock().await")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{EmitContext, python_field_type};
+    use super::{EmitContext, python_field_type, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct};
     use ahash::AHashSet;
     use alef_core::ir::{PrimitiveType, TypeRef};
 
@@ -2479,5 +2519,35 @@ mod tests {
         let native = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
         assert_eq!(options, "bool");
         assert_eq!(native, "bool");
+    }
+
+    #[test]
+    fn rewrite_struct_swaps_std_to_tokio_mutex() {
+        let input = "pub struct WebSocketConnection {\n    inner: Arc<std::sync::Mutex<axum_test::TestWebSocket>>,\n}";
+        let out = rewrite_to_tokio_mutex_struct(input);
+        assert!(out.contains("Arc<tokio::sync::Mutex<axum_test::TestWebSocket>>"));
+        assert!(!out.contains("std::sync::Mutex"));
+    }
+
+    #[test]
+    fn rewrite_impl_swaps_lock_unwrap_to_lock_await() {
+        let input = "impl WebSocketConnection {\n    pub async fn send_text(&self, t: String) {\n        self.inner.lock().unwrap().send_text(t).await;\n    }\n}";
+        let out = rewrite_to_tokio_mutex_impl(input);
+        assert!(out.contains(".lock().await.send_text(t).await"));
+        assert!(!out.contains(".lock().unwrap()"));
+    }
+
+    #[test]
+    fn rewrite_impl_swaps_arc_new_constructor() {
+        let input = "Arc::new(std::sync::Mutex::new(value))";
+        let out = rewrite_to_tokio_mutex_impl(input);
+        assert_eq!(out, "Arc::new(tokio::sync::Mutex::new(value))");
+    }
+
+    #[test]
+    fn rewrite_struct_idempotent_on_non_mutex_struct() {
+        let input = "pub struct Plain { inner: Arc<Foo>, }";
+        let out = rewrite_to_tokio_mutex_struct(input);
+        assert_eq!(out, input);
     }
 }

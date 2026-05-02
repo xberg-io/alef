@@ -97,5 +97,5 @@ pub use methods::{
 };
 pub use structs::{
     can_generate_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl,
-    gen_struct_with_per_field_attrs, gen_struct_with_rename, type_needs_mutex,
+    gen_struct_with_per_field_attrs, gen_struct_with_rename, type_needs_mutex, type_needs_tokio_mutex,
 };

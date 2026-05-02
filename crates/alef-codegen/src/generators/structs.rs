@@ -323,6 +323,34 @@ pub fn type_needs_mutex(typ: &TypeDef) -> bool {
         .any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut))
 }
 
+/// Check if a type wrapping `Arc<Mutex<T>>` should use `tokio::sync::Mutex` instead
+/// of `std::sync::Mutex` because every `&mut self` method is `async`.
+///
+/// `std::sync::MutexGuard` is `!Send`, so holding a guard across `.await` makes the
+/// surrounding future `!Send`, which fails to compile in PyO3 / NAPI-RS bindings that
+/// require `Send` futures. `tokio::sync::MutexGuard` IS `Send`, so swapping the lock
+/// type fixes the entire async-locking story for these structs.
+///
+/// The condition is tight: every method that takes `&mut self` MUST be async. If even
+/// one sync method takes `&mut self`, switching to `tokio::sync::Mutex` would break
+/// it (since `tokio::sync::Mutex::lock()` returns a `Future` and cannot be awaited
+/// from sync context). In that mixed case we keep `std::sync::Mutex`.
+pub fn type_needs_tokio_mutex(typ: &TypeDef) -> bool {
+    use alef_core::ir::ReceiverKind;
+    if !type_needs_mutex(typ) {
+        return false;
+    }
+    let refmut_methods = typ.methods.iter().filter(|m| m.receiver == Some(ReceiverKind::RefMut));
+    let mut any = false;
+    for m in refmut_methods {
+        any = true;
+        if !m.is_async {
+            return false;
+        }
+    }
+    any
+}
+
 /// Generate an opaque wrapper struct with `inner: Arc<core::Type>`.
 /// For trait types, uses `Arc<dyn Type + Send + Sync>`.
 /// For types with `&mut self` methods, uses `Arc<Mutex<core::Type>>`.
@@ -396,4 +424,92 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     }
     write!(out, "}}").ok();
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{type_needs_mutex, type_needs_tokio_mutex};
+    use alef_core::ir::{MethodDef, ReceiverKind, TypeDef, TypeRef};
+
+    fn method(name: &str, receiver: Option<ReceiverKind>, is_async: bool) -> MethodDef {
+        MethodDef {
+            name: name.into(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }
+    }
+
+    fn type_with_methods(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.into(),
+            rust_path: format!("my_crate::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods,
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }
+    }
+
+    #[test]
+    fn tokio_mutex_when_all_refmut_methods_async() {
+        let typ = type_with_methods(
+            "WebSocketConnection",
+            vec![
+                method("send_text", Some(ReceiverKind::RefMut), true),
+                method("receive_text", Some(ReceiverKind::RefMut), true),
+                method("close", None, true),
+            ],
+        );
+        assert!(type_needs_mutex(&typ));
+        assert!(type_needs_tokio_mutex(&typ));
+    }
+
+    #[test]
+    fn no_tokio_mutex_when_any_refmut_is_sync() {
+        let typ = type_with_methods(
+            "Mixed",
+            vec![
+                method("async_op", Some(ReceiverKind::RefMut), true),
+                method("sync_op", Some(ReceiverKind::RefMut), false),
+            ],
+        );
+        assert!(type_needs_mutex(&typ));
+        assert!(!type_needs_tokio_mutex(&typ));
+    }
+
+    #[test]
+    fn no_tokio_mutex_when_no_refmut() {
+        let typ = type_with_methods("ReadOnly", vec![method("get", Some(ReceiverKind::Ref), true)]);
+        assert!(!type_needs_mutex(&typ));
+        assert!(!type_needs_tokio_mutex(&typ));
+    }
+
+    #[test]
+    fn no_tokio_mutex_when_empty_methods() {
+        let typ = type_with_methods("Empty", vec![]);
+        assert!(!type_needs_mutex(&typ));
+        assert!(!type_needs_tokio_mutex(&typ));
+    }
 }
