@@ -3,9 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_elixir, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{
-    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
-};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -17,6 +15,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// Elixir e2e code generator.
 pub struct ElixirCodegen;
@@ -321,187 +320,136 @@ fn render_test_file(
 /// Tests using these methods are emitted with `@tag :skip` so they don't fail.
 const FINCH_UNSUPPORTED_METHODS: &[&str] = &["TRACE", "CONNECT"];
 
-/// Render an ExUnit `describe` + `test` block for an HTTP server test fixture.
-fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('"', "\\\"");
-    let method = http.request.method.to_uppercase();
-    let path = &http.request.path;
-    let fixture_id = &fixture.id;
-
-    let _ = writeln!(out, "  describe \"{test_name}\" do");
-
-    // Skip tests for HTTP methods that Finch does not support.
-    if FINCH_UNSUPPORTED_METHODS.contains(&method.as_str()) {
-        let _ = writeln!(out, "    @tag :skip");
-    }
-
-    let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
-
-    // Build request targeting the mock server.
-    render_elixir_http_request(out, &http.request, fixture_id, http.expected_response.status_code);
-
-    // Assert status.
-    let status = http.expected_response.status_code;
-    let _ = writeln!(out, "      assert response.status == {status}");
-
-    // Assert body.
-    render_elixir_body_assertions(out, &http.expected_response);
-
-    // Assert headers.
-    render_elixir_header_assertions(out, &http.expected_response);
-
-    let _ = writeln!(out, "    end");
-    let _ = writeln!(out, "  end");
-}
-
 /// HTTP methods that Req exposes as convenience functions.
 /// All others must be called via `Req.request(method: :METHOD, ...)`.
 const REQ_CONVENIENCE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head"];
 
-/// Emit Req request lines inside an ExUnit test.
-fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str, expected_status: u16) {
-    let method = req.method.to_lowercase();
-
-    let mut opts: Vec<String> = Vec::new();
-
-    if let Some(body) = &req.body {
-        let elixir_val = json_to_elixir(body);
-        opts.push(format!("json: {elixir_val}"));
-    }
-
-    if !req.headers.is_empty() {
-        let header_pairs: Vec<String> = req
-            .headers
-            .iter()
-            .map(|(k, v)| format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(v)))
-            .collect();
-        opts.push(format!("headers: [{}]", header_pairs.join(", ")));
-    }
-
-    if !req.cookies.is_empty() {
-        let cookie_str = req
-            .cookies
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("; ");
-        opts.push(format!("headers: [{{\"cookie\", \"{}\"}}]", escape_elixir(&cookie_str)));
-    }
-
-    if !req.query_params.is_empty() {
-        let pairs: Vec<String> = req
-            .query_params
-            .iter()
-            .map(|(k, v)| {
-                let val_str = match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(&val_str))
-            })
-            .collect();
-        opts.push(format!("params: [{}]", pairs.join(", ")));
-    }
-
-    // When the expected response is a redirect (3xx), disable automatic redirect
-    // following so the test can assert the redirect status and Location header.
-    if (300..400).contains(&expected_status) {
-        opts.push("redirect: false".to_string());
-    }
-
-    // Use the mock server's /fixtures/<id> endpoint.
-    let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{}\"", escape_elixir(fixture_id));
-
-    // Req only exposes convenience functions for common HTTP verbs.
-    // Less common methods (OPTIONS, CONNECT, TRACE, etc.) must use Req.request/1.
-    if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
-        if opts.is_empty() {
-            let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
-        } else {
-            let opts_str = opts.join(", ");
-            let _ = writeln!(
-                out,
-                "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
-            );
-        }
-    } else {
-        // Fall back to Req.request/1 for non-standard methods.
-        opts.insert(0, format!("method: :{method}"));
-        opts.insert(1, format!("url: {url_expr}"));
-        let opts_str = opts.join(", ");
-        let _ = writeln!(out, "      {{:ok, response}} = Req.request({opts_str})");
-    }
+/// Thin renderer that emits ExUnit `describe` + `test` blocks targeting a mock
+/// server via `Req`. Satisfies [`client::TestClientRenderer`] so the shared
+/// [`client::http_call::render_http_test`] driver drives the call sequence.
+struct ElixirTestClientRenderer<'a> {
+    /// The fixture id is needed in [`render_call`] to build the mock server URL
+    /// (`mock_server_url()/fixtures/<id>`).
+    fixture_id: &'a str,
+    /// Expected response status, needed to disable Req's redirect-following for 3xx.
+    expected_status: u16,
 }
 
-/// Emit body assertions for an HTTP expected response.
-fn render_elixir_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
-    if let Some(body) = &expected.body {
-        let elixir_val = json_to_elixir(body);
-        // Req auto-decodes `application/json` bodies, but non-JSON content types
-        // (e.g. `application/grpc`, `text/plain`) are returned as raw binaries.
-        // Guard with `if is_binary` so we can handle both cases uniformly.
-        match body {
-            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                // Expected body is a JSON object/array — decode when Req returns a binary.
+impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
+    fn language_name(&self) -> &'static str {
+        "elixir"
+    }
+
+    /// Emit `describe "{fn_name}" do` + inner `test "METHOD PATH - description" do`.
+    ///
+    /// When `skip_reason` is `Some`, emit `@tag :skip` before the test block so
+    /// ExUnit skips it; the shared driver short-circuits before emitting any
+    /// assertions and then calls `render_test_close` for symmetry.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let escaped_description = description.replace('"', "\\\"");
+        let _ = writeln!(out, "  describe \"{fn_name}\" do");
+        if skip_reason.is_some() {
+            let _ = writeln!(out, "    @tag :skip");
+        }
+        let _ = writeln!(out, "    test \"{escaped_description}\" do");
+    }
+
+    /// Close the inner `test` block and the outer `describe` block.
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+    }
+
+    /// Emit a `Req` request to the mock server using `mock_server_url()/fixtures/<id>`.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_lowercase();
+        let mut opts: Vec<String> = Vec::new();
+
+        if let Some(body) = ctx.body {
+            let elixir_val = json_to_elixir(body);
+            opts.push(format!("json: {elixir_val}"));
+        }
+
+        if !ctx.headers.is_empty() {
+            let header_pairs: Vec<String> = ctx
+                .headers
+                .iter()
+                .map(|(k, v)| format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(v)))
+                .collect();
+            opts.push(format!("headers: [{}]", header_pairs.join(", ")));
+        }
+
+        if !ctx.cookies.is_empty() {
+            let cookie_str = ctx
+                .cookies
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            opts.push(format!("headers: [{{\"cookie\", \"{}\"}}]", escape_elixir(&cookie_str)));
+        }
+
+        if !ctx.query_params.is_empty() {
+            let pairs: Vec<String> = ctx
+                .query_params
+                .iter()
+                .map(|(k, v)| {
+                    let val_str = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(&val_str))
+                })
+                .collect();
+            opts.push(format!("params: [{}]", pairs.join(", ")));
+        }
+
+        // When the expected response is a redirect (3xx), disable automatic redirect
+        // following so the test can assert the redirect status and Location header.
+        if (300..400).contains(&self.expected_status) {
+            opts.push("redirect: false".to_string());
+        }
+
+        let fixture_id = escape_elixir(self.fixture_id);
+        let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{fixture_id}\"");
+
+        if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
+            if opts.is_empty() {
+                let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
+            } else {
+                let opts_str = opts.join(", ");
                 let _ = writeln!(
                     out,
-                    "      body_decoded = if is_binary(response.body), do: Jason.decode!(response.body), else: response.body"
+                    "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
                 );
-                let _ = writeln!(out, "      assert body_decoded == {elixir_val}");
             }
-            _ => {
-                // String/number/bool: compare against response.body directly.
-                let _ = writeln!(out, "      assert response.body == {elixir_val}");
-            }
+        } else {
+            opts.insert(0, format!("method: :{method}"));
+            opts.insert(1, format!("url: {url_expr}"));
+            let opts_str = opts.join(", ");
+            let _ = writeln!(out, "      {{:ok, response}} = Req.request({opts_str})");
         }
     }
-    if let Some(partial) = &expected.body_partial {
-        if let Some(obj) = partial.as_object() {
-            // Req auto-decodes JSON bodies; decode when Req returns a binary.
-            let _ = writeln!(
-                out,
-                "      decoded_body = if is_binary(response.body), do: Jason.decode!(response.body), else: response.body"
-            );
-            for (key, val) in obj {
-                let key_lit = format!("\"{}\"", escape_elixir(key));
-                let elixir_val = json_to_elixir(val);
-                let _ = writeln!(out, "      assert decoded_body[{key_lit}] == {elixir_val}");
-            }
-        }
-    }
-    if let Some(errors) = &expected.validation_errors {
-        for err in errors {
-            let msg_lit = format!("\"{}\"", escape_elixir(&err.msg));
-            let _ = writeln!(
-                out,
-                "      assert String.contains?(Jason.encode!(response.body), {msg_lit})"
-            );
-        }
-    }
-}
 
-/// Emit header assertions for an HTTP expected response.
-///
-/// Special tokens:
-/// - `"<<present>>"` — assert the header key exists
-/// - `"<<absent>>"` — assert the header key is absent
-/// - `"<<uuid>>"` — assert the header value matches a UUID regex
-fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
-    for (name, value) in &expected.headers {
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let _ = writeln!(out, "      assert {response_var}.status == {status}");
+    }
+
+    /// Emit a header assertion.
+    ///
+    /// Handles the special tokens `<<present>>`, `<<absent>>`, `<<uuid>>`.
+    /// Skips the `connection` header (hop-by-hop, stripped by Req/Mint).
+    fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
         let header_key = name.to_lowercase();
-        // Skip headers Req's response pipeline transforms or strips:
-        // - content-encoding: Req auto-decompresses gzip/brotli responses and removes the header.
-        // - connection: hop-by-hop header stripped when reading responses.
-        if header_key == "content-encoding" || header_key == "connection" {
-            continue;
+        // Req (via Mint) strips hop-by-hop headers; asserting on them is meaningless.
+        if header_key == "connection" {
+            return;
         }
         let key_lit = format!("\"{}\"", escape_elixir(&header_key));
-        // Req (via Mint) stores header values as lists; extract the first value.
         let get_header_expr = format!(
-            "Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: List.first(List.wrap(v)) end)"
+            "Enum.find_value({response_var}.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: List.first(List.wrap(v)) end)"
         );
-        match value.as_str() {
+        match expected {
             "<<present>>" => {
                 let _ = writeln!(out, "      assert {get_header_expr} != nil");
             }
@@ -509,15 +457,11 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
                 let _ = writeln!(out, "      assert {get_header_expr} == nil");
             }
             "<<uuid>>" => {
+                let var = sanitize_ident(&header_key);
+                let _ = writeln!(out, "      header_val_{var} = {get_header_expr}");
                 let _ = writeln!(
                     out,
-                    "      header_val_{} = {get_header_expr}",
-                    sanitize_ident(&header_key)
-                );
-                let _ = writeln!(
-                    out,
-                    "      assert Regex.match?(~r/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i, to_string(header_val_{}))",
-                    sanitize_ident(&header_key)
+                    "      assert Regex.match?(~r/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i, to_string(header_val_{var}))"
                 );
             }
             literal => {
@@ -526,6 +470,88 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
             }
         }
     }
+
+    /// Emit a full JSON body equality assertion.
+    ///
+    /// Req auto-decodes `application/json` bodies; when the response body is a
+    /// binary (non-JSON content type), decode it with `Jason.decode!` first.
+    fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        let elixir_val = json_to_elixir(expected);
+        match expected {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let _ = writeln!(
+                    out,
+                    "      body_decoded = if is_binary({response_var}.body), do: Jason.decode!({response_var}.body), else: {response_var}.body"
+                );
+                let _ = writeln!(out, "      assert body_decoded == {elixir_val}");
+            }
+            _ => {
+                let _ = writeln!(out, "      assert {response_var}.body == {elixir_val}");
+            }
+        }
+    }
+
+    /// Emit partial body assertions: one assertion per key in `expected`.
+    fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(
+                out,
+                "      decoded_body = if is_binary({response_var}.body), do: Jason.decode!({response_var}.body), else: {response_var}.body"
+            );
+            for (key, val) in obj {
+                let key_lit = format!("\"{}\"", escape_elixir(key));
+                let elixir_val = json_to_elixir(val);
+                let _ = writeln!(out, "      assert decoded_body[{key_lit}] == {elixir_val}");
+            }
+        }
+    }
+
+    /// Emit validation-error assertions, checking each expected `msg` appears in
+    /// the encoded response body.
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        for err in errors {
+            let msg_lit = format!("\"{}\"", escape_elixir(&err.msg));
+            let _ = writeln!(
+                out,
+                "      assert String.contains?(Jason.encode!({response_var}.body), {msg_lit})"
+            );
+        }
+    }
+}
+
+/// Render an ExUnit `describe` + `test` block for an HTTP server test fixture.
+///
+/// Delegates to [`client::http_call::render_http_test`] after the one
+/// Elixir-specific pre-condition: HTTP methods unsupported by Finch (the
+/// underlying Req adapter) are emitted with `@tag :skip` directly.
+fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let method = http.request.method.to_uppercase();
+
+    // Finch does not support TRACE/CONNECT — emit a skipped test stub directly
+    // rather than routing through the shared driver, which would assert on the
+    // response and fail.
+    if FINCH_UNSUPPORTED_METHODS.contains(&method.as_str()) {
+        let test_name = sanitize_ident(&fixture.id);
+        let description = fixture.description.replace('"', "\\\"");
+        let path = &http.request.path;
+        let _ = writeln!(out, "  describe \"{test_name}\" do");
+        let _ = writeln!(out, "    @tag :skip");
+        let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
+    let renderer = ElixirTestClientRenderer {
+        fixture_id: &fixture.id,
+        expected_status: http.expected_response.status_code,
+    };
+    client::http_call::render_http_test(out, &renderer, fixture);
 }
 
 // ---------------------------------------------------------------------------
