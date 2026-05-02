@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
   top-level parameter to `convert()`.
 
+- fix(e2e/python): render string containment assertions over configured array fields by checking common DTO text
+  attributes instead of comparing directly against the object list.
+
 - fix(alef-cli/format): format WASM binding crates with `cargo fmt --manifest-path`
   derived from the resolved output path so renamed or workspace-excluded crates are handled correctly.
 
