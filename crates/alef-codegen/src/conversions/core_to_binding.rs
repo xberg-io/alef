@@ -803,7 +803,20 @@ fn apply_core_wrapper_from_core(
             }
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
-                    format!("{name}: {expr}.map(|v| (*v).clone().into())")
+                    // When the base conversion is the simple passthrough `val.{name}`,
+                    // the Option carries Arc<T> elements; deref-clone each.
+                    // When the base is already a complex expression (e.g.
+                    // `val.{name}.as_ref().map(ToString::to_string)` for Json fields),
+                    // the Arc is transparently handled via Display/Deref coercion;
+                    // chaining another `.map(|v| (*v).clone().into())` would operate
+                    // on the already-converted value (e.g. String) and emit invalid
+                    // codegen such as `(*String).clone()` (since str: !Clone).
+                    let simple_passthrough = format!("val.{name}");
+                    if expr == simple_passthrough {
+                        format!("{name}: {expr}.map(|v| (*v).clone().into())")
+                    } else {
+                        format!("{name}: {expr}")
+                    }
                 } else {
                     let unwrapped = expr.replace(&format!("val.{name}"), &format!("(*val.{name}).clone()"));
                     format!("{name}: {unwrapped}")

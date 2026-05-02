@@ -441,4 +441,84 @@ mod tests {
             "patterns: val.patterns.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
         );
     }
+
+    fn arc_field_type(field: FieldDef) -> TypeDef {
+        TypeDef {
+            name: "State".to_string(),
+            rust_path: "my_crate::State".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![field],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }
+    }
+
+    fn arc_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+        FieldDef {
+            name: name.into(),
+            ty,
+            optional,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::Arc,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }
+    }
+
+    /// Regression: Option<Arc<serde_json::Value>> must not chain `(*v).clone().into()`
+    /// on top of `as_ref().map(ToString::to_string)`, which would emit invalid
+    /// `(*String).clone()` (str: !Clone).
+    #[test]
+    fn test_arc_json_option_field_no_double_chain() {
+        let typ = arc_field_type(arc_field("registered_spec", TypeRef::Json, true));
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            result.contains("val.registered_spec.as_ref().map(ToString::to_string)"),
+            "expected as_ref().map(ToString::to_string) for Option<Arc<Value>>, got: {result}"
+        );
+        assert!(
+            !result.contains("map(ToString::to_string).map("),
+            "must not chain a second map() on top of ToString::to_string, got: {result}"
+        );
+    }
+
+    /// Non-optional Arc<Value>: `(*val.X).clone().to_string()` is valid (Value: Clone).
+    #[test]
+    fn test_arc_json_non_optional_field() {
+        let typ = arc_field_type(arc_field("spec", TypeRef::Json, false));
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            result.contains("(*val.spec).clone().to_string()"),
+            "expected (*val.spec).clone().to_string() for Arc<Value>, got: {result}"
+        );
+    }
+
+    /// Option<Arc<String>>: simple passthrough → `.map(|v| (*v).clone().into())` is valid
+    /// (String: Clone). Verifies the simple_passthrough branch is preserved.
+    #[test]
+    fn test_arc_string_option_field_passthrough() {
+        let typ = arc_field_type(arc_field("label", TypeRef::String, true));
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(
+            result.contains("val.label.map(|v| (*v).clone().into())"),
+            "expected .map(|v| (*v).clone().into()) for Option<Arc<String>>, got: {result}"
+        );
+    }
 }
