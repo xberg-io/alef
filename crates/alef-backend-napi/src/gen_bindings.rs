@@ -418,7 +418,12 @@ impl Backend for NapiBackend {
 
     fn generate_type_stubs(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
-        let content = gen_dts(api, &prefix);
+        let exclude_functions: ahash::AHashSet<String> = config
+            .node
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+        let content = gen_dts(api, &prefix, &exclude_functions, &config.trait_bridges);
 
         // `config.output.node` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
         // `index.d.ts` belongs at the crate root, one level up from `src/`.
@@ -1509,7 +1514,12 @@ fn gen_tokio_runtime() -> String {
 ///
 /// The output format matches what NAPI-RS would generate after patching, using the same
 /// alphabetical ordering and type declarations seen in the committed `index.d.ts` files.
-fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
+fn gen_dts(
+    api: &ApiSurface,
+    prefix: &str,
+    exclude_functions: &ahash::AHashSet<String>,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
+) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
     lines.push("/* eslint-disable */".to_string());
@@ -1530,7 +1540,23 @@ fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
     sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Functions → `export declare function`
-    let mut sorted_fns: Vec<&FunctionDef> = api.functions.iter().collect();
+    // Apply the same filtering as `gen_function`: drop excluded names, and drop
+    // sanitized functions unless a trait_bridge can adapt their signature. This
+    // keeps the emitted `index.d.ts` declarations in lockstep with the actually
+    // exported NAPI functions in `lib.rs`.
+    let mut sorted_fns: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| {
+            if exclude_functions.contains(&f.name) {
+                return false;
+            }
+            if f.sanitized && crate::trait_bridge::find_bridge_param(f, trait_bridges).is_none() {
+                return false;
+            }
+            true
+        })
+        .collect();
     sorted_fns.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Build a merged list of all declarations sorted by their Js-prefixed name so the
