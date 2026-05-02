@@ -67,6 +67,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WASM, Dart, C) require equivalent updates to move visitor from positional
   arg to options field assignment (patterns will vary per language syntax).
 
+- fix(backend-pyo3): resolve all compile errors when `bind_via = "options_field"`
+  is used in `[[trait_bridges]]` with a PyO3 binding:
+  - `extra_field_attrs` now returns `vec![]` for bridge fields, preventing
+    duplicate `#[pyo3(get)]` and `#[serde(skip)]` attributes.
+  - `rewrite_bridge_field_type` now accepts `type_alias: Option<&str>` and
+    also rewrites `Option<{alias}>` patterns (e.g. `Option<VisitorHandle>`),
+    not only the legacy `Option<String>` placeholder.
+  - `rewrite_bridge_field_impl` now rewrites constructor parameter types
+    (`visitor: Option<VisitorHandle>` → `visitor: Option<Py<PyAny>>`).
+  - Struct generation for both the primary options type and related types
+    (e.g. `ConversionOptionsUpdate`) that share the same bridge field name
+    now applies the full set of rewrites: field type override, `frozen` →
+    `unsendable`, and manual `Clone` impl using `Python::attach`/`clone_ref`.
+  - `bridge_field_name_for_type` extends From-conversion post-processing to
+    cover related types (`ConversionOptionsUpdate`) that are not listed as
+    `options_type` in `alef.toml` but share the bridge field name.
+  - Opaque types whose name matches a bridge `type_alias` (e.g. `VisitorHandle`)
+    and builder types for bridge options types (e.g. `ConversionOptionsBuilder`)
+    now use `#[pyclass(unsendable)]` because they transitively contain
+    `Rc<RefCell<dyn Trait>>`.
+  - Builder opaque impl: `visitor.as_ref().map(|v| &v.inner)` rewritten to
+    `visitor.map(|v| (*v.inner).clone())` to pass `Rc<RefCell<...>>` (not a
+    reference into Arc) to the core builder's `.visitor()` method.
+  - `gen_bridge_field_function` in `trait_bridge.rs` now uses
+    `Python::attach(|py| v.clone_ref(py))` to extract the visitor from
+    `Option<Py<PyAny>>`, replacing the former `.clone()` call that requires
+    the `py-clone` feature (not enabled in most consumers).
+
 ### Added
 
 - feat(backend-pyo3): wire `bind_via = "options_field"` bridge support. When a

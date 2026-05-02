@@ -1239,7 +1239,9 @@ pub fn gen_bridge_field_function(
     let preamble = if param_is_optional {
         format!(
             "// Extract visitor from binding options before serde round-trip (visitor is #[serde(skip)]).\n    \
-             let __visitor = {param_name}.as_ref().and_then(|o| o.{field_name}.clone());\n    \
+             // Use clone_ref rather than .clone() — Py<PyAny> requires the `py-clone` feature for\n    \
+             // Clone, but clone_ref(py) increments the refcount without that feature.\n    \
+             let __visitor = {param_name}.as_ref().and_then(|o| o.{field_name}.as_ref().map(|v| Python::attach(|py| v.clone_ref(py))));\n    \
              let __options_core: Option<{options_core_type}> = {param_name}.map(|v| {{\n        \
              let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
              serde_json::from_str::<{options_core_type}>(&json){serde_err_conv}\n    \
@@ -1255,7 +1257,9 @@ pub fn gen_bridge_field_function(
     } else {
         format!(
             "// Extract visitor from binding options before serde round-trip (visitor is #[serde(skip)]).\n    \
-             let __visitor = {param_name}.{field_name}.clone();\n    \
+             // Use clone_ref rather than .clone() — Py<PyAny> requires the `py-clone` feature for\n    \
+             // Clone, but clone_ref(py) increments the refcount without that feature.\n    \
+             let __visitor = {param_name}.{field_name}.as_ref().map(|v| Python::attach(|py| v.clone_ref(py)));\n    \
              let {param_name}_json = serde_json::to_string(&{param_name}){serde_err_conv}?;\n    \
              let mut {param_name}_core: {options_core_type} = serde_json::from_str(&{param_name}_json){serde_err_conv}?;\n    \
              if let Some(__v) = __visitor {{\n        \
