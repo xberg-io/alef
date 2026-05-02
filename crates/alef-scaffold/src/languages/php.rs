@@ -173,11 +173,13 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
             path: PathBuf::from(format!("{pkg_dir}/php-cs-fixer.php")),
             content: r#"<?php
 
+declare(strict_types=1);
+
 $finder = (new PhpCsFixer\Finder())
-    ->in(array_values(array_filter([
+    ->in(array_filter([
         __DIR__ . '/src',
         is_dir(__DIR__ . '/tests') ? __DIR__ . '/tests' : null,
-    ])));
+    ]));
 
 return (new PhpCsFixer\Config())
     ->setRules([

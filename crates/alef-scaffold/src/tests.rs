@@ -875,15 +875,20 @@ fn test_scaffold_java_checkstyle_suppressions_use_config_location() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
     let files = language_files(&all_files);
+    let xml = files.iter().find(|f| f.path.ends_with("checkstyle.xml")).unwrap();
+    assert!(
+        xml.content
+            .contains(r#"value="${config_loc}/checkstyle-suppressions.xml""#),
+        "checkstyle suppressions path must work from repo root and Maven; content:\n{}",
+        xml.content
+    );
     let properties = files
         .iter()
         .find(|f| f.path.ends_with("checkstyle.properties"))
         .unwrap();
     assert!(
-        properties
-            .content
-            .contains("checkstyle.suppressions.file=${config_loc}/checkstyle-suppressions.xml"),
-        "checkstyle suppressions path must work from repo root and package cwd; content:\n{}",
+        properties.content.is_empty(),
+        "checkstyle properties should stay empty; content:\n{}",
         properties.content
     );
 }
@@ -895,6 +900,11 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
     let files = language_files(&all_files);
     let fixer = files.iter().find(|f| f.path.ends_with("php-cs-fixer.php")).unwrap();
+    assert!(
+        fixer.content.contains("declare(strict_types=1);"),
+        "php-cs-fixer config should be fixer-clean; content:\n{}",
+        fixer.content
+    );
     assert!(
         fixer.content.contains("is_dir(__DIR__ . '/tests')"),
         "php-cs-fixer config must not require a tests directory; content:\n{}",

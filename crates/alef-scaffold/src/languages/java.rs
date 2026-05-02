@@ -463,7 +463,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     <property name="fileExtensions" value="java"/>
 
     <module name="SuppressionFilter">
-        <property name="file" value="${checkstyle.suppressions.file}"/>
+        <property name="file" value="${config_loc}/checkstyle-suppressions.xml"/>
         <property name="optional" value="false"/>
     </module>
 
@@ -514,9 +514,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
 </module>
 "#;
 
-    // Resolve relative to the config file so both Maven (packages/java cwd) and
-    // repo-root pre-commit invocations find the same suppression file.
-    let checkstyle_properties = "checkstyle.suppressions.file=${config_loc}/checkstyle-suppressions.xml\n";
+    let checkstyle_properties = "";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE suppressions PUBLIC

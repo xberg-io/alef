@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(scaffold/java,scaffold/php): generated Java Checkstyle suppressions now
+  resolve through Checkstyle's `config_loc` in `checkstyle.xml` so both Maven
+  and repo-root pre-commit invocations find the suppressions file, and the PHP
+  CS Fixer scaffold is itself fixer-clean while still tolerating packages
+  without a `tests/` directory.
 - fix(cli/format): the default WASM formatter now derives the generated crate
   package from Alef's core crate directory (`core_crate_dir-wasm`) instead of
   the public Rust crate name. This fixes repos where the public crate
