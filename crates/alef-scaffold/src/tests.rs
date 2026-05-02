@@ -126,18 +126,19 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
-    assert_eq!(files.len(), 7);
+    // scaffold_node: pkg package.json + crate package.json + src/index.d.ts + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
+    assert_eq!(files.len(), 8);
     assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert!(files[0].content.contains("oxfmt"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
-    assert_eq!(files[3].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[4].path, PathBuf::from("packages/node/.oxfmtrc.json"));
-    assert_eq!(files[5].path, PathBuf::from("packages/node/.oxlintrc.json"));
-    assert_eq!(files[6].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[6].content.contains("napi-derive"));
+    assert_eq!(files[3].path, PathBuf::from("packages/node/index.d.ts"));
+    assert_eq!(files[4].path, PathBuf::from("packages/node/tsconfig.json"));
+    assert_eq!(files[5].path, PathBuf::from("packages/node/.oxfmtrc.json"));
+    assert_eq!(files[6].path, PathBuf::from("packages/node/.oxlintrc.json"));
+    assert_eq!(files[7].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[7].content.contains("napi-derive"));
 }
 
 #[test]
@@ -146,8 +147,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 7 files (2 package.json + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
-    assert_eq!(files.len(), 10);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 8 files (2 package.json + src/index.d.ts + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
+    assert_eq!(files.len(), 11);
 }
 
 #[test]

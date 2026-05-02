@@ -199,6 +199,14 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/src/index.d.ts")),
+            content: dts_content.clone(),
+            generated_header: false,
+        },
+        // Also emit at the package root so `package.json`'s `types: "index.d.ts"`
+        // resolves for downstream consumers. The src/ copy is kept for in-tree
+        // tsconfig "include": ["src"] tooling; the root copy is what npm exposes.
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/index.d.ts")),
             content: dts_content,
             generated_header: false,
         },
