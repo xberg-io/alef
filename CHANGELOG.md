@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-cli/format): format WASM binding crates with `cargo fmt --manifest-path`
+  derived from the resolved output path so renamed or workspace-excluded crates are handled correctly.
+
+- fix(cli): run language-native formatters on stubs before finalising the embedded `alef:hash:` line.
+  `alef stubs` previously skipped the format step and computed the hash over raw codegen output.
+  When host-language tools (ruff, php-cs-fixer, mix format, cargo fmt, …) reformatted those files,
+  the embedded hash no longer matched the on-disk content, causing `alef verify` to report them as stale.
+
+- fix(cli): track stub-changed languages in `changed_languages` during `alef generate`.
+  When stubs changed but no bindings changed for a language, the formatter gate
+  (`if any_written && !changed_languages.is_empty()`) would skip formatting entirely,
+  leaving stub files unformatted and the hash stale after the next formatter run.
+
 ## [0.14.0] - 2026-05-02
 
 ### Changed
