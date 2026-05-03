@@ -473,6 +473,13 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Fix From<WasmConversionOptions> to pass through visitor field instead of Default::default()
+        // Replace "visitor: Default::default()," with "visitor: val.visitor.map(|v| v.inner),"
+        // in the From impl for WasmConversionOptions
+        let visitor_default = "visitor: Default::default(),";
+        let visitor_passthrough = "visitor: val.visitor.map(|v| v.inner),";
+        content = content.replace(visitor_default, visitor_passthrough);
+
         let output_dir = resolve_output_dir(config.output_paths.get("wasm"), &config.name, "crates/{name}-wasm/src/");
 
         let cargo_toml_path = PathBuf::from(&output_dir)

@@ -36,7 +36,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) 
     writeln!(out, "#[wasm_bindgen]").ok();
     writeln!(out, "pub struct {} {{", js_name).ok();
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    writeln!(out, "    inner: Arc<{}>,", core_path).ok();
+    writeln!(out, "    pub(crate) inner: Arc<{}>,", core_path).ok();
     write!(out, "}}").ok();
     out
 }
@@ -53,6 +53,24 @@ pub(super) fn gen_opaque_struct_methods(
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
+
+    // Special handling for VisitorHandle: add a constructor if no methods exist
+    if typ.name == "VisitorHandle" && typ.methods.is_empty() {
+        let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+        let mut constructor = String::with_capacity(256);
+        writeln!(constructor, "#[wasm_bindgen(constructor)]").ok();
+        writeln!(constructor, "pub fn new(visitor: wasm_bindgen::JsValue) -> {} {{", js_name).ok();
+        writeln!(constructor, "    Self {{").ok();
+        writeln!(
+            constructor,
+            "        inner: std::sync::Arc::new({}::new(visitor)),",
+            core_path
+        )
+        .ok();
+        writeln!(constructor, "    }}").ok();
+        write!(constructor, "}}").ok();
+        impl_builder.add_method(&constructor);
+    }
 
     for method in &typ.methods {
         if method.is_static {
