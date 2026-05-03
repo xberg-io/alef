@@ -1365,12 +1365,19 @@ fn gen_convert_with_visitor(
     writeln!(out, "\tdefer C.{fn_result_free}(ptr)").ok();
     writeln!(out).ok();
 
-    // Deserialize ConversionResult from the returned JSON pointer.
-    writeln!(out, "\tjsonStr := C.GoString((*C.char)(unsafe.Pointer(ptr)))").ok();
+    // Deserialize ConversionResult: convert the opaque result pointer to JSON first,
+    // then unmarshal into a Go struct.  The pointer is a *ConversionResult struct (not a
+    // string), so we must call the to_json helper before treating it as text.
+    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
+    writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
+    writeln!(out, "\tif jsonPtr == nil {{").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.htm_free_string(jsonPtr)").ok();
     writeln!(out, "\tvar result ConversionResult").ok();
     writeln!(
         out,
-        "\tif err := json.Unmarshal([]byte(jsonStr), &result); err != nil {{"
+        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
     )
     .ok();
     writeln!(

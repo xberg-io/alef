@@ -1107,3 +1107,142 @@ pub fn gen_bridge_function(
 
     out
 }
+
+/// Generate a NAPI free function where a trait bridge is embedded in an options struct field.
+/// The visitor is extracted from options before the Into conversion, wrapped in a bridge,
+/// and manually injected back into the converted core options.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_options_field_bridge_function(
+    func: &alef_core::ir::FunctionDef,
+    options_param_idx: usize,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    _cfg: &alef_codegen::generators::RustBindingConfig<'_>,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use alef_core::ir::TypeRef;
+    use std::fmt::Write;
+
+    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let options_param = &func.params[options_param_idx];
+    let options_name = &options_param.name;
+
+    // Build parameter list (options param stays as is, no special treatment in signature)
+    let params_str = {
+        let mut sig_parts = vec![];
+        for p in &func.params {
+            let ty = mapper.map_type(&p.ty);
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+        sig_parts.join(", ")
+    };
+
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+
+    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+
+    // Generate visitor extraction and bridge creation
+    let visitor_extract = format!(
+        "let visitor_handle = {options_name}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {{\n    \
+         let bridge = {struct_name}::new(v);\n    \
+         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+         }});"
+    );
+
+    // Generate options conversion with visitor injection
+    let options_convert = format!(
+        "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|o| o.into());\n    \
+         if let Some(ref visitor) = visitor_handle {{\n    \
+         if let Some(ref mut opts) = {options_name}_core {{\n        \
+         opts.visitor = Some(visitor.clone());\n    \
+         }}\n    \
+         }}"
+    );
+
+    // Build call args, replacing options param with the _core version
+    let call_args: String = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == options_param_idx {
+                format!("{options_name}_core")
+            } else {
+                match &p.ty {
+                    TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                        if p.optional {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("&{}.inner", p.name)
+                        }
+                    }
+                    TypeRef::Named(_) => format!("{}.into()", p.name),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            if opaque_types.contains(n.as_str()) {
+                                format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                            } else {
+                                format!("{}.map(Into::into)", p.name)
+                            }
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                    _ => p.name.clone(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{visitor_extract}\n    {options_convert}\n    {core_call}{err_conv}")
+        } else {
+            format!("{visitor_extract}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
+        }
+    } else {
+        format!("{visitor_extract}\n    {options_convert}\n    {core_call}")
+    };
+
+    let mut out = String::with_capacity(1024);
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[napi]").ok();
+    let func_name = &func.name;
+    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
