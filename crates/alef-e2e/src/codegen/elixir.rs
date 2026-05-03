@@ -705,27 +705,30 @@ fn render_test_case(
         resolved_handle_atom_list_fields_ref,
     );
 
-    // Build visitor if present — inject it into the options map.
-    // The Elixir facade expects options as the second arg, with visitor as a map key.
-    let final_args = if let Some(visitor_spec) = &fixture.visitor {
-        let visitor_var = build_elixir_visitor(&mut setup_lines, visitor_spec);
-        // If options were built, we need to inject visitor into them.
-        // Options will be a var name (e.g., "options") if options_type+options_via were set.
-        // Otherwise, if it's a literal, we need to wrap it in a map.
-        if resolved_options_type.is_some() && resolved_options_default_fn.is_some() {
-            // Options is a var (e.g., "options") — inject visitor into it
-            setup_lines.push(format!("{args_str} = Map.put({args_str}, :visitor, {visitor_var})"));
+    // Build visitor if present — it will be injected into the options map.
+    let visitor_var = fixture.visitor.as_ref().map(|visitor_spec| {
+        build_elixir_visitor(&mut setup_lines, visitor_spec)
+    });
+
+    // If we have a visitor and the args contain a nil for options, replace it with a map
+    // containing the visitor. The fixture.visitor is already set above.
+    let final_args = if let Some(ref visitor_var) = visitor_var {
+        // Parse args_str to handle injection properly.
+        // Since we're dealing with a 2-arg function (html, options), and options might be nil,
+        // we need to inject visitor into the options.
+        let parts: Vec<&str> = args_str.split(", ").collect();
+        if parts.len() == 2 && parts[1] == "nil" {
+            // Replace nil with %{visitor: visitor}
+            format!("{}, %{{visitor: {}}}", parts[0], visitor_var)
+        } else if parts.len() == 2 {
+            // Options is a variable (e.g., "options") — add visitor to it
+            setup_lines.push(format!("{} = Map.put({}, :visitor, {})", parts[1], parts[1], visitor_var));
             args_str
+        } else if parts.len() == 1 {
+            // Only HTML provided — create options map with just visitor
+            format!("{}, %{{visitor: {}}}", parts[0], visitor_var)
         } else {
-            // Options is a literal string or nil — create a map with visitor
-            if args_str.is_empty() || args_str == "nil" {
-                // No options provided — create a map with just the visitor
-                format!("%{{visitor: {visitor_var}}}")
-            } else {
-                // Options is a JSON string literal — we can't inject into it at runtime
-                // This shouldn't happen in practice for visitor fixtures, but handle it gracefully
-                format!("%{{visitor: {visitor_var}}}")
-            }
+            args_str
         }
     } else {
         args_str
