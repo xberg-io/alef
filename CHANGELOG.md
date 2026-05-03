@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/php): when `result_is_simple = true`, generated assertions now access the
   `content` property of the ConversionResult object instead of passing the object
   directly to assertion methods. Fixes TypeError when trimming or comparing results.
+- fix(e2e/csharp): generate `List<string>` parameter type for VisitTableRow method
+  (was `IReadOnlyList<string>`), emit `new VisitResult.XXX()` instead of
+  `VisitResult.XXX()` to correctly instantiate sealed record types, and call
+  `ConvertWithVisitor` instead of `Convert` when a visitor is present in fixtures.
 
 ## [0.14.4] - 2026-05-03
 
