@@ -7,9 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- fix(backend-pyo3): split `None` check from `isinstance` check in `_coerce_enum` helper so
-  the function return type matches the declared `-> _E` signature; remove now-unused
-  `# type: ignore[arg-type]` comments that newer mypy versions flag as `[unused-ignore]`
+- fix(backend-pyo3): fix `_coerce_enum` return type from `_E` to `_E | None` to allow None values
+  in optional enum fields; restore proper None handling with type: ignore comments for mypy
 
 - fix(backend-java): use short annotation names (`@JsonDeserialize`, `@JsonPOJOBuilder`) instead of
   fully-qualified names in generated record and builder classes so that the accompanying import
