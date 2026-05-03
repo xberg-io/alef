@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e-wasm): match single-quoted imports in `inject_wasm_init`. The TypeScript renderer generates `from 'pkg'` (single quotes), but the injection pattern was matching `from "pkg"` (double quotes), causing the `initSync` block to never be emitted. Now detects both quote styles and injects accordingly.
+
 ## [0.14.10] - 2026-05-03
 
 ### Added

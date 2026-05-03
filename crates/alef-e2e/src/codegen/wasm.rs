@@ -383,7 +383,19 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
     // underscores, append _bg.wasm.  E.g. "@kreuzberg/liter-llm-wasm" → "liter_llm_wasm_bg.wasm".
     let bare_name = pkg_name.rsplit('/').next().unwrap_or(pkg_name);
     let wasm_filename = format!("{}_bg.wasm", bare_name.replace('-', "_"));
-    let from_marker = format!("}} from \"{pkg_name}\";");
+    // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
+    let from_marker_sq = format!("}} from '{pkg_name}';");
+    let from_marker_dq = format!("}} from \"{pkg_name}\";");
+    let from_marker = if content.contains(&from_marker_sq) {
+        from_marker_sq.clone()
+    } else {
+        from_marker_dq.clone()
+    };
+    let new_from = if from_marker == from_marker_sq {
+        format!(", initSync }} from '{pkg_name}';")
+    } else {
+        format!(", initSync }} from \"{pkg_name}\";")
+    };
 
     if let Some(import_pos) = content.find("import {") {
         if let Some(from_pos) = content[import_pos..].find(&from_marker) {
@@ -395,7 +407,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
                 return content.to_string();
             }
 
-            let new_import = import_section.replace(&from_marker, &format!(", initSync }} from \"{pkg_name}\";"));
+            let new_import = import_section.replace(&from_marker, &new_from);
 
             let init_code = format!(
                 r#"import fs from 'fs';
