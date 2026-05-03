@@ -738,6 +738,22 @@ fn render_test_case(
         args_str
     };
 
+    // Client factory: when configured, create a client and pass it as the first argument.
+    let client_factory = call_overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or_else(|| e2e_config.call.overrides.get("elixir").and_then(|o| o.client_factory.as_deref()));
+
+    // Prefix the client variable to the args when client_factory is set.
+    let effective_args = if client_factory.is_some() {
+        if final_args.is_empty() {
+            "client".to_string()
+        } else {
+            format!("client, {final_args}")
+        }
+    } else {
+        final_args
+    };
+
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{test_label}\" do");
 
@@ -745,20 +761,28 @@ fn render_test_case(
         let _ = writeln!(out, "      {line}");
     }
 
+    // Emit client creation when client_factory is configured.
+    if let Some(factory) = client_factory {
+        let _ = writeln!(
+            out,
+            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", System.get_env(\"MOCK_SERVER_URL\"))"
+        );
+    }
+
     // Use returns_result from the Elixir override if present, otherwise from base config
     let returns_result = call_overrides
         .and_then(|o| o.returns_result)
-        .unwrap_or(call_config.returns_result);
+        .unwrap_or(call_config.returns_result || client_factory.is_some());
 
     if expects_error {
         if returns_result {
             let _ = writeln!(
                 out,
-                "      assert {{:error, _}} = {module_path}.{function_name}({final_args})"
+                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
             );
         } else {
             // Non-Result function — just call and discard; error detection not meaningful.
-            let _ = writeln!(out, "      _result = {module_path}.{function_name}({final_args})");
+            let _ = writeln!(out, "      _result = {module_path}.{function_name}({effective_args})");
         }
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
@@ -768,11 +792,11 @@ fn render_test_case(
     if returns_result {
         let _ = writeln!(
             out,
-            "      {{:ok, {result_var}}} = {module_path}.{function_name}({final_args})"
+            "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
         );
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
-        let _ = writeln!(out, "      {result_var} = {module_path}.{function_name}({final_args})");
+        let _ = writeln!(out, "      {result_var} = {module_path}.{function_name}({effective_args})");
     }
 
     for assertion in &fixture.assertions {
@@ -1497,11 +1521,19 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let elixir_override = call_config
+        .overrides
+        .get("elixir")
+        .or_else(|| e2e_config.call.overrides.get("elixir"));
+    // When a client_factory is configured the fixture is callable via the client pattern.
+    if elixir_override.and_then(|o| o.client_factory.as_deref()).is_some() {
+        return true;
+    }
     // Elixir bindings expose functions via module-level callables.
     // Like Python and Node, Elixir can call the base function directly without requiring
     // a language-specific override. The function can come from either the override or
     // the default [e2e.call] configuration.
-    let function_from_override = call_config.overrides.get("elixir").and_then(|o| o.function.as_deref());
+    let function_from_override = elixir_override.and_then(|o| o.function.as_deref());
 
     // If there's an override function, use it. Otherwise, Elixir can use the base function.
     function_from_override.is_some() || !call_config.function.is_empty()
