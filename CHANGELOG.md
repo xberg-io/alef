@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(backend-pyo3): `_coerce_enum` helper now returns `_E` (not `_E | None`) by separating
+  the `isinstance` early-return from the `None` case (which now raises `ValueError`). This
+  eliminates the `[return-value]` mypy error and removes now-unused `# type: ignore` comments
+  that newer mypy versions flag as `[unused-ignore]`.
+
 - fix(backend-napi): `find_options_field_binding` now unwraps Optional types when matching
   options parameters against `options_type` in trait bridge configs. When a function parameter
   is `Option<ConversionOptions>` and a trait bridge specifies `bind_via = "options_field"`,

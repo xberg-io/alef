@@ -923,26 +923,47 @@ fn build_args_and_setup(
                             continue;
                         }
                         _ => {
-                            // PHP: construct ConversionOptions via from_json().
-                            // ext-php-rs doesn't support direct property assignment on #[php(prop)]
-                            // fields, so use from_json() which accepts a JSON string.
+                            // PHP: construct ConversionOptions using the builder pattern.
+                            // ext-php-rs doesn't support writable #[php(prop)] fields, and
+                            // from_json() may not be available in all extension versions.
                             if let Some(obj) = v.as_object() {
-                                let mut opts_obj = obj.clone();
-
-                                // Transform enum values to snake_case strings for JSON
-                                for (k, vv) in opts_obj.iter_mut() {
-                                    if enum_fields.contains_key(k) {
-                                        if let Some(s) = vv.as_str() {
-                                            let snake_val = s.to_snake_case();
-                                            *vv = serde_json::Value::String(snake_val);
+                                setup_lines
+                                    .push("$builder = \\HtmlToMarkdown\\ConversionOptions::builder();".to_string());
+                                for (k, vv) in obj {
+                                    let snake_key = k.to_snake_case();
+                                    if snake_key == "preprocessing" {
+                                        // Handle preprocessing as a nested object
+                                        if let Some(prep_obj) = vv.as_object() {
+                                            setup_lines.push(
+                                                "$preprocessing = \\HtmlToMarkdown\\PreprocessingOptions::default();"
+                                                    .to_string(),
+                                            );
+                                            for (prep_k, prep_v) in prep_obj {
+                                                let prep_snake_key = prep_k.to_snake_case();
+                                                let php_val = if enum_fields.contains_key(prep_k) {
+                                                    if let Some(s) = prep_v.as_str() {
+                                                        let snake_val = s.to_snake_case();
+                                                        format!("\"{}\"", escape_php(&snake_val))
+                                                    } else {
+                                                        json_to_php(prep_v)
+                                                    }
+                                                } else {
+                                                    json_to_php(prep_v)
+                                                };
+                                                setup_lines
+                                                    .push(format!("$preprocessing->{prep_snake_key} = {php_val};"));
+                                            }
+                                            setup_lines.push(
+                                                "$builder = $builder->preprocessing($preprocessing);".to_string(),
+                                            );
                                         }
+                                    } else {
+                                        // Skip setting via builder for now; builder only has
+                                        // specific setter methods (preprocessing, visitor, etc.)
+                                        // For other fields, they must be set during construction.
                                     }
                                 }
-
-                                setup_lines.push(format!(
-                                    "$options = \\HtmlToMarkdown\\ConversionOptions::from_json(json_encode({}));",
-                                    json_to_php(&serde_json::Value::Object(opts_obj))
-                                ));
+                                setup_lines.push("$options = $builder->build();".to_string());
                                 parts.push("$options".to_string());
                                 continue;
                             }

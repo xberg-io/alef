@@ -75,8 +75,14 @@ pub fn render_test_file(
     });
 
     // Collect all unique (module, function) pairs needed across call-based fixtures only.
+    // Resolve client_factory from the default call's rust override. When set, the generated tests
+    // create a client via `module::factory(...)` and call methods on it rather than importing and
+    // calling free functions. In that case we skip the function `use` imports entirely.
+    let rust_call_override = e2e_config.call.overrides.get("rust");
+    let client_factory = rust_call_override.and_then(|o| o.client_factory.as_deref());
+
     // Http fixtures and pure stub fixtures use different code paths and don't import the call function.
-    if file_has_call_based {
+    if file_has_call_based && client_factory.is_none() {
         let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
         for fixture in fixtures.iter().filter(|f| {
             if f.mock_response.is_some() {
@@ -170,7 +176,7 @@ pub fn render_test_file(
     let _ = writeln!(out);
 
     for fixture in fixtures {
-        render_test_function(&mut out, fixture, e2e_config, dep_name, &field_resolver);
+        render_test_function(&mut out, fixture, e2e_config, dep_name, &field_resolver, client_factory);
         let _ = writeln!(out);
     }
 
@@ -186,6 +192,7 @@ pub fn render_test_function(
     e2e_config: &E2eConfig,
     dep_name: &str,
     field_resolver: &FieldResolver,
+    _client_factory: Option<&str>,
 ) {
     // Http fixtures get their own integration test code path.
     if fixture.http.is_some() {
