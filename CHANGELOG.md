@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(scaffold/ruby): omit workspace lints from standalone Ruby native extension crates.
 - fix(e2e/csharp): default generated project references to Alef's nested C# package
   project path.
+- fix(e2e/csharp): read namespace from `[crates.csharp].namespace` in alef.toml when
+  generating test imports, fixing mismatch with generated package namespace.
 
 ## [0.14.3] - 2026-05-03
 

@@ -160,6 +160,25 @@ pub(crate) fn gen_record_type(
         writeln!(record_block, "    }}").ok();
     }
 
+    // Generate Optional-returning accessor methods for nullable String fields.
+    // Java records auto-generate accessors that return the same type as the field.
+    // For @Nullable String fields, we want public accessors to return Optional<String>
+    // instead, making the API more idiomatic for Java 17+ callers.
+    let needs_optional_accessors = typ.fields.iter().any(|f| f.optional && matches!(&f.ty, TypeRef::String));
+    if needs_optional_accessors {
+        for f in &typ.fields {
+            if f.optional && matches!(&f.ty, TypeRef::String) {
+                let jname = safe_java_field_name(&f.name);
+                // The record's auto-generated accessor returns @Nullable String
+                // We shadow it with an Optional-returning method that wraps the field value
+                writeln!(record_block, "    /** Returns an Optional wrapping the {} value. */", jname).ok();
+                writeln!(record_block, "    public java.util.Optional<String> {}() {{", jname).ok();
+                writeln!(record_block, "        return java.util.Optional.ofNullable(this.{});", jname).ok();
+                writeln!(record_block, "    }}").ok();
+            }
+        }
+    }
+
     writeln!(record_block, "}}").ok();
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.
@@ -167,6 +186,8 @@ pub(crate) fn gen_record_type(
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
     let needs_nullable = fields_joined.contains("@Nullable");
+    // Optional is needed if fields have Optional<T> in declaration OR if we generate Optional accessors
+    let needs_optional = fields_joined.contains("Optional<") || needs_optional_accessors;
     let mut out = String::with_capacity(record_block.len() + 512);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     writeln!(out, "package {};", package).ok();
@@ -177,7 +198,7 @@ pub(crate) fn gen_record_type(
     if fields_joined.contains("Map<") {
         writeln!(out, "import java.util.Map;").ok();
     }
-    if fields_joined.contains("Optional<") {
+    if needs_optional {
         writeln!(out, "import java.util.Optional;").ok();
     }
     if needs_json_property {

@@ -233,6 +233,9 @@ fn render_composer_json(
     "psr-4": {{
       "{e2e_autoload_ns}": "tests/"
     }}
+  }},
+  "scripts": {{
+    "test": "phpunit"
   }}
 }}
 "#

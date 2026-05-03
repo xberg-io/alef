@@ -374,11 +374,22 @@ pub(super) fn gen_api_py(
                             ));
                         }
                     } else {
-                        // Simple int enum: the input value is a _rust.ConversionOptions (PyO3
-                        // struct), so its enum fields are already the correct _rust.EnumType
-                        // instances.  Pass them through directly — no string lookup needed.
+                        // Simple int enum: the input value is a Python dataclass with string/enum
+                        // values. Convert strings to _rust.EnumType instances via the constructor.
                         let accessor = field_access(&field.name);
-                        out.push_str(&format!("        {name}={accessor},\n", name = field.name,));
+                        if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
+                            out.push_str(&format!(
+                                "        {name}=(_rust.{enum_name}({accessor}) if {accessor} is not None else None),\n",
+                                name = field.name,
+                                enum_name = nested_name,
+                            ));
+                        } else {
+                            out.push_str(&format!(
+                                "        {name}=_rust.{enum_name}({accessor}),\n",
+                                name = field.name,
+                                enum_name = nested_name,
+                            ));
+                        }
                     }
                     continue;
                 }
@@ -396,9 +407,12 @@ pub(super) fn gen_api_py(
                                 name = field.name,
                             ));
                         } else {
-                            // Simple int enum list: elements are already _rust.EnumType instances
-                            // since the input value is a PyO3 struct.  Pass the list through.
-                            out.push_str(&format!("        {name}={accessor},\n", name = field.name,));
+                            // Simple int enum list: the input value is a Python dataclass with
+                            // string/enum values. Convert each element to _rust.EnumType instances.
+                            out.push_str(&format!(
+                                "        {name}=[_rust.{enum_name}(v) for v in {accessor}],\n",
+                                name = field.name,
+                            ));
                         }
                         continue;
                     }
