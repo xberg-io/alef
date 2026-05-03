@@ -682,6 +682,19 @@ fn render_test_method(
     let return_type = if is_async { "async Task" } else { "void" };
     let await_kw = if is_async { "await " } else { "" };
 
+    // Client factory: when set, create a client instance and call methods on it
+    // rather than using static class calls.
+    let client_factory = cs_overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get("csharp")
+                .and_then(|o| o.client_factory.as_deref())
+        });
+    let call_target = if client_factory.is_some() { "client".to_string() } else { class_name.to_string() };
+
     let _ = writeln!(out, "    [Fact]");
     let _ = writeln!(out, "    public {return_type} Test_{method_name}()");
     let _ = writeln!(out, "    {{");
@@ -691,16 +704,26 @@ fn render_test_method(
         let _ = writeln!(out, "        {line}");
     }
 
+    // Emit client creation when client_factory is configured.
+    if let Some(factory) = client_factory {
+        let factory_name = factory.to_upper_camel_case();
+        let _ = writeln!(
+            out,
+            "        var baseUrl = System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty;"
+        );
+        let _ = writeln!(out, "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl);");
+    }
+
     if expects_error {
         if is_async {
             let _ = writeln!(
                 out,
-                "        await Assert.ThrowsAsync<{exception_class}>(() => {class_name}.{effective_function_name}({final_args}));"
+                "        await Assert.ThrowsAsync<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
             );
         } else {
             let _ = writeln!(
                 out,
-                "        Assert.Throws<{exception_class}>(() => {class_name}.{effective_function_name}({final_args}));"
+                "        Assert.Throws<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
             );
         }
         let _ = writeln!(out, "    }}");
@@ -712,12 +735,12 @@ fn render_test_method(
     if returns_void {
         let _ = writeln!(
             out,
-            "        {await_kw}{class_name}.{effective_function_name}({final_args});"
+            "        {await_kw}{call_target}.{effective_function_name}({final_args});"
         );
     } else {
         let _ = writeln!(
             out,
-            "        var {result_var} = {await_kw}{class_name}.{effective_function_name}({final_args});"
+            "        var {result_var} = {await_kw}{call_target}.{effective_function_name}({final_args});"
         );
         for assertion in &fixture.assertions {
             render_assertion(
@@ -1625,14 +1648,15 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
-    // so any function name makes a callable available. Like Python and Elixir, we just
-    // need a function name — the class will be computed if not specified in the override.
-
-    call_config
+    let cs_override = call_config
         .overrides
         .get("csharp")
-        .and_then(|o| o.function.as_deref())
-        .is_some()
-        || !call_config.function.is_empty()
+        .or_else(|| e2e_config.call.overrides.get("csharp"));
+    // When a client_factory is configured the fixture is callable via the client pattern.
+    if cs_override.and_then(|o| o.client_factory.as_deref()).is_some() {
+        return true;
+    }
+    // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
+    // so any function name makes a callable available.
+    cs_override.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty()
 }
