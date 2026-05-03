@@ -72,6 +72,10 @@ pub struct RustBindingConfig<'a> {
     /// Opaque type names. Structs with non-optional fields of these types
     /// skip `Default`/`Serialize`/`Deserialize` derives since opaque wrappers don't impl them.
     pub opaque_type_names: &'a [String],
+    /// When true, the impl block constructor (`fn new(...)`) is suppressed regardless of
+    /// whether the type has fields. Useful for backends (e.g. extendr) that generate a
+    /// separate kwargs-style free-function constructor instead of an in-class `new()`.
+    pub skip_impl_constructor: bool,
 }
 
 /// Method names that conflict with standard trait methods.

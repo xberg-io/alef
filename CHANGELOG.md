@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.7] - 2026-05-03
+
+### Fixed
+
+- fix(backend-extendr): add `skip_impl_constructor` flag to `RustBindingConfig` and set it
+  `true` for the extendr backend. The in-class `impl T { fn new(...) }` constructor is now
+  suppressed; callers must use the kwargs-style free-function constructor (already generated
+  by `gen_extendr_kwargs_constructor`). This prevents "TryFrom<&Robj> not satisfied" compile
+  errors when struct parameters cannot be auto-converted by extendr.
+- fix(backend-extendr): methods whose parameters take owned non-opaque structs by value, or
+  whose return type is an enum, are now excluded from the `#[extendr]` impl block. Extendr
+  generates `TryFrom<&Robj>` for references (`&T`) but not for owned values (`T`), and has
+  no `ToVectorValue` impl for enum types; including such methods caused E0277 and E0277
+  compile errors in the R binding.
+- fix(backend-extendr): methods whose parameters take `Vec<T>` where T is a non-opaque,
+  non-enum struct are also excluded from the `#[extendr]` impl block. There is no automatic
+  R-list→Vec<ExternalPtr<T>> conversion in extendr.
+- fix(codegen/extendr-kwargs): struct-typed fields (non-opaque, non-enum named types) are
+  now omitted from the kwargs constructor parameter list and body. Extendr generates
+  `TryFrom<&Robj>` only for `&T` (reference), not for owned `T`; including them as kwargs
+  parameters caused "T: TryFrom<&Robj> not satisfied" compile errors.
+- fix(codegen/extendr-kwargs): fields whose type is already `Option<T>` are no longer
+  double-wrapped — the parameter type is now the same as the field type rather than
+  `Option<Option<T>>`.
+- fix(codegen/core-to-binding): `Vec<u8/u16/u32/i8/i16>` fields with `cast_uints_to_i32`
+  are now converted element-wise (`v.iter().map(|&x| x as i32).collect()`) so R receives
+  integer vectors instead of raw byte arrays.
+- fix(backend-napi/pyo3/php): set `skip_impl_constructor: false` explicitly in those
+  backends' `RustBindingConfig` initializers (no behaviour change; required after the new
+  field was added to the struct).
+
 ## [0.14.6] - 2026-05-03
 
 ### Fixed

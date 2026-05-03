@@ -539,6 +539,20 @@ pub fn field_conversion_from_core_cfg(
         {
             format!("{name}: val.{name}.map(|v| v as i32)")
         }
+        // Vec<u8/u16/u32/i8/i16> needs element-wise core→i32 casting (extendr/R only)
+        TypeRef::Vec(inner)
+            if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+        {
+            if let TypeRef::Primitive(_p) = inner.as_ref() {
+                if optional {
+                    format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as i32).collect())")
+                } else {
+                    format!("{name}: val.{name}.iter().map(|&v| v as i32).collect()")
+                }
+            } else {
+                field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
         // f64 casting for large int primitives (extendr/R only)
         TypeRef::Primitive(p) if config.cast_large_ints_to_f64 && needs_f64_cast(p) => {
             if optional {

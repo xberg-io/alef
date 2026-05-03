@@ -54,6 +54,7 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         type_name_prefix: "",
         option_duration_on_defaults: false,
         opaque_type_names: &[],
+        skip_impl_constructor: false,
     }
 }
 

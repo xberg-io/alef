@@ -286,6 +286,7 @@ mod tests {
             type_name_prefix: "",
             option_duration_on_defaults: false,
             opaque_type_names: &[],
+            skip_impl_constructor: false,
         };
         let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 

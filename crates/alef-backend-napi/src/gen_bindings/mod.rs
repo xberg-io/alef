@@ -40,6 +40,7 @@ impl NapiBackend {
             type_name_prefix: prefix,
             option_duration_on_defaults: true,
             opaque_type_names: &[],
+            skip_impl_constructor: false,
         }
     }
 }

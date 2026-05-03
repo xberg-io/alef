@@ -50,6 +50,7 @@ impl PhpBackend {
             type_name_prefix: "",
             option_duration_on_defaults: true,
             opaque_type_names: &[],
+            skip_impl_constructor: false,
         }
     }
 }

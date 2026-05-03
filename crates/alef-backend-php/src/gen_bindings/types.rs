@@ -162,6 +162,7 @@ pub(crate) fn gen_php_struct(
             type_name_prefix: cfg.type_name_prefix,
             option_duration_on_defaults: cfg.option_duration_on_defaults,
             opaque_type_names: cfg.opaque_type_names,
+            skip_impl_constructor: cfg.skip_impl_constructor,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {

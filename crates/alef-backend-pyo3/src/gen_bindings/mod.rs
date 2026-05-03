@@ -40,6 +40,7 @@ impl Pyo3Backend {
             // fall back to the core type's Default rather than Duration::ZERO.
             option_duration_on_defaults: true,
             opaque_type_names: &[],
+            skip_impl_constructor: false,
         }
     }
 

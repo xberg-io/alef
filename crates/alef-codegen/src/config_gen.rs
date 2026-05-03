@@ -936,15 +936,46 @@ pub fn gen_extendr_kwargs_constructor(
     // each field fall through to the struct's Default value when omitted.
     // Fields whose inner type is a binding enum use Option<String> because extendr has
     // no TryFrom<&Robj> impl for enum types; the string is parsed back in the body.
+    // Fields that are non-opaque, non-enum named types (structs) are mapped to Robj
+    // since extendr cannot convert Option<SomeStruct> from R automatically.
     let is_named_enum = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str())) };
-    for (i, field) in typ.fields.iter().enumerate() {
-        let param_type = if is_named_enum(&field.ty) {
-            "String".to_string()
+    let is_named_struct = |ty: &TypeRef| -> bool {
+        // A bare Named type that is not an enum — treated as Robj in params since
+        // extendr only generates TryFrom<&Robj> for &Foo (reference), not for Foo (owned).
+        matches!(ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()))
+    };
+    let is_optional_named_struct = |ty: &TypeRef| -> bool {
+        if let TypeRef::Optional(inner) = ty {
+            is_named_struct(inner)
         } else {
-            type_mapper(&field.ty)
-        };
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: Option<{}>{}", field.name, param_type, comma).ok();
+            false
+        }
+    };
+    // Returns true if the field type is already Optional (TypeRef::Optional or has field.optional=true
+    // with a type that the mapper wraps in Option<>). Used to prevent double-wrapping.
+    let ty_is_optional = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Optional(_)) };
+
+    // Pre-collect emittable fields (skip struct-typed fields that extendr cannot convert).
+    let emittable_fields: Vec<&FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .collect();
+
+    for (i, field) in emittable_fields.iter().enumerate() {
+        let comma = if i < emittable_fields.len() - 1 { "," } else { "" };
+        if is_named_enum(&field.ty) {
+            // Enum fields: use Option<String> — parsed back via serde_json in the body.
+            writeln!(out, "    {}: Option<String>{}", field.name, comma).ok();
+        } else if ty_is_optional(&field.ty) {
+            // Already Optional type: type_mapper emits "Option<T>", so don't double-wrap.
+            // The param is the same type as the field (no extra Option wrapper needed for kwargs).
+            let param_type = type_mapper(&field.ty);
+            writeln!(out, "    {}: {}{}", field.name, param_type, comma).ok();
+        } else {
+            let param_type = type_mapper(&field.ty);
+            writeln!(out, "    {}: Option<{}>{}", field.name, param_type, comma).ok();
+        }
     }
 
     writeln!(out, ") -> {} {{", typ.name).ok();
@@ -954,6 +985,11 @@ pub fn gen_extendr_kwargs_constructor(
     // `"utf-8"`).  Then overlay any caller-provided values.
     writeln!(out, "    let mut __out = <{}>::default();", typ.name).ok();
     for field in &typ.fields {
+        // Skip struct-typed fields — they were omitted from the parameter list and
+        // will keep their Default value from __out.
+        if is_named_struct(&field.ty) || is_optional_named_struct(&field.ty) {
+            continue;
+        }
         if is_named_enum(&field.ty) {
             // Enum field via String: parse with serde_json, fall back to Default on error.
             if field.optional {
@@ -971,8 +1007,16 @@ pub fn gen_extendr_kwargs_constructor(
                 )
                 .ok();
             }
+        } else if ty_is_optional(&field.ty) {
+            // Already Optional: param IS Option<inner>, assign through Some on match.
+            writeln!(
+                out,
+                "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",
+                name = field.name
+            )
+            .ok();
         } else if field.optional {
-            // Optional field: the struct field is Option<T>, so wrap v back in Some.
+            // Optional flag set but type is plain T: wrap with Some.
             writeln!(
                 out,
                 "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",

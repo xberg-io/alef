@@ -887,8 +887,9 @@ pub fn gen_impl_block_with_renames(
     }
     writeln!(out, "impl {prefixed_name} {{").ok();
 
-    // Constructor
-    if !typ.fields.is_empty() {
+    // Constructor — suppressed when the backend handles construction via a separate free
+    // function (e.g. extendr kwargs constructor) or when there are no fields.
+    if !typ.fields.is_empty() && !cfg.skip_impl_constructor {
         out.push_str(&gen_constructor_with_renames(typ, mapper, cfg, field_renames));
         out.push_str("\n\n");
     }
