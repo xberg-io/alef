@@ -932,27 +932,38 @@ fn build_args_and_setup(
                                 for (k, vv) in obj {
                                     let snake_key = k.to_snake_case();
                                     if snake_key == "preprocessing" {
-                                        // Handle preprocessing as a nested object
+                                        // Handle preprocessing as a nested object using its constructor.
+                                        // ext-php-rs uses constructor-based initialization, not property setters.
                                         if let Some(prep_obj) = vv.as_object() {
-                                            setup_lines.push(
-                                                "$preprocessing = \\HtmlToMarkdown\\PreprocessingOptions::default();"
-                                                    .to_string(),
-                                            );
-                                            for (prep_k, prep_v) in prep_obj {
-                                                let prep_snake_key = prep_k.to_snake_case();
-                                                let php_val = if enum_fields.contains_key(prep_k) {
-                                                    if let Some(s) = prep_v.as_str() {
-                                                        let snake_val = s.to_snake_case();
-                                                        format!("\"{}\"", escape_php(&snake_val))
-                                                    } else {
-                                                        json_to_php(prep_v)
-                                                    }
-                                                } else {
-                                                    json_to_php(prep_v)
-                                                };
-                                                setup_lines
-                                                    .push(format!("$preprocessing->{prep_snake_key} = {php_val};"));
-                                            }
+                                            // Get default values from the Rust PreprocessingOptions
+                                            let default_prep = html_to_markdown_rs::options::PreprocessingOptions::default();
+
+                                            // Extract values from fixture, using defaults for missing fields
+                                            let enabled = prep_obj
+                                                .get("enabled")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(default_prep.enabled);
+                                            let preset = prep_obj
+                                                .get("preset")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string())
+                                                .unwrap_or_else(|| format!("{:?}", default_prep.preset));
+                                            let remove_navigation = prep_obj
+                                                .get("remove_navigation")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(default_prep.remove_navigation);
+                                            let remove_forms = prep_obj
+                                                .get("remove_forms")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(default_prep.remove_forms);
+
+                                            setup_lines.push(format!(
+                                                "$preprocessing = new \\HtmlToMarkdown\\PreprocessingOptions({}, {}, {}, {});",
+                                                if enabled { "true" } else { "false" },
+                                                json_to_php(&serde_json::Value::String(preset)),
+                                                if remove_navigation { "true" } else { "false" },
+                                                if remove_forms { "true" } else { "false" }
+                                            ));
                                             setup_lines.push(
                                                 "$builder = $builder->preprocessing($preprocessing);".to_string(),
                                             );
