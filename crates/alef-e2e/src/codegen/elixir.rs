@@ -741,7 +741,10 @@ fn render_test_case(
         let _ = writeln!(out, "      {line}");
     }
 
-    let returns_result = call_config.returns_result;
+    // Use returns_result from the Elixir override if present, otherwise from base config
+    let returns_result = call_overrides
+        .and_then(|o| o.returns_result)
+        .unwrap_or(call_config.returns_result);
 
     if expects_error {
         if returns_result {

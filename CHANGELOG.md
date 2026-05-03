@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/elixir): inject visitor into the options map argument instead of passing it as a
   separate positional argument, so the Elixir facade's `convert/2` can properly extract it
   via `Map.pop(options, :visitor)` and dispatch to the NIF with visitor callbacks.
+- fix(e2e/elixir): read `returns_result` from the language override when available instead of
+  always using the base CallConfig value, enabling `returns_result = true` in Elixir overrides
+  to generate proper `{:ok, result} =` pattern matches in assertions.
 - fix(backend-napi): when `bind_via = "options_field"` is configured for a trait bridge,
   extract the visitor from the options struct before conversion, create the bridge, and
   manually inject it into the converted core options. This ensures visitor callbacks
