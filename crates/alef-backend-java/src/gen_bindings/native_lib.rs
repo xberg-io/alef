@@ -38,7 +38,7 @@ pub(crate) fn gen_native_lib(
     writeln!(body).ok();
     writeln!(body, "    static {{").ok();
     writeln!(body, "        loadNativeLibrary();").ok();
-    writeln!(body, "        LIB = SymbolLookup.loaderLookup();").ok();
+    writeln!(body, "        LIB = LINKER.defaultLookup();").ok();
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
     writeln!(body, "    private static void loadNativeLibrary() {{").ok();

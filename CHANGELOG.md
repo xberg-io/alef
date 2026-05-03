@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(backend-java): use `LINKER.defaultLookup()` instead of `SymbolLookup.loaderLookup()` for Panama FFM symbol resolution after `System.load()`. The loader lookup API cannot find symbols from manually-loaded native libraries; the correct approach is to use the linker's default lookup which includes all loaded libraries.
+
 ## [0.14.9] - 2026-05-03
 
 ### Fixed
