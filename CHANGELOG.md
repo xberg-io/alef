@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(backend-napi): preserve Rust `Default` values when converting omitted fields on
   defaultable JavaScript config objects instead of falling back to per-field zero values.
 - fix(backends): remove dead PyO3 and Magnus backend code paths so workspace builds are warning-clean.
+- fix(e2e): make TypeScript assertions handle `null` empty results and string containment
+  checks against arrays of structured objects.
 
 ## [0.14.2] - 2026-05-02
 

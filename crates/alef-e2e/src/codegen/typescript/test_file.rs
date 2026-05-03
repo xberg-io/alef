@@ -108,6 +108,28 @@ pub fn render_test_file(
         }
     }
 
+    if has_non_http_fixtures {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "function _alefE2eText(value: unknown): string {{");
+        let _ = writeln!(out, "  return value == null ? \"\" : String(value);");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "function _alefE2eItemTexts(item: unknown): string[] {{");
+        let _ = writeln!(out, "  if (item == null || typeof item !== \"object\") {{");
+        let _ = writeln!(out, "    return [_alefE2eText(item)];");
+        let _ = writeln!(out, "  }}");
+        let _ = writeln!(out, "  const record = item as Record<string, unknown>;");
+        let _ = writeln!(
+            out,
+            "  const itemsText = Array.isArray(record.items) ? record.items.map(_alefE2eText).join(\" \") : \"\";"
+        );
+        let _ = writeln!(
+            out,
+            "  return [_alefE2eText(item), _alefE2eText(record.kind), _alefE2eText(record.name), _alefE2eText(record.source), _alefE2eText(record.alias), _alefE2eText(record.text), _alefE2eText(record.signature), itemsText];"
+        );
+        let _ = writeln!(out, "}}");
+    }
+
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
 

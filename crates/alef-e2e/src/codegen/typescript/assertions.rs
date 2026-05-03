@@ -36,7 +36,12 @@ pub(super) fn render_assertion(
         _ => result_var.to_string(),
     };
 
-    render_standard_assertion(out, assertion, result_var, &field_expr, field_resolver);
+    let field_is_array = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+
+    render_standard_assertion(out, assertion, result_var, &field_expr, field_resolver, field_is_array);
 }
 
 /// Try to render a synthetic/virtual field assertion. Returns `true` when the field was handled.
@@ -170,6 +175,7 @@ fn render_standard_assertion(
     result_var: &str,
     field_expr: &str,
     field_resolver: &FieldResolver,
+    field_is_array: bool,
 ) {
     let _ = escape_js; // imported for potential future use; used by visitors module
     match assertion.assertion_type.as_str() {
@@ -192,7 +198,12 @@ fn render_standard_assertion(
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
                 let resolved = assertion.field.as_deref().unwrap_or("");
-                if !resolved.is_empty()
+                if field_is_array && expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(true);"
+                    );
+                } else if !resolved.is_empty()
                     && expected.is_string()
                     && field_resolver.is_optional(field_resolver.resolve(resolved))
                 {
@@ -206,14 +217,28 @@ fn render_standard_assertion(
             if let Some(values) = &assertion.values {
                 for val in values {
                     let js_val = json_to_js(val);
-                    let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
+                    if field_is_array && val.is_string() {
+                        let _ = writeln!(
+                            out,
+                            "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(true);"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
+                    }
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}).not.toContain({js_val});");
+                if field_is_array && expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(false);"
+                    );
+                } else {
+                    let _ = writeln!(out, "    expect({field_expr}).not.toContain({js_val});");
+                }
             }
         }
         "not_empty" => {
@@ -227,19 +252,26 @@ fn render_standard_assertion(
         "is_empty" => {
             let resolved = assertion.field.as_deref().unwrap_or("");
             if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(out, "    expect({field_expr} ?? \"\").toHaveLength(0);");
+                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
             } else {
-                let _ = writeln!(out, "    expect({field_expr}).toHaveLength(0);");
+                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
             }
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(json_to_js).collect();
                 let arr_str = items.join(", ");
-                let _ = writeln!(
-                    out,
-                    "    expect([{arr_str}].some((v) => {field_expr}.includes(v))).toBe(true);"
-                );
+                if field_is_array && values.iter().all(serde_json::Value::is_string) {
+                    let _ = writeln!(
+                        out,
+                        "    expect([{arr_str}].some((v) => {field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes(v))))).toBe(true);"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    expect([{arr_str}].some((v) => {field_expr}.includes(v))).toBe(true);"
+                    );
+                }
             }
         }
         "greater_than" => {
@@ -454,6 +486,12 @@ mod tests {
         FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
     }
 
+    fn array_resolver(field: &str) -> FieldResolver {
+        let result_fields = HashSet::from([field.to_string()]);
+        let array_fields = HashSet::from([field.to_string()]);
+        FieldResolver::new(&HashMap::new(), &HashSet::new(), &result_fields, &array_fields)
+    }
+
     fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
@@ -482,6 +520,28 @@ mod tests {
         let mut out = String::new();
         render_assertion(&mut out, &assertion, "result", &resolver);
         assert!(out.contains(".trim()"), "got: {out}");
+    }
+
+    #[test]
+    fn render_assertion_is_empty_allows_nullish_simple_results() {
+        let resolver = empty_resolver();
+        let assertion = make_assertion("is_empty", None, None);
+        let mut out = String::new();
+        render_assertion(&mut out, &assertion, "result", &resolver);
+        assert!(out.contains("(result ?? \"\").length"), "got: {out}");
+    }
+
+    #[test]
+    fn render_assertion_contains_string_array_uses_item_texts() {
+        let resolver = array_resolver("structure");
+        let assertion = make_assertion(
+            "contains",
+            Some("structure"),
+            Some(serde_json::Value::String("Function".into())),
+        );
+        let mut out = String::new();
+        render_assertion(&mut out, &assertion, "result", &resolver);
+        assert!(out.contains("_alefE2eItemTexts(item)"), "got: {out}");
     }
 
     #[test]
