@@ -371,40 +371,51 @@ fn render_tsconfig() -> String {
 }
 
 /// Inject WASM initialization into a test file.
-/// Injects WASM initialization into test files using beforeAll hook.
-/// Adds initWasm import and injects a beforeAll(async () => { await initWasm(); }) hook
-/// before the describe block to ensure WASM module is initialized before tests run.
+/// Replaces the static package import with a dynamic import and uses top-level await
+/// to ensure WASM module is initialized before the describe blocks register.
 fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
-    let mut result = content.to_string();
-
-    // Step 1: Add beforeAll to vitest import if not present
-    if !result.contains("beforeAll") {
-        result = result.replace(
-            "import { describe, expect, it } from 'vitest';",
-            "import { beforeAll, describe, expect, it } from 'vitest';",
-        );
+    let pkg_import_pattern = format!("from '{pkg_name}';");
+    if !content.contains(&pkg_import_pattern) {
+        return content.to_string();
     }
 
-    // Step 2: Add initWasm to package import if not present
-    let pkg_import_pattern = format!("}} from '{pkg_name}';");
-    if !result.contains("initWasm") && result.contains(&pkg_import_pattern) {
-        result = result.replace(
-            &pkg_import_pattern,
-            &format!(", initWasm }} from '{pkg_name}';"),
-        );
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = String::new();
+
+    // Find the describe block
+    let mut describe_idx = None;
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("describe(") {
+            describe_idx = Some(i);
+            break;
+        }
     }
 
-    // Step 3: Inject beforeAll hook before the describe block
-    if let Some(describe_pos) = result.find("describe(") {
-        let before_describe = &result[..describe_pos];
-        let from_describe = &result[describe_pos..];
-
-        let mut output = String::new();
-        output.push_str(before_describe);
-        output.push_str("\nbeforeAll(async () => {\n  await initWasm();\n});\n\n");
-        output.push_str(from_describe);
-        output
-    } else {
-        result
+    if describe_idx.is_none() {
+        return content.to_string();
     }
+
+    let describe_idx = describe_idx.unwrap();
+
+    // Output all lines before the describe block, excluding the package import
+    for line in lines[..describe_idx].iter() {
+        if !line.contains(&pkg_import_pattern) {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    // Add the dynamic import + init using top-level await
+    result.push('\n');
+    result.push_str(&format!(
+        "const {{ convert, initWasm }} = await import('{pkg_name}');\nawait initWasm();\n\n"
+    ));
+
+    // Output the describe block and all remaining lines
+    for line in lines[describe_idx..].iter() {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    result
 }
