@@ -377,61 +377,39 @@ fn render_tsconfig() -> String {
 ///
 /// Injects initSync using fs.readFileSync to load the WASM binary at the module
 /// level. This is necessary for Node.js test environments because the fetch-based
-/// initialization doesn't work. Handles both dynamic and static imports.
+/// initialization doesn't work.
 fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
-    // First, replace the problematic await import...then((m) => m.default()) pattern
-    if content.contains("await import(\"kreuzcrawl\").then((m) => m.default())") {
-        let init_code = format!(
-            r#"import fs from 'fs';
-import path from 'path';
-import {{ fileURLToPath }} from 'url';
-import {{ scrape, createEngine, initSync }} from 'kreuzcrawl';
+    // Derive the wasm binary filename: strip @scope/ prefix, replace dashes with
+    // underscores, append _bg.wasm.  E.g. "@kreuzberg/liter-llm-wasm" → "liter_llm_wasm_bg.wasm".
+    let bare_name = pkg_name.split('/').last().unwrap_or(pkg_name);
+    let wasm_filename = format!("{}_bg.wasm", bare_name.replace('-', "_"));
+    let from_marker = format!("}} from \"{pkg_name}\";");
 
-const __filename = fileURLToPath(import.meta.url);
-const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/kreuzcrawl_wasm_bg.wasm');
-const wasmBuffer = fs.readFileSync(wasmPath);
-initSync({{ module: wasmBuffer }});"#
-        );
-
-        // Replace the problematic pattern
-        let result = content.replace(
-            "const { scrape, createEngine } = await import(\"kreuzcrawl\");\nawait import(\"kreuzcrawl\").then((m) => m.default());",
-            &init_code,
-        );
-
-        return result;
-    }
-
-    // Handle static imports (when TypeScript codegen uses regular import statements)
     if let Some(import_pos) = content.find("import {") {
-        if let Some(from_pos) = content[import_pos..].find("} from \"kreuzcrawl\";") {
-            let full_from_pos = import_pos + from_pos + "} from \"kreuzcrawl\";".len();
-
-            // Extract the import line to find what's being imported
+        if let Some(from_pos) = content[import_pos..].find(&from_marker) {
+            let full_from_pos = import_pos + from_pos + from_marker.len();
             let import_section = &content[import_pos..full_from_pos];
 
-            // Check if initSync is already imported
+            // Already patched — nothing to do.
             if import_section.contains("initSync") {
                 return content.to_string();
             }
 
-            // Build the list of imports, adding initSync
-            let new_import = import_section.replace("} from \"kreuzcrawl\";", ", initSync } from \"kreuzcrawl\";");
+            let new_import = import_section
+                .replace(&from_marker, &format!(", initSync }} from \"{pkg_name}\";"));
 
-            // Build the initialization code
             let init_code = format!(
                 r#"import fs from 'fs';
 import path from 'path';
 import {{ fileURLToPath }} from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/kreuzcrawl_wasm_bg.wasm');
+const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/{wasm_filename}');
 const wasmBuffer = fs.readFileSync(wasmPath);
 initSync({{ module: wasmBuffer }});
 "#
             );
 
-            // Replace the import and inject initialization code after it
             return content[..import_pos].to_string()
                 + &new_import
                 + "\n"

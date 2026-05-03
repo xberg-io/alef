@@ -768,7 +768,11 @@ fn gen_visitor_method_napi(
     )
     .unwrap();
     writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }} else if let Ok(obj) = val.coerce_to_object() {{").unwrap();
+    writeln!(
+        out,
+        "                }} else if let Ok(obj) = val.coerce_to_object() {{"
+    )
+    .unwrap();
     writeln!(out, "                    if let Ok(custom_val) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"custom\") {{").unwrap();
     writeln!(out, "                        if let Ok(s) = custom_val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
     writeln!(out, "                            {ret_ty}::Custom(s)").unwrap();

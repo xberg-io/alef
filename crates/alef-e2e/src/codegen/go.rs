@@ -696,8 +696,14 @@ fn render_test_function(
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
         let fixture_id = &fixture.id;
-        let _ = writeln!(out, "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"");
-        let _ = writeln!(out, "\tclient, clientErr := {import_alias}.{factory_name}(\"test-key\", &mockURL, nil, nil, nil)");
+        let _ = writeln!(
+            out,
+            "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+        );
+        let _ = writeln!(
+            out,
+            "\tclient, clientErr := {import_alias}.{factory_name}(\"test-key\", &mockURL, nil, nil, nil)"
+        );
         let _ = writeln!(out, "\tif clientErr != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"create client failed: %v\", clientErr)");
         let _ = writeln!(out, "\t}}");
