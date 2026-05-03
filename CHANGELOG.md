@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(cli): keep the test module after all items so clippy's `items_after_test_module` check
+  passes in the full pre-commit suite.
 - fix(e2e/typescript): simplify generated `is_empty` assertion emission so clippy remains
   warning-clean under `-D warnings`.
 - fix(backend-pyo3): import native unit enums referenced only through data-enum aliases in generated

@@ -250,12 +250,7 @@ fn render_standard_assertion(
             }
         }
         "is_empty" => {
-            let resolved = assertion.field.as_deref().unwrap_or("");
-            if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
-            } else {
-                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
-            }
+            let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {

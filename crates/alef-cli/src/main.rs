@@ -1996,54 +1996,6 @@ fn format_languages(languages: &[alef_core::config::Language]) -> String {
     languages.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alef_core::config::Language;
-
-    fn resolved_test_config() -> alef_core::config::ResolvedCrateConfig {
-        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
-            r#"
-[workspace]
-languages = ["python"]
-
-[[crates]]
-name = "test-lib"
-sources = ["src/lib.rs"]
-
-[crates.test.python]
-command = "pytest"
-
-[crates.test.rust]
-e2e = "cargo test"
-"#,
-        )
-        .unwrap();
-        cfg.resolve().unwrap().remove(0)
-    }
-
-    #[test]
-    fn resolve_test_languages_allows_explicit_test_only_language() {
-        let config = resolved_test_config();
-        let langs = resolve_test_languages(&config, Some(&["rust".to_string()]), true).unwrap();
-        assert_eq!(langs, vec![Language::Rust]);
-    }
-
-    #[test]
-    fn resolve_test_languages_appends_e2e_only_languages() {
-        let config = resolved_test_config();
-        let langs = resolve_test_languages(&config, None, true).unwrap();
-        assert_eq!(langs, vec![Language::Python, Language::Rust]);
-    }
-
-    #[test]
-    fn resolve_test_languages_omits_e2e_only_languages_without_e2e() {
-        let config = resolved_test_config();
-        let langs = resolve_test_languages(&config, None, false).unwrap();
-        assert_eq!(langs, vec![Language::Python]);
-    }
-}
-
 /// Multi-crate variant of [`verify_walk`].
 ///
 /// A file is considered valid if its embedded `alef:hash:` matches the hash
@@ -2232,4 +2184,52 @@ fn verify_walk(base_dir: &std::path::Path, sources_hash: &str) -> anyhow::Result
 
     stale.sort();
     Ok(stale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::Language;
+
+    fn resolved_test_config() -> alef_core::config::ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.test.python]
+command = "pytest"
+
+[crates.test.rust]
+e2e = "cargo test"
+"#,
+        )
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn resolve_test_languages_allows_explicit_test_only_language() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, Some(&["rust".to_string()]), true).unwrap();
+        assert_eq!(langs, vec![Language::Rust]);
+    }
+
+    #[test]
+    fn resolve_test_languages_appends_e2e_only_languages() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, None, true).unwrap();
+        assert_eq!(langs, vec![Language::Python, Language::Rust]);
+    }
+
+    #[test]
+    fn resolve_test_languages_omits_e2e_only_languages_without_e2e() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, None, false).unwrap();
+        assert_eq!(langs, vec![Language::Python]);
+    }
 }
