@@ -453,6 +453,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // Visitor/callback FFI support.
     // - OptionsField bridge: VTable + options setter + correct convert implementation.
     // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
+    //
+    // When both flags are active simultaneously (e.g. html-to-markdown with
+    // `visitor_callbacks = true` and an `[[trait_bridges]]` entry using
+    // `bind_via = "options_field"`), we emit BOTH:
+    //   1. The OptionsField vtable / options-setter / {prefix}_convert  (used by Go, C)
+    //   2. The visitor-callbacks symbols ({prefix}_visitor_create/free/convert_with_visitor) (used by Java)
+    // The two sets of symbols use different function names and do not conflict.
     if has_options_field_bridge {
         // Build a type_paths map for delegation method signature generation.
         let type_paths: std::collections::HashMap<String, String> =
@@ -495,6 +502,17 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             prefix,
             &core_import,
         ));
+
+        // When visitor_callbacks is also enabled, additionally emit the
+        // {prefix}_visitor_create / {prefix}_visitor_free / {prefix}_convert_with_visitor
+        // symbols.  These are needed by Java's Panama FFM binding which uses the
+        // callbacks-struct pattern rather than the vtable/options-field pattern.
+        // NOTE: gen_visitor_bindings does NOT emit {prefix}_convert (only
+        // {prefix}_convert_with_visitor), so there is no symbol collision with the
+        // OptionsField convert generated above.
+        if visitor_callbacks_enabled {
+            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
+        }
     } else if visitor_callbacks_enabled {
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_convert_with_visitor.

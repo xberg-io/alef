@@ -478,8 +478,8 @@ impl Backend for WasmBackend {
         // This impl signature is unique because it has html_to_markdown_rs::options::ConversionOptions as the target
         let pattern = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {";
         if let Some(start_pos) = content.find(pattern) {
-            // Find the next } that closes this impl
-            if let Some(end_pos) = content[start_pos..].find("\n}\n\n#[allow(clippy::needless_update)]") {
+            // Find the next } that closes this impl (ends with #[allow(clippy::redundant_closure)])
+            if let Some(end_pos) = content[start_pos..].find("\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]") {
                 let impl_start = start_pos + pattern.len();
                 let impl_end = start_pos + end_pos;
                 let impl_block = &content[impl_start..impl_end];

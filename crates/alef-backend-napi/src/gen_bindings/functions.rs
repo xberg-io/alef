@@ -15,19 +15,7 @@ pub(super) fn gen_function(
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
     prefix: &str,
-    trait_bridges: &[alef_core::config::TraitBridgeConfig],
-    core_import: &str,
 ) -> String {
-    // Check for options_field binding that needs special handling
-    let options_field_binding = trait_bridges.iter().find(|bridge| {
-        matches!(bridge.bind_via, alef_core::config::BridgeBinding::OptionsField)
-            && bridge.options_type.as_ref().is_some_and(|opt_type| {
-                func.params.iter().any(|p| {
-                    matches!(&p.ty, TypeRef::Named(n) if n == opt_type)
-                })
-            })
-    });
-
     let params = function_params(&func.params, &|ty| {
         // Opaque Named params must be received by reference since NAPI opaque
         // structs don't implement FromNapiValue (they use Arc<T> internally).

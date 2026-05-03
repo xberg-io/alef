@@ -939,42 +939,21 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // For options_field binding, extract visitor from options and create bridge
-    let (bridge_wrap, extra_setup) = if is_options_field_binding && options_param_idx.is_some() {
-        let options_name = &func.params[options_param_idx.unwrap()].name;
-        let bridge_extract = format!(
-            "let {param_name} = {options_name}.as_ref().and_then(|opts| opts.visitor.as_ref()).map(|v| {{\n        \
-             let bridge = {struct_name}::new(v.clone());\n        \
+    // Bridge wrapping code: constructor is infallible (transmute-based).
+    let bridge_wrap = if is_optional {
+        format!(
+            "let {param_name} = {param_name}.map(|v| {{\n        \
+             let bridge = {struct_name}::new(v);\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }});"
-        );
-        let setup = format!(
-            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|v| v.into());\n    \
-             if let Some(visitor) = {param_name}.as_ref() {{\n        \
-             if let Some(ref mut opts) = {options_name}_core {{\n        \
-             opts.visitor = Some(visitor.clone());\n        \
-             }}\n    \
-             }}"
-        );
-        (bridge_extract, Some(setup))
+        )
     } else {
-        // Standard bridge parameter binding
-        let bridge_wrap = if is_optional {
-            format!(
-                "let {param_name} = {param_name}.map(|v| {{\n        \
-                 let bridge = {struct_name}::new(v);\n        \
-                 std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-                 }});"
-            )
-        } else {
-            format!(
-                "let {param_name} = {{\n        \
-                 let bridge = {struct_name}::new({param_name});\n        \
-                 std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-                 }};"
-            )
-        };
-        (bridge_wrap, None)
+        format!(
+            "let {param_name} = {{\n        \
+             let bridge = {struct_name}::new({param_name});\n        \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+             }};"
+        )
     };
 
     // Use From/Into for non-bridge Named params — the generated bindings have From impls.
@@ -985,9 +964,6 @@ pub fn gen_bridge_function(
         .filter(|(idx, p)| {
             if *idx == bridge_param_idx {
                 return false;
-            }
-            if is_options_field_binding && Some(*idx) == options_param_idx {
-                return false; // Handle options separately in extra_setup
             }
             let named = match &p.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
@@ -1033,10 +1009,6 @@ pub fn gen_bridge_function(
         .map(|(idx, p)| {
             if idx == bridge_param_idx {
                 return p.name.clone();
-            }
-            if is_options_field_binding && Some(idx) == options_param_idx {
-                // Use the _core version created in extra_setup
-                return format!("{}_core", p.name);
             }
             match &p.ty {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
@@ -1090,28 +1062,14 @@ pub fn gen_bridge_function(
         _ => "val".to_string(),
     };
 
-    let body_parts = if let Some(setup) = extra_setup {
-        // options_field binding: extract visitor, convert options, inject visitor back
-        if func.error_type.is_some() {
-            if return_wrap == "val" {
-                format!("{bridge_wrap}\n    {setup}\n    {serde_bindings}{core_call}{err_conv}")
-            } else {
-                format!("{bridge_wrap}\n    {setup}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
-            }
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{err_conv}")
         } else {
-            format!("{bridge_wrap}\n    {setup}\n    {serde_bindings}{core_call}")
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
         }
     } else {
-        // Standard bridge parameter binding
-        if func.error_type.is_some() {
-            if return_wrap == "val" {
-                format!("{bridge_wrap}\n    {serde_bindings}{core_call}{err_conv}")
-            } else {
-                format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
-            }
-        } else {
-            format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
-        }
+        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
     };
 
     let js_name = {
@@ -1144,7 +1102,7 @@ pub fn gen_bridge_function(
     writeln!(out, "#[napi{js_name_attr}]").ok();
     let func_name = &func.name;
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body_parts}").ok();
+    writeln!(out, "    {body}").ok();
     writeln!(out, "}}").ok();
 
     out
