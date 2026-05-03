@@ -611,12 +611,36 @@ fn build_command_for(
             format!("wasm-pack build {crate_dir} {profile} --target bundler")
         }
         "cargo" => {
-            // Check for a standalone crate directory (e.g., Ruby's native/ subdir)
-            // that is excluded from the workspace and must be built via --manifest-path.
+            // Check for a standalone crate directory (e.g., Ruby's native/ subdir,
+            // or R's extendr crate at packages/r/src/rust/) that is excluded from
+            // the workspace and must be built via cd + cargo build.
             let native_dir = Path::new(crate_dir).join("native");
             let native_manifest = native_dir.join("Cargo.toml");
             if native_manifest.exists() {
                 let dir = native_dir.display();
+                format!("cd {dir} && cargo build{release_flag}")
+            } else if let Some(standalone) = {
+                // Walk up from the source dir to find a Cargo.toml that declares
+                // a [workspace] (i.e., a standalone crate outside the parent).
+                let mut p = std::path::PathBuf::from(crate_dir);
+                let mut found: Option<std::path::PathBuf> = None;
+                loop {
+                    let manifest = p.join("Cargo.toml");
+                    if manifest.exists() {
+                        if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                            if contents.contains("[workspace]") {
+                                found = Some(p.clone());
+                                break;
+                            }
+                        }
+                    }
+                    if !p.pop() {
+                        break;
+                    }
+                }
+                found
+            } {
+                let dir = standalone.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else {
                 // Extract crate name from directory name for -p flag
@@ -635,7 +659,21 @@ fn build_command_for(
                 .as_ref()
                 .and_then(|p| p.to_str())
                 .unwrap_or("packages/java");
-            format!("cd {dir} && mvn package -DskipTests -q")
+            // Walk up from the source dir until we find a pom.xml. The java
+            // [crates.output] points at src/main/java, but maven runs from the
+            // project root.
+            let build_dir = {
+                let mut p = std::path::PathBuf::from(dir);
+                loop {
+                    if p.join("pom.xml").exists() {
+                        break p.to_string_lossy().into_owned();
+                    }
+                    if !p.pop() {
+                        break dir.to_string();
+                    }
+                }
+            };
+            format!("cd {build_dir} && mvn package -DskipTests -q")
         }
         "dotnet" => {
             let dir = config

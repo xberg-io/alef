@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(cli/build): resolve mvn working directory by walking up from `[crates.output].java`
+  to the nearest `pom.xml`, so configurations that point output at `src/main/java/`
+  still build via maven from the project root.
+- fix(cli/build): when the cargo `[crates.output].<lang>` directory is itself inside a
+  standalone crate that declares `[workspace]` (extendr's `packages/r/src/rust/`), `cd`
+  into that crate and run `cargo build` instead of treating it as a workspace member.
 - fix(cli): keep the test module after all items so clippy's `items_after_test_module` check
   passes in the full pre-commit suite.
 - fix(e2e/typescript): simplify generated `is_empty` assertion emission so clippy remains
