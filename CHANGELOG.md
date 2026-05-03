@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(backend-napi): preserve Rust `Default` values when converting omitted fields on
+  defaultable JavaScript config objects instead of falling back to per-field zero values.
+
 ## [0.14.2] - 2026-05-02
 
 ### Added

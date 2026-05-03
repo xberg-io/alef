@@ -114,8 +114,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         return out;
     }
 
-    writeln!(out, "        Self {{").ok();
     let optionalized = config.optionalize_defaults && typ.has_default;
+    if optionalized {
+        writeln!(out, "        let mut __result = {core_path}::default();").ok();
+    } else {
+        writeln!(out, "        Self {{").ok();
+    }
     for field in &typ.fields {
         // Skip cfg-gated fields — they don't exist in the binding struct.
         // When the binding is compiled, these fields are absent, and accessing them would fail.
@@ -135,12 +139,16 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if references_excluded && typ.has_stripped_cfg_fields {
             continue;
         }
+        if optionalized && ((field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded) {
+            continue;
+        }
+        let field_was_optionalized = optionalized && !field.optional;
         let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
             format!("{}: Default::default()", field.name)
-        } else if optionalized && !field.optional {
+        } else if field_was_optionalized {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
-            // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
-            gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
+            // Convert the supplied value as T; omitted fields keep the core type's Default value.
+            field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
         } else {
             field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
         };
@@ -226,13 +234,33 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         } else {
             conversion
         };
-        writeln!(out, "            {conversion},").ok();
+        if optionalized {
+            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+                if field_was_optionalized {
+                    writeln!(
+                        out,
+                        "        if let Some(__v) = val.{binding_name} {{ __result.{} = {}; }}",
+                        field.name,
+                        expr.replace(&format!("val.{binding_name}"), "__v")
+                    )
+                    .ok();
+                } else {
+                    writeln!(out, "        __result.{} = {};", field.name, expr).ok();
+                }
+            }
+        } else {
+            writeln!(out, "            {conversion},").ok();
+        }
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
-    if typ.has_stripped_cfg_fields {
+    if typ.has_stripped_cfg_fields && !optionalized {
         writeln!(out, "            ..Default::default()").ok();
     }
-    writeln!(out, "        }}").ok();
+    if optionalized {
+        writeln!(out, "        __result").ok();
+    } else {
+        writeln!(out, "        }}").ok();
+    }
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out

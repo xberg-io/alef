@@ -442,6 +442,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_optionalized_defaultable_struct_uses_core_default_as_base() {
+        let mut typ = simple_type();
+        typ.has_default = true;
+        typ.fields = vec![
+            FieldDef {
+                name: "language".into(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::Cow,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+            FieldDef {
+                name: "structure".into(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+        ];
+        let config = ConversionConfig {
+            type_name_prefix: "Js",
+            optionalize_defaults: true,
+            ..ConversionConfig::default()
+        };
+
+        let result = gen_from_binding_to_core_cfg(&typ, "my_crate", &config);
+
+        assert!(result.contains("let mut __result = my_crate::Config::default();"));
+        assert!(result.contains("if let Some(__v) = val.language { __result.language = __v.into(); }"));
+        assert!(result.contains("if let Some(__v) = val.structure { __result.structure = __v; }"));
+        assert!(!result.contains("unwrap_or_default()"));
+    }
+
     fn arc_field_type(field: FieldDef) -> TypeDef {
         TypeDef {
             name: "State".to_string(),
