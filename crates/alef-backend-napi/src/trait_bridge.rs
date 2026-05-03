@@ -870,13 +870,13 @@ pub fn gen_bridge_function(
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
     // Check if this is an options_field binding pattern (visitor embedded in options struct)
-    let is_options_field_binding = bridge_cfg.bind_via.as_deref() == Some("options_field");
+    let is_options_field_binding = matches!(bridge_cfg.bind_via, alef_core::config::BridgeBinding::OptionsField);
 
     // Find the options parameter when using options_field binding
-    let options_param_info = if is_options_field_binding {
+    let options_param_idx = if is_options_field_binding {
         func.params.iter().enumerate().find(|(_, p)| {
-            matches!(&p.ty, TypeRef::Named(n) if n == bridge_cfg.options_type)
-        })
+            matches!(&p.ty, TypeRef::Named(n) if bridge_cfg.options_type.as_ref().is_some_and(|opt_type| n == opt_type))
+        }).map(|(i, _)| i)
     } else {
         None
     };
@@ -885,7 +885,7 @@ pub fn gen_bridge_function(
     // (napi v3 does not implement FromNapiValue for Env; env is obtained from the Object)
     let mut sig_parts = vec![];
     for (idx, p) in func.params.iter().enumerate() {
-        if is_options_field_binding && Some(idx) == options_param_info.as_ref().map(|(i, _)| i) {
+        if is_options_field_binding && Some(idx) == options_param_idx {
             // For options_field binding, visitor is extracted from options, not a separate param
             let ty = if p.optional || (idx > 0 && func.params[..idx].iter().any(|pp| pp.optional)) {
                 format!("Option<{}>", mapper.map_type(&p.ty))
@@ -917,8 +917,8 @@ pub fn gen_bridge_function(
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
     // For options_field binding, extract visitor from options and create bridge
-    let (bridge_wrap, extra_setup) = if is_options_field_binding && options_param_info.is_some() {
-        let options_name = &options_param_info.unwrap().1.name;
+    let (bridge_wrap, extra_setup) = if is_options_field_binding && options_param_idx.is_some() {
+        let options_name = &func.params[options_param_idx.unwrap()].name;
         let bridge_extract = format!(
             "let {param_name} = {options_name}.as_ref().and_then(|opts| opts.visitor.as_ref()).map(|v| {{\n        \
              let bridge = {struct_name}::new(v.clone());\n        \
@@ -963,7 +963,7 @@ pub fn gen_bridge_function(
             if *idx == bridge_param_idx {
                 return false;
             }
-            if is_options_field_binding && Some(*idx) == options_param_info.as_ref().map(|(i, _)| i) {
+            if is_options_field_binding && Some(*idx) == options_param_idx {
                 return false; // Handle options separately in extra_setup
             }
             let named = match &p.ty {
@@ -1011,7 +1011,7 @@ pub fn gen_bridge_function(
             if idx == bridge_param_idx {
                 return p.name.clone();
             }
-            if is_options_field_binding && Some(idx) == options_param_info.as_ref().map(|(i, _)| i) {
+            if is_options_field_binding && Some(idx) == options_param_idx {
                 // Use the _core version created in extra_setup
                 return format!("{}_core", p.name);
             }
