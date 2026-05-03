@@ -37,7 +37,7 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
         "rust" => Some("(cd {dir} && cargo fmt --all && cargo sort .)"),
         "python" => Some("ruff format {dir}"),
-        "node" | "wasm" => Some("npx oxfmt {dir}"),
+        "node" | "wasm" => Some("pnpm dlx oxfmt {dir}"),
         _ => None,
     }
 }
