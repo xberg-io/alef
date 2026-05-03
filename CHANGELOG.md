@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   slices such as `[]StructureItem` compile.
 - fix(backend-csharp): emit free P/Invoke declarations for all true opaque handle
   wrappers, including handles that only appear in generated wrapper classes.
+- fix(backend-magnus): borrow field types when detecting thread-unsafe visitor
+  handles so the backend compiles cleanly.
 
 ## [0.14.3] - 2026-05-03
 

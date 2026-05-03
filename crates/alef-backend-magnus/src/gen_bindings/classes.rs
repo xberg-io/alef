@@ -12,6 +12,14 @@ use crate::type_map::MagnusMapper;
 
 use super::functions::gen_magnus_unimplemented_body;
 
+/// Check if a field contains a type that cannot be safely passed across thread boundaries.
+/// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
+/// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
+fn is_thread_unsafe_field(field: &FieldDef) -> bool {
+    matches!(&field.ty, TypeRef::Named(name) if name == "VisitorHandle")
+        || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
+}
+
 /// Generate an opaque Magnus-wrapped struct with inner Arc.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
@@ -226,6 +234,12 @@ pub(super) fn gen_struct(
     }
 
     for field in &typ.fields {
+        // Skip visitor fields: VisitorHandle is Rc<RefCell<dyn HtmlVisitor>> which is !Send + !Sync.
+        // Magnus's #[magnus::wrap] requires Send + Sync. These fields are handled separately
+        // (e.g., via post-processing in the language layer or direct API calls).
+        if is_thread_unsafe_field(field) {
+            continue;
+        }
         let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
@@ -269,24 +283,41 @@ pub(super) fn gen_struct_methods(
     if !typ.fields.is_empty() {
         let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-        // Generate config builder if type has Default semantics (accepts optional kwargs).
-        // This uses unwrap_or_default() which requires Default on the type, but for types
-        // where can_generate_default_impl is false we still need kwargs (too many params
-        // for Magnus function! macro). The kwargs constructor handles this by using
-        // the core type's Default impl via the core crate, not the binding struct's Default.
-        // Magnus function! macro only supports arity -2..=15, so types with more than 15
-        // fields must also use the hash-based constructor even when has_default is false.
-        if typ.has_default || typ.fields.len() > 15 {
-            let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(typ, &map_fn);
-            impl_builder.add_method(&config_method);
-        } else {
-            let (param_list, _, assignments) = constructor_parts(&typ.fields, &map_fn);
-            let new_method = format!("fn new({param_list}) -> Self {{\n        Self {{ {assignments} }}\n    }}");
-            impl_builder.add_method(&new_method);
+        // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus constructors.
+        let filtered_fields: Vec<FieldDef> = typ
+            .fields
+            .iter()
+            .filter(|f| !is_thread_unsafe_field(f))
+            .cloned()
+            .collect();
+
+        if !filtered_fields.is_empty() {
+            // Generate config builder if type has Default semantics (accepts optional kwargs).
+            // This uses unwrap_or_default() which requires Default on the type, but for types
+            // where can_generate_default_impl is false we still need kwargs (too many params
+            // for Magnus function! macro). The kwargs constructor handles this by using
+            // the core type's Default impl via the core crate, not the binding struct's Default.
+            // Magnus function! macro only supports arity -2..=15, so types with more than 15
+            // fields must also use the hash-based constructor even when has_default is false.
+            if typ.has_default || filtered_fields.len() > 15 {
+                // Create a temporary type with filtered fields for constructor generation
+                let mut filtered_typ = typ.clone();
+                filtered_typ.fields = filtered_fields.clone();
+                let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
+                impl_builder.add_method(&config_method);
+            } else {
+                let (param_list, _, assignments) = constructor_parts(&filtered_fields, &map_fn);
+                let new_method = format!("fn new({param_list}) -> Self {{\n        Self {{ {assignments} }}\n    }}");
+                impl_builder.add_method(&new_method);
+            }
         }
     }
 
     for field in &typ.fields {
+        // Skip thread-unsafe fields (e.g., VisitorHandle)
+        if is_thread_unsafe_field(field) {
+            continue;
+        }
         impl_builder.add_method(&gen_field_accessor(field, mapper));
     }
 
