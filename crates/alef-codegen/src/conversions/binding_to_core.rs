@@ -553,14 +553,11 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect()")
                 }
             } else {
-                eprintln!("DEBUG: Entering else branch for Map, name={}", name);
                 // Map<String, String>: binding may have String keys/values, core may have Box<str>/Cow<str>.
                 // Emit .map(|(k, v)| (k.into(), v.into())) which is a no-op when both sides are String.
                 // This handles cases like HashMap<String, String> (binding) → HashMap<Box<str>, Box<str>> (core).
                 let is_string_map = matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String);
-                eprintln!("DEBUG: string_map check for {}: is_string_map={}", name, is_string_map);
                 if is_string_map {
-                    eprintln!("DEBUG: Using string_map conversion for {}", name);
                     if optional {
                         format!(
                             "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
