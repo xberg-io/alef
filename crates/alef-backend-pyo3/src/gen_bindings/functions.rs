@@ -272,11 +272,9 @@ pub(super) fn gen_api_py(
     // Emit a helper that coerces strings or PyO3 enum aliases into the
     // canonical enum class instance. PyO3 enums do not expose a `__new__`
     // that accepts strings, so the wrapper must do the lookup itself.
+    out.push_str("_E = TypeVar(\"_E\")\n\n");
     out.push_str(
-        "_E = TypeVar(\"_E\")\n\n",
-    );
-    out.push_str(
-        "def _coerce_enum(enum_cls: type[_E], value: object) -> _E | None:\n    \"\"\"Coerce a string/alias value into the matching pyclass enum instance.\"\"\"\n    if value is None or isinstance(value, enum_cls):  # type: ignore[arg-type, return-value]\n        return value  # type: ignore[return-value]\n    s = str(value).replace(\"-\", \"_\").replace(\" \", \"_\")\n    candidates = (\n        s,\n        s.upper(),\n        s.lower(),\n        \"\".join(part.capitalize() for part in s.split(\"_\")),\n    )\n    for candidate in candidates:\n        attr = getattr(enum_cls, candidate, None)\n        if isinstance(attr, enum_cls):  # type: ignore[arg-type]\n            return attr\n    msg = f\"unknown {getattr(enum_cls, '__name__', enum_cls)!s} value: {value!r}\"\n    raise ValueError(msg)\n\n\n",
+        "def _coerce_enum(enum_cls: type[_E], value: object) -> _E | None:\n    \"\"\"Coerce a string/alias value into the matching pyclass enum instance.\"\"\"\n    if value is None or isinstance(value, enum_cls):\n        return value\n    s = str(value).replace(\"-\", \"_\").replace(\" \", \"_\")\n    candidates = (\n        s,\n        s.upper(),\n        s.lower(),\n        \"\".join(part.capitalize() for part in s.split(\"_\")),\n    )\n    for candidate in candidates:\n        attr = getattr(enum_cls, candidate, None)\n        if isinstance(attr, enum_cls):\n            return attr\n    msg = f\"unknown {getattr(enum_cls, '__name__', enum_cls)!s} value: {value!r}\"\n    raise ValueError(msg)\n\n\n",
     );
 
     // Generate converter functions for each needed has_default type

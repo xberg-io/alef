@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(backend-go): option setter functions for slice and map fields now assign `v` directly instead of `&v`, matching the `[]T` field types introduced in v0.14.5
 
 - fix(backend-pyo3): fix `_coerce_enum` return type from `_E` to `_E | None` to allow None values
-  in optional enum fields; restore proper None handling with type: ignore comments for mypy
+  in optional enum fields; remove unnecessary type: ignore comments that mypy flags as unused
 
 - fix(backend-java): use short annotation names (`@JsonDeserialize`, `@JsonPOJOBuilder`) instead of
   fully-qualified names in generated record and builder classes so that the accompanying import
