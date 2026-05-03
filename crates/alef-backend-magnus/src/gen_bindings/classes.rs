@@ -713,6 +713,59 @@ fn field_type_for_serde(field: &FieldDef) -> String {
     }
 }
 
+/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
+/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
+/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
+/// unsafe field assignments.
+pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
+    // First get the full generated code from alef_codegen
+    let full_code = alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
+
+    // If there are no thread-unsafe fields, just return the full code
+    if !typ.fields.iter().any(is_thread_unsafe_field) {
+        return full_code;
+    }
+
+    // Filter the generated code to remove assignments for unsafe fields
+    let mut filtered_lines = Vec::new();
+    let mut in_struct_body = false;
+
+    for line in full_code.lines() {
+        let trimmed = line.trim();
+
+        // Track if we're inside the struct initialization
+        if trimmed.contains("Self {") {
+            in_struct_body = true;
+            filtered_lines.push(line.to_string());
+            continue;
+        }
+
+        if in_struct_body {
+            if trimmed.starts_with('}') {
+                in_struct_body = false;
+                filtered_lines.push(line.to_string());
+                continue;
+            }
+
+            // Extract field name from assignment like "field_name: val.field_name.into(),"
+            let field_name = if let Some(colon_idx) = trimmed.find(':') {
+                trimmed[..colon_idx].trim()
+            } else {
+                ""
+            };
+
+            // Skip if this is a thread-unsafe field
+            if typ.fields.iter().any(|f| f.name == field_name && is_thread_unsafe_field(f)) {
+                continue;
+            }
+        }
+
+        filtered_lines.push(line.to_string());
+    }
+
+    filtered_lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -757,37 +810,6 @@ mod tests {
             cfg: None,
         }
     }
-
-/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
-/// VisitorHandle that cannot be Send + Sync.
-pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    let mut out = String::new();
-    writeln!(&mut out, "#[allow(clippy::needless_update)]").ok();
-    writeln!(&mut out, "impl From<{}> for {}::{} {{", typ.name, core_import, typ.name).ok();
-    writeln!(&mut out, "    fn from(val: {}) -> Self {{", typ.name).ok();
-    writeln!(&mut out, "        Self {{").ok();
-
-    for field in &typ.fields {
-        // Skip thread-unsafe fields
-        if is_thread_unsafe_field(field) {
-            continue;
-        }
-        writeln!(&mut out, "            {}: val.{}.into(),", field.name, field.name).ok();
-    }
-
-    // If there are thread-unsafe fields, add ..Default::default() to fill the remaining fields
-    let has_unsafe_fields = typ.fields.iter().any(is_thread_unsafe_field);
-    if has_unsafe_fields {
-        writeln!(&mut out, "            ..Default::default()").ok();
-    }
-
-    writeln!(&mut out, "        }}").ok();
-    writeln!(&mut out, "    }}").ok();
-    writeln!(&mut out, "}}").ok();
-
-    out
-}
 
     #[test]
     fn pascal_to_snake_converts_camel_case() {

@@ -690,12 +690,11 @@ fn render_test_method(
     }
 
     let final_args = if needs_options {
-        // Use ConversionOptionsBuilder to construct options with the visitor set.
-        // Builder pattern allows us to set only the visitor field without providing
-        // all the other required ConversionOptions constructor parameters.
-        setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::builder()".to_string());
-        setup_lines.push("    ->visitor($visitor)".to_string());
-        setup_lines.push("    ->build();".to_string());
+        // Create default ConversionOptions and set the visitor on it.
+        // We use ::default() because the constructor requires all parameters,
+        // but the visitor field is public so we can set it directly.
+        setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::default();".to_string());
+        setup_lines.push("$options->visitor = $visitor;".to_string());
         if args_str.is_empty() {
             "$options".to_string()
         } else {
