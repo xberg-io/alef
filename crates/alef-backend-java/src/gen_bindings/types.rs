@@ -202,6 +202,9 @@ pub(crate) fn gen_record_type(
     if needs_json_include {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonInclude;").ok();
     }
+    if needs_json_deserialize {
+        writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonDeserialize;").ok();
+    }
     if needs_nullable {
         writeln!(out, "import org.jetbrains.annotations.Nullable;").ok();
     }
@@ -698,6 +701,10 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     }
     if body.contains("Optional<") {
         writeln!(out, "import java.util.Optional;").ok();
+    }
+    // Builder classes with @JsonPOJOBuilder annotation need Jackson imports
+    if body.contains("@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder") {
+        writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;").ok();
     }
 
     writeln!(out).ok();

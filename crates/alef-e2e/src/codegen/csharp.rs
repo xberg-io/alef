@@ -1488,7 +1488,7 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         "visit_text" => "NodeContext ctx, string text",
         "visit_list_item" => "NodeContext ctx, bool ordered, string marker, string text",
         "visit_blockquote" => "NodeContext ctx, string content, ulong depth",
-        "visit_table_row" => "NodeContext ctx, IReadOnlyList<string> cells, bool isHeader",
+        "visit_table_row" => "NodeContext ctx, List<string> cells, bool isHeader",
         "visit_custom_element" => "NodeContext ctx, string tagName, string html",
         "visit_form" => "NodeContext ctx, string actionUrl, string method",
         "visit_input" => "NodeContext ctx, string inputType, string name, string value",
@@ -1512,21 +1512,21 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
     let _ = writeln!(decl, "        {{");
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(decl, "            return VisitResult.Skip();");
+            let _ = writeln!(decl, "            return new VisitResult.Skip();");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(decl, "            return VisitResult.Continue();");
+            let _ = writeln!(decl, "            return new VisitResult.Continue();");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(decl, "            return VisitResult.PreserveHtml();");
+            let _ = writeln!(decl, "            return new VisitResult.PreserveHtml();");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_csharp(output);
-            let _ = writeln!(decl, "            return VisitResult.Custom(\"{escaped}\");");
+            let _ = writeln!(decl, "            return new VisitResult.Custom(\"{escaped}\");");
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_csharp(template);
-            let _ = writeln!(decl, "            return VisitResult.Custom($\"{escaped}\");");
+            let _ = writeln!(decl, "            return new VisitResult.Custom($\"{escaped}\");");
         }
     }
     let _ = writeln!(decl, "        }}");

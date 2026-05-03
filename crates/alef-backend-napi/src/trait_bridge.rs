@@ -1182,7 +1182,7 @@ pub fn gen_options_field_bridge_function(
         )
     } else {
         format!(
-            "let mut {options_name}_core = {{\n    \
+            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {{\n    \
              let mut o = {options_name}.clone();\n    \
              o.visitor = None;\n    \
              Some(o.into())\n    \
