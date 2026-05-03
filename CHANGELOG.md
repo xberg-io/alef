@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e): include fixture id in mock server base URL for C#/Ruby/Elixir e2e backends. Previously `client_factory` generated code pointed clients at bare `MOCK_SERVER_URL`; now appends `/fixtures/{fixture_id}` so API calls route correctly through the mock server's prefix-based routing.
 
+- fix(e2e-php): parametrize extension name in generated `run_tests.php`; previously hardcoded to `libhtml_to_markdown_php`, now derived from the crate's extension name so generated test runners work across projects.
+
+- fix(e2e-wasm): inject `initSync` initialization block in generated test files for Node.js environments. Uses `fs.readFileSync` + `initSync` to load the WASM binary from the local `node_modules` path, replacing the broken async fetch-based approach that fails in vitest's Node.js runner.
+
 - fix(e2e): remove language suffix from generated e2e package names. TypeScript packages now use `{pkg}-e2e` instead of `{pkg}-e2e-typescript`; Python packages use `{pkg}-e2e` instead of `{pkg}-e2e-tests`. Python `pkg_name` now defaults to the call module name (replacing a stale hard-coded project name).
 
 - fix(e2e-wasm): remove `initWasm()` call from generated test files. The bundler target auto-initializes when imported, so explicit initialization is unnecessary and causes `TypeError: initWasm is not a function`.

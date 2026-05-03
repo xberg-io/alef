@@ -381,7 +381,7 @@ fn render_tsconfig() -> String {
 fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
     // Derive the wasm binary filename: strip @scope/ prefix, replace dashes with
     // underscores, append _bg.wasm.  E.g. "@kreuzberg/liter-llm-wasm" → "liter_llm_wasm_bg.wasm".
-    let bare_name = pkg_name.split('/').last().unwrap_or(pkg_name);
+    let bare_name = pkg_name.rsplit('/').next().unwrap_or(pkg_name);
     let wasm_filename = format!("{}_bg.wasm", bare_name.replace('-', "_"));
     let from_marker = format!("}} from \"{pkg_name}\";");
 
@@ -395,8 +395,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
                 return content.to_string();
             }
 
-            let new_import = import_section
-                .replace(&from_marker, &format!(", initSync }} from \"{pkg_name}\";"));
+            let new_import = import_section.replace(&from_marker, &format!(", initSync }} from \"{pkg_name}\";"));
 
             let init_code = format!(
                 r#"import fs from 'fs';
