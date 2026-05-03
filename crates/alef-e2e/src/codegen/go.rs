@@ -209,8 +209,8 @@ fn render_test_file(
         .iter()
         .any(|f| f.mock_response.is_some() || f.visitor.is_some() || fixture_has_go_callable(f, e2e_config));
 
-    // Determine if we need the "os" import (mock_url args, or HTTP fixtures
-    // that read MOCK_SERVER_URL via os.Getenv).
+    // Determine if we need the "os" import (mock_url args, HTTP fixtures, or
+    // client_factory fixtures that read MOCK_SERVER_URL via os.Getenv).
     let needs_os = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return true;
@@ -218,7 +218,12 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
+        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let go_override = call_config.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
+        if go_override.and_then(|o| o.client_factory.as_deref()).is_some() {
+            return true;
+        }
+        let call_args = &call_config.args;
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
@@ -448,7 +453,7 @@ fn render_test_file(
     if needs_reflect {
         let _ = writeln!(out, "\t\"reflect\"");
     }
-    if needs_strings || needs_http {
+    if needs_strings {
         let _ = writeln!(out, "\t\"strings\"");
     }
     let _ = writeln!(out, "\t\"testing\"");
@@ -514,12 +519,16 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let go_override = call_config.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
+    // When a client_factory is configured, the fixture is callable via the
+    // client-method pattern even when the base function name is empty.
+    if go_override.and_then(|o| o.client_factory.as_deref()).is_some() {
+        return true;
+    }
     // Prefer a Go-specific override function name; fall back to the base function name.
     // Any non-empty function name is callable: the Go binding exports all public
     // Rust functions as PascalCase symbols (snake_case → PascalCase via to_go_name).
-    let fn_name = call_config
-        .overrides
-        .get("go")
+    let fn_name = go_override
         .and_then(|o| o.function.as_deref())
         .filter(|s| !s.is_empty())
         .unwrap_or(call_config.function.as_str());
@@ -635,6 +644,18 @@ fn render_test_function(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // Client factory: when set, the test creates a client via `pkg.Factory("test-key", baseURL)`
+    // and calls methods on the instance rather than top-level package functions.
+    let client_factory = overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.as_deref())
+        });
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -665,6 +686,24 @@ fn render_test_function(
         let _ = writeln!(out, "\t{line}");
     }
 
+    // Client factory: emit client creation before the call.
+    // The factory receives "test-key" and the mock server base URL so that each
+    // test can verify behaviour in isolation without sharing a global client.
+    let call_prefix = if let Some(factory) = client_factory {
+        let factory_name = to_go_name(factory);
+        let _ = writeln!(
+            out,
+            "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")"
+        );
+        let _ = writeln!(
+            out,
+            "\tclient := {import_alias}.{factory_name}(\"test-key\", baseURL)"
+        );
+        "client".to_string()
+    } else {
+        import_alias.to_string()
+    };
+
     // The Go binding generator wraps the FFI call in `(T, error)` whenever any
     // param requires JSON marshalling, even when the underlying Rust function
     // does not return Result. Detect that so error-expecting tests emit `_, err :=`
@@ -672,13 +711,13 @@ fn render_test_function(
     let binding_returns_error_pre = args
         .iter()
         .any(|a| matches!(a.arg_type.as_str(), "json_object" | "bytes"));
-    let effective_returns_result_pre = returns_result || binding_returns_error_pre;
+    let effective_returns_result_pre = returns_result || binding_returns_error_pre || client_factory.is_some();
 
     if expects_error {
         if effective_returns_result_pre && !returns_void {
-            let _ = writeln!(out, "\t_, err := {import_alias}.{function_name}({final_args})");
+            let _ = writeln!(out, "\t_, err := {call_prefix}.{function_name}({final_args})");
         } else {
-            let _ = writeln!(out, "\terr := {import_alias}.{function_name}({final_args})");
+            let _ = writeln!(out, "\terr := {call_prefix}.{function_name}({final_args})");
         }
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
@@ -713,7 +752,8 @@ fn render_test_function(
     let binding_returns_error = args
         .iter()
         .any(|a| matches!(a.arg_type.as_str(), "json_object" | "bytes"));
-    let effective_returns_result = returns_result || binding_returns_error;
+    // Client-factory methods always return (value, error) in the Go binding.
+    let effective_returns_result = returns_result || binding_returns_error || client_factory.is_some();
 
     // For result_is_simple functions, the result variable IS the value (e.g. *string, *bool).
     // We create a local `value` that dereferences it so assertions can use a plain type.
@@ -731,7 +771,7 @@ fn render_test_function(
         let assign_op = if result_binding == "_" { "=" } else { ":=" };
         let _ = writeln!(
             out,
-            "\t{result_binding} {assign_op} {import_alias}.{function_name}({final_args})"
+            "\t{result_binding} {assign_op} {call_prefix}.{function_name}({final_args})"
         );
         if has_usable_assertion && result_binding != "_" {
             // Emit nil check and dereference for simple pointer results.
@@ -743,7 +783,7 @@ fn render_test_function(
     } else if !effective_returns_result || returns_void {
         // Function returns only error (either returns_result=false, or returns_result=true
         // with returns_void=true meaning the Go function signature is `func(...) error`).
-        let _ = writeln!(out, "\terr := {import_alias}.{function_name}({final_args})");
+        let _ = writeln!(out, "\terr := {call_prefix}.{function_name}({final_args})");
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
@@ -759,7 +799,7 @@ fn render_test_function(
         };
         let _ = writeln!(
             out,
-            "\t{result_binding}, err := {import_alias}.{function_name}({final_args})"
+            "\t{result_binding}, err := {call_prefix}.{function_name}({final_args})"
         );
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
