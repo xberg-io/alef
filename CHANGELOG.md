@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.10] - 2026-05-03
+
 ### Added
 
 - feat(e2e-go): `client_factory` support in Go e2e codegen. When `[e2e.call.overrides.go] client_factory = "CreateClient"` is set, the generated test creates a client via `pkg.CreateClient("test-key", baseURL)` and calls API methods as `client.Method(args)` instead of `pkg.Function(args)`. Also fixes `fixture_has_go_callable` to return `true` when `client_factory` is configured.
