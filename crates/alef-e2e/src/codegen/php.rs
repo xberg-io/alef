@@ -690,11 +690,10 @@ fn render_test_method(
     }
 
     let final_args = if needs_options {
-        // Create default ConversionOptions and set the visitor on it.
-        // We use ::default() because the constructor requires all parameters,
-        // but the visitor field is public so we can set it directly.
+        // Create default ConversionOptions and set the visitor using the setter method.
+        // We use ::default() because the constructor requires all parameters.
         setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::default();".to_string());
-        setup_lines.push("$options->visitor = $visitor;".to_string());
+        setup_lines.push("$options->setVisitor($visitor);".to_string());
         if args_str.is_empty() {
             "$options".to_string()
         } else {
