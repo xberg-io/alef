@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can load in isolated installs.
 - fix(e2e/go): compute imports from executable Go fixtures only so skip-only files
   compile without unused imports.
+- fix(backend-go): decode Rust data-enum JSON into Go discriminated structs with
+  a printable variant name instead of silently returning nil conversion results.
 
 ## [0.14.3] - 2026-05-03
 

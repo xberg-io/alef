@@ -245,6 +245,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     );
     writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
     writeln!(out, "type {} struct {{", go_enum_name).ok();
+    writeln!(out, "\tVariant string `json:\"-\"`").ok();
 
     // Emit the serde tag discriminator field first (e.g. `Type string \`json:"type"\``).
     // This ensures round-trip JSON serialization preserves the variant discriminator,
@@ -294,6 +295,52 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         writeln!(out, "\t{} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
     }
 
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+    writeln!(out, "func (e {go_enum_name}) String() string {{").ok();
+    writeln!(out, "\treturn e.Variant").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+    writeln!(out, "func (e *{go_enum_name}) UnmarshalJSON(data []byte) error {{").ok();
+    writeln!(out, "\tvar wire string").ok();
+    writeln!(out, "\tif err := json.Unmarshal(data, &wire); err == nil {{").ok();
+    writeln!(out, "\t\te.Variant = wire").ok();
+    writeln!(out, "\t\treturn nil").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tvar tagged map[string]json.RawMessage").ok();
+    writeln!(
+        out,
+        "\tif err := json.Unmarshal(data, &tagged); err == nil && len(tagged) == 1 {{"
+    )
+    .ok();
+    writeln!(out, "\t\tfor variant, payload := range tagged {{").ok();
+    writeln!(out, "\t\t\te.Variant = variant").ok();
+    writeln!(out, "\t\t\tif string(payload) != \"null\" {{").ok();
+    writeln!(out, "\t\t\t\ttype alias {go_enum_name}").ok();
+    writeln!(out, "\t\t\t\tvar decoded alias").ok();
+    writeln!(
+        out,
+        "\t\t\t\tif err := json.Unmarshal(payload, &decoded); err == nil {{"
+    )
+    .ok();
+    writeln!(out, "\t\t\t\t\t*e = {go_enum_name}(decoded)").ok();
+    writeln!(out, "\t\t\t\t\te.Variant = variant").ok();
+    writeln!(out, "\t\t\t\t}}").ok();
+    writeln!(out, "\t\t\t}}").ok();
+    writeln!(out, "\t\t\treturn nil").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\ttype alias {go_enum_name}").ok();
+    writeln!(out, "\tvar decoded alias").ok();
+    writeln!(out, "\tif err := json.Unmarshal(data, &decoded); err != nil {{").ok();
+    writeln!(out, "\t\treturn err").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\t*e = {go_enum_name}(decoded)").ok();
+    if let Some(tag_name) = &enum_def.serde_tag {
+        let tag_field = to_go_name(tag_name);
+        writeln!(out, "\te.Variant = e.{tag_field}").ok();
+    }
+    writeln!(out, "\treturn nil").ok();
     writeln!(out, "}}").ok();
     out
 }
