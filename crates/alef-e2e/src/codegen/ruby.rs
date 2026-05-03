@@ -305,6 +305,9 @@ fn render_spec_file(
     e2e_config: &E2eConfig,
     needs_spec_helper: bool,
 ) -> String {
+    // Resolve client_factory from ruby override.
+    let client_factory = e2e_config.call.overrides.get("ruby").and_then(|o| o.client_factory.as_deref());
+
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "# frozen_string_literal: true");
@@ -368,6 +371,10 @@ fn render_spec_file(
                     .unwrap_or_else(|| fixture_call.function.clone());
                 let fixture_result_var = &fixture_call.result_var;
                 let fixture_args = &fixture_call.args;
+                // Per-fixture client_factory: prefer fixture-level override, then default.
+                let fixture_client_factory = fixture_call_overrides
+                    .and_then(|o| o.client_factory.as_deref())
+                    .or(client_factory);
                 render_example(
                     &mut out,
                     fixture,
@@ -380,6 +387,7 @@ fn render_spec_file(
                     enum_fields,
                     result_is_simple,
                     e2e_config,
+                    fixture_client_factory,
                 );
             }
         }
@@ -638,6 +646,7 @@ fn render_example(
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
     e2e_config: &E2eConfig,
+    client_factory: Option<&str>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -667,9 +676,22 @@ fn render_example(
         format!("{args_str}, {visitor_arg}")
     };
 
-    let call_expr = format!("{call_receiver}.{function_name}({final_args})");
+    // When client_factory is configured, create a client instance and call methods on it.
+    let call_expr = if client_factory.is_some() {
+        format!("client.{function_name}({final_args})")
+    } else {
+        format!("{call_receiver}.{function_name}({final_args})")
+    };
 
     let _ = writeln!(out, "  it '{test_name}: {description}' do");
+
+    // Emit client creation before setup lines when using client_factory.
+    if let Some(factory) = client_factory {
+        let _ = writeln!(
+            out,
+            "    client = {call_receiver}.{factory}('test-key', ENV.fetch('MOCK_SERVER_URL'))"
+        );
+    }
 
     for line in &setup_lines {
         let _ = writeln!(out, "    {line}");
