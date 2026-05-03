@@ -371,36 +371,29 @@ fn render_tsconfig() -> String {
 }
 
 /// Inject WASM initialization into a test file.
-/// Adds `initWasm` to the package import and injects a `beforeAll` hook
-/// that awaits WASM initialization before tests run.
+/// Adds `initWasm` to the package import and injects top-level await
+/// for WASM initialization before any test code runs.
 fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
-    // Step 1: Add beforeAll to vitest import if not present
-    let mut result = if content.contains("beforeAll") {
-        content.to_string()
-    } else {
-        content.replace(
-            "import { describe, expect, it } from 'vitest';",
-            "import { beforeAll, describe, expect, it } from 'vitest';",
-        )
-    };
-
-    // Step 2: Add initWasm to package import if not present
-    let pkg_import_pattern = format!("}} from '{pkg_name}';");
-    if !result.contains("initWasm") && result.contains(&pkg_import_pattern) {
-        result = result.replace(
-            &pkg_import_pattern,
-            &format!(", initWasm }} from '{pkg_name}';"),
-        );
+    // Step 1: Add initWasm to package import if not present
+    let mut result = content.to_string();
+    if !result.contains("initWasm") {
+        let pkg_import_pattern = format!("}} from '{pkg_name}';");
+        if result.contains(&pkg_import_pattern) {
+            result = result.replace(
+                &pkg_import_pattern,
+                &format!(", initWasm }} from '{pkg_name}';"),
+            );
+        }
     }
 
-    // Step 3: Inject beforeAll hook before the describe block
+    // Step 2: Inject top-level await for WASM initialization before describe block
     if let Some(describe_pos) = result.find("describe(") {
         let before_describe = &result[..describe_pos];
         let from_describe = &result[describe_pos..];
 
         let mut output = String::new();
         output.push_str(before_describe);
-        output.push_str("\nbeforeAll(async () => {\n  await initWasm();\n});\n\n");
+        output.push_str("\n// Initialize WASM module before tests run\nawait initWasm();\n\n");
         output.push_str(from_describe);
         output
     } else {

@@ -1152,9 +1152,15 @@ pub fn gen_options_field_bridge_function(
          }});"
     );
 
-    // Generate options conversion with visitor injection
+    // Generate options conversion with visitor preservation.
+    // To avoid the From impl dropping the visitor field (it's marked as Default::default()),
+    // we clear it from the cloned options before conversion, then re-inject the extracted handle.
+    // This ensures the bridge wrapper survives the conversion.
     let options_convert = format!(
-        "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|o| o.into());\n    \
+        "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
+         o.visitor = None;\n    \
+         o.into()\n    \
+         }});\n    \
          if let Some(ref visitor) = visitor_handle {{\n    \
          if let Some(ref mut opts) = {options_name}_core {{\n        \
          opts.visitor = Some(visitor.clone());\n    \

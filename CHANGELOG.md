@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): PyO3 convert wrapper now reads visitor from options.visitor
+  when the separate `visitor=` kwarg is None. This allows Python callers to pass
+  the visitor via ConversionOptions without requiring a separate keyword argument.
 - fix(e2e/wasm): inject `beforeAll(async () => { await initWasm(); })` hook
   into generated vitest test files to ensure WASM module is initialized before
   tests execute. Prevents "WebAssembly bundle is still initializing" errors.

@@ -700,6 +700,53 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
             }
         }
 
+        // Post-process to add visitor fallback in functions with options-field bridges.
+        // When a function parameter is an options type with a visitor field, and the function
+        // also has a separate visitor kwarg, the generated code needs to fallback to
+        // options.visitor when the separate visitor kwarg is None.
+        //
+        // This handles the case where Python calls the function with visitor embedded in
+        // options, but the Rust function expects visitor as a separate parameter.
+        // Replace patterns like:
+        //   let visitor_handle: Option<...> = visitor.map(|v| { ... })
+        // with fallback logic that also checks options.visitor when visitor is None.
+        for bridge in &config.trait_bridges {
+            if bridge.bind_via != alef_core::config::BridgeBinding::OptionsField {
+                continue;
+            }
+            if let Some(field_name) = bridge.resolved_options_field() {
+                // Look for the visitor_handle initialization and add or_else fallback
+                // Pattern: visitor_handle: Option<...> = visitor.map(...)
+                //
+                // We need to find the complete visitor.map(...) block and append an or_else
+                // that checks options.visitor.  This is complex due to variable scoping,
+                // so we use a more targeted approach:
+                // Replace: let visitor_handle: Option<...> = visitor.map(|v| {
+                // with a fallback that chains .or_else to pull from options.visitor
+                let search_pattern = "let visitor_handle: Option<html_to_markdown_rs::visitor::VisitorHandle> = visitor.map";
+                if content.contains(search_pattern) {
+                    // Find the position and apply the fix
+                    if let Some(pos) = content.find(search_pattern) {
+                        // Find the end of the visitor.map(...) block by looking for the semicolon
+                        if let Some(end_pos) = content[pos..].find(";") {
+                            let insertion_point = pos + end_pos;
+                            let before = &content[..insertion_point];
+                            let after = &content[insertion_point..];
+
+                            // Build the fallback logic that uses options.visitor when visitor kwarg is None
+                            // Double braces for string literals, field_name is the visitor field (e.g., "visitor")
+                            let fallback = format!(
+                                ".or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }}}}\n    }})",
+                                field_name
+                            );
+
+                            content = format!("{}{}{}", before, fallback, after);
+                        }
+                    }
+                }
+            }
+        }
+
         // Fix wrapper functions that pass Option<T> params to core functions expecting Option<T>.
         // When a binding param is Optional<T> and serde deserializes to T, wrap in Some() at call site.
         // The core function expects Option<ConversionOptions>, but serde deserialization produces

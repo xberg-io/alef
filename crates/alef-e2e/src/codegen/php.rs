@@ -313,6 +313,55 @@ if (file_exists($pkgAutoloader)) {{
     )
 }
 
+fn render_run_tests_php() -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    format!(
+        r#"#!/usr/bin/env php
+<?php
+{header}
+declare(strict_types=1);
+
+// Determine platform-specific extension suffix.
+$extSuffix = match (PHP_OS_FAMILY) {{
+    'Darwin' => '.dylib',
+    default => '.so',
+}};
+$extPath = __DIR__ . '/../../target/release/libhtml_to_markdown_php' . $extSuffix;
+
+// If extension is not already loaded and the extension file exists, we need to
+// restart PHP with the extension enabled via command-line.
+if (!extension_loaded('html_to_markdown_php') && file_exists($extPath)) {{
+    // Reconstruct the command with the extension flag.
+    $php = PHP_BINARY;
+    $extFlag = "-d";
+    $extVal = "extension=" . $extPath;
+    $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
+
+    // Build the full command: php -d extension=... vendor/bin/phpunit [args...]
+    $cmd = array_merge(
+        [$php, $extFlag, $extVal],
+        [$phpunitPath],
+        array_slice($GLOBALS['argv'], 1)
+    );
+
+    // Execute and exit with the same code.
+    passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);
+    exit($exitCode);
+}}
+
+// Extension is already loaded (either built-in or via this script after restart).
+// Invoke PHPUnit normally.
+$phpunitPath = __DIR__ . '/vendor/bin/phpunit';
+if (!file_exists($phpunitPath)) {{
+    echo "PHPUnit not found at $phpunitPath. Run 'composer install' first.\n";
+    exit(1);
+}}
+
+require $phpunitPath;
+"#
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
