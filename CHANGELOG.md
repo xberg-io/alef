@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration when no explicit `[e2e.packages.go]` entry is present, import `testify/assert`
   for every assertion kind that emits `assert.*`, and only emit direct Go calls when an explicit
   Go callable override exists.
+- fix(cli/test): resolve e2e-only test languages in `alef test --e2e` without leaking the
+  test-only resolver into scaffold generation.
+- fix(e2e/elixir): emit fixture IDs as generated ExUnit test labels so long fixture
+  descriptions cannot exceed Elixir's test name limit.
 
 ## [0.14.3] - 2026-05-03
 

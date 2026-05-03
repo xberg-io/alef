@@ -940,7 +940,7 @@ fn main() -> Result<()> {
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
-                let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                let languages = resolve_test_languages(resolved_cfg, lang.as_deref(), e2e)?;
                 if multi {
                     eprintln!(
                         "[{}] Running tests for: {}",
@@ -1908,6 +1908,56 @@ fn resolve_doc_languages(
     resolve_languages_inner(config, filter, true)
 }
 
+/// Resolve languages for `alef test`.
+///
+/// Test suites can exist for targets that do not generate host bindings, such
+/// as Rust e2e tests for the source crate. Keep binding language resolution
+/// strict for generation/build commands, but allow explicit test targets and
+/// include e2e-only entries when `alef test --e2e` runs without a filter.
+fn resolve_test_languages(
+    config: &alef_core::config::ResolvedCrateConfig,
+    filter: Option<&[String]>,
+    include_e2e: bool,
+) -> Result<Vec<alef_core::config::Language>> {
+    match filter {
+        Some(langs) => {
+            let mut result = vec![];
+            for lang_str in langs {
+                let lang = parse_language(lang_str)?;
+                if config.languages.contains(&lang) || config.test.contains_key(&lang.to_string()) {
+                    result.push(lang);
+                } else {
+                    anyhow::bail!("Language '{lang_str}' not in config languages list or test configuration");
+                }
+            }
+            Ok(result)
+        }
+        None => {
+            let mut langs = config.languages.clone();
+            if include_e2e {
+                let mut extra_test_langs = vec![];
+                for (lang_str, test_config) in &config.test {
+                    if test_config.e2e.is_none() {
+                        continue;
+                    }
+                    let lang = parse_language(lang_str)
+                        .with_context(|| format!("Invalid test language in alef.toml: {lang_str}"))?;
+                    if !langs.contains(&lang) {
+                        extra_test_langs.push(lang);
+                    }
+                }
+                extra_test_langs.sort_by_key(|lang| lang.to_string());
+                for lang in extra_test_langs {
+                    if !langs.contains(&lang) {
+                        langs.push(lang);
+                    }
+                }
+            }
+            Ok(langs)
+        }
+    }
+}
+
 fn resolve_languages_inner(
     config: &alef_core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
@@ -1917,9 +1967,7 @@ fn resolve_languages_inner(
         Some(langs) => {
             let mut result = vec![];
             for lang_str in langs {
-                let lang: alef_core::config::Language = toml::Value::String(lang_str.clone())
-                    .try_into()
-                    .with_context(|| format!("Unknown language: {lang_str}"))?;
+                let lang = parse_language(lang_str)?;
                 if config.languages.contains(&lang) || (allow_rust && lang == alef_core::config::Language::Rust) {
                     result.push(lang);
                 } else {
@@ -1938,8 +1986,62 @@ fn resolve_languages_inner(
     }
 }
 
+fn parse_language(lang_str: &str) -> Result<alef_core::config::Language> {
+    toml::Value::String(lang_str.to_string())
+        .try_into()
+        .with_context(|| format!("Unknown language: {lang_str}"))
+}
+
 fn format_languages(languages: &[alef_core::config::Language]) -> String {
     languages.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::Language;
+
+    fn resolved_test_config() -> alef_core::config::ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.test.python]
+command = "pytest"
+
+[crates.test.rust]
+e2e = "cargo test"
+"#,
+        )
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn resolve_test_languages_allows_explicit_test_only_language() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, Some(&["rust".to_string()]), true).unwrap();
+        assert_eq!(langs, vec![Language::Rust]);
+    }
+
+    #[test]
+    fn resolve_test_languages_appends_e2e_only_languages() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, None, true).unwrap();
+        assert_eq!(langs, vec![Language::Python, Language::Rust]);
+    }
+
+    #[test]
+    fn resolve_test_languages_omits_e2e_only_languages_without_e2e() {
+        let config = resolved_test_config();
+        let langs = resolve_test_languages(&config, None, false).unwrap();
+        assert_eq!(langs, vec![Language::Python]);
+    }
 }
 
 /// Multi-crate variant of [`verify_walk`].

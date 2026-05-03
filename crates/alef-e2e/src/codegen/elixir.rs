@@ -547,11 +547,11 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     // response and fail.
     if FINCH_UNSUPPORTED_METHODS.contains(&method.as_str()) {
         let test_name = sanitize_ident(&fixture.id);
-        let description = fixture.description.replace('"', "\\\"");
+        let test_label = fixture.id.replace('"', "\\\"");
         let path = &http.request.path;
         let _ = writeln!(out, "  describe \"{test_name}\" do");
         let _ = writeln!(out, "    @tag :skip");
-        let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
+        let _ = writeln!(out, "    test \"{method} {path} - {test_label}\" do");
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
         return;
@@ -585,7 +585,7 @@ fn render_test_case(
     handle_atom_list_fields: &std::collections::HashSet<String>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('"', "\\\"");
+    let test_label = fixture.id.replace('"', "\\\"");
 
     // Non-HTTP non-mock_response fixtures (e.g. AsyncAPI, WebSocket, OpenRPC
     // protocol-only fixtures) cannot be tested via the configured `[e2e.call]`
@@ -595,7 +595,7 @@ fn render_test_case(
     if fixture.mock_response.is_none() {
         let _ = writeln!(out, "  describe \"{test_name}\" do");
         let _ = writeln!(out, "    @tag :skip");
-        let _ = writeln!(out, "    test \"{description}\" do");
+        let _ = writeln!(out, "    test \"{test_label}\" do");
         let _ = writeln!(
             out,
             "      # non-HTTP fixture: Elixir binding does not expose a callable for the configured `[e2e.call]` function"
@@ -715,7 +715,7 @@ fn render_test_case(
     };
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
-    let _ = writeln!(out, "    test \"{description}\" do");
+    let _ = writeln!(out, "    test \"{test_label}\" do");
 
     for line in &setup_lines {
         let _ = writeln!(out, "      {line}");
