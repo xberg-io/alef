@@ -739,9 +739,13 @@ fn render_test_case(
     };
 
     // Client factory: when configured, create a client and pass it as the first argument.
-    let client_factory = call_overrides
-        .and_then(|o| o.client_factory.as_deref())
-        .or_else(|| e2e_config.call.overrides.get("elixir").and_then(|o| o.client_factory.as_deref()));
+    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("elixir")
+            .and_then(|o| o.client_factory.as_deref())
+    });
 
     // Prefix the client variable to the args when client_factory is set.
     let effective_args = if client_factory.is_some() {
@@ -796,7 +800,10 @@ fn render_test_case(
         );
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
-        let _ = writeln!(out, "      {result_var} = {module_path}.{function_name}({effective_args})");
+        let _ = writeln!(
+            out,
+            "      {result_var} = {module_path}.{function_name}({effective_args})"
+        );
     }
 
     for assertion in &fixture.assertions {

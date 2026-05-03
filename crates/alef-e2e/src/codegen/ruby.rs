@@ -306,7 +306,11 @@ fn render_spec_file(
     needs_spec_helper: bool,
 ) -> String {
     // Resolve client_factory from ruby override.
-    let client_factory = e2e_config.call.overrides.get("ruby").and_then(|o| o.client_factory.as_deref());
+    let client_factory = e2e_config
+        .call
+        .overrides
+        .get("ruby")
+        .and_then(|o| o.client_factory.as_deref());
 
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));

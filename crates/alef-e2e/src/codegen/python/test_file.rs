@@ -62,8 +62,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
         });
 
     let client_factory = resolve_client_factory(e2e_config);
-    let needs_os_import = client_factory.is_some()
-        || e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
+    let needs_os_import = client_factory.is_some() || e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
 
     let needs_path_import = fixtures.iter().any(|f| {
         let cc = e2e_config.resolve_call(f.call.as_deref());

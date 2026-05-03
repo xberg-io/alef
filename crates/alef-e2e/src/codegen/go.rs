@@ -219,7 +219,10 @@ fn render_test_file(
             return false;
         }
         let call_config = e2e_config.resolve_call(f.call.as_deref());
-        let go_override = call_config.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
+        let go_override = call_config
+            .overrides
+            .get("go")
+            .or_else(|| e2e_config.call.overrides.get("go"));
         if go_override.and_then(|o| o.client_factory.as_deref()).is_some() {
             return true;
         }
@@ -519,7 +522,10 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let go_override = call_config.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
+    let go_override = call_config
+        .overrides
+        .get("go")
+        .or_else(|| e2e_config.call.overrides.get("go"));
     // When a client_factory is configured, the fixture is callable via the
     // client-method pattern even when the base function name is empty.
     if go_override.and_then(|o| o.client_factory.as_deref()).is_some() {
@@ -646,15 +652,13 @@ fn render_test_function(
 
     // Client factory: when set, the test creates a client via `pkg.Factory("test-key", baseURL)`
     // and calls methods on the instance rather than top-level package functions.
-    let client_factory = overrides
-        .and_then(|o| o.client_factory.as_deref())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get(lang)
-                .and_then(|o| o.client_factory.as_deref())
-        });
+    let client_factory = overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
 
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
@@ -691,14 +695,8 @@ fn render_test_function(
     // test can verify behaviour in isolation without sharing a global client.
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
-        let _ = writeln!(
-            out,
-            "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")"
-        );
-        let _ = writeln!(
-            out,
-            "\tclient := {import_alias}.{factory_name}(\"test-key\", baseURL)"
-        );
+        let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
+        let _ = writeln!(out, "\tclient := {import_alias}.{factory_name}(\"test-key\", baseURL)");
         "client".to_string()
     } else {
         import_alias.to_string()

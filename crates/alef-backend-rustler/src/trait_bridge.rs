@@ -1455,15 +1455,30 @@ pub fn gen_bridge_field_function(
     writeln!(out, "        visitor_owned_env.run(|env| {{").ok();
     writeln!(out, "            let visitor_term = visitor_saved.load(env);").ok();
     writeln!(out, "            {deser_stmts}").ok();
-    writeln!(out, "            let mut result_env = rustler::OwnedEnv::new();").ok();
-    writeln!(out, "            let _ = result_env.send_and_clear(&pid, |env| {{").ok();
-    writeln!(out, "                match {core_fn_path}({vis_call_args_str}) {{").ok();
-    writeln!(out, "                    Ok(val) => {{").ok();
     writeln!(
         out,
-        "                        let result: ConversionResult = val.into();"
+        "            // Run conversion, capture result, and send back to BEAM"
     )
     .ok();
+    writeln!(
+        out,
+        "            let conversion_result = match {core_fn_path}({vis_call_args_str}) {{"
+    )
+    .ok();
+    writeln!(out, "                Ok(val) => {{").ok();
+    writeln!(
+        out,
+        "                    let result: ConversionResult = val.into();  // Convert from core::ConversionResult to NIF::ConversionResult"
+    )
+    .ok();
+    writeln!(out, "                    Ok(result)").ok();
+    writeln!(out, "                }},").ok();
+    writeln!(out, "                Err(e) => Err(e.to_string()),").ok();
+    writeln!(out, "            }};").ok();
+    writeln!(out, "            let mut result_env = rustler::OwnedEnv::new();").ok();
+    writeln!(out, "            let _ = result_env.send_and_clear(&pid, |env| {{").ok();
+    writeln!(out, "                match conversion_result {{").ok();
+    writeln!(out, "                    Ok(result) => {{").ok();
     writeln!(
         out,
         "                        let ok_atom = rustler::types::atom::Atom::from_str(env, \"ok\").unwrap().to_term(env);"
@@ -1475,16 +1490,16 @@ pub fn gen_bridge_field_function(
     )
     .ok();
     writeln!(out, "                    }},").ok();
-    writeln!(out, "                    Err(e) => {{").ok();
+    writeln!(out, "                    Err(reason) => {{").ok();
     writeln!(
         out,
         "                        let err_atom = rustler::types::atom::Atom::from_str(env, \"error\").unwrap().to_term(env);"
     )
     .ok();
-    writeln!(out, "                        let reason = e.to_string().encode(env);").ok();
+    writeln!(out, "                        let reason_term = reason.encode(env);").ok();
     writeln!(
         out,
-        "                        rustler::types::tuple::make_tuple(env, &[err_atom, reason])"
+        "                        rustler::types::tuple::make_tuple(env, &[err_atom, reason_term])"
     )
     .ok();
     writeln!(out, "                    }},").ok();

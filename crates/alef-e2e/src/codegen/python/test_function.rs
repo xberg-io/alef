@@ -13,7 +13,9 @@ use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 
 use super::assertions::render_assertion;
-use super::helpers::{BytesKind, classify_bytes_value, is_skipped, resolve_client_factory, resolve_function_name_for_call};
+use super::helpers::{
+    BytesKind, classify_bytes_value, is_skipped, resolve_client_factory, resolve_function_name_for_call,
+};
 use super::json::json_to_python_literal;
 use super::visitors::emit_python_visitor_method;
 

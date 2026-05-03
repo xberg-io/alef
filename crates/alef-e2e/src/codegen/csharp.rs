@@ -684,16 +684,18 @@ fn render_test_method(
 
     // Client factory: when set, create a client instance and call methods on it
     // rather than using static class calls.
-    let client_factory = cs_overrides
-        .and_then(|o| o.client_factory.as_deref())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get("csharp")
-                .and_then(|o| o.client_factory.as_deref())
-        });
-    let call_target = if client_factory.is_some() { "client".to_string() } else { class_name.to_string() };
+    let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("csharp")
+            .and_then(|o| o.client_factory.as_deref())
+    });
+    let call_target = if client_factory.is_some() {
+        "client".to_string()
+    } else {
+        class_name.to_string()
+    };
 
     let _ = writeln!(out, "    [Fact]");
     let _ = writeln!(out, "    public {return_type} Test_{method_name}()");
@@ -711,7 +713,10 @@ fn render_test_method(
             out,
             "        var baseUrl = System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty;"
         );
-        let _ = writeln!(out, "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl);");
+        let _ = writeln!(
+            out,
+            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl);"
+        );
     }
 
     if expects_error {
