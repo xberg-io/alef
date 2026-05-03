@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-java): stop emitting illegal `Optional<String>` accessor methods that
+  shadow the canonical record component accessor. Java records auto-generate the
+  accessor with the field's declared type and disallow overrides with a different
+  signature. Callers that want `Optional` can wrap with `Optional.ofNullable(...)`.
+- fix(e2e/java): wrap nullable record-component accessors with `Optional.ofNullable`
+  before calling `.orElse(...)`, so the existing assertion templates work whether the
+  underlying type is `Optional<X>` or `@Nullable X`.
 - fix(cli/build): resolve mvn working directory by walking up from `[crates.output].java`
   to the nearest `pom.xml`, so configurations that point output at `src/main/java/`
   still build via maven from the project root.

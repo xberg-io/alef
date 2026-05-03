@@ -1186,27 +1186,32 @@ fn render_assertion(
                 // Unwrap Optional fields with a type-appropriate fallback.
                 // Map.get() returns nullable, not Optional, so skip .orElse() for map access.
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    // Choose the right orElse fallback based on the assertion type and field type.
+                    // Wrap the (possibly @Nullable) accessor in Optional.ofNullable so
+                    // .orElse(fallback) works regardless of whether the underlying type
+                    // is `Optional<X>` or `@Nullable X`. Java records emit canonical
+                    // accessors with the field's declared type, so we cannot assume
+                    // the accessor itself returns Optional.
+                    let optional_expr = format!("java.util.Optional.ofNullable({accessor})");
                     match assertion.assertion_type.as_str() {
                         // For not_empty / is_empty on Optional fields, return the raw Optional
                         // so the assertion arms can call isPresent()/isEmpty().
-                        "not_empty" | "is_empty" => accessor,
+                        "not_empty" | "is_empty" => optional_expr,
                         // For size/count assertions on Optional<List<T>> fields, use List.of() fallback.
                         "count_min" | "count_equals" => {
-                            format!("{accessor}.orElse(java.util.List.of())")
+                            format!("{optional_expr}.orElse(java.util.List.of())")
                         }
                         // For numeric comparisons on Optional<Long/Integer> fields, use 0L.
                         "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
                             if field_resolver.is_array(resolved) {
-                                format!("{accessor}.orElse(java.util.List.of())")
+                                format!("{optional_expr}.orElse(java.util.List.of())")
                             } else {
-                                format!("{accessor}.orElse(0L)")
+                                format!("{optional_expr}.orElse(0L)")
                             }
                         }
                         _ if field_resolver.is_array(resolved) => {
-                            format!("{accessor}.orElse(java.util.List.of())")
+                            format!("{optional_expr}.orElse(java.util.List.of())")
                         }
-                        _ => format!("{accessor}.orElse(\"\")"),
+                        _ => format!("{optional_expr}.orElse(\"\")"),
                     }
                 } else {
                     accessor
