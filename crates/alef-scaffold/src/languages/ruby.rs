@@ -62,9 +62,6 @@ crate-type = ["cdylib"]
 magnus = "{magnus}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{tokio_dep}{extra_deps_section}
-
-[lints]
-workspace = true
 "#,
         pkg_header = pkg_header,
         lib_name = lib_name,

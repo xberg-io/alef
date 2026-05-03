@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/typescript): simplify generated `is_empty` assertion emission so clippy remains
+  warning-clean under `-D warnings`.
 - fix(backend-pyo3): import native unit enums referenced only through data-enum aliases in generated
   `options.py`, keeping runtime aliases such as `ToolChoice = ToolChoiceMode | str | SpecificToolChoice`
   import-safe and ruff-clean.
@@ -20,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test-only resolver into scaffold generation.
 - fix(e2e/elixir): emit fixture IDs as generated ExUnit test labels so long fixture
   descriptions cannot exceed Elixir's test name limit.
+- fix(scaffold/ruby): omit workspace lints from standalone Ruby native extension crates.
+- fix(e2e/csharp): default generated project references to Alef's nested C# package
+  project path.
 
 ## [0.14.3] - 2026-05-03
 

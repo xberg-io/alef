@@ -66,13 +66,12 @@ impl E2eCodegen for CSharpCodegen {
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| config.name.to_upper_camel_case());
-        // The project reference path uses the crate name (with hyphens) for the directory
-        // and the PascalCase name for the .csproj file.
+        // Alef scaffolds C# packages as packages/csharp/<Namespace>/<Namespace>.csproj.
         let pkg_path = cs_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("../../packages/csharp/{pkg_name}.csproj"));
+            .unwrap_or_else(|| format!("../../packages/csharp/{pkg_name}/{pkg_name}.csproj"));
         let pkg_version = cs_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())
