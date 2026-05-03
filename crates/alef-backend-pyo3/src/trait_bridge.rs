@@ -1362,8 +1362,13 @@ pub fn gen_bridge_field_function(
         )
     } else {
         format!(
-            "let {options_param}_json = serde_json::to_string(&{options_param}){serde_err_conv}?;\n    \
-             let mut {options_param}_core: {core_options_type} = serde_json::from_str(&{options_param}_json){serde_err_conv}?;\n    \
+            "let mut {options_param}_core: {core_options_type} = match &{options_param} {{\n        \
+             Some(opts) => {{\n            \
+             let json = serde_json::to_string(opts){serde_err_conv}?;\n            \
+             serde_json::from_str(&json){serde_err_conv}?\n        \
+             }}\n        \
+             None => {core_options_type}::default(),\n    \
+             }};\n    \
              if let Some(handle) = {visitor_kwarg}_handle {{\n        \
              {options_param}_core.{field_name} = Some(handle);\n    \
              }}"
