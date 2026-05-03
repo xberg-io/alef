@@ -210,11 +210,12 @@ impl Backend for NapiBackend {
                 continue;
             }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges);
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.
             // Option<VisitorHandle> in html-to-markdown) are emitted via gen_bridge_function.
-            if func.sanitized && bridge_param.is_none() {
+            if func.sanitized && bridge_param.is_none() && options_field_bridge.is_none() {
                 continue;
             }
             if let Some((param_idx, bridge_cfg)) = bridge_param {
@@ -228,8 +229,18 @@ impl Backend for NapiBackend {
                     &opaque_types,
                     &core_import,
                 ));
+            } else if let Some((param_idx, bridge_cfg)) = options_field_bridge {
+                builder.add_item(&crate::trait_bridge::gen_options_field_bridge_function(
+                    func,
+                    param_idx,
+                    bridge_cfg,
+                    &mapper,
+                    &cfg,
+                    &opaque_types,
+                    &core_import,
+                ));
             } else {
-                builder.add_item(&functions::gen_function(func, &mapper, &cfg, &opaque_types, &prefix, &config.trait_bridges, &core_import));
+                builder.add_item(&functions::gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
             }
         }
 

@@ -18,6 +18,29 @@ use std::fmt::Write;
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 
+/// Find a bridge config that uses options_field binding and a parameter of the options_type.
+/// This complements find_bridge_param which only handles FunctionParam bindings.
+pub fn find_options_field_binding<'a>(
+    func: &alef_core::ir::FunctionDef,
+    bridges: &'a [TraitBridgeConfig],
+) -> Option<(usize, &'a TraitBridgeConfig)> {
+    for bridge in bridges {
+        if bridge.bind_via != alef_core::config::BridgeBinding::OptionsField {
+            continue;
+        }
+        if let Some(options_type) = &bridge.options_type {
+            for (idx, param) in func.params.iter().enumerate() {
+                if let alef_core::ir::TypeRef::Named(n) = &param.ty {
+                    if n == options_type {
+                        return Some((idx, bridge));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.
 pub struct NapiBridgeGenerator {

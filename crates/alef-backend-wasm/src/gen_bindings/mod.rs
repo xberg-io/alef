@@ -473,27 +473,36 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Fix From<Wasm*> to Rust conversions to pass through visitor field instead of Default::default()
-        // Only apply to WasmConversionOptions and WasmConversionOptionsUpdate (Wasm -> Core direction)
-
-        // Pattern: impl From<WasmConversionOptions> for ...ConversionOptions
-        // Marker: uses `strong_em_symbol.chars()` (only in forward direction)
-        let pattern_conv_options = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {";
-        if content.contains(pattern_conv_options) {
-            // Replace in the scope of this impl: from exclude_selectors to ..Default::default()
-            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::needless_update)]\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptions> for WasmConversionOptions {";
-            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::needless_update)]\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptions> for WasmConversionOptions {";
-            content = content.replace(old, new);
+        // Fix From<WasmConversionOptions> to pass through visitor instead of Default::default()
+        // The marker is unique to the forward direction: uses `.chars().next().unwrap_or('*')`
+        let marker = "strong_em_symbol: val.strong_em_symbol.chars().next().unwrap_or('*'),";
+        if content.contains(marker) {
+            // Find and replace the visitor line in this impl
+            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()";
+            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()";
+            if let Some(pos) = content.find(marker) {
+                // Find the visitor line after this marker
+                if let Some(visitor_pos) = content[pos..].find(old) {
+                    let before = &content[..pos + visitor_pos];
+                    let after = &content[pos + visitor_pos + old.len()..];
+                    content = format!("{}{}{}", before, new, after);
+                }
+            }
         }
 
-        // Pattern: impl From<WasmConversionOptionsUpdate> for ...ConversionOptionsUpdate
-        // Marker: uses `.and_then(|s| s.chars())` (only in forward direction)
-        let pattern_update = "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
-        if content.contains(pattern_update) {
-            // Replace in the scope of this impl
-            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptionsUpdate> for WasmConversionOptionsUpdate {";
-            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptionsUpdate> for WasmConversionOptionsUpdate {";
-            content = content.replace(old, new);
+        // Similar fix for From<WasmConversionOptionsUpdate>
+        // Marker: uses `.and_then(|s| s.chars().next())`
+        let marker_update = "strong_em_symbol: val.strong_em_symbol.and_then(|s| s.chars().next()),";
+        if content.contains(marker_update) {
+            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()";
+            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()";
+            if let Some(pos) = content.find(marker_update) {
+                if let Some(visitor_pos) = content[pos..].find(old) {
+                    let before = &content[..pos + visitor_pos];
+                    let after = &content[pos + visitor_pos + old.len()..];
+                    content = format!("{}{}{}", before, new, after);
+                }
+            }
         }
 
         let output_dir = resolve_output_dir(config.output_paths.get("wasm"), &config.name, "crates/{name}-wasm/src/");
