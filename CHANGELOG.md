@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(magnus-backend): add `options_field` visitor bridge support. The Magnus Ruby backend now generates proper wrapper functions for trait bridges using `bind_via = "options_field"` binding style. Previously only `bind_via = "function_param"` was supported, causing e2e tests to fail when trying to pass a visitor as a secondary argument to functions like `convert(html, visitor)`.
+
 ## [0.14.11] - 2026-05-03
 
 ### Fixed
