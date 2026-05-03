@@ -382,12 +382,16 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let mut result = String::new();
 
-    // Find the describe block
+    // Find the describe block and the import line
     let mut describe_idx = None;
+    let mut import_line_content = String::new();
     for (i, line) in lines.iter().enumerate() {
         if line.contains("describe(") {
             describe_idx = Some(i);
             break;
+        }
+        if line.contains(&pkg_import_pattern) {
+            import_line_content = line.to_string();
         }
     }
 
@@ -397,7 +401,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
 
     let describe_idx = describe_idx.unwrap();
 
-    // Output all lines before the describe block, excluding the package import
+    // Output all lines before the describe block, excluding the package import.
     for line in lines[..describe_idx].iter() {
         if !line.contains(&pkg_import_pattern) {
             result.push_str(line);
@@ -405,18 +409,29 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
         }
     }
 
+    // Extract the named imports from the original import statement.
+    // Parse "import { scrape, createEngine } from 'pkg';" to get ["scrape", "createEngine"]
+    let import_line = &import_line_content;
+    let start_brace = if let Some(idx) = import_line.find('{') {
+        idx + 1
+    } else {
+        0
+    };
+    let end_brace = if let Some(idx) = import_line.find('}') {
+        idx
+    } else {
+        import_line.len()
+    };
+    let imports_str = &import_line[start_brace..end_brace];
+
     // Add the dynamic import + init using top-level await.
-    // wasm-bindgen exports:
-    // - named exports like `scrape`, `createEngine`
-    // - `initSync` for sync initialization
-    // - default export `__wbg_init` for async initialization
-    // We use the default export and await its initialization.
+    // wasm-bindgen exports named functions (scrape, createEngine, etc) and a default
+    // export __wbg_init for async module initialization. The vitest config includes
+    // vite-plugin-wasm which handles automatic WASM initialization, but we explicitly
+    // initialize here to ensure it completes before tests run.
     result.push('\n');
     result.push_str(&format!(
-        "const {{ convert, createEngine, scrape }} = await import('{pkg_name}');\n"
-    ));
-    result.push_str(&format!(
-        "const initWasm = (await import('{pkg_name}')).default;\nawait initWasm();\n\n"
+        "const {{ {imports_str} }} = await import('{pkg_name}');\nawait import('{pkg_name}').then(m => m.default());\n\n"
     ));
 
     // Output the describe block and all remaining lines

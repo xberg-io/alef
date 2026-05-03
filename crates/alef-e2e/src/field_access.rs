@@ -442,15 +442,11 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
 ///
 /// When an intermediate field is in the `optional_fields` set, `.orElseThrow()`
 /// is appended after the accessor call to unwrap the `Optional<T>`.
-fn render_java_with_optionals(
-    segments: &[PathSegment],
-    result_var: &str,
-    _optional_fields: &HashSet<String>,
-) -> String {
+fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
     for (i, seg) in segments.iter().enumerate() {
-        let _is_leaf = i == segments.len() - 1;
+        let is_leaf = i == segments.len() - 1;
         match seg {
             PathSegment::Field(f) => {
                 if !path_so_far.is_empty() {
@@ -460,10 +456,11 @@ fn render_java_with_optionals(
                 out.push('.');
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
-                // Note: Do NOT unwrap intermediate Optional fields here. The assertion builder
-                // (in java.rs) will wrap the final accessor in Optional.ofNullable() as needed.
-                // If we unwrap here, we'll end up with double-wrapping or calls to methods that
-                // don't exist on nullable types.
+                // Unwrap intermediate Optional fields with .get() so downstream accessors work.
+                // Only unwrap non-leaf fields (intermediate steps in the path) that are Optional.
+                if !is_leaf && optional_fields.contains(&path_so_far) {
+                    out.push_str(".get()");
+                }
             }
             PathSegment::ArrayField(f) => {
                 if !path_so_far.is_empty() {
