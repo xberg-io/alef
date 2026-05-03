@@ -11,9 +11,9 @@ use crate::fixture::Fixture;
 use alef_core::hash::{self, CommentStyle};
 
 use super::helpers::{
-    BytesKind, classify_bytes_value, is_skipped, python_method_helper_import, resolve_enum_fields,
-    resolve_function_name, resolve_function_name_for_call, resolve_handle_dict_types, resolve_handle_nested_types,
-    resolve_module, resolve_options_type, resolve_options_via,
+    BytesKind, classify_bytes_value, is_skipped, python_method_helper_import, resolve_client_factory,
+    resolve_enum_fields, resolve_function_name, resolve_function_name_for_call, resolve_handle_dict_types,
+    resolve_handle_nested_types, resolve_module, resolve_options_type, resolve_options_via,
 };
 use super::http::render_http_test_function;
 use super::test_function::render_test_function;
@@ -61,7 +61,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
                 .any(|arg| arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null())
         });
 
-    let needs_os_import = e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
+    let client_factory = resolve_client_factory(e2e_config);
+    let needs_os_import = client_factory.is_some()
+        || e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
 
     let needs_path_import = fixtures.iter().any(|f| {
         let cc = e2e_config.resolve_call(f.call.as_deref());
@@ -145,6 +147,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             e2e_config,
             &module,
             &function_name,
+            client_factory.as_deref(),
             &options_type,
             options_via,
             needs_options_type,
@@ -247,6 +250,7 @@ fn build_thirdparty_imports(
     e2e_config: &E2eConfig,
     module: &str,
     function_name: &str,
+    client_factory: Option<&str>,
     options_type: &Option<String>,
     options_via: &str,
     needs_options_type: bool,
@@ -264,15 +268,22 @@ fn build_thirdparty_imports(
         .collect();
 
     let mut import_names: Vec<String> = Vec::new();
-    for fixture in fixtures.iter() {
-        let cc = e2e_config.resolve_call(fixture.call.as_deref());
-        let fn_name = resolve_function_name_for_call(cc);
-        if !import_names.contains(&fn_name) {
-            import_names.push(fn_name);
+
+    // When a client_factory is configured, import only the factory function.
+    // Individual API functions are called as methods on the client instance.
+    if let Some(factory) = client_factory {
+        import_names.push(factory.to_string());
+    } else {
+        for fixture in fixtures.iter() {
+            let cc = e2e_config.resolve_call(fixture.call.as_deref());
+            let fn_name = resolve_function_name_for_call(cc);
+            if !import_names.contains(&fn_name) {
+                import_names.push(fn_name);
+            }
         }
-    }
-    if import_names.is_empty() {
-        import_names.push(function_name.to_string());
+        if import_names.is_empty() {
+            import_names.push(function_name.to_string());
+        }
     }
     for ctor in &handle_constructors {
         if !import_names.contains(ctor) {

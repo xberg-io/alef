@@ -38,6 +38,18 @@ pub(super) fn resolve_options_type(e2e_config: &E2eConfig) -> Option<String> {
         .and_then(|o| o.options_type.clone())
 }
 
+/// Resolve the client factory function name from the Python override config.
+///
+/// When set, the generated test creates a client instance via `factory("test-key", base_url)`
+/// and dispatches API calls as methods on the client rather than top-level functions.
+pub(super) fn resolve_client_factory(e2e_config: &E2eConfig) -> Option<String> {
+    e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.client_factory.clone())
+}
+
 /// Resolve how json_object args are passed: "kwargs" (default), "dict", or "json".
 pub(super) fn resolve_options_via(e2e_config: &E2eConfig) -> &str {
     e2e_config

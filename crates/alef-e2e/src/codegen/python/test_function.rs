@@ -13,7 +13,7 @@ use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 
 use super::assertions::render_assertion;
-use super::helpers::{BytesKind, classify_bytes_value, is_skipped, resolve_function_name_for_call};
+use super::helpers::{BytesKind, classify_bytes_value, is_skipped, resolve_client_factory, resolve_function_name_for_call};
 use super::json::json_to_python_literal;
 use super::visitors::emit_python_visitor_method;
 
@@ -97,7 +97,18 @@ pub(super) fn render_test_function(
         exprs.join(", ")
     };
     let await_prefix = if is_async { "await " } else { "" };
-    let call_expr = format!("{await_prefix}{function_name}({call_args_str})");
+
+    // Client factory: when configured, create a client and dispatch as a method.
+    let client_factory = resolve_client_factory(e2e_config);
+    let call_expr = if let Some(ref factory) = client_factory {
+        let _ = writeln!(
+            out,
+            "    client = {factory}(\"test-key\", os.environ[\"MOCK_SERVER_URL\"])"
+        );
+        format!("{await_prefix}client.{function_name}({call_args_str})")
+    } else {
+        format!("{await_prefix}{function_name}({call_args_str})")
+    };
 
     if has_error_assertion {
         emit_error_assertion(out, fixture, &call_expr);
