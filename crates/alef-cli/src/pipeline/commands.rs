@@ -620,19 +620,21 @@ fn build_command_for(
                 let dir = native_dir.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else if let Some(standalone) = {
-                // Walk up from the source dir to find a Cargo.toml that declares
-                // a [workspace] (i.e., a standalone crate outside the parent).
+                // Look at most 2 levels up for the crate's own Cargo.toml;
+                // if it declares its own `[workspace]`, treat as standalone
+                // (cd in and `cargo build`). Don't walk past that to the
+                // repo-root workspace.
                 let mut p = std::path::PathBuf::from(crate_dir);
                 let mut found: Option<std::path::PathBuf> = None;
-                loop {
+                for _ in 0..3 {
                     let manifest = p.join("Cargo.toml");
                     if manifest.exists() {
                         if let Ok(contents) = std::fs::read_to_string(&manifest) {
                             if contents.contains("[workspace]") {
                                 found = Some(p.clone());
-                                break;
                             }
                         }
+                        break;
                     }
                     if !p.pop() {
                         break;
@@ -643,11 +645,41 @@ fn build_command_for(
                 let dir = standalone.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else {
-                // Extract crate name from directory name for -p flag
-                let crate_name = Path::new(crate_dir)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(crate_dir);
+                // Walk up to find the nearest Cargo.toml and read [package].name
+                // to get the cargo-build-p target. Falls back to the dir name.
+                let crate_name = {
+                    let mut p = std::path::PathBuf::from(crate_dir);
+                    let mut name: Option<String> = None;
+                    for _ in 0..4 {
+                        let manifest = p.join("Cargo.toml");
+                        if manifest.exists() {
+                            if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                                for line in contents.lines() {
+                                    let trimmed = line.trim();
+                                    if let Some(rest) = trimmed.strip_prefix("name") {
+                                        let rest = rest.trim_start_matches([' ', '=']).trim();
+                                        let rest = rest.trim_matches(['"', '\'']);
+                                        if !rest.is_empty() {
+                                            name = Some(rest.to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        if !p.pop() {
+                            break;
+                        }
+                    }
+                    name.unwrap_or_else(|| {
+                        Path::new(crate_dir)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(crate_dir)
+                            .to_string()
+                    })
+                };
                 format!("cargo build -p {crate_name}{release_flag}")
             }
         }
