@@ -185,13 +185,14 @@ impl E2eCodegen for WasmCodegen {
         // to the typescript codegen (`render_test_file`), which already handles
         // both HTTP and function-call fixtures correctly. Passing `lang = "wasm"`
         // routes per-fixture override resolution and skip checks through the wasm
-        // language key. The bundler target auto-initializes, so no explicit init needed.
+        // language key. We then inject Node.js WASM initialization code to load
+        // the WASM binary from the pkg directory using fs.readFileSync.
         for (group, active) in groups.iter().zip(active_per_group.iter()) {
             if active.is_empty() {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let content = super::typescript::render_test_file(
+            let mut content = super::typescript::render_test_file(
                 lang,
                 &group.category,
                 active,
@@ -204,6 +205,10 @@ impl E2eCodegen for WasmCodegen {
                 client_factory,
                 e2e_config,
             );
+
+            // Inject WASM initialization code for Node.js environments.
+            content = inject_wasm_init(&content, &pkg_name);
+
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
                 content,
@@ -366,4 +371,75 @@ fn render_tsconfig() -> String {
 }
 "#
     .to_string()
+}
+
+/// Inject WASM initialization code for Node.js environments.
+///
+/// Injects initSync using fs.readFileSync to load the WASM binary at the module
+/// level. This is necessary for Node.js test environments because the fetch-based
+/// initialization doesn't work. Handles both dynamic and static imports.
+fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
+    // First, replace the problematic await import...then((m) => m.default()) pattern
+    if content.contains("await import(\"kreuzcrawl\").then((m) => m.default())") {
+        let init_code = format!(
+            r#"import fs from 'fs';
+import path from 'path';
+import {{ fileURLToPath }} from 'url';
+import {{ scrape, createEngine, initSync }} from 'kreuzcrawl';
+
+const __filename = fileURLToPath(import.meta.url);
+const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/kreuzcrawl_wasm_bg.wasm');
+const wasmBuffer = fs.readFileSync(wasmPath);
+initSync({{ module: wasmBuffer }});"#
+        );
+
+        // Replace the problematic pattern
+        let result = content.replace(
+            "const { scrape, createEngine } = await import(\"kreuzcrawl\");\nawait import(\"kreuzcrawl\").then((m) => m.default());",
+            &init_code,
+        );
+
+        return result;
+    }
+
+    // Handle static imports (when TypeScript codegen uses regular import statements)
+    if let Some(import_pos) = content.find("import {") {
+        if let Some(from_pos) = content[import_pos..].find("} from \"kreuzcrawl\";") {
+            let full_from_pos = import_pos + from_pos + "} from \"kreuzcrawl\";".len();
+
+            // Extract the import line to find what's being imported
+            let import_section = &content[import_pos..full_from_pos];
+
+            // Check if initSync is already imported
+            if import_section.contains("initSync") {
+                return content.to_string();
+            }
+
+            // Build the list of imports, adding initSync
+            let new_import = import_section.replace("} from \"kreuzcrawl\";", ", initSync } from \"kreuzcrawl\";");
+
+            // Build the initialization code
+            let init_code = format!(
+                r#"import fs from 'fs';
+import path from 'path';
+import {{ fileURLToPath }} from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/kreuzcrawl_wasm_bg.wasm');
+const wasmBuffer = fs.readFileSync(wasmPath);
+initSync({{ module: wasmBuffer }});
+"#
+            );
+
+            // Replace the import and inject initialization code after it
+            return content[..import_pos].to_string()
+                + &new_import
+                + "\n"
+                + &init_code
+                + "\n"
+                + &content[full_from_pos..];
+        }
+    }
+
+    content.to_string()
 }
