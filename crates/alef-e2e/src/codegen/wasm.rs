@@ -371,8 +371,9 @@ fn render_tsconfig() -> String {
 }
 
 /// Inject WASM initialization into a test file.
-/// Removes the static package import and injects a dynamic import with top-level await
-/// before the describe block, ensuring WASM is fully initialized before tests execute.
+/// Injects WASM initialization into test files using beforeAll hook.
+/// Adds initWasm import and injects a beforeAll(async () => { await initWasm(); }) hook
+/// before the describe block to ensure WASM module is initialized before tests run.
 fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
     let mut result = content.to_string();
 
