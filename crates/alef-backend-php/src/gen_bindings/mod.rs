@@ -236,7 +236,7 @@ impl Backend for PhpBackend {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
-                builder.add_item(&types::gen_struct_methods_with_bridges(
+                builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,
                     has_serde,
@@ -245,7 +245,6 @@ impl Backend for PhpBackend {
                     &enum_names,
                     &api.enums,
                     &exclude_functions,
-                    &config.trait_bridges,
                 ));
             }
         }
