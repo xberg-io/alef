@@ -405,10 +405,18 @@ fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
         }
     }
 
-    // Add the dynamic import + init using top-level await
+    // Add the dynamic import + init using top-level await.
+    // wasm-bindgen exports:
+    // - named exports like `scrape`, `createEngine`
+    // - `initSync` for sync initialization
+    // - default export `__wbg_init` for async initialization
+    // We use the default export and await its initialization.
     result.push('\n');
     result.push_str(&format!(
-        "const {{ convert, initWasm }} = await import('{pkg_name}');\nawait initWasm();\n\n"
+        "const {{ convert, createEngine, scrape }} = await import('{pkg_name}');\n"
+    ));
+    result.push_str(&format!(
+        "const initWasm = (await import('{pkg_name}')).default;\nawait initWasm();\n\n"
     ));
 
     // Output the describe block and all remaining lines

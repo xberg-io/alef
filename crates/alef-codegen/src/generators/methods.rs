@@ -278,6 +278,8 @@ pub fn gen_method(
                 cfg.core_import,
                 cfg.option_duration_on_defaults,
                 opaque_types,
+                cfg.cast_uints_to_i32,
+                cfg.cast_large_ints_to_f64,
             );
             let core_call = format!("core_self.{}({call_args})", method.name);
             if method.error_type.is_some() {
@@ -312,9 +314,18 @@ pub fn gen_method(
                     cfg.core_import,
                     cfg.option_duration_on_defaults,
                     opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
                 )
             } else {
-                gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
+                gen_lossy_binding_to_core_fields(
+                    typ,
+                    cfg.core_import,
+                    cfg.option_duration_on_defaults,
+                    opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
+                )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let newtype_suffix = if method.return_newtype_wrapper.is_some() {
@@ -435,9 +446,18 @@ pub fn gen_method(
                     cfg.core_import,
                     cfg.option_duration_on_defaults,
                     opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
                 )
             } else {
-                gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
+                gen_lossy_binding_to_core_fields(
+                    typ,
+                    cfg.core_import,
+                    cfg.option_duration_on_defaults,
+                    opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
+                )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let newtype_suffix = if method.return_newtype_wrapper.is_some() {

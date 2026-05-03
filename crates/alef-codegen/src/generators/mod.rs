@@ -76,6 +76,14 @@ pub struct RustBindingConfig<'a> {
     /// whether the type has fields. Useful for backends (e.g. extendr) that generate a
     /// separate kwargs-style free-function constructor instead of an in-class `new()`.
     pub skip_impl_constructor: bool,
+    /// When true, small unsigned/signed ints (u8, u16, u32, i8, i16) are cast from i32 in
+    /// `gen_lossy_binding_to_core_fields`. Used by the extendr backend where R maps small
+    /// ints to i32.
+    pub cast_uints_to_i32: bool,
+    /// When true, large int/size types (u64, usize, isize) are cast from f64 in
+    /// `gen_lossy_binding_to_core_fields`. Used by the extendr backend where R maps large
+    /// ints to f64.
+    pub cast_large_ints_to_f64: bool,
 }
 
 /// Method names that conflict with standard trait methods.

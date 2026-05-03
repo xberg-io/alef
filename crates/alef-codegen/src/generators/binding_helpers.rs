@@ -1,3 +1,4 @@
+use crate::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast};
 use crate::generators::{AsyncPattern, RustBindingConfig};
 use ahash::AHashSet;
 use alef_core::ir::{CoreWrapper, ParamDef, TypeDef, TypeRef};
@@ -926,8 +927,18 @@ pub fn gen_lossy_binding_to_core_fields(
     core_import: &str,
     option_duration_on_defaults: bool,
     opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, false, option_duration_on_defaults, opaque_types)
+    gen_lossy_binding_to_core_fields_inner(
+        typ,
+        core_import,
+        false,
+        option_duration_on_defaults,
+        opaque_types,
+        cast_uints_to_i32,
+        cast_large_ints_to_f64,
+    )
 }
 
 /// Same as `gen_lossy_binding_to_core_fields` but declares `core_self` as mutable.
@@ -936,8 +947,18 @@ pub fn gen_lossy_binding_to_core_fields_mut(
     core_import: &str,
     option_duration_on_defaults: bool,
     opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, true, option_duration_on_defaults, opaque_types)
+    gen_lossy_binding_to_core_fields_inner(
+        typ,
+        core_import,
+        true,
+        option_duration_on_defaults,
+        opaque_types,
+        cast_uints_to_i32,
+        cast_large_ints_to_f64,
+    )
 }
 
 fn gen_lossy_binding_to_core_fields_inner(
@@ -946,6 +967,8 @@ fn gen_lossy_binding_to_core_fields_inner(
     needs_mut: bool,
     option_duration_on_defaults: bool,
     opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
     let mut_kw = if needs_mut { "mut " } else { "" };
@@ -981,6 +1004,14 @@ fn gen_lossy_binding_to_core_fields_inner(
             continue;
         }
         let expr = match &field.ty {
+            TypeRef::Primitive(p) if cast_uints_to_i32 && needs_i32_cast(p) => {
+                let core_ty = core_prim_str(p);
+                format!("self.{name} as {core_ty}")
+            }
+            TypeRef::Primitive(p) if cast_large_ints_to_f64 && needs_f64_cast(p) => {
+                let core_ty = core_prim_str(p);
+                format!("self.{name} as {core_ty}")
+            }
             TypeRef::Primitive(_) => format!("self.{name}"),
             TypeRef::Duration => {
                 if field.optional {
