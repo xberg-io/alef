@@ -97,7 +97,11 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
         "extract_file is async — generated call must await, got:\n{body}"
     );
     // Imports the wasm package, not the npm node package.
-    let imports_wasm_pkg = body.contains("from 'mylib'") || body.contains("from \"mylib\"");
+    // The WASM codegen uses dynamic `await import('mylib')` since v0.14.5.
+    let imports_wasm_pkg = body.contains("from 'mylib'")
+        || body.contains("from \"mylib\"")
+        || body.contains("import('mylib')")
+        || body.contains("import(\"mylib\")");
     assert!(
         imports_wasm_pkg,
         "expected import from wasm package 'mylib', got:\n{body}"

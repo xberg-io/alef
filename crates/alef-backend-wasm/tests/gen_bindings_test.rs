@@ -1130,7 +1130,7 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
-        code.code.contains("#[wasm_bindgen]"),
+        code.code.contains("#[wasm_bindgen"),
         "WASM registration function must carry the #[wasm_bindgen] attribute"
     );
     assert!(

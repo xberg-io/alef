@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-05-03
+
 ### Fixed
 
 - fix(backend-extendr): add `cast_uints_to_i32` and `cast_large_ints_to_f64` flags to
@@ -42,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/php): when `result_is_simple = true`, generated assertions now access the
   `content` property of the ConversionResult object instead of passing the object
   directly to assertion methods. Fixes TypeError when trimming or comparing results.
+- fix(backend-pyo3): plain data structs now emit `#[pyclass(frozen)]` instead of
+  `#[pyclass(unsendable)]`. The previous code used the transitive-closure set
+  (`opaque_names_set`) to decide between frozen and unsendable, causing any struct
+  whose fields transitively referenced an opaque type to be marked unsendable. Data
+  structs are `Send + Sync` and crossing thread boundaries in async Python code must
+  not panic with "<TypeName> is unsendable". Only truly-opaque Arc/Rc-wrapped handles
+  need the unsendable annotation.
+- fix(backend-go): `Vec<T>` function return types now emit `[]T` (a value slice) instead
+  of `*[]T` (a pointer to a slice). Pointer-to-slice is unidiomatic in Go, breaks
+  `len(result)` calls, and is unnecessary since Go slices are already reference types.
 - fix(e2e/csharp): generate `List<string>` parameter type for VisitTableRow method
   (was `IReadOnlyList<string>`), emit `new VisitResult.XXX()` instead of
   `VisitResult.XXX()` to correctly instantiate sealed record types, and call

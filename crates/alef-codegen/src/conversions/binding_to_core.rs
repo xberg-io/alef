@@ -747,7 +747,8 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
         // Optional(i32-needs-cast) with cast_uints_to_i32
-        TypeRef::Optional(inner) if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+        TypeRef::Optional(inner)
+            if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = inner.as_ref() {
                 let core_ty = core_prim_str(p);
@@ -758,8 +759,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         // Vec<u8/u16/u32/i8/i16> needs element-wise i32→core casting
         TypeRef::Vec(inner)
-            if config.cast_uints_to_i32
-                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+            if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = inner.as_ref() {
                 let core_ty = core_prim_str(p);
@@ -782,7 +782,9 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
         // Optional(f64-needs-cast) with cast_large_ints_to_f64
-        TypeRef::Optional(inner) if config.cast_large_ints_to_f64 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
         {
             if let TypeRef::Primitive(p) = inner.as_ref() {
                 let core_ty = core_prim_str(p);

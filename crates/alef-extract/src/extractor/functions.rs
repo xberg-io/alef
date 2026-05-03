@@ -23,17 +23,7 @@ fn can_monomorphize_to_string(generics: &syn::Generics) -> bool {
                 let last = tb.path.segments.last().map(|s| s.ident.to_string());
                 matches!(
                     last.as_deref(),
-                    Some(
-                        "AsRef"
-                            | "Into"
-                            | "From"
-                            | "ToString"
-                            | "Display"
-                            | "Debug"
-                            | "Send"
-                            | "Sync"
-                            | "Unpin"
-                    )
+                    Some("AsRef" | "Into" | "From" | "ToString" | "Display" | "Debug" | "Send" | "Sync" | "Unpin")
                 )
             }
             syn::TypeParamBound::Lifetime(_) => true,

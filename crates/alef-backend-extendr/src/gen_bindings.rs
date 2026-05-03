@@ -147,6 +147,10 @@ impl Backend for ExtendrBackend {
                     || matches!(ty, alef_core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::Named(name) if name == n))
             })
         };
+        // Helper: returns true if a method references any arc-incompatible opaque type in params or return.
+        let method_references_arc_incompatible = |m: &alef_core::ir::MethodDef| -> bool {
+            references_arc_incompatible(&m.return_type) || m.params.iter().any(|p| references_arc_incompatible(&p.ty))
+        };
 
         // Import Arc when there are arc-compatible opaque types.
         let has_arc_compatible = opaque_types.iter().any(|n| !arc_incompatible_opaque.contains(n));
@@ -163,22 +167,16 @@ impl Backend for ExtendrBackend {
                 }
                 // Opaque types wrap the core type in Arc<T> and delegate methods to self.inner.
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
-                let impl_block =
-                    generators::gen_opaque_impl_block(typ, self, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
-                if !impl_block.is_empty() {
-                    builder.add_item(&impl_block);
-                }
-            } else {
-                // If this type has fields referencing arc-incompatible opaque types, generate the
-                // struct with those fields removed. They are skipped in the binding because the
-                // opaque wrapper struct (e.g. VisitorHandle) was not generated.
-                let has_excluded_fields = typ.fields.iter().any(|f| references_arc_incompatible(&f.ty));
-                let struct_typ: std::borrow::Cow<alef_core::ir::TypeDef> = if has_excluded_fields {
+                // Filter methods that reference arc-incompatible types before generating the impl
+                // block — this removes methods like visitor() from ConversionOptionsBuilder that
+                // accept VisitorHandle params, which has no extendr wrapper struct.
+                let has_excluded_opaque_methods = typ.methods.iter().any(&method_references_arc_incompatible);
+                let opaque_impl_typ: std::borrow::Cow<alef_core::ir::TypeDef> = if has_excluded_opaque_methods {
                     let filtered = alef_core::ir::TypeDef {
-                        fields: typ
-                            .fields
+                        methods: typ
+                            .methods
                             .iter()
-                            .filter(|f| !references_arc_incompatible(&f.ty))
+                            .filter(|m| !method_references_arc_incompatible(m))
                             .cloned()
                             .collect(),
                         ..typ.clone()
@@ -187,14 +185,60 @@ impl Backend for ExtendrBackend {
                 } else {
                     std::borrow::Cow::Borrowed(typ)
                 };
+                let impl_block = generators::gen_opaque_impl_block(
+                    &opaque_impl_typ,
+                    self,
+                    &cfg,
+                    &opaque_types,
+                    &mutex_types,
+                    &adapter_bodies,
+                );
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
+            } else {
+                // If this type has fields referencing arc-incompatible opaque types, generate the
+                // struct with those fields removed. They are skipped in the binding because the
+                // opaque wrapper struct (e.g. VisitorHandle) was not generated.
+                let has_excluded_fields = typ.fields.iter().any(|f| references_arc_incompatible(&f.ty));
+                let has_excluded_methods = typ.methods.iter().any(&method_references_arc_incompatible);
+                let struct_typ: std::borrow::Cow<alef_core::ir::TypeDef> =
+                    if has_excluded_fields || has_excluded_methods {
+                        let filtered = alef_core::ir::TypeDef {
+                            fields: typ
+                                .fields
+                                .iter()
+                                .filter(|f| !references_arc_incompatible(&f.ty))
+                                .cloned()
+                                .collect(),
+                            methods: typ
+                                .methods
+                                .iter()
+                                .filter(|m| !method_references_arc_incompatible(m))
+                                .cloned()
+                                .collect(),
+                            ..typ.clone()
+                        };
+                        std::borrow::Cow::Owned(filtered)
+                    } else {
+                        std::borrow::Cow::Borrowed(typ)
+                    };
 
                 // gen_struct already emits #[derive(Default)] for all structs.
                 // Emitting gen_struct_default_impl here would produce a conflicting
                 // `impl Default` compile error. The derive covers all types where
                 // can_generate_default_impl is true (all field types implement Default).
                 builder.add_item(&generators::gen_struct(&struct_typ, self, &cfg));
-                let impl_block =
-                    generators::gen_impl_block(&struct_typ, self, &cfg, &adapter_bodies, &opaque_types);
+                // For the impl block, suppress the constructor entirely by passing a TypeDef
+                // with no fields. The #[extendr]-annotated impl-block constructor takes typed
+                // parameters that extendr cannot convert from Robj for custom enum and struct
+                // types. The free-function kwargs constructor (new_<typename>()) below handles
+                // object creation for R callers instead.
+                let impl_typ = alef_core::ir::TypeDef {
+                    fields: vec![],
+                    ..(*struct_typ).clone()
+                };
+                let impl_block = generators::gen_impl_block(&impl_typ, self, &cfg, &adapter_bodies, &opaque_types);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
@@ -202,11 +246,8 @@ impl Backend for ExtendrBackend {
                 // Use the filtered struct so arc-incompatible fields (e.g. visitor) are excluded.
                 if struct_typ.has_default && !struct_typ.fields.is_empty() {
                     let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
-                    let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(
-                        &struct_typ,
-                        &map_fn,
-                        &enum_names,
-                    );
+                    let config_fn =
+                        alef_codegen::config_gen::gen_extendr_kwargs_constructor(&struct_typ, &map_fn, &enum_names);
                     builder.add_item(&config_fn);
                 }
             }

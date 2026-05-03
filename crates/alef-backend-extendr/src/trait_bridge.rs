@@ -557,14 +557,22 @@ fn gen_visitor_bridge(
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
     writeln!(out, ") -> extendr_api::Robj {{").unwrap();
     writeln!(out, "    use extendr_api::prelude::*;").unwrap();
-    writeln!(out, "    let attrs_pairs: Vec<(&str, extendr_api::Robj)> = ctx.attributes.iter()").unwrap();
+    writeln!(
+        out,
+        "    let attrs_pairs: Vec<(&str, extendr_api::Robj)> = ctx.attributes.iter()"
+    )
+    .unwrap();
     writeln!(
         out,
         "        .map(|(k, v)| (k.as_str(), extendr_api::Robj::from(v.as_str())))"
     )
     .unwrap();
     writeln!(out, "        .collect();").unwrap();
-    writeln!(out, "    let attrs: extendr_api::Robj = List::from_pairs(attrs_pairs).into();").unwrap();
+    writeln!(
+        out,
+        "    let attrs: extendr_api::Robj = List::from_pairs(attrs_pairs).into();"
+    )
+    .unwrap();
     writeln!(out, "    list!(").unwrap();
     writeln!(out, "        node_type = format!(\"{{:?}}\", ctx.node_type),").unwrap();
     writeln!(out, "        tag_name = ctx.tag_name.as_str(),").unwrap();

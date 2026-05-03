@@ -535,8 +535,7 @@ pub fn field_conversion_from_core_cfg(
         }
         // Optional(small_uint) with i32 casting
         TypeRef::Optional(inner)
-            if config.cast_uints_to_i32
-                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+            if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
         {
             format!("{name}: val.{name}.map(|v| v as i32)")
         }

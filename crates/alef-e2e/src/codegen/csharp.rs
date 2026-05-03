@@ -710,7 +710,10 @@ fn render_test_method(
     let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
 
     if returns_void {
-        let _ = writeln!(out, "        {await_kw}{class_name}.{effective_function_name}({final_args});");
+        let _ = writeln!(
+            out,
+            "        {await_kw}{class_name}.{effective_function_name}({final_args});"
+        );
     } else {
         let _ = writeln!(
             out,

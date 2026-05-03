@@ -936,9 +936,7 @@ pub fn gen_extendr_kwargs_constructor(
     // each field fall through to the struct's Default value when omitted.
     // Fields whose inner type is a binding enum use Option<String> because extendr has
     // no TryFrom<&Robj> impl for enum types; the string is parsed back in the body.
-    let is_named_enum = |ty: &TypeRef| -> bool {
-        matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str()))
-    };
+    let is_named_enum = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str())) };
     for (i, field) in typ.fields.iter().enumerate() {
         let param_type = if is_named_enum(&field.ty) {
             "String".to_string()

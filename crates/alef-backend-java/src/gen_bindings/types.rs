@@ -105,7 +105,12 @@ pub(crate) fn gen_record_type(
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
     if typ.has_default {
-        writeln!(record_block, "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(builder = {}Builder.class)", typ.name).ok();
+        writeln!(
+            record_block,
+            "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(builder = {}Builder.class)",
+            typ.name
+        )
+        .ok();
     }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
@@ -547,7 +552,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     emit_javadoc(&mut body, &typ.doc, "");
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
-    writeln!(body, "@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder(withPrefix = \"with\")").ok();
+    writeln!(
+        body,
+        "@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder(withPrefix = \"with\")"
+    )
+    .ok();
     writeln!(body, "public class {}Builder {{", typ.name).ok();
     writeln!(body).ok();
 
@@ -597,10 +606,24 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
                             let should_be_true = (typ.name == "PreprocessingOptions"
                                 && matches!(field.name.as_str(), "enabled" | "remove_navigation" | "remove_forms"))
                                 || (typ.name == "ConversionOptions"
-                                    && matches!(field.name.as_str(), "autolinks" | "default_title" | "br_in_tables"
-                                        | "wrap" | "extract_metadata" | "escape_asterisks" | "escape_underscores"
-                                        | "escape_misc" | "escape_ascii" | "include_document_structure" | "extract_images"
-                                        | "capture_svg" | "infer_dimensions" | "debug" | "skip_images"));
+                                    && matches!(
+                                        field.name.as_str(),
+                                        "autolinks"
+                                            | "default_title"
+                                            | "br_in_tables"
+                                            | "wrap"
+                                            | "extract_metadata"
+                                            | "escape_asterisks"
+                                            | "escape_underscores"
+                                            | "escape_misc"
+                                            | "escape_ascii"
+                                            | "include_document_structure"
+                                            | "extract_images"
+                                            | "capture_svg"
+                                            | "infer_dimensions"
+                                            | "debug"
+                                            | "skip_images"
+                                    ));
 
                             if should_be_true {
                                 "true".to_string()

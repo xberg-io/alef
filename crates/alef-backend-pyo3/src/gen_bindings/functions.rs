@@ -396,19 +396,11 @@ pub(super) fn gen_api_py(
                         // instance. PyO3 enums do not provide a string `__init__`, so use the
                         // shared `_coerce_enum` helper to look up the canonical variant.
                         let accessor = field_access(&field.name);
-                        if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
-                            out.push_str(&format!(
-                                "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
-                                name = field.name,
-                                enum_name = nested_name,
-                            ));
-                        } else {
-                            out.push_str(&format!(
-                                "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
-                                name = field.name,
-                                enum_name = nested_name,
-                            ));
-                        }
+                        out.push_str(&format!(
+                            "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
+                            name = field.name,
+                            enum_name = nested_name,
+                        ));
                     }
                     continue;
                 }
