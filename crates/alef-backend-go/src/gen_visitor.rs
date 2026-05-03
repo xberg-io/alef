@@ -1045,11 +1045,18 @@ pub fn gen_visitor_file(
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // encodeVisitResult: write JSON-encoded result into *out_result.
-    // The VTable ABI uses a single out_result **char (not outCustom+outLen).
-    // For codes 3 (Custom) and 4 (Error) with a non-nil Custom string, we JSON-encode
-    // the full VisitResult and store the heap-allocated C string in *out_result.
-    // For all other codes, *out_result is left as-is (nil) and the code alone suffices.
+    // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
+    // can deserialize it with serde_json::from_str::<VisitResult>.
+    //
+    // Rust serde-derived enum serialisation:
+    //   Continue     → "Continue"
+    //   Skip         → "Skip"
+    //   PreserveHtml → "PreserveHtml"
+    //   Custom(s)    → {"Custom":"<s>"}
+    //   Error(s)     → {"Error":"<s>"}
+    //
+    // The return code still carries the numeric variant tag so callers that only
+    // inspect the code (and don't read out_result) remain compatible.
     writeln!(
         out,
         "func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {{"
@@ -1057,26 +1064,44 @@ pub fn gen_visitor_file(
     .ok();
     writeln!(
         out,
-        "\t// Always encode the full VisitResult as JSON in outResult, so the Rust trait bridge"
+        "\t// Encode the result as serde-native JSON so the Rust trait bridge's"
     )
     .ok();
     writeln!(
         out,
-        "\t// can deserialize it and properly handle all result types (not just Custom/Error)."
+        "\t// serde_json::from_str::<VisitResult> deserialiser can decode it correctly."
     )
     .ok();
-    writeln!(out, "\ttype payload struct {{").ok();
-    writeln!(out, "\t\tCode   int32   `json:\"code\"`").ok();
-    writeln!(out, "\t\tCustom *string `json:\"custom\"`").ok();
+    writeln!(out, "\tvar jsonStr string").ok();
+    writeln!(out, "\tswitch r.Code {{").ok();
+    writeln!(out, "\tcase 1:").ok();
+    writeln!(out, "\t\tjsonStr = `\"Skip\"`").ok();
+    writeln!(out, "\tcase 2:").ok();
+    writeln!(out, "\t\tjsonStr = `\"PreserveHtml\"`").ok();
+    writeln!(out, "\tcase 3:").ok();
+    writeln!(out, "\t\tif r.Custom != nil {{").ok();
+    writeln!(out, "\t\t\tb, err := json.Marshal(*r.Custom)").ok();
+    writeln!(out, "\t\t\tif err != nil {{").ok();
+    writeln!(out, "\t\t\t\tb = []byte(`\"\"`)").ok();
+    writeln!(out, "\t\t\t}}").ok();
+    writeln!(out, "\t\t\tjsonStr = `{{\"Custom\":` + string(b) + `}}`").ok();
+    writeln!(out, "\t\t}} else {{").ok();
+    writeln!(out, "\t\t\tjsonStr = `{{\"Custom\":\"\"}}`").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(out, "\tcase 4:").ok();
+    writeln!(out, "\t\tif r.Custom != nil {{").ok();
+    writeln!(out, "\t\t\tb, err := json.Marshal(*r.Custom)").ok();
+    writeln!(out, "\t\t\tif err != nil {{").ok();
+    writeln!(out, "\t\t\t\tb = []byte(`\"\"`)").ok();
+    writeln!(out, "\t\t\t}}").ok();
+    writeln!(out, "\t\t\tjsonStr = `{{\"Error\":` + string(b) + `}}`").ok();
+    writeln!(out, "\t\t}} else {{").ok();
+    writeln!(out, "\t\t\tjsonStr = `{{\"Error\":\"\"}}`").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(out, "\tdefault: // 0 = Continue and any unknown code").ok();
+    writeln!(out, "\t\tjsonStr = `\"Continue\"`").ok();
     writeln!(out, "\t}}").ok();
-    writeln!(
-        out,
-        "\tb, err := json.Marshal(payload{{Code: r.Code, Custom: r.Custom}})"
-    )
-    .ok();
-    writeln!(out, "\tif err == nil {{").ok();
-    writeln!(out, "\t\t*outResult = C.CString(string(b))").ok();
-    writeln!(out, "\t}}").ok();
+    writeln!(out, "\t*outResult = C.CString(jsonStr)").ok();
     writeln!(out, "\treturn C.int32_t(r.Code)").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
