@@ -739,18 +739,19 @@ fn render_test_method(
         build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
 
     // Build visitor if present and add to setup
-    let mut needs_options = false;
+    let mut options_already_created = !args_str.is_empty() && args_str == "$options";
     if let Some(visitor_spec) = &fixture.visitor {
         build_php_visitor(&mut setup_lines, visitor_spec);
-        needs_options = true;
+        if !options_already_created {
+            // Only create options if not already created by build_args_and_setup
+            setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::default();".to_string());
+            options_already_created = true;
+        }
+        setup_lines.push("$options->setVisitor($visitor);".to_string());
     }
 
-    let final_args = if needs_options {
-        // Create default ConversionOptions and set the visitor using the setter method.
-        // We use ::default() because the constructor requires all parameters.
-        setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::default();".to_string());
-        setup_lines.push("$options->setVisitor($visitor);".to_string());
-        if args_str.is_empty() {
+    let final_args = if options_already_created {
+        if args_str.is_empty() || args_str == "$options" {
             "$options".to_string()
         } else {
             format!("{args_str}, $options")
@@ -922,12 +923,33 @@ fn build_args_and_setup(
                             continue;
                         }
                         _ => {
-                            // Default: PHP array literal with snake_case keys.
+                            // PHP: construct a ConversionOptions object with property assignments.
+                            // This ensures strict type checking passes.
                             if let Some(obj) = v.as_object() {
-                                let items: Vec<String> = obj
-                                    .iter()
-                                    .map(|(k, vv)| {
-                                        let snake_key = k.to_snake_case();
+                                setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::default();".to_string());
+                                for (k, vv) in obj {
+                                    let snake_key = k.to_snake_case();
+                                    if snake_key == "preprocessing" {
+                                        // Handle preprocessing as a nested object
+                                        if let Some(prep_obj) = vv.as_object() {
+                                            setup_lines.push("$preprocessing = \\HtmlToMarkdown\\PreprocessingOptions::default();".to_string());
+                                            for (prep_k, prep_v) in prep_obj {
+                                                let prep_snake_key = prep_k.to_snake_case();
+                                                let php_val = if enum_fields.contains_key(prep_k) {
+                                                    if let Some(s) = prep_v.as_str() {
+                                                        let snake_val = s.to_snake_case();
+                                                        format!("\"{}\"", escape_php(&snake_val))
+                                                    } else {
+                                                        json_to_php(prep_v)
+                                                    }
+                                                } else {
+                                                    json_to_php(prep_v)
+                                                };
+                                                setup_lines.push(format!("$preprocessing->{prep_snake_key} = {php_val};"));
+                                            }
+                                            setup_lines.push("$options->preprocessing = $preprocessing;".to_string());
+                                        }
+                                    } else {
                                         let php_val = if enum_fields.contains_key(k) {
                                             if let Some(s) = vv.as_str() {
                                                 let snake_val = s.to_snake_case();
@@ -938,10 +960,10 @@ fn build_args_and_setup(
                                         } else {
                                             json_to_php(vv)
                                         };
-                                        format!("\"{}\" => {}", escape_php(&snake_key), php_val)
-                                    })
-                                    .collect();
-                                parts.push(format!("[{}]", items.join(", ")));
+                                        setup_lines.push(format!("$options->{snake_key} = {php_val};"));
+                                    }
+                                }
+                                parts.push("$options".to_string());
                                 continue;
                             }
                         }

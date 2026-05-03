@@ -1215,6 +1215,19 @@ fn render_assertion(
                                 format!("{optional_expr}.orElse(0L)")
                             }
                         }
+                        // For equals on Optional fields, determine fallback based on whether value is numeric.
+                        // If the fixture value is a number, use 0L; otherwise use "".
+                        "equals" => {
+                            if let Some(expected) = &assertion.value {
+                                if expected.is_number() {
+                                    format!("{optional_expr}.orElse(0L)")
+                                } else {
+                                    format!("{optional_expr}.orElse(\"\")")
+                                }
+                            } else {
+                                format!("{optional_expr}.orElse(\"\"")}
+                            }
+                        }
                         _ if field_resolver.is_array(resolved) => {
                             format!("{optional_expr}.orElse(java.util.List.of())")
                         }
@@ -1243,6 +1256,12 @@ fn render_assertion(
                 let java_val = json_to_java(expected);
                 if expected.is_string() {
                     let _ = writeln!(out, "        assertEquals({java_val}, {string_expr}.trim());");
+                } else if expected.is_number() && field_expr.contains(".orElse(\"\")") {
+                    // For numeric "equals" on Optional fields with string fallback,
+                    // the field must be Optional<Long/Integer>, not Optional<String>.
+                    // Replace the string fallback with a numeric one.
+                    let fixed_expr = field_expr.replace(".orElse(\"\")", ".orElse(0L)");
+                    let _ = writeln!(out, "        assertEquals({java_val}, {fixed_expr});");
                 } else {
                     let _ = writeln!(out, "        assertEquals({java_val}, {field_expr});");
                 }

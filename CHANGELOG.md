@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(backend-pyo3): split `None` check from `isinstance` check in `_coerce_enum` helper so
+  the function return type matches the declared `-> _E` signature; remove now-unused
+  `# type: ignore[arg-type]` comments that newer mypy versions flag as `[unused-ignore]`
+
 - fix(backend-java): use short annotation names (`@JsonDeserialize`, `@JsonPOJOBuilder`) instead of
   fully-qualified names in generated record and builder classes so that the accompanying import
   statements are actually used and checkstyle's UnusedImports rule passes.
