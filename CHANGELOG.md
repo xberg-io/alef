@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a printable variant name instead of silently returning nil conversion results.
 - fix(e2e/go): stringify structured array fields as JSON for containment assertions
   so pointer fields compare by value instead of address.
+- fix(backend-go): marshal decoded data-enum variants back to their variant names so
+  generated JSON-based e2e assertions can inspect them.
 
 ## [0.14.3] - 2026-05-03
 

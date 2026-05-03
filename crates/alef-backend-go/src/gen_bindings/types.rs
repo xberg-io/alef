@@ -301,6 +301,14 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     writeln!(out, "\treturn e.Variant").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
+    writeln!(out, "func (e {go_enum_name}) MarshalJSON() ([]byte, error) {{").ok();
+    writeln!(out, "\tif e.Variant != \"\" {{").ok();
+    writeln!(out, "\t\treturn json.Marshal(e.Variant)").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\ttype alias {go_enum_name}").ok();
+    writeln!(out, "\treturn json.Marshal(alias(e))").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
     writeln!(out, "func (e *{go_enum_name}) UnmarshalJSON(data []byte) error {{").ok();
     writeln!(out, "\tvar wire string").ok();
     writeln!(out, "\tif err := json.Unmarshal(data, &wire); err == nil {{").ok();
