@@ -474,33 +474,42 @@ impl Backend for WasmBackend {
         }
 
         // Fix From<WasmConversionOptions> to pass through visitor instead of Default::default()
-        // The marker is unique to the forward direction: uses `.chars().next().unwrap_or('*')`
-        let marker = "strong_em_symbol: val.strong_em_symbol.chars().next().unwrap_or('*'),";
-        if content.contains(marker) {
-            // Find and replace the visitor line in this impl
-            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()";
-            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()";
-            if let Some(pos) = content.find(marker) {
-                // Find the visitor line after this marker
-                if let Some(visitor_pos) = content[pos..].find(old) {
-                    let before = &content[..pos + visitor_pos];
-                    let after = &content[pos + visitor_pos + old.len()..];
-                    content = format!("{}{}{}", before, new, after);
+        // Replace in the From<WasmConversionOptions> impl only (forward direction)
+        // This impl signature is unique because it has html_to_markdown_rs::options::ConversionOptions as the target
+        let pattern = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {";
+        if let Some(start_pos) = content.find(pattern) {
+            // Find the next } that closes this impl
+            if let Some(end_pos) = content[start_pos..].find("\n}\n\n#[allow(clippy::needless_update)]") {
+                let impl_start = start_pos + pattern.len();
+                let impl_end = start_pos + end_pos;
+                let impl_block = &content[impl_start..impl_end];
+
+                // Replace visitor default with the passthrough version within this impl only
+                let visitor_old = "            visitor: Default::default(),";
+                let visitor_new = "            visitor: val.visitor.map(|v| (*v.inner).clone()),";
+                if let Some(visitor_pos) = impl_block.find(visitor_old) {
+                    let before = &content[..impl_start + visitor_pos];
+                    let after = &content[impl_start + visitor_pos + visitor_old.len()..];
+                    content = format!("{}{}{}", before, visitor_new, after);
                 }
             }
         }
 
-        // Similar fix for From<WasmConversionOptionsUpdate>
-        // Marker: uses `.and_then(|s| s.chars().next())`
-        let marker_update = "strong_em_symbol: val.strong_em_symbol.and_then(|s| s.chars().next()),";
-        if content.contains(marker_update) {
-            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()";
-            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()";
-            if let Some(pos) = content.find(marker_update) {
-                if let Some(visitor_pos) = content[pos..].find(old) {
-                    let before = &content[..pos + visitor_pos];
-                    let after = &content[pos + visitor_pos + old.len()..];
-                    content = format!("{}{}{}", before, new, after);
+        // Similar fix for From<WasmConversionOptionsUpdate> (forward direction only)
+        let pattern_update = "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
+        if let Some(start_pos) = content.find(pattern_update) {
+            // Find the next } that closes this impl
+            if let Some(end_pos) = content[start_pos..].find("\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptionsUpdate> for WasmConversionOptionsUpdate") {
+                let impl_start = start_pos + pattern_update.len();
+                let impl_end = start_pos + end_pos;
+                let impl_block = &content[impl_start..impl_end];
+
+                let visitor_old = "            visitor: Default::default(),";
+                let visitor_new = "            visitor: val.visitor.map(|v| (*v.inner).clone()),";
+                if let Some(visitor_pos) = impl_block.find(visitor_old) {
+                    let before = &content[..impl_start + visitor_pos];
+                    let after = &content[impl_start + visitor_pos + visitor_old.len()..];
+                    content = format!("{}{}{}", before, visitor_new, after);
                 }
             }
         }
