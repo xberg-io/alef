@@ -1369,11 +1369,12 @@ fn gen_convert_with_visitor(
     // then unmarshal into a Go struct.  The pointer is a *ConversionResult struct (not a
     // string), so we must call the to_json helper before treating it as text.
     let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
+    let fn_free_string = format!("{_ffi_prefix}_free_string");
     writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
     writeln!(out, "\tif jsonPtr == nil {{").ok();
     writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")").ok();
     writeln!(out, "\t}}").ok();
-    writeln!(out, "\tdefer C.htm_free_string(jsonPtr)").ok();
+    writeln!(out, "\tdefer C.{fn_free_string}(jsonPtr)").ok();
     writeln!(out, "\tvar result ConversionResult").ok();
     writeln!(
         out,
