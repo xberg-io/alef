@@ -148,16 +148,38 @@ pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallba
 /// Generate a Go enum type definition.
 ///
 /// For unit enums (all variants have no fields): generates `type X string` with constants.
-/// For data enums (any variant has fields): generates a flattened Go struct with all
-/// variant fields collected and deduplicated, using pointer types for fields not present
-/// in every variant.
+/// For newtype-tuple enums (all data variant fields are positional tuple fields that would
+/// be skipped in Go): generates `type X string` with constants for named variants plus
+/// custom `MarshalJSON`/`UnmarshalJSON` that round-trips the string value unchanged — this
+/// handles Rust enums like `enum Foo { A, B, Custom(String) }` where `Custom` carries an
+/// arbitrary string payload.
+/// For structural data enums (any variant has named fields): generates a flattened Go
+/// struct with all variant fields collected and deduplicated, using pointer types for
+/// fields not present in every variant.
 pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
     let is_data_enum = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    if is_data_enum {
-        gen_data_enum_type(enum_def)
+    if !is_data_enum {
+        return gen_unit_enum_type(enum_def);
+    }
+
+    // Detect "newtype-tuple" pattern: a data enum whose data variants contain only
+    // positional tuple fields (all of which `is_tuple_field` returns true for).
+    // These are Rust enums like `enum Foo { A, B, Custom(String) }` where the
+    // `Custom` variant wraps a single scalar.  Go cannot represent tuple fields in
+    // a struct, so we fall back to the simpler `type Foo string` representation:
+    // - Named (non-data) variants become string constants (e.g. `FooA`).
+    // - The Custom/tuple variant becomes the "fallthrough": arbitrary string values
+    //   that don't match a constant are accepted as-is (no extra UnmarshalJSON needed
+    //   because the underlying type IS string).
+    let all_data_fields_are_tuple = enum_def.variants.iter().all(|v| {
+        v.fields.is_empty() || v.fields.iter().all(|f| is_tuple_field(f))
+    });
+
+    if all_data_fields_are_tuple {
+        gen_newtype_tuple_enum_type(enum_def)
     } else {
-        gen_unit_enum_type(enum_def)
+        gen_data_enum_type(enum_def)
     }
 }
 
@@ -172,6 +194,62 @@ fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &Enum
         return rename.clone();
     }
     apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref())
+}
+
+/// Generate a Go "newtype-tuple" enum as `type X string` with const block.
+///
+/// Used for Rust enums that have one or more unit variants plus one or more
+/// "newtype" (single positional field) variants like `Custom(String)`.
+/// The Go type is `type X string` — unit variants become named constants while
+/// Custom/tuple variants are handled automatically because the underlying type
+/// is `string` and any arbitrary string value round-trips through JSON as-is.
+fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
+    let mut out = String::with_capacity(1024);
+    let go_enum_name = go_type_name(&enum_def.name);
+    emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
+    writeln!(out, "type {} string", go_enum_name).ok();
+    writeln!(out).ok();
+    writeln!(out, "const (").ok();
+    for variant in &enum_def.variants {
+        // Only emit constants for unit (non-data) variants.
+        // Tuple/data variants (e.g. Custom(String)) are represented as raw string values.
+        if !variant.fields.is_empty() {
+            continue;
+        }
+        let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
+        let wire_value = enum_variant_wire_value(variant, enum_def);
+        if !variant.doc.is_empty() {
+            let mut lines = variant.doc.lines();
+            if let Some(first) = lines.next() {
+                let trimmed = first.trim();
+                if trimmed.starts_with(&const_name) {
+                    writeln!(out, "\t// {}", trimmed).ok();
+                } else {
+                    let rest = {
+                        let mut chars = trimmed.chars();
+                        match chars.next() {
+                            Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                            None => trimmed.to_string(),
+                        }
+                    };
+                    writeln!(out, "\t// {} {}", const_name, rest).ok();
+                }
+                for line in lines {
+                    writeln!(out, "\t// {}", line.trim()).ok();
+                }
+            }
+        } else {
+            writeln!(
+                out,
+                "\t// {} is the {} variant of {}.",
+                const_name, variant.name, enum_def.name
+            )
+            .ok();
+        }
+        writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
+    }
+    writeln!(out, ")").ok();
+    out
 }
 
 /// Generate a Go unit enum as `type X string` with const block.

@@ -501,22 +501,29 @@ fn render_test_file(
 }
 
 /// Return `true` when a non-HTTP fixture can be exercised by calling the Go
-/// binding directly (i.e. the resolved call config exposes a Go-callable
-/// function via `[e2e.call.overrides.go]` `function`).
+/// binding directly.
+///
+/// A fixture is Go-callable when the resolved call config provides a non-empty
+/// function name — either via a Go-specific override (`[e2e.call.overrides.go]
+/// function`) or via the base call `function` field.  The Go binding exposes all
+/// public functions from the Rust core as PascalCase exports, so any non-empty
+/// function name can be resolved to a valid Go symbol via `to_go_name`.
 fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eConfig) -> bool {
     // HTTP fixtures are handled by render_http_test_function — not our concern here.
     if fixture.is_http_test() {
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    // The base fixture function is often a Rust/Python/Node module-level symbol.
-    // Go bindings commonly expose methods on a client handle instead, so only a
-    // Go-specific override is safe to treat as directly callable.
-    call_config
+    // Prefer a Go-specific override function name; fall back to the base function name.
+    // Any non-empty function name is callable: the Go binding exports all public
+    // Rust functions as PascalCase symbols (snake_case → PascalCase via to_go_name).
+    let fn_name = call_config
         .overrides
         .get("go")
         .and_then(|o| o.function.as_deref())
-        .is_some()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| call_config.function.as_str());
+    !fn_name.is_empty()
 }
 
 fn render_test_function(

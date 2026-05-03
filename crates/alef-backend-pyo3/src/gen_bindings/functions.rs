@@ -367,7 +367,13 @@ pub(super) fn gen_api_py(
                         // previous conversion), pass it through to avoid a double-wrap error;
                         // otherwise wrap the dict via the PyO3 constructor.
                         let accessor = field_access(&field.name);
-                        if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
+                        // Guard with None check when the field is optional OR when we are in
+                        // TypedDict mode (where `value.get("field")` returns None for absent fields
+                        // even if the IR marks the field as non-optional). Without the guard,
+                        // `_rust.OutputFormat(None)` raises a TypeError.
+                        let needs_none_guard =
+                            matches!(&field.ty, TypeRef::Optional(_)) || field.optional || is_typeddict;
+                        if needs_none_guard {
                             out.push_str(&format!(
                                 "        {name}=({accessor} if isinstance({accessor}, _rust.{enum_name}) else _rust.{enum_name}({accessor})) if {accessor} is not None else None,\n",
                                 name = field.name,
@@ -630,12 +636,23 @@ pub(super) fn gen_api_py(
                         // so that `visitor=visitor` is forwarded even when `options is None`.
                         let bridge_optional = optional
                             && !(options_field_bridges.contains_key(name) && options_field_visitor_kwarg.is_some());
-                        emit_param_conversion(&mut out, &var, pname, &scalar_expr, bridge_optional);
-                        // Required scalar (not optional and not promoted): failed converter → raise.
-                        // Promoted params are treated as optional at the Python level, so do not raise.
+                        if bridge_optional {
+                            // Optional has-default param: use Rust default constructor when None
+                            // instead of passing None to the Rust binding (which may panic on
+                            // `.expect("'config' is required")`).
+                            out.push_str(&format!(
+                                "    {var} = {scalar_expr} if {pname} is not None else _rust.{name}()\n"
+                            ));
+                        } else {
+                            emit_param_conversion(&mut out, &var, pname, &scalar_expr, false);
+                        }
+                        // Required scalar (not optional and not promoted): when the converter
+                        // returns None (caller passed None for a required param), substitute the
+                        // Rust default constructor instead of raising ValueError.  This lets
+                        // callers omit the config argument naturally.
                         if !param.optional && !is_promoted && !is_collection {
                             out.push_str(&format!(
-                                "    if {var} is None:\n        msg = \"{pname} conversion returned None\"\n        raise ValueError(msg)\n"
+                                "    if {var} is None:\n        {var} = _rust.{name}()\n"
                             ));
                         }
                     }
