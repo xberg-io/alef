@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-05-03
+
 ### Fixed
+
+- fix(backend-pyo3): Required parameters whose Rust type is a has-default struct
+  (e.g. `ExtractionConfig`) are now treated as optional at the Python wrapper layer.
+  Callers may pass `None` and the wrapper substitutes a Rust default-constructed
+  instance. Previously the PyO3 binding panicked with `.expect("'param' is required")`.
+- feat(backend-pyo3): emit pass-through wrappers for trait-bridge `unregister_*` and
+  `clear_*` functions in `api.py` so callers can use the public package path.
+- fix(backend-go): Rust newtype-tuple enums (e.g.
+  `enum OutputFormat { Plain, Markdown, Custom(String) }`) are now rendered as Go
+  string types with const variants and a Custom fallthrough, instead of empty
+  structs. Fixes JSON unmarshaling of config fields like `output_format: "markdown"`.
+- fix(e2e/go): callable detection no longer skips fixtures with reason "non-HTTP
+  fixture: Go binding does not expose a callable for the configured `[e2e.call]`
+  function" — Go does expose the canonical 27 fns. Real test bodies are now
+  emitted from the e2e generator, mirroring the Rust backend pattern.
+- fix(backend-ffi): emit `visitor_create`/`free`/`convert_with_visitor` when both
+  `options_field` and `visitor_callbacks` are configured.
+- fix(wasm-visitor): use marker-relative search for visitor replacement; use
+  bounded `replace` within impl blocks to avoid cross-impl pollution.
+- feat(backend-napi): add `gen_options_field_bridge_function` for visitor
+  embedding in options.
+
+### Fixed (carry-forward from unreleased v0.14.3 follow-ups)
 
 - fix(e2e/elixir): inject visitor into the options map argument instead of passing it as a
   separate positional argument, so the Elixir facade's `convert/2` can properly extract it
