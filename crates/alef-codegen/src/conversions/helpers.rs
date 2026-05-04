@@ -157,11 +157,7 @@ pub(crate) fn needs_i32_cast(p: &PrimitiveType) -> bool {
 pub(crate) fn needs_f64_cast(p: &PrimitiveType) -> bool {
     matches!(
         p,
-        PrimitiveType::U64
-            | PrimitiveType::I64
-            | PrimitiveType::Usize
-            | PrimitiveType::Isize
-            | PrimitiveType::F32
+        PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize | PrimitiveType::F32
     )
 }
 

@@ -913,6 +913,49 @@ fn render_test_method(
 /// the binding accepts a typed config object.
 ///
 /// Returns `(setup_lines, args_string)`.
+/// Emit PHP batch item array constructors for BatchBytesItem or BatchFileItem arrays.
+fn emit_php_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    if let Some(items) = arr.as_array() {
+        let item_strs: Vec<String> = items
+            .iter()
+            .filter_map(|item| {
+                if let Some(obj) = item.as_object() {
+                    match elem_type {
+                        "BatchBytesItem" => {
+                            let content = obj.get("content").and_then(|v| v.as_array());
+                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            let content_code = if let Some(arr) = content {
+                                let bytes: Vec<String> = arr
+                                    .iter()
+                                    .filter_map(|v| v.as_u64())
+                                    .map(|n| format!("\\x{:02x}", n))
+                                    .collect();
+                                format!("\"{}\"", bytes.join(""))
+                            } else {
+                                "\"\"".to_string()
+                            };
+                            Some(format!(
+                                "new {}(content: {}, mimeType: \"{}\")",
+                                elem_type, content_code, mime_type
+                            ))
+                        }
+                        "BatchFileItem" => {
+                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            Some(format!("new {}(path: \"{}\")", elem_type, path))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        format!("[{}]", item_strs.join(", "))
+    } else {
+        "[]".to_string()
+    }
+}
+
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -997,6 +1040,13 @@ fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" && !v.is_null() {
+                    // Check for batch item arrays first
+                    if let Some(elem_type) = &arg.element_type {
+                        if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
+                            parts.push(emit_php_batch_item_array(v, elem_type));
+                            continue;
+                        }
+                    }
                     match options_via {
                         "json" => {
                             // Pass as JSON string via json_encode(); the Rust method accepts Option<String>.

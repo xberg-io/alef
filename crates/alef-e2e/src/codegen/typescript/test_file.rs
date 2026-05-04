@@ -97,6 +97,18 @@ pub fn render_test_file(
             }
         }
 
+        // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
+        for fixture in fixtures.iter() {
+            let cc = e2e_config.resolve_call(fixture.call.as_deref());
+            for arg in &cc.args {
+                if let Some(elem_type) = &arg.element_type {
+                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !imports.contains(elem_type) {
+                        imports.push(elem_type.clone());
+                    }
+                }
+            }
+        }
+
         let _ = module_path; // retained in signature for potential future use
         if let (true, Some(opts_type)) = (needs_options_import, options_type) {
             imports.push(format!("type {opts_type}"));
@@ -450,6 +462,43 @@ fn has_later_arg_value(args: &[ArgMapping], from_idx: usize, input: &serde_json:
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
+/// Emit TypeScript batch item constructors for BatchBytesItem or BatchFileItem arrays.
+fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    if let Some(items) = arr.as_array() {
+        let item_strs: Vec<String> = items
+            .iter()
+            .filter_map(|item| {
+                if let Some(obj) = item.as_object() {
+                    match elem_type {
+                        "BatchBytesItem" => {
+                            let content = obj.get("content").and_then(|v| v.as_array());
+                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            let content_code = if let Some(arr) = content {
+                                let bytes: Vec<String> =
+                                    arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
+                                format!("Buffer.from([{}])", bytes.join(", "))
+                            } else {
+                                "Buffer.from([])".to_string()
+                            };
+                            Some(format!("{{ content: {}, mimeType: \"{}\" }}", content_code, mime_type))
+                        }
+                        "BatchFileItem" => {
+                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            Some(format!("{{ path: \"{}\" }}", path.replace('\\', "\\\\")))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        format!("[{}]", item_strs.join(", "))
+    } else {
+        "[]".to_string()
+    }
+}
+
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[ArgMapping],
@@ -519,8 +568,17 @@ fn build_args_and_setup(
             Some(v) => {
                 if arg.arg_type == "json_object" {
                     if v.is_array() {
-                        // Array args (e.g. batch items) are not the options/config arg — pass as-is.
-                        parts.push(json_to_js_camel(v));
+                        // Array args (e.g. batch items) may need element_type wrapping.
+                        if let Some(elem_type) = &arg.element_type {
+                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                                let wrapped = emit_typescript_batch_item_array(v, elem_type);
+                                parts.push(wrapped);
+                            } else {
+                                parts.push(json_to_js_camel(v));
+                            }
+                        } else {
+                            parts.push(json_to_js_camel(v));
+                        }
                     } else if let Some(opts_type) = options_type {
                         // Object value with known options type — cast to the interface type.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {

@@ -885,6 +885,46 @@ fn render_test_case(
 ///
 /// Returns `(setup_lines, args_string)`.
 #[allow(clippy::too_many_arguments)]
+/// Emit Elixir batch item map constructors for BatchBytesItem or BatchFileItem arrays.
+fn emit_elixir_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    if let Some(items) = arr.as_array() {
+        let item_strs: Vec<String> = items
+            .iter()
+            .filter_map(|item| {
+                if let Some(obj) = item.as_object() {
+                    match elem_type {
+                        "BatchBytesItem" => {
+                            let content = obj.get("content").and_then(|v| v.as_array());
+                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            let content_code = if let Some(arr) = content {
+                                let bytes: Vec<String> =
+                                    arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
+                                format!("<<{}>>", bytes.join(", "))
+                            } else {
+                                "<<>>".to_string()
+                            };
+                            Some(format!(
+                                "%BatchBytesItem{{content: {}, mime_type: \"{}\"}}",
+                                content_code, mime_type
+                            ))
+                        }
+                        "BatchFileItem" => {
+                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            Some(format!("%BatchFileItem{{path: \"{}\"}}", path))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        format!("[{}]", item_strs.join(", "))
+    } else {
+        "[]".to_string()
+    }
+}
+
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -1044,11 +1084,18 @@ fn build_args_and_setup(
                         parts.push(options_var.to_string());
                         continue;
                     }
-                    // When element_type is set, the value is an array of a simple type (e.g.
-                    // Vec<String>). The NIF accepts an Elixir list directly — emit one.
-                    if arg.element_type.is_some() && v.is_array() {
-                        parts.push(json_to_elixir(v));
-                        continue;
+                    // When element_type is set to a batch item type, wrap items with constructors.
+                    if let Some(elem_type) = &arg.element_type {
+                        if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
+                            parts.push(emit_elixir_batch_item_array(v, elem_type));
+                            continue;
+                        }
+                        // When element_type is set to a simple type (e.g. Vec<String>).
+                        // The NIF accepts an Elixir list directly — emit one.
+                        if v.is_array() {
+                            parts.push(json_to_elixir(v));
+                            continue;
+                        }
                     }
                     // When there's no options_type+options_via, the Elixir NIF expects a JSON
                     // string (Option<String> decoded by serde_json) rather than an Elixir map.

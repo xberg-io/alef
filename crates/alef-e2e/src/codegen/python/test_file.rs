@@ -336,6 +336,19 @@ fn build_thirdparty_imports(
         }
     }
 
+    // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
+    for fixture in fixtures.iter() {
+        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        for arg in &cc.args {
+            if let Some(elem_type) = &arg.element_type {
+                if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !import_names.contains(elem_type)
+                {
+                    import_names.push(elem_type.clone());
+                }
+            }
+        }
+    }
+
     let needs_config_import = e2e_config.call.args.iter().any(|arg| {
         arg.arg_type == "handle"
             && fixtures.iter().any(|f| {

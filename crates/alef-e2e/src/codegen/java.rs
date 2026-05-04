@@ -336,6 +336,14 @@ fn render_test_file(
                 all_options_types.insert(t.clone());
             }
         }
+        // Detect batch item types used in this fixture
+        for arg in &call_cfg.args {
+            if let Some(elem_type) = &arg.element_type {
+                if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                    all_options_types.insert(elem_type.clone());
+                }
+            }
+        }
     }
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test;");
@@ -941,8 +949,15 @@ fn build_args_and_setup(
             Some(v) => {
                 if arg.arg_type == "json_object" {
                     // Array json_object args: emit inline Java list expression.
-                    // Use element_type to emit the correct numeric literal suffix (f vs d).
+                    // Check for batch item arrays first (element_type = BatchBytesItem/BatchFileItem).
                     if v.is_array() {
+                        if let Some(elem_type) = &arg.element_type {
+                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
+                                parts.push(emit_java_batch_item_array(v, elem_type));
+                                continue;
+                            }
+                        }
+                        // Otherwise use element_type to emit the correct numeric literal suffix (f vs d).
                         let elem_type = arg.element_type.as_deref();
                         parts.push(json_to_java_typed(v, elem_type));
                         continue;
@@ -1583,6 +1598,45 @@ fn json_to_java(value: &serde_json::Value) -> String {
 
 /// Convert a JSON value to a Java literal, optionally overriding number type for array elements.
 /// `element_type` controls how numeric array elements are emitted: "f32" → `1.0f`, otherwise `1.0d`.
+/// Emit Java batch item constructors for BatchBytesItem or BatchFileItem arrays.
+fn emit_java_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    if let Some(items) = arr.as_array() {
+        let item_strs: Vec<String> = items
+            .iter()
+            .filter_map(|item| {
+                if let Some(obj) = item.as_object() {
+                    match elem_type {
+                        "BatchBytesItem" => {
+                            let content = obj.get("content").and_then(|v| v.as_array());
+                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            let content_code = if let Some(arr) = content {
+                                let bytes: Vec<String> = arr
+                                    .iter()
+                                    .filter_map(|v| v.as_u64().map(|n| format!("(byte) {}", n)))
+                                    .collect();
+                                format!("new byte[] {{{}}}", bytes.join(", "))
+                            } else {
+                                "new byte[] {}".to_string()
+                            };
+                            Some(format!("new {}({}, \"{}\")", elem_type, content_code, mime_type))
+                        }
+                        "BatchFileItem" => {
+                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                            Some(format!("new {}(\"{}\")", elem_type, path))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        format!("java.util.Arrays.asList({})", item_strs.join(", "))
+    } else {
+        "java.util.List.of()".to_string()
+    }
+}
+
 fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> String {
     match value {
         serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),

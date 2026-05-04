@@ -606,7 +606,8 @@ impl Backend for PhpBackend {
                     } else {
                         false
                     };
-                    let should_be_optional = p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
+                    let should_be_optional =
+                        p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
