@@ -129,13 +129,21 @@ pub(crate) fn gen_php_struct(
     // no automatic attribute; instead a `#[php(getter)]` method is generated separately in
     // `gen_struct_methods`.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
-        if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
+        let mut attrs = if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
             // Use php(rename) to keep snake_case naming consistent with getter properties.
             // Without this, ext-php-rs auto-converts to camelCase for #[php(prop)] fields.
             vec![format!("php(prop, name = \"{}\")", field.name)]
         } else {
             vec![]
+        };
+        // Non-optional Duration fields are stored as Option<i64> when has_serde is enabled
+        // (option_duration_on_defaults). When None, serde serializes them as JSON null, but
+        // the core Duration field uses a custom duration_ms deserializer that rejects null.
+        // Skip-serializing None ensures the field is omitted so the core uses its default.
+        if cfg.has_serde && matches!(field.ty, TypeRef::Duration) && !field.optional {
+            attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
         }
+        attrs
     };
 
     if cfg.has_serde {
