@@ -565,12 +565,11 @@ fn render_test_function(
         return;
     }
 
-    // Non-HTTP, non-mock fixtures can be tested directly if the call config
-    // provides a callable Go function (via [e2e.call.overrides.go] `function`
-    // or the base call `function`). Only emit a t.Skip stub when there is no
-    // usable callable — this keeps the package compilable while being honest
-    // about what can and cannot be exercised.
-    if fixture.mock_response.is_none() && !fixture_has_go_callable(fixture, e2e_config) {
+    // Non-HTTP fixtures are tested directly when the call config provides a
+    // callable Go function.  Emit a t.Skip() stub when:
+    //   - No mock response and no callable (non-HTTP, non-mock, unreachable), or
+    //   - The call's skip_languages includes "go" (e.g. streaming not supported).
+    if !fixture_has_go_callable(fixture, e2e_config) {
         let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
         let _ = writeln!(out, "\t// {description}");
         let _ = writeln!(
@@ -1900,7 +1899,14 @@ fn render_assertion(
             if is_optional && !field_is_array {
                 // Struct pointer: non-empty means not nil.
                 let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
+            } else if is_optional && field_is_slice {
+                // Slice optional: Go slices are already nil-able — no dereference needed.
+                let _ = writeln!(out_ref, "\tif {field_expr} == nil || len({field_expr}) == 0 {{");
             } else if is_optional {
+                // Pointer-to-slice (*[]T): dereference then len.
+                let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
+            } else if result_is_simple && result_is_array {
+                // Simple result is *[]byte (e.g., speech): nil check + dereference.
                 let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
             } else {
                 let _ = writeln!(out_ref, "\tif len({field_expr}) == 0 {{");
@@ -1917,7 +1923,11 @@ fn render_assertion(
             if is_optional && !field_is_array {
                 // Struct pointer: empty means nil.
                 let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+            } else if is_optional && field_is_slice {
+                // Slice optional: Go slices are already nil-able — no dereference needed.
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil && len({field_expr}) != 0 {{");
             } else if is_optional {
+                // Pointer-to-slice (*[]T): dereference then len.
                 let _ = writeln!(out_ref, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
             } else {
                 let _ = writeln!(out_ref, "\tif len({field_expr}) != 0 {{");
@@ -2059,9 +2069,15 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     if is_optional {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        // Slices are value types in Go — use len(slice) not len(*slice).
+                        let len_expr = if field_is_slice {
+                            format!("len({field_expr})")
+                        } else {
+                            format!("len(*{field_expr})")
+                        };
                         let _ = writeln!(
                             out_ref,
-                            "\t\tassert.GreaterOrEqual(t, len(*{field_expr}), {n}, \"expected at least {n} elements\")"
+                            "\t\tassert.GreaterOrEqual(t, {len_expr}, {n}, \"expected at least {n} elements\")"
                         );
                         let _ = writeln!(out_ref, "\t}}");
                     } else {
@@ -2078,9 +2094,15 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     if is_optional {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        // Slices are value types in Go — use len(slice) not len(*slice).
+                        let len_expr = if field_is_slice {
+                            format!("len({field_expr})")
+                        } else {
+                            format!("len(*{field_expr})")
+                        };
                         let _ = writeln!(
                             out_ref,
-                            "\t\tassert.Equal(t, len(*{field_expr}), {n}, \"expected exactly {n} elements\")"
+                            "\t\tassert.Equal(t, {len_expr}, {n}, \"expected exactly {n} elements\")"
                         );
                         let _ = writeln!(out_ref, "\t}}");
                     } else {
