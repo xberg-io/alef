@@ -366,13 +366,21 @@ pub struct CallOverride {
     /// `new ConversionOptions(options)` in TypeScript.
     #[serde(default)]
     pub options_type: Option<String>,
-    /// How to pass json_object args: "kwargs" (default), "dict", or "json".
+    /// How to pass json_object args: "kwargs" (default), "dict", "json", or "from_json".
     ///
     /// - `"kwargs"`: construct `OptionsType(key=val, ...)` (requires `options_type`).
     /// - `"dict"`: pass as a plain dict/object literal `{"key": "val"}`.
     /// - `"json"`: pass via `json.loads('...')` / `JSON.parse('...')`.
+    /// - `"from_json"`: call `OptionsType.from_json('...')` (Python only, PyO3 native types).
     #[serde(default)]
     pub options_via: Option<String>,
+    /// Module to import `options_type` from when `options_via = "from_json"`.
+    ///
+    /// When set, a separate `from {from_json_module} import {options_type}` line
+    /// is emitted instead of including the type in the main module import.
+    /// E.g., `"liter_llm._internal_bindings"` for PyO3 native types.
+    #[serde(default)]
+    pub from_json_module: Option<String>,
     /// Maps fixture option field names to their enum type names.
     /// E.g., `{"headingStyle": "HeadingStyle", "codeBlockStyle": "CodeBlockStyle"}`.
     /// The generator imports these types and maps string values to enum constants.

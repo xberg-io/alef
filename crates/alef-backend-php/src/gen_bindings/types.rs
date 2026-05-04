@@ -248,7 +248,7 @@ fn gen_struct_methods_impl(
         // a PHP kwargs __construct would fail to compile for any struct with enum-typed fields.
         let use_from_json = has_serde && (has_named_params || typ.has_default);
         if use_from_json {
-            let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
+            let constructor = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
                  serde_json::from_str(&json)\n        \
                  .map_err(|e| PhpException::default(e.to_string()))\n\
                  }"
@@ -447,7 +447,7 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
     impl_builder.add_attr("php_impl");
 
     // from_json constructor so PHP can construct the value.
-    let from_json = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
+    let from_json = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
         serde_json::from_str(&json)\n        \
         .map_err(|e| PhpException::default(e.to_string()))\n\
         }"

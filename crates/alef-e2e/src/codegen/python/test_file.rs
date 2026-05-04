@@ -72,7 +72,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     }) || e2e_config.call.r#async;
     let needs_pytest = has_error_test || has_skipped || is_async;
 
-    let needs_json_import = (effective_options_via == "json" || effective_options_via == "from_json")
+    let needs_json_import = effective_options_via == "json"
         && fixtures.iter().any(|f| {
             e2e_config
                 .call
@@ -83,6 +83,20 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
 
     let client_factory = resolve_client_factory(e2e_config);
     let needs_os_import = client_factory.is_some() || e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
+
+    // When options_via == "from_json", the options_type is imported from a separate native
+    // module (e.g., the PyO3 _internal_bindings) rather than the main public module.
+    let from_json_module: Option<String> = e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.from_json_module.clone())
+        .or_else(|| {
+            fixtures.iter().find_map(|f| {
+                let cc = e2e_config.resolve_call(f.call.as_deref());
+                cc.overrides.get("python").and_then(|o| o.from_json_module.clone())
+            })
+        });
 
     let needs_path_import = fixtures.iter().any(|f| {
         let cc = e2e_config.resolve_call(f.call.as_deref());
@@ -169,6 +183,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             client_factory.as_deref(),
             &effective_options_type,
             effective_options_via,
+            from_json_module.as_deref(),
             needs_options_type,
             enum_fields,
             handle_nested_types,
@@ -272,6 +287,7 @@ fn build_thirdparty_imports(
     client_factory: Option<&str>,
     options_type: &Option<String>,
     options_via: &str,
+    from_json_module: Option<&str>,
     needs_options_type: bool,
     enum_fields: &std::collections::HashMap<String, String>,
     handle_nested_types: &std::collections::HashMap<String, String>,
@@ -364,8 +380,16 @@ fn build_thirdparty_imports(
     }
 
     if let (true, Some(opts_type)) = (needs_options_type && (options_via == "kwargs" || options_via == "from_json"), options_type) {
-        import_names.push(opts_type.clone());
-        thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
+        if options_via == "from_json" {
+            // Import opts_type from the native bindings module (e.g., PyO3 _internal_bindings),
+            // not the public module — it needs the native from_json() staticmethod.
+            thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
+            let native_mod = from_json_module.unwrap_or(module);
+            thirdparty_from.push(format!("from {native_mod} import {opts_type}"));
+        } else {
+            import_names.push(opts_type.clone());
+            thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
+        }
         if !used_enum_types.is_empty() {
             let enum_mod = e2e_config
                 .call
