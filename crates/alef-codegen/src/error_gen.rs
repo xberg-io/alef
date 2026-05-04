@@ -629,10 +629,17 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
 /// Returns a `Vec` of `(class_name, file_content)` tuples: the base exception
 /// class followed by one per-variant exception.  The caller writes each to a
 /// separate `.cs` file.
-pub fn gen_csharp_error_types(error: &ErrorDef, namespace: &str) -> Vec<(String, String)> {
+///
+/// `fallback_class` is the name of the generic library exception class (e.g.
+/// `TreeSitterLanguagePackException`) that the base error class should extend so that
+/// callers can `catch` the general library exception and catch all typed errors.
+pub fn gen_csharp_error_types(error: &ErrorDef, namespace: &str, fallback_class: Option<&str>) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
     let base_name = format!("{}Exception", error.name);
+    // Inherit from the generic library exception when provided so that
+    // `Assert.ThrowsAny<LibException>()` catches typed errors too.
+    let base_parent = fallback_class.unwrap_or("Exception");
 
     // Base exception class
     {
@@ -646,7 +653,7 @@ pub fn gen_csharp_error_types(error: &ErrorDef, namespace: &str) -> Vec<(String,
             }
             out.push_str("/// </summary>\n");
         }
-        out.push_str(&format!("public class {} : Exception\n{{\n", base_name));
+        out.push_str(&format!("public class {} : {}\n{{\n", base_name, base_parent));
         out.push_str(&format!(
             "    public {}(string message) : base(message) {{ }}\n\n",
             base_name
@@ -1388,14 +1395,12 @@ mod tests {
     #[test]
     fn test_gen_csharp_error_types() {
         let error = sample_error();
-        let files = gen_csharp_error_types(&error, "Kreuzberg.Test");
-        // base + 3 variants
+        // Without fallback class: base inherits from Exception.
+        let files = gen_csharp_error_types(&error, "Kreuzberg.Test", None);
         assert_eq!(files.len(), 4);
-        // Base class
         assert_eq!(files[0].0, "ConversionErrorException");
         assert!(files[0].1.contains("public class ConversionErrorException : Exception"));
         assert!(files[0].1.contains("namespace Kreuzberg.Test;"));
-        // Variant classes
         assert_eq!(files[1].0, "ParseErrorException");
         assert!(
             files[1]
@@ -1404,6 +1409,21 @@ mod tests {
         );
         assert_eq!(files[2].0, "IoErrorException");
         assert_eq!(files[3].0, "OtherException");
+    }
+
+    #[test]
+    fn test_gen_csharp_error_types_with_fallback() {
+        let error = sample_error();
+        // With fallback class: base inherits from the generic library exception.
+        let files = gen_csharp_error_types(&error, "Kreuzberg.Test", Some("TestLibException"));
+        assert_eq!(files.len(), 4);
+        assert!(files[0].1.contains("public class ConversionErrorException : TestLibException"));
+        // Variant classes still inherit from the base error class, not from the fallback directly.
+        assert!(
+            files[1]
+                .1
+                .contains("public class ParseErrorException : ConversionErrorException")
+        );
     }
 
     // -----------------------------------------------------------------------

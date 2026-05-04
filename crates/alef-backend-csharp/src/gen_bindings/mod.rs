@@ -80,6 +80,9 @@ impl Backend for CsharpBackend {
 
         let mut files = Vec::new();
 
+        // Fallback generic exception class name (used by GetLastError and as base for typed errors)
+        let exception_class_name = format!("{}Exception", api.crate_name.to_pascal_case());
+
         // 1. Generate NativeMethods.cs
         files.push(GeneratedFile {
             path: base_path.join("NativeMethods.cs"),
@@ -101,7 +104,7 @@ impl Backend for CsharpBackend {
         // 2. Generate error types from thiserror enums (if any), otherwise generic exception
         if !api.errors.is_empty() {
             for error in &api.errors {
-                let error_files = alef_codegen::error_gen::gen_csharp_error_types(error, &namespace);
+                let error_files = alef_codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
                 for (class_name, content) in error_files {
                     files.push(GeneratedFile {
                         path: base_path.join(format!("{}.cs", class_name)),
@@ -113,7 +116,6 @@ impl Backend for CsharpBackend {
         }
 
         // Fallback generic exception class (always generated for GetLastError)
-        let exception_class_name = format!("{}Exception", api.crate_name.to_pascal_case());
         if api.errors.is_empty()
             || !api
                 .errors

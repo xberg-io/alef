@@ -20,6 +20,21 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
     ));
     out.push_str("    {\n");
     out.push_str("        Code = code;\n");
+    out.push_str("    }\n\n");
+    // String-only constructor for derived classes that don't carry a numeric code.
+    out.push_str(&format!(
+        "    public {}(string message) : base(message)\n",
+        class_name
+    ));
+    out.push_str("    {\n");
+    out.push_str("        Code = 0;\n");
+    out.push_str("    }\n\n");
+    out.push_str(&format!(
+        "    public {}(string message, Exception innerException) : base(message, innerException)\n",
+        class_name
+    ));
+    out.push_str("    {\n");
+    out.push_str("        Code = 0;\n");
     out.push_str("    }\n");
     out.push_str("}\n");
 
