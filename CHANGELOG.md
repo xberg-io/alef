@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/wasm): remove `vite-plugin-top-level-await` from generated WASM e2e `package.json` and vitest config; top-level await is natively supported in modern Vite/Vitest without the plugin.
 - fix(napi-backend): force `is_param_optional = true` in bridge functions so options parameters are always treated as `Option<T>` regardless of whether the IR marks them as non-optional.
 - fix(php-backend): add `#[serde(default)]` struct attribute when `has_serde` is enabled, so `from_json()` accepts partial JSON and missing fields use `Default` values instead of failing deserialization.
+- fix(php-backend): always emit `from_json` for has_default structs when `has_serde` is true, preventing broken `__construct` methods with invalid Rust enum defaults (e.g. `BrowserMode::Auto`) that don't exist in the PHP binding's string-mapped enum model.
 
 ## [0.14.19] - 2026-05-04
 

@@ -242,27 +242,30 @@ fn gen_struct_methods_impl(
 
     if !typ.fields.is_empty() {
         let has_named_params = typ.fields.iter().any(|f| !is_php_prop_scalar_with_enums(&f.ty, enum_names));
-        if has_named_params {
-            if has_serde {
-                let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
-                     serde_json::from_str(&json)\n        \
-                     .map_err(|e| PhpException::default(e.to_string()))\n\
-                     }"
-                .to_string();
-                impl_builder.add_method(&constructor);
-            } else {
-                let constructor = format!(
-                    "pub fn __construct() -> PhpResult<Self> {{\n    \
-                     Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
-                     }}",
-                    typ.name
-                );
-                impl_builder.add_method(&constructor);
-            }
+        // When has_serde and the struct has defaults, always emit from_json so callers can
+        // use partial JSON. PHP enum fields map to String in the binding; their Rust-native
+        // defaults (e.g. BrowserMode::Auto) are not valid in the generated binding code, so
+        // a PHP kwargs __construct would fail to compile for any struct with enum-typed fields.
+        let use_from_json = has_serde && (has_named_params || typ.has_default);
+        if use_from_json {
+            let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
+                 serde_json::from_str(&json)\n        \
+                 .map_err(|e| PhpException::default(e.to_string()))\n\
+                 }"
+            .to_string();
+            impl_builder.add_method(&constructor);
+        } else if has_named_params {
+            let constructor = format!(
+                "pub fn __construct() -> PhpResult<Self> {{\n    \
+                 Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
+                 }}",
+                typ.name
+            );
+            impl_builder.add_method(&constructor);
         } else {
             let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
             if typ.has_default {
-                // kwargs-style constructor: all fields optional with defaults
+                // kwargs-style constructor: all fields optional with defaults (no serde, no Named fields)
                 let config_method = alef_codegen::config_gen::gen_php_kwargs_constructor(typ, &map_fn);
                 impl_builder.add_method(&config_method);
             } else {
