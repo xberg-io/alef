@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(php-backend): always emit `from_json` for has_default structs when `has_serde` is true, preventing broken `__construct` methods with invalid Rust enum defaults (e.g. `BrowserMode::Auto`) that don't exist in the PHP binding's string-mapped enum model.
 - fix(e2e/go): `is_empty` assertions on pointer-to-struct results now generate `if result != nil { ... }` instead of dereferencing and calling `len()` on a struct, which was both invalid and panicked on nil.
 - fix(csharp-backend): add `using System.Collections.Generic;` to generated opaque type source files when any method has a `Vec<T>` parameter or return type.
+- fix(csharp-backend): pass full set of opaque type names to `gen_opaque_handle` so that methods on one opaque type returning another opaque type (e.g. `LanguageRegistry::get_language` → `Language`) wrap the pointer with `new Language(ptr)` instead of incorrectly calling the non-existent `LanguageToJson` FFI.
 
 ## [0.14.19] - 2026-05-04
 
