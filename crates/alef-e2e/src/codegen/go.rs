@@ -628,8 +628,10 @@ fn render_test_function(
     });
 
     // result_is_array: the simple result is a slice/array type (e.g., []string).
-    // Only relevant when result_is_simple is true.
-    let result_is_array = overrides.map(|o| o.result_is_array).unwrap_or(false);
+    // Priority: Go override > call-level (canonical source).
+    let result_is_array = overrides
+        .map(|o| o.result_is_array)
+        .unwrap_or(call_config.result_is_array);
 
     // Per-call Go options_type, falling back to the default call's Go override.
     let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
@@ -679,10 +681,7 @@ fn render_test_function(
         visitor_arg = "visitor".to_string();
     }
 
-    let go_extra_args = overrides
-        .map(|o| o.extra_args.as_slice())
-        .unwrap_or(&[])
-        .to_vec();
+    let go_extra_args = overrides.map(|o| o.extra_args.as_slice()).unwrap_or(&[]).to_vec();
     let final_args = {
         let mut parts: Vec<String> = Vec::new();
         if !args_str.is_empty() {
