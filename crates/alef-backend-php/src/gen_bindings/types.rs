@@ -180,18 +180,6 @@ pub(crate) fn gen_php_struct(
     }
 }
 
-/// Return true if a TypeRef contains a Named type (another struct/class that
-/// ext-php-rs cannot deserialize from a PHP value as an owned parameter).
-pub(crate) fn type_ref_has_named(ty: &alef_core::ir::TypeRef) -> bool {
-    use alef_core::ir::TypeRef;
-    match ty {
-        TypeRef::Named(_) => true,
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_has_named(inner),
-        TypeRef::Map(k, v) => type_ref_has_named(k) || type_ref_has_named(v),
-        _ => false,
-    }
-}
-
 /// Generate ext-php-rs methods for a struct.
 #[allow(dead_code)]
 pub(crate) fn gen_struct_methods(
