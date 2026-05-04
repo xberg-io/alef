@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/wasm): `inject_wasm_init` now searches backward from `} from "pkg_name"` to locate the correct `import {` block; previously it matched the first `import {` in the file (the vitest import), corrupting the vitest import line.
 - fix(pyo3-backend): inject `from_json` staticmethod into the existing `#[pymethods]` block instead of emitting a second one; avoids requiring the `multiple-pymethods` pyo3 feature which is not enabled by default.
 - fix(napi-backend): visitor and plugin method calls with N>0 arguments now use `FnArgs::from(tuple)` instead of passing the raw tuple directly; the blanket `JsValuesTupleIntoVec` impl was treating a `(Unknown, Unknown)` tuple as a single NAPI value, causing all extra arguments to arrive as `undefined` in JavaScript callbacks.
 - fix(e2e/csharp): `equals` assertions on optional string fields now emit `field!.Trim()` (null-forgiving) instead of `field.Trim()` to suppress CS8602 nullable warnings.
