@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/csharp): use `Assert.ThrowsAny<T>()` / `Assert.ThrowsAnyAsync<T>()` instead of exact `Assert.Throws<T>()` for `is_error` assertions; the base exception class now matches derived exception subclasses (e.g. `ErrorException` from `TreeSitterLanguagePackException`).
+- fix(e2e/csharp): `contains`, `contains_all`, `not_contains`, and `contains_any` assertions on list fields use `JsonSerializer.Serialize(field)` instead of `field.ToString()`; `List<T>.ToString()` returns the type name rather than the contents.
+- fix(e2e/csharp): `result_is_array = true` (simple list results such as `manifest_languages()`) now also serialize via `JsonSerializer.Serialize` for substring assertions, not `result.ToString()`.
+
 ## [0.14.20] - 2026-05-04
 
 ### Fixed

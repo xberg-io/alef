@@ -738,6 +738,7 @@ fn render_test_method(
     }
 
     let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
+    let result_is_array = call_config.result_is_array;
 
     if returns_void {
         let _ = writeln!(
@@ -759,6 +760,7 @@ fn render_test_method(
                 field_resolver,
                 effective_result_is_simple,
                 result_is_vec,
+                result_is_array,
             );
         }
     }
@@ -950,6 +952,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_vec: bool,
+    result_is_array: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1123,7 +1126,9 @@ fn render_assertion(
     // for string-based assertions (contains, not_contains, etc.). List<T>.ToString() in C#
     // returns the type name, not the contents.
     let field_needs_json_serialize = if result_is_simple {
-        false
+        // Simple results are scalars, but when they're also arrays (e.g., List<string>),
+        // JSON-serialize so substring checks see actual content, not the type name.
+        result_is_array
     } else {
         match &assertion.field {
             Some(f) if !f.is_empty() => field_resolver.is_array(f),
