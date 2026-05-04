@@ -66,7 +66,7 @@ pub(super) fn render_test_function(
         let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
     }
 
-    let is_async = call_config.r#async;
+    let is_async = python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     if is_async {
         let _ = writeln!(out, "@pytest.mark.asyncio");
         let _ = writeln!(out, "async def test_{fn_name}() -> None:");

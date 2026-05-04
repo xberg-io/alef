@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(pyo3-backend): generate `from_json(json_str: String) -> PyResult<Self>` staticmethod on all non-opaque struct types with serde and a core→binding `From` conversion. Deserializes via the core type to correctly handle fields with `#[serde(skip)]` (e.g. `Vec<Message>` in `ChatCompletionRequest`). Requires PyO3 ≥ 0.21 (multiple `#[pymethods]` blocks allowed by default).
 - feat(e2e/python): add `"from_json"` mode for `options_via`. When set, generates `OptionsType.from_json(json_str)` instead of a dict or kwargs, allowing typed construction from fixture JSON for types that cannot be constructed via kwargs.
 - feat(e2e/python): add `from_json_module` field to `CallOverride`. When set alongside `options_via = "from_json"`, the `options_type` is imported from this module (e.g., `liter_llm._internal_bindings`) instead of the main public module, supporting PyO3 native types whose `from_json()` exists on the native class only.
+- feat(e2e/python): add `async` field to `CallOverride`. When set, overrides the call-level `async` flag for Python tests only — useful when a binding returns a sync iterator from a call marked async at the call level (e.g., `chat_stream`).
+- fix(e2e/python): use `_alef_e2e_text().lower()` for `equals` assertions on enum fields instead of `.strip()`. PyO3 enum values do not have `.strip()` and their string representation may differ in case from the fixture assertion value.
 
 ### Fixed
 

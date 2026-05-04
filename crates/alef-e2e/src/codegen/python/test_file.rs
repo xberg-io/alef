@@ -66,10 +66,25 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let has_skipped = fixtures.iter().any(|f| is_skipped(f, "python"));
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
-    let is_async = fixtures.iter().any(|f| {
-        let cc = e2e_config.resolve_call(f.call.as_deref());
-        cc.r#async
-    }) || e2e_config.call.r#async;
+    // Per-language async override: the Python CallOverride `async` field takes precedence
+    // over the call-level `async` flag (e.g., chat_stream returns a sync iterator in Python).
+    let python_async_override = e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.r#async)
+        .or_else(|| {
+            fixtures.iter().find_map(|f| {
+                let cc = e2e_config.resolve_call(f.call.as_deref());
+                cc.overrides.get("python").and_then(|o| o.r#async)
+            })
+        });
+    let is_async = python_async_override.unwrap_or_else(|| {
+        fixtures.iter().any(|f| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.r#async
+        }) || e2e_config.call.r#async
+    });
     let needs_pytest = has_error_test || has_skipped || is_async;
 
     let needs_json_import = effective_options_via == "json"

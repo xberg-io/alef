@@ -381,6 +381,14 @@ pub struct CallOverride {
     /// E.g., `"liter_llm._internal_bindings"` for PyO3 native types.
     #[serde(default)]
     pub from_json_module: Option<String>,
+    /// Override whether the call is async for this language.
+    ///
+    /// When set, takes precedence over the call-level `async` flag.
+    /// Useful when a language binding uses a different async model — for example,
+    /// a Python binding that returns a sync iterator from a function marked
+    /// `async = true` at the call level.
+    #[serde(default, rename = "async")]
+    pub r#async: Option<bool>,
     /// Maps fixture option field names to their enum type names.
     /// E.g., `{"headingStyle": "HeadingStyle", "codeBlockStyle": "CodeBlockStyle"}`.
     /// The generator imports these types and maps string values to enum constants.

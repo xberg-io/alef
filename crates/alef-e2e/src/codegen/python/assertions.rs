@@ -242,7 +242,16 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let op = if val.is_boolean() || val.is_null() { "is" } else { "==" };
                 if val.is_string() {
-                    let _ = writeln!(out, "    assert {field_access}.strip() {op} {expected}  # noqa: S101");
+                    if field_is_enum {
+                        // Enum __str__ may differ in case from the expected string literal —
+                        // compare case-insensitively via _alef_e2e_text() which handles None.
+                        let _ = writeln!(
+                            out,
+                            "    assert _alef_e2e_text({field_access}).lower() {op} {expected}.lower()  # noqa: S101"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    assert {field_access}.strip() {op} {expected}  # noqa: S101");
+                    }
                 } else {
                     let _ = writeln!(out, "    assert {field_access} {op} {expected}  # noqa: S101");
                 }
