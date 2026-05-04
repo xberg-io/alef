@@ -281,14 +281,12 @@ fn render_package_json(
   "devDependencies": {{
     "{pkg_name}": "{dep_value}",
     "rollup": "{rollup}",
-    "vite-plugin-top-level-await": "{vite_plugin_top_level_await}",
     "vite-plugin-wasm": "{vite_plugin_wasm}",
     "vitest": "{vitest}"
   }}
 }}
 "#,
         rollup = tv::npm::ROLLUP,
-        vite_plugin_top_level_await = tv::npm::VITE_PLUGIN_TOP_LEVEL_AWAIT,
         vite_plugin_wasm = tv::npm::VITE_PLUGIN_WASM,
         vitest = tv::npm::VITEST,
     )
@@ -309,10 +307,9 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
     format!(
         r#"{header}import {{ defineConfig }} from 'vitest/config';
 import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
 
 export default defineConfig({{
-  plugins: [wasm(), topLevelAwait()],
+  plugins: [wasm()],
   test: {{
     include: ['tests/**/*.test.ts'],
 {global_setup_line}{setup_files_line}  }},

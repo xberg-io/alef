@@ -249,7 +249,7 @@ fn gen_struct_methods_impl(
     impl_builder.add_attr("php_impl");
 
     if !typ.fields.is_empty() {
-        let has_named_params = typ.fields.iter().any(|f| type_ref_has_named(&f.ty));
+        let has_named_params = typ.fields.iter().any(|f| !is_php_prop_scalar_with_enums(&f.ty, enum_names));
         if has_named_params {
             if has_serde {
                 let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
