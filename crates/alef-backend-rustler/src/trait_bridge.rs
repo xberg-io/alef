@@ -1203,7 +1203,7 @@ pub fn gen_bridge_function(
         writeln!(out, "    {with_deser}").ok();
 
         // Save visitor term + build owned env before spawning (must happen on BEAM thread)
-        writeln!(out, "    let visitor_owned_env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "    let mut visitor_owned_env = rustler::OwnedEnv::new();").ok();
         writeln!(out, "    let visitor_saved = visitor_owned_env.save({param_name});").ok();
         writeln!(out, "    {clone_stmts}").ok();
 
@@ -1456,7 +1456,7 @@ pub fn gen_bridge_field_function(
     )
     .ok();
     writeln!(out, "    let pid = env.pid();").ok();
-    writeln!(out, "    let visitor_owned_env = rustler::OwnedEnv::new();").ok();
+    writeln!(out, "    let mut visitor_owned_env = rustler::OwnedEnv::new();").ok();
     writeln!(out, "    let visitor_saved = visitor_owned_env.save(visitor);").ok();
     writeln!(out, "    {clone_stmts}").ok();
     writeln!(out, "    std::thread::spawn(move || {{").ok();

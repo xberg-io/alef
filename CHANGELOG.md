@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(pyo3-backend): generate `from_json(json_str: String) -> PyResult<Self>` staticmethod on all non-opaque struct types with serde and a core→binding `From` conversion. Deserializes via the core type to correctly handle fields with `#[serde(skip)]` (e.g. `Vec<Message>` in `ChatCompletionRequest`). Requires PyO3 ≥ 0.21 (multiple `#[pymethods]` blocks allowed by default).
+- feat(e2e/python): add `"from_json"` mode for `options_via`. When set, generates `OptionsType.from_json(json_str)` instead of a dict or kwargs, allowing typed construction from fixture JSON for types that cannot be constructed via kwargs.
+
 ### Fixed
 
+- fix(rustler-backend): declare `visitor_owned_env` as `mut` so `send_and_clear` (which takes `&mut self`) compiles without E0596 borrow error.
 - fix(php-backend): use `!is_php_prop_scalar_with_enums` instead of `type_ref_has_named` when computing `has_named_params` in struct methods codegen, correctly gating named-param constructors on non-scalar fields.
 - fix(pyo3-backend): correct boolean logic in `is_native` computation in `gen_api_py` — options types are now excluded first, then native membership is checked, preventing options types from incorrectly landing in native imports.
 - fix(rustler-backend): replace double-nested `OwnedEnv::run` + `send_and_clear` with a single `send_and_clear` call in the trait bridge field function spawn closure, eliminating a double-borrow that caused BEAM message delivery failures.
