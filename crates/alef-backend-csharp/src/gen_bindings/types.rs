@@ -163,7 +163,9 @@ fn gen_opaque_method(
     };
 
     let method_cs_name = to_csharp_name(&method.name);
-    out.push_str(&format!("    public {return_type_str} {method_cs_name}("));
+    let is_static = method.is_static || method.receiver.is_none();
+    let static_kw = if is_static { "static " } else { "" };
+    out.push_str(&format!("    public {static_kw}{return_type_str} {method_cs_name}("));
 
     // Parameters.
     for (i, param) in visible_params.iter().enumerate() {
@@ -200,11 +202,23 @@ fn gen_opaque_method(
         }
 
         out.push_str(&format!("NativeMethods.{cs_native_name}(\n"));
-        out.push_str("                Handle");
-        for param in &visible_params {
-            let param_name = param.name.to_lower_camel_case();
-            let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-            out.push_str(&format!(",\n                {arg}"));
+        if !is_static {
+            out.push_str("                Handle");
+            for param in &visible_params {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                out.push_str(&format!(",\n                {arg}"));
+            }
+        } else {
+            for (i, param) in visible_params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                if i == 0 {
+                    out.push_str(&format!("                {arg}"));
+                } else {
+                    out.push_str(&format!(",\n                {arg}"));
+                }
+            }
         }
         out.push_str("\n            );\n");
 
@@ -238,11 +252,23 @@ fn gen_opaque_method(
         }
 
         out.push_str(&format!("NativeMethods.{cs_native_name}(\n"));
-        out.push_str("            Handle");
-        for param in &visible_params {
-            let param_name = param.name.to_lower_camel_case();
-            let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-            out.push_str(&format!(",\n            {arg}"));
+        if !is_static {
+            out.push_str("            Handle");
+            for param in &visible_params {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                out.push_str(&format!(",\n            {arg}"));
+            }
+        } else {
+            for (i, param) in visible_params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                if i == 0 {
+                    out.push_str(&format!("            {arg}"));
+                } else {
+                    out.push_str(&format!(",\n            {arg}"));
+                }
+            }
         }
         out.push_str("\n        );\n");
 
