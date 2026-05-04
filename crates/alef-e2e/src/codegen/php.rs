@@ -1262,13 +1262,22 @@ fn render_assertion(
     };
 
     // For string equality, trim trailing whitespace to handle trailing newlines.
-    let trimmed_field_expr = format!("trim({})", field_expr);
+    // Only apply trim() when the expected value is a string — calling trim() on int/bool
+    // throws TypeError in PHP 8.4+.
+    let trimmed_field_expr_for = |expected: &serde_json::Value| -> String {
+        if expected.is_string() {
+            format!("trim({})", field_expr)
+        } else {
+            field_expr.clone()
+        }
+    };
 
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let php_val = json_to_php(expected);
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, {trimmed_field_expr});");
+                let effective_expr = trimmed_field_expr_for(expected);
+                let _ = writeln!(out, "        $this->assertEquals({php_val}, {effective_expr});");
             }
         }
         "contains" => {
@@ -1304,7 +1313,7 @@ fn render_assertion(
             let _ = writeln!(out, "        $this->assertNotEmpty({field_expr});");
         }
         "is_empty" => {
-            let _ = writeln!(out, "        $this->assertEmpty({trimmed_field_expr});");
+            let _ = writeln!(out, "        $this->assertEmpty({field_expr});");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
