@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/python): resolve `options_type` and `options_via` per-fixture from the per-call Python override (`[crates.e2e.calls.X.overrides.python]`), falling back to the file-level global override. Previously only the global override was used, so per-call overrides had no effect.
 - fix(csharp-backend): `Optional<String>` return types — FFI returns a raw C string, not JSON-encoded; use `Marshal.PtrToStringUTF8` directly instead of `JsonSerializer.Deserialize`, which failed with raw strings not being valid JSON.
 - fix(csharp-backend): `Optional(_)` return types — null pointer means `None` (not found), not an FFI error; generate `return null` instead of `throw GetLastError()` / `throw new ExceptionName(...)` in both top-level methods and opaque type methods.
 - fix(java-backend): use `org.jspecify.annotations.Nullable` instead of `org.jetbrains.annotations.Nullable` in generated record types; aligns with the JSpecify annotations used elsewhere in the Java bindings.

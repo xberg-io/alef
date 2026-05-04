@@ -42,6 +42,14 @@ pub(super) fn render_test_function(
     let result_is_simple = python_override.is_some_and(|o| o.result_is_simple);
     let arg_name_map = python_override.map(|o| &o.arg_name_map);
 
+    // Per-fixture call override takes precedence over the file-level value.
+    let effective_options_type = python_override
+        .and_then(|o| o.options_type.as_deref())
+        .or(options_type);
+    let effective_options_via = python_override
+        .and_then(|o| o.options_via.as_deref())
+        .unwrap_or(options_via);
+
     let desc_with_period = if description.ends_with('.') {
         description.to_string()
     } else {
@@ -72,8 +80,8 @@ pub(super) fn render_test_function(
     let (arg_bindings, kwarg_exprs) = build_args_and_setup(
         fixture,
         call_config,
-        options_type,
-        options_via,
+        effective_options_type,
+        effective_options_via,
         enum_fields,
         handle_nested_types,
         handle_dict_types,

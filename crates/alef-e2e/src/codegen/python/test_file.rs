@@ -30,6 +30,26 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let function_name = resolve_function_name(e2e_config);
     let options_type = resolve_options_type(e2e_config);
     let options_via = resolve_options_via(e2e_config);
+
+    // Prefer the global override; fall back to the first fixture's per-call override.
+    let effective_options_type: Option<String> = options_type.clone().or_else(|| {
+        fixtures.iter().find_map(|f| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.overrides.get("python").and_then(|o| o.options_type.clone())
+        })
+    });
+    let effective_options_via: &str = if options_via != "kwargs" {
+        options_via
+    } else {
+        fixtures
+            .iter()
+            .find_map(|f| {
+                let cc = e2e_config.resolve_call(f.call.as_deref());
+                cc.overrides.get("python").and_then(|o| o.options_via.as_deref())
+            })
+            .unwrap_or(options_via)
+    };
+
     let enum_fields = resolve_enum_fields(e2e_config);
     let handle_nested_types = resolve_handle_nested_types(e2e_config);
     let handle_dict_types = resolve_handle_dict_types(e2e_config);
@@ -52,7 +72,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     }) || e2e_config.call.r#async;
     let needs_pytest = has_error_test || has_skipped || is_async;
 
-    let needs_json_import = (options_via == "json" || options_via == "from_json")
+    let needs_json_import = (effective_options_via == "json" || effective_options_via == "from_json")
         && fixtures.iter().any(|f| {
             e2e_config
                 .call
@@ -89,8 +109,8 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
 
     let _ = has_http_tests;
 
-    let needs_options_type = (options_via == "kwargs" || options_via == "from_json")
-        && options_type.is_some()
+    let needs_options_type = (effective_options_via == "kwargs" || effective_options_via == "from_json")
+        && effective_options_type.is_some()
         && fixtures.iter().any(|f| {
             e2e_config
                 .call
@@ -147,8 +167,8 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             &module,
             &function_name,
             client_factory.as_deref(),
-            &options_type,
-            options_via,
+            &effective_options_type,
+            effective_options_via,
             needs_options_type,
             enum_fields,
             handle_nested_types,
@@ -187,8 +207,8 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
                 &mut out,
                 fixture,
                 e2e_config,
-                options_type.as_deref(),
-                options_via,
+                effective_options_type.as_deref(),
+                effective_options_via,
                 enum_fields,
                 handle_nested_types,
                 handle_dict_types,
