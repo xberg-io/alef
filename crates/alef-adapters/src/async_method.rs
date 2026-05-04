@@ -164,8 +164,9 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Str
         format!("Ok({raw_returns}::from(result))")
     };
 
-    let err_mapper = if let Some(ref et) = config.error_type {
-        let fn_name = format!("{}_to_py_err", et.to_snake_case());
+    let err_mapper = if let Some(ref et) = adapter.error_type {
+        let simple_name = et.split("::").last().unwrap_or(et);
+        let fn_name = format!("{}_to_py_err", simple_name.to_snake_case());
         format!(".map_err({fn_name})")
     } else {
         ".map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))".to_string()

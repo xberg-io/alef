@@ -150,8 +150,9 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    let method_err_mapper = if let Some(ref et) = config.error_type {
-        let fn_name = format!("{}_to_py_err", et.to_snake_case());
+    let method_err_mapper = if error_type != "anyhow::Error" {
+        let simple_name = error_type.split("::").last().unwrap_or(error_type);
+        let fn_name = format!("{}_to_py_err", simple_name.to_snake_case());
         format!(".map_err({fn_name})")
     } else {
         ".map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
