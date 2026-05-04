@@ -856,6 +856,21 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                 )
                 .ok();
             }
+        } else if !field.optional
+            && matches!(field.ty, TypeRef::Duration)
+            && config.option_duration_on_defaults
+            && typ.has_default
+        {
+            // Non-optional Duration stored as Option<i64> (option_duration_on_defaults).
+            // field_conversion_to_core_cfg doesn't know about this optionalization and would
+            // generate `val.{name} as u64` which fails to compile on Option<i64>.
+            // Use the core type's default when None to preserve intended defaults (e.g. 30s timeout).
+            let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
+            writeln!(
+                out,
+                "            {name}: val.{name}.map(|v| std::time::Duration::from_millis(v{cast})).unwrap_or_else(|| {core_path}::default().{name}),"
+            )
+            .ok();
         } else {
             // Non-enum field (may reference other tainted types, which have their own From)
             let conversion =

@@ -198,6 +198,15 @@ impl Backend for CsharpBackend {
         // Collect enum names so record generation can distinguish enum fields from class fields.
         let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
 
+        // Collect all opaque type names (pascal-cased) so methods on one opaque type that
+        // return another opaque type are wrapped correctly rather than JSON-serialized.
+        let all_opaque_type_names: HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque)
+            .map(|t| t.name.to_pascal_case())
+            .collect();
+
         // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
@@ -210,6 +219,7 @@ impl Backend for CsharpBackend {
                         &exception_class_name,
                         &enum_names,
                         &streaming_methods,
+                        &all_opaque_type_names,
                     )),
                     generated_header: true,
                 });

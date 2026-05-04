@@ -19,6 +19,7 @@ pub(super) fn gen_opaque_handle(
     exception_name: &str,
     enum_names: &HashSet<String>,
     streaming_methods: &HashSet<String>,
+    all_opaque_type_names: &HashSet<String>,
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
@@ -102,13 +103,10 @@ pub(super) fn gen_opaque_handle(
 
     // Generate public methods for each non-streaming method on this opaque type.
     // These delegate to NativeMethods using this.Handle as the receiver.
-    let true_opaque_types: HashSet<String> = {
-        // This type is itself opaque; collect all opaque names from the namespace-level context.
-        // Since we only have this single type, we track it as the sole opaque type.
-        let mut s = HashSet::new();
-        s.insert(typ.name.to_pascal_case());
-        s
-    };
+    // Use the full set of opaque type names so that methods returning other opaque
+    // types (e.g., LanguageRegistry::get_language → Language) are wrapped directly
+    // as `new Language(ptr)` rather than being incorrectly JSON-serialized.
+    let true_opaque_types = all_opaque_type_names;
     for method in typ.methods.iter().filter(|m| !streaming_methods.contains(&m.name)) {
         out.push('\n');
         out.push_str(&gen_opaque_method(
