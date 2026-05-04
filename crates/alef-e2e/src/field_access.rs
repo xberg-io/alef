@@ -367,13 +367,24 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                 }
             }
             PathSegment::MapAccess { field, key } => {
-                out.push('.');
-                out.push_str(field);
-                // Elixir maps use bracket access (map["key"]), not method calls.
-                if language == "elixir" {
-                    out.push_str(&format!("[\"{key}\"]"));
+                let is_numeric = key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric && language == "elixir" {
+                    // Elixir: Enum.at(prefix.field, index)
+                    let current = std::mem::take(&mut out);
+                    out = format!("Enum.at({current}.{field}, {key})");
                 } else {
-                    out.push_str(&format!(".get(\"{key}\")"));
+                    out.push('.');
+                    out.push_str(field);
+                    if is_numeric {
+                        // Python, Ruby: list[index]
+                        let idx: usize = key.parse().unwrap_or(0);
+                        out.push_str(&format!("[{idx}]"));
+                    } else if language == "elixir" {
+                        // Elixir maps use bracket access (map["key"]), not method calls.
+                        out.push_str(&format!("[\"{key}\"]"));
+                    } else {
+                        out.push_str(&format!(".get(\"{key}\")"));
+                    }
                 }
             }
             PathSegment::Length => match language {

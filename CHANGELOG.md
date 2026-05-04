@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.18] - 2026-05-04
+
+### Fixed
+
+- fix(scaffold/ffi): add `async-trait` dependency to FFI Cargo.toml scaffold when trait bridges are configured. When the config has trait bridges, the generated FFI `lib.rs` uses `#[async_trait::async_trait]` for trait bridge implementations, but the dependency was missing from the generated Cargo.toml, causing compilation errors.
+
 ## [0.14.17] - 2026-05-04
 
 ### Fixed
