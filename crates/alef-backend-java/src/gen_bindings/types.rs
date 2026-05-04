@@ -151,7 +151,11 @@ pub(crate) fn gen_record_type(
                     // Note: we do NOT apply defaults for bool fields — `false` is a valid
                     // explicit value that users may intentionally pass; we can't distinguish
                     // "user passed false" from "JSON omitted the field".
-                    Some(format!("        if ({jname} == 0) {jname} = {n};"))
+                    // Duration fields map to boxed Long in Java; int literals don't auto-box
+                    // to Long, so we must use the L suffix to produce a long literal that Java
+                    // will auto-box correctly.
+                    let suffix = if matches!(f.ty, TypeRef::Duration) { "L" } else { "" };
+                    Some(format!("        if ({jname} == 0) {jname} = {n}{suffix};"))
                 }
                 _ => None,
             }

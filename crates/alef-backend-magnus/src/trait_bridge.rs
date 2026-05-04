@@ -1224,11 +1224,12 @@ pub fn gen_options_field_bridge_function(
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
     // Generate visitor extraction and bridge creation
-    let visitor_extract =
-        "let visitor_handle = visitor.filter(|v| !v.is_nil()).map(|v| {\n    \
+    let visitor_extract = "let visitor_handle = visitor.filter(|v| !v.is_nil()).map(|v| {\n    \
          let bridge = {struct_name}::new(v);\n    \
          std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-         });".replace("{struct_name}", &struct_name).replace("{handle_path}", &handle_path);
+         });"
+    .replace("{struct_name}", &struct_name)
+    .replace("{handle_path}", &handle_path);
 
     // Generate options creation with visitor wired in
     let options_name = &func.params[options_param_idx].name;
@@ -1241,36 +1242,34 @@ pub fn gen_options_field_bridge_function(
     // The core function expects Option<ConversionOptions>, so always wrap in Some
     let call_args: String = non_option_params
         .iter()
-        .map(|(_, p)| {
-            match &p.ty {
-                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                    if p.optional {
+        .map(|(_, p)| match &p.ty {
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                if p.optional {
+                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                } else {
+                    format!("&{}.inner", p.name)
+                }
+            }
+            TypeRef::Named(_) => format!("{}.into()", p.name),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    if opaque_types.contains(n.as_str()) {
                         format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else {
-                        format!("&{}.inner", p.name)
+                        format!("{}.map(Into::into)", p.name)
                     }
+                } else {
+                    p.name.clone()
                 }
-                TypeRef::Named(_) => format!("{}.into()", p.name),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        if opaque_types.contains(n.as_str()) {
-                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                        } else {
-                            format!("{}.map(Into::into)", p.name)
-                        }
-                    } else {
-                        p.name.clone()
-                    }
-                }
-                TypeRef::String | TypeRef::Char => {
-                    if p.is_ref {
-                        format!("&{}", p.name)
-                    } else {
-                        p.name.clone()
-                    }
-                }
-                _ => p.name.clone(),
             }
+            TypeRef::String | TypeRef::Char => {
+                if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            _ => p.name.clone(),
         })
         .chain(std::iter::once(format!("Some({options_name}_core)")))
         .collect::<Vec<_>>()

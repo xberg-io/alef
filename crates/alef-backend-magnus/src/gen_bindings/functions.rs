@@ -387,6 +387,22 @@ fn magnus_serde_let_bindings(
                 }
             }
             TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && !p.sanitized =>
+            {
+                // Non-sanitized Vec<String> passed by ref: core expects &[&str], so create refs vec.
+                if p.optional {
+                    out.push(format!(
+                        "let {n}_refs: Vec<&str> = {n}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
+                        n = p.name,
+                    ));
+                } else {
+                    out.push(format!(
+                        "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();",
+                        n = p.name,
+                    ));
+                }
+            }
+            TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
             {
                 if p.optional {
@@ -687,7 +703,8 @@ pub(super) fn gen_module_init(
         // since those functions don't use scan_args. For options_field, register variadic
         // (-1) since the generated body uses scan_args to unpack arguments.
         let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
-        let has_options_field_binding = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
+        let has_options_field_binding =
+            crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
         let param_count: i32 = if has_options_field_binding {
             // options_field binding functions use variadic arity with scan_args
             -1

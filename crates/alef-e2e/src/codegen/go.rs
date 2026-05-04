@@ -324,29 +324,31 @@ fn render_test_file(
     });
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions
-    // with placeholders, or string assertions rendered through fmt.Sprint so
-    // structured slices can be searched without assuming []string).
-    let needs_fmt = fixtures.iter().any(|f| {
-        f.visitor.as_ref().is_some_and(|v| {
-            v.callbacks.values().any(|action| {
-                if let CallbackAction::CustomTemplate { template } = action {
-                    template.contains('{')
-                } else {
-                    false
-                }
-            })
-        }) || (emits_executable_test(f)
-            && f.assertions.iter().any(|a| {
-                matches!(
-                    a.assertion_type.as_str(),
-                    "contains" | "contains_all" | "contains_any" | "not_contains"
-                ) && a
-                    .field
-                    .as_ref()
-                    .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
-                    .unwrap_or(true)
-            }))
-    });
+    // with placeholders, string assertions rendered through fmt.Sprint so
+    // structured slices can be searched without assuming []string, or the
+    // jsonString helper function which uses fmt.Sprint).
+    let needs_fmt = needs_json_stringify
+        || fixtures.iter().any(|f| {
+            f.visitor.as_ref().is_some_and(|v| {
+                v.callbacks.values().any(|action| {
+                    if let CallbackAction::CustomTemplate { template } = action {
+                        template.contains('{')
+                    } else {
+                        false
+                    }
+                })
+            }) || (emits_executable_test(f)
+                && f.assertions.iter().any(|a| {
+                    matches!(
+                        a.assertion_type.as_str(),
+                        "contains" | "contains_all" | "contains_any" | "not_contains"
+                    ) && a
+                        .field
+                        .as_ref()
+                        .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
+                        .unwrap_or(true)
+                }))
+        });
 
     // Determine if we need the "strings" import.
     // Only count assertions whose fields are actually valid for the result type.

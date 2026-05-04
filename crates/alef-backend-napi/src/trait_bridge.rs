@@ -730,7 +730,7 @@ fn gen_visitor_method_napi(
     } else {
         // Bind env to a named variable so borrows from it outlive the statement.
         writeln!(out, "        let __env = self.env();").unwrap();
-        // Emit each arg as a let binding, then call with tuple
+        // Emit each arg as a let binding, then call with FnArgs to properly handle multiple arguments
         for (i, expr) in js_args_exprs.iter().enumerate() {
             // Replace __ENV__ placeholder with the bound variable
             let expr = expr.replace("self.env()", "__env");
@@ -742,18 +742,19 @@ fn gen_visitor_method_napi(
         } else {
             format!("({})", tuple_args.join(", "))
         };
-        writeln!(out, "        let result = func.call({tuple_str});").unwrap();
+        // For multi-argument functions, wrap in FnArgs to ensure arguments are unpacked to JavaScript
+        if arg_count > 1 {
+            writeln!(out, "        let result = func.call({tuple_str}.into());").unwrap();
+        } else {
+            writeln!(out, "        let result = func.call({tuple_str});").unwrap();
+        }
     }
 
     // Parse result
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(
-        out,
-        "                if let Ok(obj) = val.coerce_to_object() {{"
-    )
-    .unwrap();
+    writeln!(out, "                if let Ok(obj) = val.coerce_to_object() {{").unwrap();
     writeln!(out, "                    if let Ok(custom_val) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"custom\") {{").unwrap();
     writeln!(out, "                        if let Ok(s) = custom_val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
     writeln!(out, "                            {ret_ty}::Custom(s)").unwrap();

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.14] - 2026-05-04
+
+### Fixed
+
+- fix(java-backend): `Duration` fields map to boxed `Long` in Java; compact constructor defaults emitted as bare integer literals (e.g. `30000`) failed to compile because `int` does not auto-box to `Long`. Now appends `L` suffix so the literal is a `long` that Java auto-boxes correctly.
+
+- fix(magnus-backend): emit a `_refs: Vec<&str>` intermediate binding when a `Vec<String>` parameter is passed by reference to a core function expecting `&[&str]`. Previously the generated code passed `&Vec<String>` directly, which mismatches the `&[&str]` signature and fails to compile.
+
+- fix(rustler-backend): same `Vec<String>` → `&[&str]` refs intermediate for Rustler/Elixir bindings (mirrors the Magnus fix above).
+
+- fix(napi-backend): use `.into()` (`FnArgs`) when calling visitor JS callbacks with more than one argument. Single-argument calls are unaffected; multi-argument calls previously passed a raw tuple that NAPI-RS did not unpack correctly to JavaScript.
+
+- fix(cache): include alef binary identity (mtime + size) in `compute_lang_hash` and `compute_stage_hash` so locally rebuilt binaries always invalidate stale caches without requiring a version bump. Previously a rebuild with code changes would reuse the old cached output.
+
+- fix(e2e-elixir): rewrite `alef_e2e_item_texts` helper to use `Enum.flat_map` with a `case` expression instead of `Enum.map(fn attr -> item |> Map.get(attr) |> to_string() end)`. `to_string/1` raises `ArgumentError` on atom values (e.g. enum variants); the new form guards `is_atom` and capitalises separately.
+
+- fix(e2e-go): use `len(slice)` instead of `len(*slice)` for optional slice-typed fields in `not_empty`, `empty`, `min_elements`, and `max_elements` assertions. Go slice optionals are value types, not pointer-to-slice, so dereferencing them was a compile error.
+
+- fix(e2e-typescript): convert `{placeholder}` syntax to `${placeholder}` in `CustomTemplate` visitor method bodies so the emitted string is a valid JavaScript template literal.
+
+- fix(e2e-go): include fmt import when `needs_json_stringify` is true, since the `jsonString` helper uses `fmt.Sprint`. Previously tests with array field `contains` assertions failed to compile with "undefined: fmt".
+
+- fix(e2e-csharp): add missing `using static {namespace}.{class_name};` directive to test file headers so static method calls to the binding class resolve without full qualification.
+
+- fix(e2e-java): add `org.jetbrains:annotations:24.1.0` dependency to generated pom.xml. E2e tests use `@NotNull`/`@Nullable` annotations from this package.
+
+- fix(e2e-elixir): skip batch functions in generated tests with `@tag :skip`. Batch functions (`batch_extract_*`) are excluded from the Elixir binding due to unsafe NIF tuple marshalling; tests now emit a documented skip rather than failing to compile.
+
 ## [0.14.13] - 2026-05-04
 
 ### Fixed

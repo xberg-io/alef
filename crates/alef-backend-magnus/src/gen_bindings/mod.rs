@@ -221,7 +221,9 @@ impl Backend for MagnusBackend {
                         &default_types,
                         &core_import,
                     ));
-                } else if let Some((options_param_idx, bridge_cfg)) = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges) {
+                } else if let Some((options_param_idx, bridge_cfg)) =
+                    crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                {
                     builder.add_item(&crate::trait_bridge::gen_options_field_bridge_function(
                         func,
                         options_param_idx,

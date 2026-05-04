@@ -78,7 +78,23 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
             let _ = writeln!(out, "        return {{ custom: \"{escaped}\" }};");
         }
         CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(out, "        return {{ custom: `{template}` }};");
+            // Convert {placeholder} to ${placeholder} for JavaScript template literals
+            let mut processed = String::new();
+            let mut in_placeholder = false;
+            for ch in template.chars() {
+                match ch {
+                    '{' => {
+                        processed.push_str("${");
+                        in_placeholder = true;
+                    }
+                    '}' => {
+                        processed.push('}');
+                        in_placeholder = false;
+                    }
+                    _ => processed.push(ch),
+                }
+            }
+            let _ = writeln!(out, "        return {{ custom: `{processed}` }};");
         }
     }
     let _ = writeln!(out, "    }},");

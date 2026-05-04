@@ -50,11 +50,9 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             TypeRef::Vec(_) => {
                 if p.is_ref {
-                    // `&Vec<T>` derefs to `&[T]`, which is the common case in kreuzberg
-                    // core (e.g., `&[String]`). Functions that want `&[&str]` can be
-                    // handled by an opt-in conversion in a future change — emitting the
-                    // unconditional `iter().map(String::as_str).collect::<Vec<&str>>()`
-                    // converted in the wrong direction for any `&[String]` signature.
+                    // `&Vec<T>` derefs to `&[T]`, which matches kreuzberg core for `&[String]`.
+                    // For `&[&str]` signatures (Vec<String> inner), a refs intermediate is
+                    // emitted in the caller body (gen_nif_function deser_lines) instead.
                     format!("&{}", p.name)
                 } else {
                     p.name.to_string()
@@ -193,6 +191,21 @@ pub(super) fn gen_nif_function(
                         if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
+                        // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
+                        if p.optional {
+                            deser_lines.push(format!(
+                                "let {0}_refs: Vec<&str> = {0}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
+                                p.name
+                            ));
+                        } else {
+                            deser_lines.push(format!(
+                                "let {0}_refs: Vec<&str> = {0}.iter().map(|s| s.as_str()).collect();",
+                                p.name
+                            ));
+                        }
+                        format!("&{}_refs", p.name)
+                    }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
                             // &Vec<T> derefs to &[T] which matches kreuzberg core in all known sites.
@@ -296,15 +309,25 @@ pub(super) fn gen_nif_function(
                         if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
+                        // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
+                        if p.optional {
+                            deser_lines.push(format!(
+                                "let {0}_refs: Vec<&str> = {0}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
+                                p.name
+                            ));
+                        } else {
+                            deser_lines.push(format!(
+                                "let {0}_refs: Vec<&str> = {0}.iter().map(|s| s.as_str()).collect();",
+                                p.name
+                            ));
+                        }
+                        format!("&{}_refs", p.name)
+                    }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
                             // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
-                            // takes for every Vec param we've encountered so far. Rustler
-                            // previously force-converted `Vec<String>` to `Vec<&str>` —
-                            // that broke the `&[String]` callers (batch_reduce_tokens,
-                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
-                            // handle it via an explicit conversion override at the call
-                            // site rather than re-introducing the lossy default.
+                            // takes for `&[String]` callers.
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()

@@ -218,6 +218,7 @@ fn render_test_file(
     let _ = writeln!(out, "using System.Threading.Tasks;");
     let _ = writeln!(out, "using Xunit;");
     let _ = writeln!(out, "using {namespace};");
+    let _ = writeln!(out, "using static {namespace}.{class_name};");
     let _ = writeln!(out);
     let _ = writeln!(out, "namespace Kreuzberg.E2e;");
     let _ = writeln!(out);

@@ -306,10 +306,16 @@ fn render_test_file(
         let _ = writeln!(out, "  defp alef_e2e_item_texts(item) do");
         let _ = writeln!(out, "    [:kind, :name, :signature, :path, :alias, :text, :source]");
         let _ = writeln!(out, "    |> Enum.filter(&Map.has_key?(item, &1))");
+        let _ = writeln!(out, "    |> Enum.flat_map(fn attr ->");
+        let _ = writeln!(out, "      case Map.get(item, attr) do");
+        let _ = writeln!(out, "        nil -> []");
         let _ = writeln!(
             out,
-            "    |> Enum.map(fn attr -> item |> Map.get(attr) |> to_string() |> String.capitalize() end)"
+            "        atom when is_atom(atom) -> [atom |> to_string() |> String.capitalize()]"
         );
+        let _ = writeln!(out, "        str -> [to_string(str)]");
+        let _ = writeln!(out, "      end");
+        let _ = writeln!(out, "    end)");
         let _ = writeln!(out, "  end");
     }
 
@@ -633,6 +639,34 @@ fn render_test_case(
     let lang = "elixir";
     let call_overrides = call_config.overrides.get(lang);
 
+    // Check if the function is excluded from the Elixir binding (e.g., batch functions
+    // that require unsafe NIF tuple marshalling). Emit a skipped test with rationale.
+    let base_fn = call_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
+    if base_fn.starts_with("batch_extract_") {
+        let _ = writeln!(
+            out,
+            "  describe \"{test_name}\" do",
+            test_name = sanitize_ident(&fixture.id)
+        );
+        let _ = writeln!(out, "    @tag :skip");
+        let _ = writeln!(
+            out,
+            "    test \"{test_label}\" do",
+            test_label = fixture.id.replace('"', "\\\"")
+        );
+        let _ = writeln!(
+            out,
+            "      # batch functions excluded from Elixir binding: unsafe NIF tuple marshalling"
+        );
+        let _ = writeln!(out, "      :ok");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
     // Compute module_path and function_name from the resolved call config,
     // applying Elixir-specific PascalCase conversion.
     let (module_path, function_name, result_var) = if fixture.call.is_some() {
@@ -646,10 +680,6 @@ fn render_test_case(
         } else {
             elixir_module_name(&raw_module)
         };
-        let base_fn = call_overrides
-            .and_then(|o| o.function.as_ref())
-            .cloned()
-            .unwrap_or_else(|| call_config.function.clone());
         let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") {
             format!("{base_fn}_async")
         } else {
