@@ -431,6 +431,10 @@ pub(super) fn gen_record_type(
                     // rather than `string.VariantName` which would resolve to a missing static.
                     if base_type == "string" || base_type == "string?" {
                         format!("\"{}\"", v.to_pascal_case())
+                    } else if base_type == "JsonElement" || base_type == "JsonElement?" {
+                        // Complex enums mapped to JsonElement have no static variant members —
+                        // default to null so the field is left unset (deserialized from JSON).
+                        "null".to_string()
                     } else {
                         format!("{}.{}", base_type, v.to_pascal_case())
                     }

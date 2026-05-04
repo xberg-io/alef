@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.20] - 2026-05-04
+
+### Fixed
+
+- fix(rustler-backend): `gen_nif_async_function` no longer double-appends `_async` when the Rust function name already ends with `_async` (e.g. `embed_texts_async` → NIF was `embed_texts_async_async`); the generated NIF name now matches the Elixir native.ex stub.
+- fix(napi-backend): add `#![allow(unsafe_code)]` inner attribute to generated Node.js bindings; NAPI-RS bridge code for trait visitors emits unsafe blocks that were previously rejected by the workspace-level `-D unsafe_code` lint.
+- fix(e2e/wasm): `inject_wasm_init` now adds `init` as the **default** export (`import init, { ... }`) instead of a named export (`import { ..., init }`); wasm-pack exports `init` as a default export, so the named-import form produced `TypeError: init is not a function`.
+- fix(e2e/go): `contains`, `contains_all`, `not_contains`, and `contains_any` assertions on optional array fields no longer emit `jsonString(*field)` (invalid dereference of a Go slice); Go slices are nil-able value types, so `jsonString(field)` is emitted directly with the nil guard on the field unchanged.
+- fix(csharp-backend): `DefaultValue::EnumVariant` for fields whose C# type is `JsonElement` or `JsonElement?` (complex tagged-union enums) now emits `null` instead of `JsonElement.VariantName`, which does not exist in the .NET API.
+
 ### Added
 
 - feat(pyo3-backend): generate `from_json(json_str: String) -> PyResult<Self>` staticmethod on all non-opaque struct types with serde and a core→binding `From` conversion. Deserializes via the core type to correctly handle fields with `#[serde(skip)]` (e.g. `Vec<Message>` in `ChatCompletionRequest`). Requires PyO3 ≥ 0.21 (multiple `#[pymethods]` blocks allowed by default).

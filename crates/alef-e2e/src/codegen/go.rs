@@ -1956,17 +1956,18 @@ fn render_assertion(
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
                 // Determine the "string view" of the field expression.
-                // - *[]string → strings.Join(*field_expr, " ") for a nil-guarded check
+                // - []string (optional) → jsonString(field_expr) — Go slices are nil-able, no `*` needed
                 // - *string → string(*field_expr)
                 // - string → string(field_expr) (or just field_expr for plain strings)
-                // - result_is_array (result_is_simple + array result) → strings.Join(field_expr, " ")
+                // - result_is_array (result_is_simple + array result) → jsonString(field_expr)
                 let resolved_field = assertion.field.as_deref().unwrap_or("");
                 let resolved_name = field_resolver.resolve(resolved_field);
                 let field_is_array = result_is_array || field_resolver.is_array(resolved_name);
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("jsonString(*{field_expr})")
+                    // Go slices are nil-able directly — no pointer dereference needed.
+                    format!("jsonString({field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
@@ -2003,7 +2004,8 @@ fn render_assertion(
                 for val in values {
                     let go_val = json_to_go(val);
                     let field_for_contains = if is_opt && field_is_array {
-                        format!("jsonString(*{field_expr})")
+                        // Go slices are nil-able directly — no pointer dereference needed.
+                        format!("jsonString({field_expr})")
                     } else if is_opt {
                         format!("fmt.Sprint(*{field_expr})")
                     } else if field_is_array {
@@ -2034,7 +2036,8 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("jsonString(*{field_expr})")
+                    // Go slices are nil-able directly — no pointer dereference needed.
+                    format!("jsonString({field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
@@ -2110,7 +2113,8 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("jsonString(*{field_expr})")
+                    // Go slices are nil-able directly — no pointer dereference needed.
+                    format!("jsonString({field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {

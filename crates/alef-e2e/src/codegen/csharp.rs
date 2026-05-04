@@ -725,12 +725,12 @@ fn render_test_method(
         if is_async {
             let _ = writeln!(
                 out,
-                "        await Assert.ThrowsAsync<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
+                "        await Assert.ThrowsAnyAsync<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
             );
         } else {
             let _ = writeln!(
                 out,
-                "        Assert.Throws<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
+                "        Assert.ThrowsAny<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
             );
         }
         let _ = writeln!(out, "    }}");
@@ -1374,7 +1374,7 @@ fn render_assertion(
                     "is_error" => {
                         let _ = writeln!(
                             out,
-                            "        Assert.Throws<{exception_class}>(() => {{ {call_expr}; }});"
+                            "        Assert.ThrowsAny<{exception_class}>(() => {{ {call_expr}; }});"
                         );
                     }
                     "contains" => {

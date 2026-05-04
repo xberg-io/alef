@@ -384,6 +384,14 @@ pub(super) fn gen_nif_async_function(
     default_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
+    // If the Rust function name already ends with `_async` (e.g. `embed_texts_async`),
+    // do not append another `_async` suffix — the NIF name is already the async variant.
+    let nif_fn_name = if func.name.ends_with("_async") {
+        func.name.clone()
+    } else {
+        format!("{}_async", func.name)
+    };
+
     let params_str = func
         .params
         .iter()
@@ -553,13 +561,13 @@ pub(super) fn gen_nif_async_function(
             )
         }
     } else {
-        super::helpers::gen_rustler_unimplemented_body(&func.return_type, &format!("{}_async", func.name), true)
+        super::helpers::gen_rustler_unimplemented_body(&func.return_type, &nif_fn_name, true)
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &func.doc, "");
     out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
-    out.push_str(&func.name);
-    out.push_str("_async(");
+    out.push_str(&nif_fn_name);
+    out.push('(');
     out.push_str(&params_str);
     out.push_str(") -> ");
     out.push_str(&return_annotation);

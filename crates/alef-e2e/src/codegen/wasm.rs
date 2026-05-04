@@ -403,14 +403,9 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
     let from_marker_sq = format!("}} from '{pkg_name}';");
     let from_marker_dq = format!("}} from \"{pkg_name}\";");
     let from_marker = if content.contains(&from_marker_sq) {
-        from_marker_sq.clone()
+        from_marker_sq
     } else {
-        from_marker_dq.clone()
-    };
-    let new_from = if from_marker == from_marker_sq {
-        format!(", init }} from '{pkg_name}';")
-    } else {
-        format!(", init }} from \"{pkg_name}\";")
+        from_marker_dq
     };
 
     if let Some(import_pos) = content.find("import {") {
@@ -423,7 +418,10 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 return content.to_string();
             }
 
-            let new_import = import_section.replace(&from_marker, &new_from);
+            // wasm-pack exports `init` as the default export, not a named export.
+            // Transform `import { ... }` to `import init, { ... }` so the default
+            // export is bound and `await init()` works at the top level.
+            let new_import = import_section.replace("import {", "import init, {");
 
             // Use top-level await with wasm-pack's async init() function.
             let init_code = "await init();\n";
