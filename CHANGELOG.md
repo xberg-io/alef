@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.13] - 2026-05-04
+
+### Fixed
+
+- fix(e2e-go): propagate call-level `result_is_array` to Go generator. Previously only Go-specific overrides were checked, so call-level `result_is_array = true` was ignored, causing `value := *result` dereference errors for slice return types like `[]string`.
+
 ## [0.14.12] - 2026-05-04
 
 ### Fixed
