@@ -294,8 +294,12 @@ fn render_test_file(
                 if a.arg_type != "json_object" {
                     return false;
                 }
-                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+                let v = if a.field == "input" {
+                    &f.input
+                } else {
+                    let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                    f.input.get(field).unwrap_or(&serde_json::Value::Null)
+                };
                 if v.is_array() {
                     return true;
                 } // array → []string unmarshal
@@ -521,6 +525,11 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Honor per-call `skip_languages`: when the resolved call's `skip_languages`
+    // contains `"go"`, the Go binding doesn't expose this function.
+    if call_config.skip_languages.iter().any(|l| l == "go") {
+        return false;
+    }
     let go_override = call_config
         .overrides
         .get("go")
@@ -879,7 +888,10 @@ fn render_test_function(
                     } else {
                         let _ = writeln!(out, "\tvar {local_var} string");
                         let _ = writeln!(out, "\tif {field_expr} != nil {{");
-                        let _ = writeln!(out, "\t\t{local_var} = *{field_expr}");
+                        // Use string() cast to handle named string types (e.g. *FinishReason) in
+                        // addition to plain *string fields — string(*ptr) is a no-op for *string
+                        // and a safe coercion for any named type whose underlying type is string.
+                        let _ = writeln!(out, "\t\t{local_var} = string(*{field_expr})");
                         let _ = writeln!(out, "\t}}");
                     }
                     optional_locals.insert(f.clone(), local_var);

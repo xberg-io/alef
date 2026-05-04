@@ -114,13 +114,21 @@ impl FieldResolver {
         self.array_fields.contains(field)
     }
 
-    /// Check if a resolved field path ends with a map access (e.g., `foo[key]`).
+    /// Check if a resolved field path contains a non-numeric map access (e.g., `foo["key"]`).
     /// This is needed because Go map access returns a value type (not a pointer),
     /// so nil checks and pointer dereferences don't apply.
+    /// Numeric keys (e.g., `choices[0]`) are array/slice indices, not map keys,
+    /// and do NOT qualify as map access.
     pub fn has_map_access(&self, fixture_field: &str) -> bool {
         let resolved = self.resolve(fixture_field);
         let segments = parse_path(resolved);
-        segments.iter().any(|s| matches!(s, PathSegment::MapAccess { .. }))
+        segments.iter().any(|s| {
+            if let PathSegment::MapAccess { key, .. } = s {
+                !key.chars().all(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        })
     }
 
     /// Generate a language-specific accessor expression.
@@ -463,7 +471,13 @@ fn render_go(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&to_go_name(field));
-                out.push_str(&format!("[\"{key}\"]"));
+                // Numeric keys index a slice ([]T) — emit as integer index.
+                // String keys index a map (map[string]T) — emit as quoted string.
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
             }
             PathSegment::Length => {
                 let current = std::mem::take(&mut out);
