@@ -1416,10 +1416,7 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
 /// The JSON deserialization uses JsonPropertyName("lowercase_value"), so fixture enum values
 /// (typically PascalCase like "Tildes") must be converted to lowercase ("tildes") for correct
 /// deserialization with JsonStringEnumConverter.
-fn normalize_csharp_enum_values(
-    value: &serde_json::Value,
-    enum_fields: &HashMap<String, String>,
-) -> serde_json::Value {
+fn normalize_csharp_enum_values(value: &serde_json::Value, enum_fields: &HashMap<String, String>) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut result = map.clone();
