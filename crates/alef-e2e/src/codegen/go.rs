@@ -207,7 +207,7 @@ fn render_test_file(
     // reference the package when a Go override function is configured.
     let needs_pkg = fixtures
         .iter()
-        .any(|f| f.mock_response.is_some() || f.visitor.is_some() || fixture_has_go_callable(f, e2e_config));
+        .any(|f| fixture_has_go_callable(f, e2e_config) || f.is_http_test() || f.visitor.is_some());
 
     // Determine if we need the "os" import (mock_url args, HTTP fixtures, or
     // client_factory fixtures that read MOCK_SERVER_URL via os.Getenv).
