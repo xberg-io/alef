@@ -82,7 +82,12 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         // Get the JS function from the object
         let js_args_exprs = build_napi_args(method);
-        let args_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+        let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+        let args_tuple_ty = if js_args_exprs.is_empty() {
+            inner_tuple_ty.clone()
+        } else {
+            format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
+        };
 
         writeln!(
             out,
@@ -102,13 +107,12 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         if js_args_exprs.is_empty() {
             writeln!(out, "let result = func.call(());").ok();
         } else {
-            // Pass args directly as tuple without intermediate variables
             let tuple_str = if js_args_exprs.len() == 1 {
                 format!("({},)", js_args_exprs[0])
             } else {
                 format!("({})", js_args_exprs.join(", "))
             };
-            writeln!(out, "let result = func.call({tuple_str});").ok();
+            writeln!(out, "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").ok();
         }
 
         // Parse result
@@ -188,7 +192,12 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         // Build the JS function call
         let js_args_exprs = build_napi_args(method);
-        let args_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+        let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
+        let args_tuple_ty = if js_args_exprs.is_empty() {
+            inner_tuple_ty.clone()
+        } else {
+            format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
+        };
 
         writeln!(
             out,
@@ -202,18 +211,19 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    }}").ok();
         writeln!(out, "}};").ok();
 
-        // Pass args directly without intermediate variables to avoid lifetime issues with env
         let tuple_str = if js_args_exprs.is_empty() {
             "()".to_string()
+        } else if js_args_exprs.len() == 1 {
+            format!("({},)", js_args_exprs[0])
         } else {
-            if js_args_exprs.len() == 1 {
-                format!("({},)", js_args_exprs[0])
-            } else {
-                format!("({})", js_args_exprs.join(", "))
-            }
+            format!("({})", js_args_exprs.join(", "))
         };
 
-        writeln!(out, "let result = func.call({tuple_str});").ok();
+        if js_args_exprs.is_empty() {
+            writeln!(out, "let result = func.call({tuple_str});").ok();
+        } else {
+            writeln!(out, "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").ok();
+        }
         writeln!(out, "match result {{").ok();
         let err = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", cached_name, e)",
@@ -711,9 +721,16 @@ fn gen_visitor_method_napi(
     writeln!(out, "            return {ret_ty}::Continue;").unwrap();
     writeln!(out, "        }}").unwrap();
 
-    // Get the JS function with the correct tuple arg type
+    // Get the JS function with the correct tuple arg type.
+    // Use FnArgs<(Unknown, ...)> for N>0 args so the macro-generated JsValuesTupleIntoVec
+    // impl is used, which correctly expands each element into a separate NAPI value.
     let arg_count = method.params.len();
-    let args_tuple_ty = unknown_tuple_type(arg_count);
+    let inner_tuple_ty = unknown_tuple_type(arg_count);
+    let args_tuple_ty = if arg_count == 0 {
+        inner_tuple_ty.clone()
+    } else {
+        format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
+    };
     writeln!(
         out,
         "        let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.obj.get_named_property(\"{js_name}\") {{"
@@ -730,9 +747,7 @@ fn gen_visitor_method_napi(
     } else {
         // Bind env to a named variable so borrows from it outlive the statement.
         writeln!(out, "        let __env = self.env();").unwrap();
-        // Emit each arg as a let binding, then call with FnArgs to properly handle multiple arguments
         for (i, expr) in js_args_exprs.iter().enumerate() {
-            // Replace __ENV__ placeholder with the bound variable
             let expr = expr.replace("self.env()", "__env");
             writeln!(out, "        let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").unwrap();
         }
@@ -742,9 +757,8 @@ fn gen_visitor_method_napi(
         } else {
             format!("({})", tuple_args.join(", "))
         };
-        // Call the function with the tuple of arguments
-        // For NAPI, pass the tuple directly without conversion
-        writeln!(out, "        let result = func.call({tuple_str});").unwrap();
+        // Wrap in FnArgs so each element is passed as a separate JavaScript argument.
+        writeln!(out, "        let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").unwrap();
     }
 
     // Parse result
