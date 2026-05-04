@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.22] - 2026-05-04
+
 ### Fixed
 
 - fix(e2e/wasm): `inject_wasm_init` now loads the WASM binary via `readFileSync` and passes the buffer directly to `init()`; Node.js `fetch` does not support `file://` URLs, so the previous `await init()` (no arguments) failed with `TypeError: fetch failed`.
