@@ -101,11 +101,6 @@ impl Backend for NapiBackend {
         // serde_json is needed for conversions of types with serde-serializable fields.
         builder.add_import("serde_json");
 
-        // Import async_trait for trait bridge implementations that use async methods
-        if !config.trait_bridges.is_empty() {
-            builder.add_import("async_trait");
-        }
-
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);

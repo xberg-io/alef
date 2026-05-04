@@ -99,7 +99,8 @@ pub(super) fn gen_native_ex(
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
     {
         let fn_name = if func.is_async {
-            format!("{}_async", func.name)
+            let n = func.name.as_str();
+            if n.ends_with("_async") { n.to_string() } else { format!("{n}_async") }
         } else {
             func.name.clone()
         };

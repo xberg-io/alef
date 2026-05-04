@@ -457,10 +457,10 @@ fn render_test_file(
     });
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions
-    // with placeholders, string assertions rendered through fmt.Sprint, or the
-    // jsonString helper function which uses fmt.Sprint to convert values).
-    let needs_fmt = needs_json_stringify
-        || fixtures.iter().any(|f| {
+    // with placeholders or string assertions rendered through fmt.Sprint).
+    // Note: jsonString is now in helpers_test.go (uses encoding/json, not fmt),
+    // so individual test files do NOT need fmt just for calling jsonString.
+    let needs_fmt = fixtures.iter().any(|f| {
             f.visitor.as_ref().is_some_and(|v| {
                 v.callbacks.values().any(|action| {
                     if let CallbackAction::CustomTemplate { template } = action {
@@ -2042,8 +2042,8 @@ fn render_assertion(
                 // Pointer-to-slice (*[]T): dereference then len.
                 let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
             } else if result_is_simple && result_is_array {
-                // Simple result is *[]byte (e.g., speech): nil check + dereference.
-                let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
+                // Simple array result ([]T) — direct slice, not a pointer; check length only.
+                let _ = writeln!(out_ref, "\tif len({field_expr}) == 0 {{");
             } else {
                 let _ = writeln!(out_ref, "\tif len({field_expr}) == 0 {{");
             }

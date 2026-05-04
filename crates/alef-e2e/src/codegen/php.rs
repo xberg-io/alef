@@ -14,7 +14,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -782,6 +782,11 @@ fn render_test_method(
     // a function name, use it as-is without modification.
     if !has_override && call_config.r#async {
         function_name = format!("{function_name}_async");
+    }
+    // PHP wrapper classes use lowerCamelCase method names (e.g. getLanguage, downloadAll).
+    // Convert the Rust snake_case name only when no explicit override is provided.
+    if !has_override {
+        function_name = function_name.to_lower_camel_case();
     }
     let result_var = &call_config.result_var;
     let args = &call_config.args;

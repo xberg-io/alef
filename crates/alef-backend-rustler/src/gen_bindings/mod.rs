@@ -559,7 +559,8 @@ impl Backend for RustlerBackend {
         // Wrapper functions for top-level API functions
         for func in &api.functions {
             let nif_fn_name = if func.is_async {
-                format!("{}_async", func.name.to_snake_case())
+                let s = func.name.to_snake_case();
+                if s.ends_with("_async") { s } else { format!("{s}_async") }
             } else {
                 func.name.to_snake_case()
             };
@@ -1030,7 +1031,8 @@ fn gen_nif_init(
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
     {
         let func_name = if func.is_async {
-            format!("{}_async", func.name)
+            let n = func.name.as_str();
+            if n.ends_with("_async") { n.to_string() } else { format!("{n}_async") }
         } else {
             func.name.clone()
         };
