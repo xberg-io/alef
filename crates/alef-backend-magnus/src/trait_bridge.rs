@@ -1237,8 +1237,8 @@ pub fn gen_options_field_bridge_function(
          {options_name}_core.visitor = visitor_handle;",
     );
 
-    // Build call args: non-options params + the _core options (wrapped in Some for Option param)
-    let is_options_optional = matches!(&func.params[options_param_idx].ty, TypeRef::Optional(_));
+    // Build call args: non-options params + the _core options (wrapped in Some)
+    // The core function expects Option<ConversionOptions>, so always wrap in Some
     let call_args: String = non_option_params
         .iter()
         .map(|(_, p)| {
@@ -1272,13 +1272,7 @@ pub fn gen_options_field_bridge_function(
                 _ => p.name.clone(),
             }
         })
-        .chain(std::iter::once(
-            if is_options_optional {
-                format!("Some({options_name}_core)")
-            } else {
-                format!("{options_name}_core")
-            }
-        ))
+        .chain(std::iter::once(format!("Some({options_name}_core)")))
         .collect::<Vec<_>>()
         .join(", ");
 
