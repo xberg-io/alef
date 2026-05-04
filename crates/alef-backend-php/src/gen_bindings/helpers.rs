@@ -661,9 +661,11 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         if field.optional {
                             format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
                         } else if typ.has_default {
-                            // option_duration_on_defaults: Duration stored as Option<i64>
+                            // Duration stored as Option<i64> (option_duration_on_defaults).
+                            // Use the core type's default rather than Duration::default() (0s)
+                            // so that e.g. BrowserConfig.timeout preserves its 30s default.
                             format!(
-                                "self.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_default()"
+                                "self.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_else(|| {core_path}::default().{name})"
                             )
                         } else {
                             format!("std::time::Duration::from_millis(self.{name} as u64)")
