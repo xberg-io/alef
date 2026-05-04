@@ -37,6 +37,12 @@ pub(crate) fn scaffold_python_cargo(
         }
         all_deps.push_str("async-trait = \"0.1\"");
     }
+    if has_trait_bridges && !all_deps.contains("tokio = ") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }");
+    }
 
     let extra_deps_section = if all_deps.is_empty() {
         String::new()

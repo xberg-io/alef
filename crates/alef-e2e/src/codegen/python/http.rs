@@ -260,6 +260,7 @@ mod tests {
             assertions: Vec::new(),
             call: None,
             skip: None,
+            env: None,
             visitor: None,
             mock_response: None,
             source: String::new(),

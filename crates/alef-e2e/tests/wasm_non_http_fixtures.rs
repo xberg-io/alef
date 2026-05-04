@@ -56,6 +56,7 @@ fn smoke_fixture() -> FixtureGroup {
             description: "extract a small pdf".to_string(),
             tags: Vec::new(),
             skip: None,
+            env: None,
             call: None,
             input: serde_json::json!({ "path": "pdf/fake_memo.pdf" }),
             mock_response: None,

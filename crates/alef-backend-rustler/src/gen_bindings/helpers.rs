@@ -100,7 +100,11 @@ pub(super) fn gen_native_ex(
     {
         let fn_name = if func.is_async {
             let n = func.name.as_str();
-            if n.ends_with("_async") { n.to_string() } else { format!("{n}_async") }
+            if n.ends_with("_async") {
+                n.to_string()
+            } else {
+                format!("{n}_async")
+            }
         } else {
             func.name.clone()
         };

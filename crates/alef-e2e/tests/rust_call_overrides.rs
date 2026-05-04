@@ -68,6 +68,7 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
             description: "regression test fixture".to_string(),
             tags: Vec::new(),
             skip: None,
+            env: None,
             call: None,
             input: serde_json::json!({ "path": "test.pdf" }),
             mock_response: Some(alef_e2e::fixture::MockResponse {
@@ -137,6 +138,7 @@ fn build_fixture() -> FixtureGroup {
             description: "basic conversion".to_string(),
             tags: Vec::new(),
             skip: None,
+            env: None,
             call: None,
             input: serde_json::json!({
                 "html": "<p>hi</p>",

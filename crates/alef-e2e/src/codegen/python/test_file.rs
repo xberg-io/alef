@@ -427,9 +427,9 @@ fn build_thirdparty_imports(
         let cc = e2e_config.resolve_call(fixture.call.as_deref());
         if let Some(py_override) = cc.overrides.get("python") {
             if py_override.options_via.as_deref() == Some("from_json") {
-                if let Some(ot) = &py_override.options_type {
+                if let Some(opts_type) = &py_override.options_type {
                     let native_mod = py_override.from_json_module.as_deref().unwrap_or(module);
-                    extra_from_json_types.insert(format!("from {native_mod} import {ot}"));
+                    extra_from_json_types.insert(format!("from {native_mod} import {opts_type}"));
                 }
             }
         }
@@ -495,6 +495,7 @@ mod tests {
             assertions: Vec::new(),
             call: None,
             skip: None,
+            env: None,
             visitor: None,
             mock_response: None,
             source: String::new(),

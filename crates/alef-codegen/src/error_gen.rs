@@ -633,7 +633,11 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
 /// `fallback_class` is the name of the generic library exception class (e.g.
 /// `TreeSitterLanguagePackException`) that the base error class should extend so that
 /// callers can `catch` the general library exception and catch all typed errors.
-pub fn gen_csharp_error_types(error: &ErrorDef, namespace: &str, fallback_class: Option<&str>) -> Vec<(String, String)> {
+pub fn gen_csharp_error_types(
+    error: &ErrorDef,
+    namespace: &str,
+    fallback_class: Option<&str>,
+) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
     let base_name = format!("{}Exception", error.name);
@@ -1417,7 +1421,11 @@ mod tests {
         // With fallback class: base inherits from the generic library exception.
         let files = gen_csharp_error_types(&error, "Kreuzberg.Test", Some("TestLibException"));
         assert_eq!(files.len(), 4);
-        assert!(files[0].1.contains("public class ConversionErrorException : TestLibException"));
+        assert!(
+            files[0]
+                .1
+                .contains("public class ConversionErrorException : TestLibException")
+        );
         // Variant classes still inherit from the base error class, not from the fallback directly.
         assert!(
             files[1]

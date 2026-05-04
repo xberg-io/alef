@@ -1190,10 +1190,7 @@ fn render_assertion(
                     .as_deref()
                     .map(|s| format!("\"{}\"", escape_csharp(s)))
                     .unwrap_or_else(|| json_to_csharp(expected));
-                let _ = writeln!(
-                    out,
-                    "        Assert.Contains({cs_val}, {field_as_str}.ToLower());"
-                );
+                let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
             }
         }
         "contains_all" => {
@@ -1204,10 +1201,7 @@ fn render_assertion(
                         .as_deref()
                         .map(|s| format!("\"{}\"", escape_csharp(s)))
                         .unwrap_or_else(|| json_to_csharp(val));
-                    let _ = writeln!(
-                        out,
-                        "        Assert.Contains({cs_val}, {field_as_str}.ToLower());"
-                    );
+                    let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
                 }
             }
         }

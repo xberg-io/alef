@@ -18,10 +18,7 @@ use std::path::PathBuf;
 
 use crate::naming::php_autoload_namespace;
 use functions::{gen_async_function_as_static_method, gen_function_as_static_method};
-use helpers::{
-    gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field,
-    references_named_type,
-};
+use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
     gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
     gen_opaque_struct_methods, gen_php_struct, is_tagged_data_enum,

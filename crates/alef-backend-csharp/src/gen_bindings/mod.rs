@@ -104,7 +104,8 @@ impl Backend for CsharpBackend {
         // 2. Generate error types from thiserror enums (if any), otherwise generic exception
         if !api.errors.is_empty() {
             for error in &api.errors {
-                let error_files = alef_codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
+                let error_files =
+                    alef_codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
                 for (class_name, content) in error_files {
                     files.push(GeneratedFile {
                         path: base_path.join(format!("{}.cs", class_name)),

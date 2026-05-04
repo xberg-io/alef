@@ -237,6 +237,7 @@ mod tests {
             description: format!("Test {id}"),
             tags: vec![],
             skip,
+            env: None,
             call: call.map(|s| s.to_string()),
             input: serde_json::json!({"path": "test.pdf"}),
             mock_response: None,
@@ -321,6 +322,7 @@ mod tests {
             description: "Test".to_string(),
             tags: vec![],
             skip: None,
+            env: None,
             call: Some("extract_bytes".to_string()),
             input: serde_json::json!({"data": "abc"}), // missing "mime_type"
             mock_response: None,

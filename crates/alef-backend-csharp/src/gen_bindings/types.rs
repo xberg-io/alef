@@ -35,9 +35,10 @@ pub(super) fn gen_opaque_handle(
     if has_methods {
         out.push_str("using System.Text.Json;\n");
         out.push_str("using System.Text.Json.Serialization;\n");
-        let needs_list = typ.methods.iter().any(|m| {
-            uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty))
-        });
+        let needs_list = typ
+            .methods
+            .iter()
+            .any(|m| uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty)));
         if needs_list {
             out.push_str("using System.Collections.Generic;\n");
         }
@@ -114,7 +115,7 @@ pub(super) fn gen_opaque_handle(
             &class_name,
             exception_name,
             enum_names,
-            &true_opaque_types,
+            true_opaque_types,
         ));
     }
 

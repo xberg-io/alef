@@ -112,7 +112,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             } else {
                 format!("({})", js_args_exprs.join(", "))
             };
-            writeln!(out, "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").ok();
+            writeln!(
+                out,
+                "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));"
+            )
+            .ok();
         }
 
         // Parse result
@@ -222,7 +226,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         if js_args_exprs.is_empty() {
             writeln!(out, "let result = func.call({tuple_str});").ok();
         } else {
-            writeln!(out, "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").ok();
+            writeln!(
+                out,
+                "let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));"
+            )
+            .ok();
         }
         writeln!(out, "match result {{").ok();
         let err = spec.make_error(&format!(
@@ -758,7 +766,11 @@ fn gen_visitor_method_napi(
             format!("({})", tuple_args.join(", "))
         };
         // Wrap in FnArgs so each element is passed as a separate JavaScript argument.
-        writeln!(out, "        let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").unwrap();
+        writeln!(
+            out,
+            "        let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));"
+        )
+        .unwrap();
     }
 
     // Parse result.
@@ -770,7 +782,11 @@ fn gen_visitor_method_napi(
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(out, "                if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {{").unwrap();
+    writeln!(
+        out,
+        "                if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {{"
+    )
+    .unwrap();
     writeln!(out, "                    if let Ok(obj) = val.coerce_to_object() {{").unwrap();
     writeln!(out, "                        if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"custom\") {{").unwrap();
     writeln!(out, "                            if !matches!(cv.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {{").unwrap();
@@ -779,7 +795,11 @@ fn gen_visitor_method_napi(
     writeln!(out, "                                }}").unwrap();
     writeln!(out, "                            }}").unwrap();
     writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                        if let Ok(ev) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"error\") {{").unwrap();
+    writeln!(
+        out,
+        "                        if let Ok(ev) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"error\") {{"
+    )
+    .unwrap();
     writeln!(out, "                            if !matches!(ev.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {{").unwrap();
     writeln!(out, "                                if let Ok(s) = ev.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
     writeln!(out, "                                    return {ret_ty}::Error(s);").unwrap();

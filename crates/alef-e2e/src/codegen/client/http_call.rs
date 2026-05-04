@@ -143,6 +143,7 @@ mod tests {
             category: Some("smoke".into()),
             tags: vec![],
             skip: None,
+            env: None,
             call: None,
             input: serde_json::Value::Null,
             mock_response: None,

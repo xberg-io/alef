@@ -296,7 +296,10 @@ fn render_helpers_test_go() -> String {
     let _ = writeln!(out, "import \"encoding/json\"");
     let _ = writeln!(out);
     let _ = writeln!(out, "// jsonString converts a value to its JSON string representation.");
-    let _ = writeln!(out, "// Array fields use jsonString instead of fmt.Sprint to preserve structure.");
+    let _ = writeln!(
+        out,
+        "// Array fields use jsonString instead of fmt.Sprint to preserve structure."
+    );
     let _ = writeln!(out, "func jsonString(value any) string {{");
     let _ = writeln!(out, "\tencoded, err := json.Marshal(value)");
     let _ = writeln!(out, "\tif err != nil {{");
@@ -381,64 +384,64 @@ fn render_test_file(
     // json_object args that will be unmarshalled into a typed struct, or HTTP
     // body/partial/validation-error assertions that use json.Unmarshal).
     let needs_json = fixtures.iter().any(|f| {
-            // HTTP body assertions use json.Unmarshal for Object/Array bodies;
-            // partial body and validation-error assertions always use json.Unmarshal.
-            if let Some(http) = &f.http {
-                let body_needs_json = http
-                    .expected_response
-                    .body
-                    .as_ref()
-                    .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
-                let partial_needs_json = http.expected_response.body_partial.is_some();
-                let ve_needs_json = http
-                    .expected_response
-                    .validation_errors
-                    .as_ref()
-                    .is_some_and(|v| !v.is_empty());
-                if body_needs_json || partial_needs_json || ve_needs_json {
-                    return true;
-                }
+        // HTTP body assertions use json.Unmarshal for Object/Array bodies;
+        // partial body and validation-error assertions always use json.Unmarshal.
+        if let Some(http) = &f.http {
+            let body_needs_json = http
+                .expected_response
+                .body
+                .as_ref()
+                .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
+            let partial_needs_json = http.expected_response.body_partial.is_some();
+            let ve_needs_json = http
+                .expected_response
+                .validation_errors
+                .as_ref()
+                .is_some_and(|v| !v.is_empty());
+            if body_needs_json || partial_needs_json || ve_needs_json {
+                return true;
             }
-            if !emits_executable_test(f) {
+        }
+        if !emits_executable_test(f) {
+            return false;
+        }
+
+        let call = e2e_config.resolve_call(f.call.as_deref());
+        let call_args = &call.args;
+        // handle args with non-null config value
+        let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
+            call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+                !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
+            })
+        };
+        // json_object args with options_type or array values (will use JSON unmarshal)
+        let go_override = call.overrides.get("go");
+        let opts_type = go_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get("go")
+                .and_then(|o| o.options_type.as_deref())
+        });
+        let has_json_obj = call_args.iter().any(|a| {
+            if a.arg_type != "json_object" {
                 return false;
             }
-
-            let call = e2e_config.resolve_call(f.call.as_deref());
-            let call_args = &call.args;
-            // handle args with non-null config value
-            let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
-                call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-                    let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                    let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
-                    !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
-                })
+            let v = if a.field == "input" {
+                &f.input
+            } else {
+                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                f.input.get(field).unwrap_or(&serde_json::Value::Null)
             };
-            // json_object args with options_type or array values (will use JSON unmarshal)
-            let go_override = call.overrides.get("go");
-            let opts_type = go_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
-                e2e_config
-                    .call
-                    .overrides
-                    .get("go")
-                    .and_then(|o| o.options_type.as_deref())
-            });
-            let has_json_obj = call_args.iter().any(|a| {
-                if a.arg_type != "json_object" {
-                    return false;
-                }
-                let v = if a.field == "input" {
-                    &f.input
-                } else {
-                    let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                    f.input.get(field).unwrap_or(&serde_json::Value::Null)
-                };
-                if v.is_array() {
-                    return true;
-                } // array → []string unmarshal
-                opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
-            });
-            has_handle || has_json_obj
+            if v.is_array() {
+                return true;
+            } // array → []string unmarshal
+            opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
         });
+        has_handle || has_json_obj
+    });
 
     // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
     let needs_base64 = fixtures.iter().any(|f| {
@@ -460,39 +463,38 @@ fn render_test_file(
     // Note: jsonString is now in helpers_test.go (uses encoding/json, not fmt),
     // so individual test files do NOT need fmt just for calling jsonString.
     let needs_fmt = fixtures.iter().any(|f| {
-            f.visitor.as_ref().is_some_and(|v| {
-                v.callbacks.values().any(|action| {
-                    if let CallbackAction::CustomTemplate { template } = action {
-                        template.contains('{')
+        f.visitor.as_ref().is_some_and(|v| {
+            v.callbacks.values().any(|action| {
+                if let CallbackAction::CustomTemplate { template } = action {
+                    template.contains('{')
+                } else {
+                    false
+                }
+            })
+        }) || (emits_executable_test(f)
+            && f.assertions.iter().any(|a| {
+                matches!(
+                    a.assertion_type.as_str(),
+                    "contains" | "contains_all" | "contains_any" | "not_contains"
+                ) && {
+                    // Check if this assertion uses fmt.Sprint (non-array fields).
+                    // Array fields use jsonString instead, which also needs fmt.
+                    // Also verify the field is valid for the result type — assertions
+                    // on invalid fields are skipped without emitting any fmt.Sprint call.
+                    if a.field.as_ref().is_none_or(|f| f.is_empty()) {
+                        // No field: fmt.Sprint only if result is not an array
+                        !e2e_config.resolve_call(f.call.as_deref()).result_is_array
                     } else {
-                        false
+                        // Field specified: fmt.Sprint only if that field is not an array
+                        // and the field is actually valid for the result type (otherwise
+                        // the assertion is skipped and fmt.Sprint is never emitted).
+                        let field = a.field.as_deref().unwrap_or("");
+                        let resolved_name = field_resolver.resolve(field);
+                        !field_resolver.is_array(resolved_name) && field_resolver.is_valid_for_result(field)
                     }
-                })
-            }) || (emits_executable_test(f)
-                && f.assertions.iter().any(|a| {
-                    matches!(
-                        a.assertion_type.as_str(),
-                        "contains" | "contains_all" | "contains_any" | "not_contains"
-                    ) && {
-                        // Check if this assertion uses fmt.Sprint (non-array fields).
-                        // Array fields use jsonString instead, which also needs fmt.
-                        // Also verify the field is valid for the result type — assertions
-                        // on invalid fields are skipped without emitting any fmt.Sprint call.
-                        if a.field.as_ref().is_none_or(|f| f.is_empty()) {
-                            // No field: fmt.Sprint only if result is not an array
-                            !e2e_config.resolve_call(f.call.as_deref()).result_is_array
-                        } else {
-                            // Field specified: fmt.Sprint only if that field is not an array
-                            // and the field is actually valid for the result type (otherwise
-                            // the assertion is skipped and fmt.Sprint is never emitted).
-                            let field = a.field.as_deref().unwrap_or("");
-                            let resolved_name = field_resolver.resolve(field);
-                            !field_resolver.is_array(resolved_name)
-                                && field_resolver.is_valid_for_result(field)
-                        }
-                    }
-                }))
-        });
+                }
+            }))
+    });
 
     // Determine if we need the "strings" import.
     // Only count assertions whose fields are actually valid for the result type.
@@ -942,8 +944,10 @@ fn render_test_function(
             } else {
                 // Check if ALL simple-result assertions are is_empty/is_null with no field.
                 // If so, skip dereference — we'll use the pointer directly.
-                let only_nil_assertions = fixture.assertions.iter()
-                    .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+                let only_nil_assertions = fixture
+                    .assertions
+                    .iter()
+                    .filter(|a| a.field.as_ref().is_none_or(|f| f.is_empty()))
                     .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
 
                 if !only_nil_assertions {
@@ -986,8 +990,10 @@ fn render_test_function(
             } else {
                 // Check if ALL simple-result assertions are is_empty/is_null with no field.
                 // If so, skip dereference — we'll use the pointer directly.
-                let only_nil_assertions = fixture.assertions.iter()
-                    .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+                let only_nil_assertions = fixture
+                    .assertions
+                    .iter()
+                    .filter(|a| a.field.as_ref().is_none_or(|f| f.is_empty()))
                     .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
 
                 if !only_nil_assertions {
@@ -1004,8 +1010,10 @@ fn render_test_function(
     // For result_is_simple functions, determine if we created a dereferenced `value` variable.
     // We skip dereferencing if all simple-result assertions are is_empty/is_null with no field.
     let has_deref_value = if result_is_simple && has_usable_assertion && !result_is_array {
-        let only_nil_assertions = fixture.assertions.iter()
-            .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+        let only_nil_assertions = fixture
+            .assertions
+            .iter()
+            .filter(|a| a.field.as_ref().is_none_or(|f| f.is_empty()))
             .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
         !only_nil_assertions
     } else {
@@ -2086,7 +2094,7 @@ fn render_assertion(
             };
             // Special case: result_is_simple && !result_is_array && no field means the result is a pointer.
             // Empty means nil.
-            if result_is_simple && !result_is_array && assertion.field.as_ref().map_or(true, |f| f.is_empty()) {
+            if result_is_simple && !result_is_array && assertion.field.as_ref().is_none_or(|f| f.is_empty()) {
                 // Pointer result (not dereferenced): empty means nil.
                 let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
             } else if is_optional && !field_is_array {
@@ -2920,6 +2928,7 @@ mod tests {
             description: "test fixture".to_string(),
             tags: vec![],
             skip: None,
+            env: None,
             call: None,
             input: serde_json::Value::Null,
             mock_response: Some(crate::fixture::MockResponse {

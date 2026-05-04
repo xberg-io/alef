@@ -44,34 +44,31 @@ impl E2eCodegen for CCodegen {
             .cloned()
             .or_else(|| config.ffi.as_ref().and_then(|ffi| ffi.prefix.as_ref()).cloned())
             .unwrap_or_default();
-        let header = overrides
-            .and_then(|o| o.header.as_ref())
-            .cloned()
-            .unwrap_or_else(|| {
-                // Special case: tree-sitter-language-pack uses ts_pack.h
-                if config.name == "tree-sitter-language-pack" {
-                    "ts_pack.h".to_string()
-                } else {
-                    config
-                        .ffi
-                        .as_ref()
-                        .and_then(|ffi| ffi.header_name.as_ref().cloned())
-                        .unwrap_or_else(|| {
-                            // If header_name not set, derive from prefix
-                            let ffi_prefix = config
-                                .ffi
-                                .as_ref()
-                                .and_then(|ffi| ffi.prefix.as_ref())
-                                .map(|p| p.to_string())
-                                .unwrap_or_default();
-                            if ffi_prefix.is_empty() {
-                                format!("{}.h", call.module)
-                            } else {
-                                format!("{}.h", ffi_prefix)
-                            }
-                        })
-                }
-            });
+        let header = overrides.and_then(|o| o.header.as_ref()).cloned().unwrap_or_else(|| {
+            // Special case: tree-sitter-language-pack uses ts_pack.h
+            if config.name == "tree-sitter-language-pack" {
+                "ts_pack.h".to_string()
+            } else {
+                config
+                    .ffi
+                    .as_ref()
+                    .and_then(|ffi| ffi.header_name.as_ref().cloned())
+                    .unwrap_or_else(|| {
+                        // If header_name not set, derive from prefix
+                        let ffi_prefix = config
+                            .ffi
+                            .as_ref()
+                            .and_then(|ffi| ffi.prefix.as_ref())
+                            .map(|p| p.to_string())
+                            .unwrap_or_default();
+                        if ffi_prefix.is_empty() {
+                            format!("{}.h", call.module)
+                        } else {
+                            format!("{}.h", ffi_prefix)
+                        }
+                    })
+            }
+        });
 
         // Resolve package config.
         let c_pkg = e2e_config.resolve_package("c");

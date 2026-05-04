@@ -22,10 +22,7 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
     out.push_str("        Code = code;\n");
     out.push_str("    }\n\n");
     // String-only constructor for derived classes that don't carry a numeric code.
-    out.push_str(&format!(
-        "    public {}(string message) : base(message)\n",
-        class_name
-    ));
+    out.push_str(&format!("    public {}(string message) : base(message)\n", class_name));
     out.push_str("    {\n");
     out.push_str("        Code = 0;\n");
     out.push_str("    }\n\n");
@@ -194,7 +191,9 @@ pub(super) fn emit_return_marshalling_indented(
         // Optional<String> — the FFI returns a raw C string (not JSON-encoded).
         if let TypeRef::Optional(inner) = return_type {
             if returns_string(inner) {
-                out.push_str(&format!("{indent}var returnValue = Marshal.PtrToStringUTF8(nativeResult);\n"));
+                out.push_str(&format!(
+                    "{indent}var returnValue = Marshal.PtrToStringUTF8(nativeResult);\n"
+                ));
                 out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));
                 return;
             }
