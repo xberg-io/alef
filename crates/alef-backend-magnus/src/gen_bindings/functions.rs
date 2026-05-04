@@ -682,17 +682,23 @@ pub(super) fn gen_module_init(
         if super::is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        // Functions with a trait_bridge param or options_field binding go through special
-        // generators that emit fixed-arity signatures (not args: &[Value]). For those we must
-        // register fixed arity even when params include optionals — otherwise Magnus's function!
-        // macro fails to satisfy trait bounds (the fn doesn't take &[Value]). For all other
-        // functions we use variadic arity (-1) so Ruby callers can omit trailing optional
-        // arguments; the generated body uses scan_args to unpack.
+        // Functions with a trait_bridge param use fixed-arity signatures, while
+        // options_field bindings use variadic arity. For bridge_param, register fixed arity
+        // since those functions don't use scan_args. For options_field, register variadic
+        // (-1) since the generated body uses scan_args to unpack arguments.
         let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
         let has_options_field_binding = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
-        let param_count: i32 = if !(has_bridge_param || has_options_field_binding) && needs_variadic_arity(&func.params) {
+        let param_count: i32 = if has_options_field_binding {
+            // options_field binding functions use variadic arity with scan_args
+            -1
+        } else if has_bridge_param {
+            // bridge_param functions use fixed arity
+            func.params.len() as i32
+        } else if needs_variadic_arity(&func.params) {
+            // Other functions with optional params use variadic arity
             -1
         } else {
+            // Functions with only required params use fixed arity
             func.params.len() as i32
         };
         if func.is_async {

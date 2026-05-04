@@ -1231,13 +1231,14 @@ pub fn gen_options_field_bridge_function(
          });".replace("{struct_name}", &struct_name).replace("{handle_path}", &handle_path);
 
     // Generate options creation with visitor wired in
+    let options_name = &func.params[options_param_idx].name;
     let options_convert = format!(
         "let mut {options_name}_core = {core_import}::ConversionOptions::default();\n    \
          {options_name}_core.visitor = visitor_handle;",
-        options_name = func.params[options_param_idx].name
     );
 
-    // Build call args: non-options params + the _core options
+    // Build call args: non-options params + the _core options (wrapped in Some for Option param)
+    let is_options_optional = matches!(&func.params[options_param_idx].ty, TypeRef::Optional(_));
     let call_args: String = non_option_params
         .iter()
         .map(|(_, p)| {
@@ -1271,7 +1272,13 @@ pub fn gen_options_field_bridge_function(
                 _ => p.name.clone(),
             }
         })
-        .chain(std::iter::once(format!("{}_{}", func.params[options_param_idx].name, "core")))
+        .chain(std::iter::once(
+            if is_options_optional {
+                format!("Some({options_name}_core)")
+            } else {
+                format!("{options_name}_core")
+            }
+        ))
         .collect::<Vec<_>>()
         .join(", ");
 
