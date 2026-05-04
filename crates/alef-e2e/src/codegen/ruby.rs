@@ -336,6 +336,28 @@ fn render_spec_file(
 
     let _ = writeln!(out, "RSpec.describe '{}' do", category);
 
+    // Emit a shared helper for array field contains assertions — extracts text
+    // representations from each item so `.include?` works on struct arrays.
+    let has_array_contains = fixtures.iter().any(|fixture| {
+        fixture.assertions.iter().any(|a| {
+            matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
+                && a.field
+                    .as_deref()
+                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(field_resolver.resolve(f)))
+        })
+    });
+    if has_array_contains {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "  def alef_e2e_item_texts(item)");
+        let _ = writeln!(
+            out,
+            "    [:kind, :name, :signature, :path, :alias, :text, :source].filter_map do |attr|"
+        );
+        let _ = writeln!(out, "      item.respond_to?(attr) ? item.send(attr).to_s : nil");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+    }
+
     // Emit a shared client helper when there are HTTP tests.
     if has_http {
         let _ = writeln!(
@@ -1055,6 +1077,14 @@ fn render_assertion(
         field_expr.clone()
     };
 
+    // Detect whether the assertion field resolves to an array type so that
+    // contains assertions can iterate items instead of calling .to_s on the array.
+    let field_is_array = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -1070,22 +1100,44 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                // Use .to_s to handle both String and Symbol (enum) fields
-                let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
+                if field_is_array && expected.is_string() {
+                    // Array of structs: check if any item's text representation contains the value.
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(true)"
+                    );
+                } else {
+                    // Use .to_s to handle both String and Symbol (enum) fields
+                    let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
+                }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let rb_val = json_to_ruby(val);
-                    let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
+                    if field_is_array && val.is_string() {
+                        let _ = writeln!(
+                            out,
+                            "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(true)"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
+                    }
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}.to_s).not_to include({rb_val})");
+                if field_is_array && expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "    expect({field_expr}.any? {{ |item| alef_e2e_item_texts(item).any? {{ |t| t.include?({rb_val}) }} }}).to be(false)"
+                    );
+                } else {
+                    let _ = writeln!(out, "    expect({field_expr}.to_s).not_to include({rb_val})");
+                }
             }
         }
         "not_empty" => {

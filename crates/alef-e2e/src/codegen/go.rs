@@ -784,11 +784,16 @@ fn render_test_function(
             "\t{result_binding} {assign_op} {call_prefix}.{function_name}({final_args})"
         );
         if has_usable_assertion && result_binding != "_" {
-            // Emit nil check and dereference for simple pointer results.
-            let _ = writeln!(out, "\tif {result_var} == nil {{");
-            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-            let _ = writeln!(out, "\t}}");
-            let _ = writeln!(out, "\tvalue := *{result_var}");
+            if result_is_array {
+                // Array results are slices (not pointers); assign directly without dereference.
+                let _ = writeln!(out, "\tvalue := {result_var}");
+            } else {
+                // Emit nil check and dereference for simple pointer results.
+                let _ = writeln!(out, "\tif {result_var} == nil {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tvalue := *{result_var}");
+            }
         }
     } else if !effective_returns_result || returns_void {
         // Function returns only error (either returns_result=false, or returns_result=true
@@ -815,11 +820,16 @@ fn render_test_function(
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
         if result_is_simple && has_usable_assertion && result_binding != "_" {
-            // Emit nil check and dereference for simple pointer results.
-            let _ = writeln!(out, "\tif {result_var} == nil {{");
-            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-            let _ = writeln!(out, "\t}}");
-            let _ = writeln!(out, "\tvalue := *{result_var}");
+            if result_is_array {
+                // Array results are slices (not pointers); assign directly without dereference.
+                let _ = writeln!(out, "\tvalue := {result_var}");
+            } else {
+                // Emit nil check and dereference for simple pointer results.
+                let _ = writeln!(out, "\tif {result_var} == nil {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tvalue := *{result_var}");
+            }
         }
     }
 

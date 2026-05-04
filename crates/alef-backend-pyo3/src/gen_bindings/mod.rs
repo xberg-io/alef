@@ -208,6 +208,11 @@ impl Backend for Pyo3Backend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
+        // Build a separate set for From impl generation: only true opaque types and bridge type
+        // aliases. Data enums (like StructureKind) have their own From impls via gen_pyo3_data_enum
+        // and their fields can be converted with val.field.into() — do not Default::default() them.
+        let conversion_opaque_set: AHashSet<String> =
+            opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         opaque_names_vec.extend(data_enum_names);
         opaque_names_vec.extend(bridge_type_aliases);
@@ -635,7 +640,7 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
             } else {
                 Some(&py_field_renames)
             },
-            opaque_types: Some(&opaque_names_set),
+            opaque_types: Some(&conversion_opaque_set),
             ..Default::default()
         };
         // From/Into conversions — separate sets for each direction
@@ -655,7 +660,7 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
                 builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
-                    &opaque_names_set,
+                    &conversion_opaque_set,
                     &pyo3_conversion_cfg,
                 ));
             }

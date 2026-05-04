@@ -291,6 +291,28 @@ fn render_test_file(
         let _ = writeln!(out, "  end");
     }
 
+    // Emit a shared helper for array field contains assertions — extracts string
+    // representations from each item's attributes so String.contains? works on struct lists.
+    let has_array_contains = fixtures.iter().any(|fixture| {
+        fixture.assertions.iter().any(|a| {
+            matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
+                && a.field
+                    .as_deref()
+                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(field_resolver.resolve(f)))
+        })
+    });
+    if has_array_contains {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "  defp alef_e2e_item_texts(item) do");
+        let _ = writeln!(out, "    [:kind, :name, :signature, :path, :alias, :text, :source]");
+        let _ = writeln!(out, "    |> Enum.filter(&Map.has_key?(item, &1))");
+        let _ = writeln!(
+            out,
+            "    |> Enum.map(fn attr -> item |> Map.get(attr) |> to_string() |> String.capitalize() end)"
+        );
+        let _ = writeln!(out, "  end");
+    }
+
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -1177,6 +1199,14 @@ fn render_assertion(
         format!("String.trim({field_expr})")
     };
 
+    // Detect whether the assertion field resolves to an array type so that
+    // contains assertions can iterate items instead of calling to_string on the list.
+    let field_is_array = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -1193,17 +1223,14 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let elixir_val = json_to_elixir(expected);
-                // Use to_string() to handle atoms (enums) as well as strings
-                let _ = writeln!(
-                    out,
-                    "      assert String.contains?(to_string({field_expr}), {elixir_val})"
-                );
-            }
-        }
-        "contains_all" => {
-            if let Some(values) = &assertion.values {
-                for val in values {
-                    let elixir_val = json_to_elixir(val);
+                if field_is_array && expected.is_string() {
+                    // List of structs: check if any item's text representation contains the value.
+                    let _ = writeln!(
+                        out,
+                        "      assert Enum.any?({field_expr}, fn item -> Enum.any?(alef_e2e_item_texts(item), &String.contains?(&1, {elixir_val})) end)"
+                    );
+                } else {
+                    // Use to_string() to handle atoms (enums) as well as strings
                     let _ = writeln!(
                         out,
                         "      assert String.contains?(to_string({field_expr}), {elixir_val})"
@@ -1211,13 +1238,38 @@ fn render_assertion(
                 }
             }
         }
+        "contains_all" => {
+            if let Some(values) = &assertion.values {
+                for val in values {
+                    let elixir_val = json_to_elixir(val);
+                    if field_is_array && val.is_string() {
+                        let _ = writeln!(
+                            out,
+                            "      assert Enum.any?({field_expr}, fn item -> Enum.any?(alef_e2e_item_texts(item), &String.contains?(&1, {elixir_val})) end)"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "      assert String.contains?(to_string({field_expr}), {elixir_val})"
+                        );
+                    }
+                }
+            }
+        }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let elixir_val = json_to_elixir(expected);
-                let _ = writeln!(
-                    out,
-                    "      refute String.contains?(to_string({field_expr}), {elixir_val})"
-                );
+                if field_is_array && expected.is_string() {
+                    let _ = writeln!(
+                        out,
+                        "      refute Enum.any?({field_expr}, fn item -> Enum.any?(alef_e2e_item_texts(item), &String.contains?(&1, {elixir_val})) end)"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "      refute String.contains?(to_string({field_expr}), {elixir_val})"
+                    );
+                }
             }
         }
         "not_empty" => {

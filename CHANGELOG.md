@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(pyo3): use `val.kind.into()` instead of `Default::default()` for data enum fields in `From` impls. Data enums (like `StructureKind`) were added to `opaque_names_set` which caused the conversion generator to treat their fields as opaque and emit `Default::default()`. A separate `conversion_opaque_set` now excludes data enum names so their fields convert correctly with `.into()`.
+
+- fix(e2e-ruby): use per-item text check for array field `contains` assertions. Previously `result.structure.to_s` produced an object-repr string that never matched the expected value. Now generates `array.any? { |item| alef_e2e_item_texts(item).any? { |t| t.include?(val) } }` using a shared helper method.
+
+- fix(e2e-elixir): use `Enum.any?` for array field `contains` assertions instead of `to_string` on list. `to_string/1` on an Elixir list raises `ArgumentError`; now generates a per-item traversal using a shared `alef_e2e_item_texts/1` helper.
+
+- fix(e2e-go): skip nil check and pointer dereference for `result_is_array` slice results. Go slice types (`[]string`) are not pointers, so the generated `if result == nil` check and `value := *result` dereference were compile errors. Array results now use `value := result` directly.
+
 - fix(magnus-backend): add `options_field` visitor bridge support. The Magnus Ruby backend now generates proper wrapper functions for trait bridges using `bind_via = "options_field"` binding style. Previously only `bind_via = "function_param"` was supported, causing e2e tests to fail when trying to pass a visitor as a secondary argument to functions like `convert(html, visitor)`.
 
 ## [0.14.11] - 2026-05-03
