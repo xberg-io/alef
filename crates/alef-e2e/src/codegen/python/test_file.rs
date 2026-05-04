@@ -66,23 +66,15 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let has_skipped = fixtures.iter().any(|f| is_skipped(f, "python"));
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
-    // Per-language async override: the Python CallOverride `async` field takes precedence
-    // over the call-level `async` flag (e.g., chat_stream returns a sync iterator in Python).
-    let python_async_override = e2e_config
-        .call
-        .overrides
-        .get("python")
-        .and_then(|o| o.r#async)
-        .or_else(|| {
-            fixtures.iter().find_map(|f| {
-                let cc = e2e_config.resolve_call(f.call.as_deref());
-                cc.overrides.get("python").and_then(|o| o.r#async)
-            })
-        });
-    let is_async = python_async_override.unwrap_or_else(|| {
+    // File-level is_async: true if ANY fixture in this file will emit an async test function.
+    // The Python CallOverride `async` field takes precedence per-fixture over the call-level
+    // `async` flag. For the file-level import decision we need the union across all fixtures.
+    let global_python_async_override = e2e_config.call.overrides.get("python").and_then(|o| o.r#async);
+    let is_async = global_python_async_override.unwrap_or_else(|| {
         fixtures.iter().any(|f| {
             let cc = e2e_config.resolve_call(f.call.as_deref());
-            cc.r#async
+            let per_fixture_override = cc.overrides.get("python").and_then(|o| o.r#async);
+            per_fixture_override.unwrap_or(cc.r#async)
         }) || e2e_config.call.r#async
     });
     let needs_pytest = has_error_test || has_skipped || is_async;
