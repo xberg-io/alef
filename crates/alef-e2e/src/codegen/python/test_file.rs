@@ -224,6 +224,13 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             render_http_test_function(&mut out, fixture);
         } else if !is_skipped(fixture, "python") && fixture.assertions.is_empty() {
             emit_skipped_placeholder(&mut out, fixture);
+        } else if client_factory.is_some()
+            && fixture.mock_response.is_none()
+            && fixture.http.is_none()
+            && !is_skipped(fixture, "python")
+        {
+            // No mock response configured — calling the real server would fail in e2e tests.
+            emit_skipped_placeholder_no_mock(&mut out, fixture);
         } else {
             render_test_function(
                 &mut out,
@@ -280,6 +287,23 @@ fn emit_skipped_placeholder(out: &mut String, fixture: &Fixture) {
     let _ = writeln!(
         out,
         "@pytest.mark.skip(reason=\"no assertions configured for this fixture in python e2e\")"
+    );
+    let _ = writeln!(out, "def test_{fn_name}() -> None:");
+    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+}
+
+fn emit_skipped_placeholder_no_mock(out: &mut String, fixture: &Fixture) {
+    use crate::escape::sanitize_ident;
+    let fn_name = sanitize_ident(&fixture.id);
+    let description = &fixture.description;
+    let desc_with_period = if description.ends_with('.') {
+        description.to_string()
+    } else {
+        format!("{description}.")
+    };
+    let _ = writeln!(
+        out,
+        "@pytest.mark.skip(reason=\"no mock response configured for this fixture\")"
     );
     let _ = writeln!(out, "def test_{fn_name}() -> None:");
     let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
@@ -413,6 +437,27 @@ fn build_thirdparty_imports(
     } else {
         thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
     }
+
+    // Also collect per-fixture options_type from per-call overrides that use from_json.
+    // This handles test files where different calls use different request types.
+    let mut extra_from_json_types: BTreeSet<String> = BTreeSet::new();
+    for fixture in fixtures.iter() {
+        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        if let Some(py_override) = cc.overrides.get("python") {
+            if py_override.options_via.as_deref() == Some("from_json") {
+                if let Some(ot) = &py_override.options_type {
+                    let native_mod = py_override.from_json_module.as_deref().unwrap_or(module);
+                    extra_from_json_types.insert(format!("from {native_mod} import {ot}"));
+                }
+            }
+        }
+    }
+    for imp in extra_from_json_types {
+        if !thirdparty_from.contains(&imp) {
+            thirdparty_from.push(imp);
+        }
+    }
+
     let _ = enum_fields;
 }
 

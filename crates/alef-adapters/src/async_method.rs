@@ -1,3 +1,5 @@
+use heck::ToSnakeCase;
+
 use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate just the method body (what goes inside `{ ... }`) for an async method adapter.
@@ -162,12 +164,19 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Str
         format!("Ok({raw_returns}::from(result))")
     };
 
+    let err_mapper = if let Some(ref et) = config.error_type {
+        let fn_name = format!("{}_to_py_err", et.to_snake_case());
+        format!(".map_err({fn_name})")
+    } else {
+        ".map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))".to_string()
+    };
+
     format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
          pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n        \
              let result = inner.{core_path}({core_call_str}).await\n            \
-                 .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;\n        \
+                 {err_mapper}?;\n        \
              {ok_expr}\n    \
          }})"
     )

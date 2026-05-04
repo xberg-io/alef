@@ -152,7 +152,7 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {
         let _ = writeln!(out, "        {call_expr}");
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
-            let _ = writeln!(out, "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101");
+            let _ = writeln!(out, "    assert \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101");
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");

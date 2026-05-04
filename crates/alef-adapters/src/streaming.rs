@@ -1,3 +1,5 @@
+use heck::ToSnakeCase;
+
 use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate the method body and optionally a struct definition for a streaming adapter.
@@ -109,6 +111,14 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
+    let anext_err_handler = if error_type != "anyhow::Error" {
+        let simple_name = error_type.split("::").last().unwrap_or(error_type);
+        let fn_name = format!("{}_to_py_err", simple_name.to_snake_case());
+        format!("Err({fn_name}(e))")
+    } else {
+        "Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
+    };
+
     let struct_def = format!(
         "#[pyclass]\n\
          pub struct {iter_name} {{\n    \
@@ -125,7 +135,7 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
                      let mut stream = inner.lock().await;\n            \
                      match futures::StreamExt::next(&mut *stream).await {{\n                \
                          Some(Ok(chunk)) => Ok(Some({item_type}::from(chunk))),\n                \
-                         Some(Err(e)) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string())),\n                \
+                         Some(Err(e)) => {anext_err_handler},\n                \
                          None => Ok(None),  // StopAsyncIteration\n            \
                      }}\n        \
                  }}).map(Some)\n    \
@@ -140,12 +150,19 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    let method_err_mapper = if let Some(ref et) = config.error_type {
+        let fn_name = format!("{}_to_py_err", et.to_snake_case());
+        format!(".map_err({fn_name})")
+    } else {
+        ".map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
+    };
+
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
          let stream = pyo3_async_runtimes::tokio::get_runtime()\n        \
              .block_on(inner.{core_path}({call_str}))\n        \
-             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;\n    \
+             {method_err_mapper}?;\n    \
          let iter = {iter_name} {{\n        \
              inner: Arc::new(tokio::sync::Mutex::new(stream)),\n    \
          }};\n    \

@@ -149,6 +149,9 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     if !derives.is_empty() {
         writeln!(out, "#[derive({})]", derives.join(", ")).ok();
     }
+    if let Some(rename_all) = &enum_def.serde_rename_all {
+        writeln!(out, "#[serde(rename_all = \"{rename_all}\")]").ok();
+    }
     for attr in cfg.enum_attrs {
         writeln!(out, "#[{attr}]").ok();
     }

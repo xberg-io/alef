@@ -38,6 +38,7 @@ dependencies = [
  "ahash",
  "alef-core",
  "anyhow",
+ "heck",
  "toml",
 ]
 
