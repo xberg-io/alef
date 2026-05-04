@@ -613,6 +613,96 @@ pub(super) fn gen_named_let_bindings(
     gen_named_let_bindings_inner(params, opaque_types, core_import, true)
 }
 
+/// Variant of `gen_named_let_bindings` for backends where Named non-opaque params
+/// are passed by reference (`&T`) in the function signature (e.g. extendr).
+/// Uses `.clone().into()` instead of `.into()` to convert the borrowed value.
+pub(super) fn gen_named_let_bindings_by_ref(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let mut bindings = String::new();
+    for (idx, p) in params.iter().enumerate() {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                let promoted = crate::shared::is_promoted_optional(params, idx);
+                let core_type_path = format!("{core_import}::{name}");
+                if p.optional {
+                    // Nullable<&T>: use into_option() then clone+convert each element
+                    write!(
+                        bindings,
+                        "let {name}_core: Option<{core_type_path}> = {name}.into_option().map(|v| v.clone().into());\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                } else if promoted {
+                    // Promoted-optional (Nullable<&T>): expect not-null then clone+convert
+                    write!(
+                        bindings,
+                        "let {name}_core: {core_type_path} = {name}.into_option().expect(\"'{name}' is required\").clone().into();\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                } else {
+                    // Required &T: clone and convert
+                    write!(
+                        bindings,
+                        "let {name}_core: {core_type_path} = {name}.clone().into();\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                }
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
+                if p.optional {
+                    write!(
+                        bindings,
+                        "let {name}_core = {name}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect()).unwrap_or_default();\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                } else {
+                    let promoted = crate::shared::is_promoted_optional(params, idx);
+                    if promoted {
+                        write!(
+                            bindings,
+                            "let {name}_core: Vec<_> = {name}.expect(\"'{name}' is required\").into_iter().map(Into::into).collect();\n    ",
+                            name = p.name
+                        )
+                        .ok();
+                    } else {
+                        write!(
+                            bindings,
+                            "let {name}_core: Vec<_> = {name}.into_iter().map(Into::into).collect();\n    ",
+                            name = p.name
+                        )
+                        .ok();
+                    }
+                }
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
+                if p.optional {
+                    write!(
+                        bindings,
+                        "let {name}_refs: Vec<&str> = {name}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                } else {
+                    write!(
+                        bindings,
+                        "let {name}_refs: Vec<&str> = {name}.iter().map(|s| s.as_str()).collect();\n    ",
+                        name = p.name
+                    )
+                    .ok();
+                }
+            }
+            _ => {}
+        }
+    }
+    bindings
+}
+
 fn gen_named_let_bindings_inner(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
@@ -1006,11 +1096,19 @@ fn gen_lossy_binding_to_core_fields_inner(
         let expr = match &field.ty {
             TypeRef::Primitive(p) if cast_uints_to_i32 && needs_i32_cast(p) => {
                 let core_ty = core_prim_str(p);
-                format!("self.{name} as {core_ty}")
+                if field.optional {
+                    format!("self.{name}.map(|v| v as {core_ty})")
+                } else {
+                    format!("self.{name} as {core_ty}")
+                }
             }
             TypeRef::Primitive(p) if cast_large_ints_to_f64 && needs_f64_cast(p) => {
                 let core_ty = core_prim_str(p);
-                format!("self.{name} as {core_ty}")
+                if field.optional {
+                    format!("self.{name}.map(|v| v as {core_ty})")
+                } else {
+                    format!("self.{name} as {core_ty}")
+                }
             }
             TypeRef::Primitive(_) => format!("self.{name}"),
             TypeRef::Duration => {
@@ -1152,7 +1250,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         let expr = if let Some(newtype_path) = &field.newtype_wrapper {
             match &field.ty {
                 TypeRef::Optional(_) => format!("({expr}).map({newtype_path})"),
-                TypeRef::Vec(_) => format!("({expr}).into_iter().map({newtype_path}).collect()"),
+                TypeRef::Vec(_) => format!("({expr}).into_iter().map({newtype_path}).collect::<Vec<_>>()"),
                 _ if field.optional => format!("({expr}).map({newtype_path})"),
                 _ => format!("{newtype_path}({expr})"),
             }

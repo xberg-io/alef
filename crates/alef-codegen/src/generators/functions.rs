@@ -1,6 +1,6 @@
 use crate::generators::binding_helpers::{
-    gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_named_let_bindings, gen_serde_let_bindings,
-    gen_unimplemented_body, has_named_params,
+    gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_named_let_bindings,
+    gen_named_let_bindings_by_ref, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{function_params, function_sig_defaults};
@@ -18,20 +18,84 @@ pub fn gen_function(
     opaque_types: &AHashSet<String>,
 ) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
-    let params = function_params(&func.params, &map_fn);
+    // When named_non_opaque_params_by_ref is true (extendr backend), Named non-opaque struct
+    // params must use references because extendr only generates TryFrom<&Robj> for &T.
+    // - Required params: `&T` (extendr generates TryFrom<&Robj> for &T)
+    // - Optional params: `Nullable<&T>` (extendr's Nullable<T: TryFrom<&Robj>>)
+    // - Promoted-optional (required following optional): `Nullable<&T>` (treated as optional)
+    // After the first optional/Nullable param, all subsequent params are also promoted.
+    let params = if cfg.named_non_opaque_params_by_ref {
+        let mut seen_optional = false;
+        func.params
+            .iter()
+            .enumerate()
+            .map(|(idx, p)| {
+                if p.optional {
+                    seen_optional = true;
+                }
+                let promoted = seen_optional && !p.optional && crate::shared::is_promoted_optional(&func.params, idx);
+                let ty = match &p.ty {
+                    TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
+                        if p.optional || seen_optional || promoted {
+                            format!("Nullable<&{}>", map_fn(&p.ty))
+                        } else {
+                            format!("&{}", map_fn(&p.ty))
+                        }
+                    }
+                    _ => {
+                        if p.optional || seen_optional {
+                            format!("Option<{}>", map_fn(&p.ty))
+                        } else {
+                            map_fn(&p.ty)
+                        }
+                    }
+                };
+                format!("{}: {}", p.name, ty)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        function_params(&func.params, &map_fn)
+    };
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    // Use let-binding pattern for non-opaque Named params so core fns can take &CoreType
-    let use_let_bindings = has_named_params(&func.params, opaque_types);
-    let call_args = if use_let_bindings {
-        gen_call_args_with_let_bindings(&func.params, opaque_types)
+    // Use let-binding pattern for non-opaque Named params so core fns can take &CoreType.
+    // When named_non_opaque_params_by_ref is set (extendr), the binding signature uses &T,
+    // so we simulate is_ref=true for Named non-opaque params when generating call args.
+    let effective_params: std::borrow::Cow<[alef_core::ir::ParamDef]> = if cfg.named_non_opaque_params_by_ref {
+        let modified: Vec<alef_core::ir::ParamDef> = func
+            .params
+            .iter()
+            .map(|p| {
+                if matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
+                    alef_core::ir::ParamDef {
+                        is_ref: true,
+                        ..p.clone()
+                    }
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+        std::borrow::Cow::Owned(modified)
     } else {
-        gen_call_args(&func.params, opaque_types)
+        std::borrow::Cow::Borrowed(&func.params)
+    };
+    let use_let_bindings = has_named_params(&effective_params, opaque_types);
+    let call_args = if use_let_bindings {
+        gen_call_args_with_let_bindings(&effective_params, opaque_types)
+    } else {
+        gen_call_args(&effective_params, opaque_types)
     };
     let core_import = cfg.core_import;
     let let_bindings = if use_let_bindings {
-        gen_named_let_bindings(&func.params, opaque_types, core_import)
+        if cfg.named_non_opaque_params_by_ref {
+            // Params are `&T` in the signature — use .clone().into() for conversion.
+            gen_named_let_bindings_by_ref(&func.params, opaque_types, core_import)
+        } else {
+            gen_named_let_bindings(&func.params, opaque_types, core_import)
+        }
     } else {
         String::new()
     };
@@ -54,6 +118,7 @@ pub fn gen_function(
         AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
         AsyncPattern::NapiNativeAsync => ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))",
         AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+        AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
         _ => ".map_err(|e| e.to_string())",
     };
 
@@ -355,6 +420,7 @@ pub fn gen_function(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
                 _ => ".map_err(|e| e.to_string())",
             };
             let wrapped = wrap_return("val");
@@ -403,7 +469,13 @@ pub fn gen_function(
     };
 
     // Wrap long signature if necessary
-    let async_kw = if func.is_async { "async " } else { "" };
+    // TokioBlockOn functions block synchronously inside the body — the generated function
+    // must NOT be `async fn` because extendr's `#[extendr]` cannot return a Future.
+    let async_kw = if func.is_async && cfg.async_pattern != AsyncPattern::TokioBlockOn {
+        "async "
+    } else {
+        ""
+    };
     let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
 
     // For async PyO3 free functions, override return type and add lifetime generic.

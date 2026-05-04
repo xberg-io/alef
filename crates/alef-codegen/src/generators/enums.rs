@@ -292,6 +292,7 @@ mod tests {
             skip_impl_constructor: false,
             cast_uints_to_i32: false,
             cast_large_ints_to_f64: false,
+            named_non_opaque_params_by_ref: false,
         };
         let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 

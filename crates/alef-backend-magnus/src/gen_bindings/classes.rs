@@ -290,14 +290,12 @@ pub(super) fn gen_struct_methods(
             .collect();
 
         if !filtered_fields.is_empty() {
-            // Generate config builder if type has Default semantics (accepts optional kwargs).
-            // This uses unwrap_or_default() which requires Default on the type, but for types
-            // where can_generate_default_impl is false we still need kwargs (too many params
-            // for Magnus function! macro). The kwargs constructor handles this by using
-            // the core type's Default impl via the core crate, not the binding struct's Default.
+            // Generate config builder using hash-based constructor ONLY for types with >15 fields.
+            // This matches the registration code which also only uses variadic arity for >15 fields.
+            // Types with has_default but <=15 fields use positional constructors with Option params.
             // Magnus function! macro only supports arity -2..=15, so types with more than 15
-            // fields must also use the hash-based constructor even when has_default is false.
-            if typ.has_default || filtered_fields.len() > 15 {
+            // fields must use the hash-based constructor.
+            if filtered_fields.len() > 15 {
                 // Create a temporary type with filtered fields for constructor generation
                 let mut filtered_typ = typ.clone();
                 filtered_typ.fields = filtered_fields.clone();

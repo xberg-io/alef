@@ -149,9 +149,12 @@ pub(crate) fn needs_i32_cast(p: &PrimitiveType) -> bool {
     )
 }
 
-/// Returns true if a primitive type needs f64 casting (extendr — R maps large ints to f64).
+/// Returns true if a primitive type needs f64 casting (extendr — R maps large ints and f32 to f64).
 pub(crate) fn needs_f64_cast(p: &PrimitiveType) -> bool {
-    matches!(p, PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize)
+    matches!(
+        p,
+        PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize | PrimitiveType::F32
+    )
 }
 
 /// Returns the core primitive type string for cast primitives.

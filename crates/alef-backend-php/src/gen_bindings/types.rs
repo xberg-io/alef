@@ -177,6 +177,7 @@ pub(crate) fn gen_php_struct(
             skip_impl_constructor: cfg.skip_impl_constructor,
             cast_uints_to_i32: cfg.cast_uints_to_i32,
             cast_large_ints_to_f64: cfg.cast_large_ints_to_f64,
+            named_non_opaque_params_by_ref: cfg.named_non_opaque_params_by_ref,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {

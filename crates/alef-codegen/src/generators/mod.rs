@@ -84,6 +84,11 @@ pub struct RustBindingConfig<'a> {
     /// `gen_lossy_binding_to_core_fields`. Used by the extendr backend where R maps large
     /// ints to f64.
     pub cast_large_ints_to_f64: bool,
+    /// When true, Named non-opaque struct parameters in free function signatures are emitted
+    /// as `&T` (reference) instead of `T` (owned). Required for the extendr backend because
+    /// `#[extendr]` only generates `TryFrom<&Robj> for &T`, not `for T`, so owned struct
+    /// params cannot be passed through the FFI layer.
+    pub named_non_opaque_params_by_ref: bool,
 }
 
 /// Method names that conflict with standard trait methods.

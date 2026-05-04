@@ -233,7 +233,13 @@ impl Backend for MagnusBackend {
                         &core_import,
                     ));
                 } else {
-                    builder.add_item(&functions::gen_function(func, &mapper, &opaque_types, &core_import, api));
+                    builder.add_item(&functions::gen_function(
+                        func,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                        api,
+                    ));
                     if func.is_async {
                         builder.add_item(&functions::gen_async_function(
                             func,

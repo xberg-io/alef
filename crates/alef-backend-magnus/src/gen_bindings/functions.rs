@@ -20,12 +20,12 @@ fn is_thread_unsafe_field(field: &FieldDef) -> bool {
 /// Check if the last parameter is a struct type with has_default (typically a config struct).
 /// Used to determine if a function should use variadic arity for optional config handling.
 fn last_param_is_default_struct(func: &FunctionDef, api: &ApiSurface) -> bool {
-    func.params.last().map_or(false, |p| {
+    func.params.last().is_some_and(|p| {
         if let TypeRef::Named(name) = &p.ty {
             api.types
                 .iter()
                 .find(|t| &t.name == name)
-                .map_or(false, |t| t.has_default)
+                .is_some_and(|t| t.has_default)
         } else {
             false
         }
@@ -51,6 +51,7 @@ pub(super) fn needs_variadic_arity(params: &[alef_core::ir::ParamDef]) -> bool {
 
 /// Map a single parameter's type to its Magnus scan_args type string.
 /// Optional and promoted params become `Option<T>`, required params become `T`.
+/// When treat_as_optional is true, also wrap in Option (used for default-struct config params).
 fn param_scan_args_type(
     p: &alef_core::ir::ParamDef,
     promoted: bool,
@@ -67,6 +68,30 @@ fn param_scan_args_type(
         mapper.map_type(&p.ty)
     };
     if p.optional || promoted {
+        format!("Option<{inner}>")
+    } else {
+        inner
+    }
+}
+
+/// Extended version that accepts treat_as_optional for default-struct config params.
+fn param_scan_args_type_extended(
+    p: &alef_core::ir::ParamDef,
+    promoted: bool,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    treat_as_optional: bool,
+) -> String {
+    let inner = if let TypeRef::Named(name) = &p.ty {
+        if !opaque_types.contains(name.as_str()) {
+            "magnus::Value".to_string()
+        } else {
+            mapper.map_type(&p.ty)
+        }
+    } else {
+        mapper.map_type(&p.ty)
+    };
+    if p.optional || promoted || treat_as_optional {
         format!("Option<{inner}>")
     } else {
         inner
@@ -98,7 +123,13 @@ fn gen_scan_args_prologue_with_defaults(
 
         if treat_as_optional {
             seen_optional = true;
-            opt_types.push(param_scan_args_type(p, promoted, mapper, opaque_types));
+            opt_types.push(param_scan_args_type_extended(
+                p,
+                promoted,
+                mapper,
+                opaque_types,
+                is_last && last_is_default_config,
+            ));
             opt_names.push(p.name.clone());
         } else {
             let _ = seen_optional;
@@ -167,15 +198,6 @@ fn gen_scan_args_prologue_with_defaults(
     lines.join("\n    ")
 }
 
-/// Wrapper that calls gen_scan_args_prologue_with_defaults with last_is_default_config=false.
-fn gen_scan_args_prologue(
-    params: &[alef_core::ir::ParamDef],
-    mapper: &MagnusMapper,
-    opaque_types: &AHashSet<String>,
-) -> String {
-    gen_scan_args_prologue_with_defaults(params, mapper, opaque_types, false)
-}
-
 /// Generate a free function binding.
 pub(super) fn gen_function(
     func: &FunctionDef,
@@ -222,6 +244,7 @@ pub(super) fn gen_function(
             opaque_types,
             core_import,
             mapper,
+            is_default_config_func,
         ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
@@ -248,7 +271,10 @@ pub(super) fn gen_function(
     }
     // When variadic, prepend scan_args prologue to unpack individual bindings from args slice.
     let scan_args_prologue = if variadic {
-        format!("{}\n    ", gen_scan_args_prologue_with_defaults(&func.params, mapper, opaque_types, is_default_config_func))
+        format!(
+            "{}\n    ",
+            gen_scan_args_prologue_with_defaults(&func.params, mapper, opaque_types, is_default_config_func)
+        )
     } else {
         String::new()
     };
@@ -382,22 +408,28 @@ fn magnus_serde_recoverable(func: &FunctionDef, opaque_types: &AHashSet<String>)
 /// Generate Magnus serde let-bindings that produce `{name}_core: core::Type` so the shared
 /// `gen_call_args_with_let_bindings` can emit `&{name}_core` for is_ref Named params.
 ///
-/// Handles three cases for Named non-opaque params:
+/// Handles four cases for Named non-opaque params:
 /// 1. `optional=true`: parameter is `Option<magnus::Value>` — bind as `Option<CoreType>`.
 /// 2. `optional=false` but promoted (follows an optional param): parameter is also
 ///    `Option<magnus::Value>` due to `function_params` promotion — bind as `CoreType`,
 ///    falling back to `Default::default()` when the caller passes `nil`/omits the arg.
-/// 3. `optional=false` and not promoted: parameter is `magnus::Value` — bind as `CoreType`.
+/// 3. `optional=false` and not promoted, but last param is default config: parameter is
+///    `Option<magnus::Value>` from scan_args — bind as `CoreType`, falling back to
+///    `Default::default()` when the caller omits the arg.
+/// 4. `optional=false` and not promoted: parameter is `magnus::Value` — bind as `CoreType`.
 fn magnus_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
     _mapper: &MagnusMapper,
+    is_default_config_func: bool,
 ) -> Vec<String> {
     let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
     let mut out = Vec::new();
     for (idx, p) in params.iter().enumerate() {
         let promoted = alef_codegen::shared::is_promoted_optional(params, idx);
+        let is_last = idx == params.len() - 1;
+        let is_last_config = is_last && is_default_config_func;
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
@@ -405,7 +437,7 @@ fn magnus_serde_let_bindings(
                         "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}), _ => None }};",
                         n = p.name,
                     ));
-                } else if promoted {
+                } else if promoted || is_last_config {
                     out.push(format!(
                         "let {n}_core: {core_import}::{name} = match {n} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}, _ => Default::default() }};",
                         n = p.name,
@@ -512,6 +544,7 @@ pub(super) fn gen_async_function(
             opaque_types,
             core_import,
             mapper,
+            is_default_config_func,
         ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
@@ -537,7 +570,10 @@ pub(super) fn gen_async_function(
         }
     }
     let scan_args_prologue = if variadic {
-        format!("{}\n    ", gen_scan_args_prologue_with_defaults(&func.params, mapper, opaque_types, is_default_config_func))
+        format!(
+            "{}\n    ",
+            gen_scan_args_prologue_with_defaults(&func.params, mapper, opaque_types, is_default_config_func)
+        )
     } else {
         String::new()
     };
@@ -676,14 +712,14 @@ pub(super) fn gen_module_init(
 
         if !typ.is_opaque && !typ.fields.is_empty() {
             // Magnus function! macro only supports arity -2..=15.
-            // Types with >15 fields use a hash-based constructor (Option<RHash> param = arity -1 variadic).
-            // Types with has_default use optional hash constructor (arity -1 variadic).
-            // Otherwise use fixed arity matching field count.
+            // Only types with >15 fields use hash-based constructors (variadic arity -1).
+            // Types with has_default but <=15 fields use positional constructors (fixed arity).
             let arg_count = typ.fields.len();
-            let arity = if arg_count > 15 || typ.has_default {
-                // Hash-based constructors: now accept optional RHash with variadic arity
+            let arity = if arg_count > 15 {
+                // Hash-based constructors for large types: variadic arity (-1)
                 -1
             } else {
+                // Positional constructors (including has_default types with <=15 fields)
                 arg_count as i32
             };
             lines.push(format!(
@@ -871,7 +907,15 @@ gem_name = "test_lib"
     fn gen_function_emits_fn_name() {
         let func = simple_func("process", false);
         let mapper = crate::type_map::MagnusMapper;
-        let code = gen_function(&func, &mapper, &Default::default(), "test_lib");
+        let api = alef_core::ir::ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
         assert!(code.contains("fn process("), "must emit function name");
         assert!(code.contains("input: String"), "must include typed param");
     }
@@ -880,7 +924,15 @@ gem_name = "test_lib"
     fn gen_function_with_error_wraps_result() {
         let func = simple_func("process", true);
         let mapper = crate::type_map::MagnusMapper;
-        let code = gen_function(&func, &mapper, &Default::default(), "test_lib");
+        let api = alef_core::ir::ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
         assert!(code.contains("Result<"), "error function must return Result");
     }
 
