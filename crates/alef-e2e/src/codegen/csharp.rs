@@ -1119,6 +1119,25 @@ fn render_assertion(
         }
     };
 
+    // Determine if field_expr is a list or complex object that requires JSON serialization
+    // for string-based assertions (contains, not_contains, etc.). List<T>.ToString() in C#
+    // returns the type name, not the contents.
+    let field_needs_json_serialize = if result_is_simple {
+        false
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.is_array(f),
+            // No field specified — the whole result object; needs serialization when complex.
+            _ => !result_is_simple,
+        }
+    };
+    // Build the string representation of field_expr for substring-based assertions.
+    let field_as_str = if field_needs_json_serialize {
+        format!("JsonSerializer.Serialize({field_expr})")
+    } else {
+        format!("{field_expr}.ToString()")
+    };
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -1147,6 +1166,8 @@ fn render_assertion(
                 // returns the PascalCase C# member name like "Anchor") correctly match
                 // fixture snake_case values like "anchor".  String fields are unaffected
                 // because lowercasing both sides preserves substring matches.
+                // List/complex fields use JsonSerializer.Serialize() since List<T>.ToString()
+                // returns the type name, not the contents.
                 let lower_expected = expected.as_str().map(|s| s.to_lowercase());
                 let cs_val = lower_expected
                     .as_deref()
@@ -1154,7 +1175,7 @@ fn render_assertion(
                     .unwrap_or_else(|| json_to_csharp(expected));
                 let _ = writeln!(
                     out,
-                    "        Assert.Contains({cs_val}, {field_expr}.ToString().ToLower());"
+                    "        Assert.Contains({cs_val}, {field_as_str}.ToLower());"
                 );
             }
         }
@@ -1168,7 +1189,7 @@ fn render_assertion(
                         .unwrap_or_else(|| json_to_csharp(val));
                     let _ = writeln!(
                         out,
-                        "        Assert.Contains({cs_val}, {field_expr}.ToString().ToLower());"
+                        "        Assert.Contains({cs_val}, {field_as_str}.ToLower());"
                     );
                 }
             }
@@ -1176,20 +1197,28 @@ fn render_assertion(
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_expr}.ToString());");
+                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_as_str});");
             }
         }
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "        Assert.False(string.IsNullOrEmpty({field_expr}?.ToString()));"
-            );
+            if field_needs_json_serialize {
+                let _ = writeln!(out, "        Assert.NotEmpty({field_expr});");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "        Assert.False(string.IsNullOrEmpty({field_expr}?.ToString()));"
+                );
+            }
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "        Assert.True(string.IsNullOrEmpty({field_expr}?.ToString()));"
-            );
+            if field_needs_json_serialize {
+                let _ = writeln!(out, "        Assert.Empty({field_expr});");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "        Assert.True(string.IsNullOrEmpty({field_expr}?.ToString()));"
+                );
+            }
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -1197,7 +1226,7 @@ fn render_assertion(
                     .iter()
                     .map(|v| {
                         let cs_val = json_to_csharp(v);
-                        format!("{field_expr}.ToString().Contains({cs_val})")
+                        format!("{field_as_str}.Contains({cs_val})")
                     })
                     .collect();
                 let joined = checks.join(" || ");
