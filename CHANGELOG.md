@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.17] - 2026-05-04
+
+### Fixed
+
+- fix(scaffold/rustler): remove unused `futures-util` dependency from Rustler NIF Cargo.toml scaffold. When `has_async=true`, the dependency was added speculatively but the generated Rustler code never imports it, causing `cargo-machete` to flag it as unused.
+
 ## [0.14.16] - 2026-05-04
 
 ### Fixed

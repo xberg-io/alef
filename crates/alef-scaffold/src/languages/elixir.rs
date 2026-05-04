@@ -55,12 +55,6 @@ pub(crate) fn scaffold_elixir_cargo(
     } else {
         ""
     };
-    // Async/streaming NIF code uses futures_util::StreamExt to consume Stream returns.
-    let futures_util_dep = if has_async {
-        format!("\nfutures-util = \"{}\"", tv::cargo::FUTURES_UTIL)
-    } else {
-        String::new()
-    };
     let content = format!(
         r#"{pkg_header}
 
@@ -72,7 +66,7 @@ crate-type = ["cdylib"]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 rustler = "{rustler}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{async_trait_dep}{tokio_dep}{futures_util_dep}{extra_deps_section}
+serde_json = "1"{async_trait_dep}{tokio_dep}{extra_deps_section}
 
 [workspace]
 "#,
@@ -84,7 +78,6 @@ serde_json = "1"{async_trait_dep}{tokio_dep}{futures_util_dep}{extra_deps_sectio
         rustler = tv::cargo::RUSTLER,
         async_trait_dep = async_trait_dep,
         tokio_dep = tokio_dep,
-        futures_util_dep = futures_util_dep,
         extra_deps_section = extra_deps_section,
     );
 
