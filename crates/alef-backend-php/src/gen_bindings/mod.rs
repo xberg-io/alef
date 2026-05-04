@@ -575,9 +575,16 @@ impl Backend for PhpBackend {
             // functions have optional params in the middle, we must make all params after
             // the first optional one also optional (nullable with null default).
             // This ensures e2e generated test code (which uses Rust param order) will work.
+            // Additionally, config-like parameters (Named types ending in "Config") should
+            // be treated as optional for PHP even if not explicitly marked as such in the IR.
             let mut first_optional_idx = None;
             for (idx, p) in visible_params.iter().enumerate() {
-                if p.optional {
+                let is_config_param = if let TypeRef::Named(name) = &p.ty {
+                    name.ends_with("Config") || name == "config"
+                } else {
+                    false
+                };
+                if p.optional || is_config_param {
                     first_optional_idx = Some(idx);
                     break;
                 }
@@ -590,8 +597,16 @@ impl Backend for PhpBackend {
                 .enumerate()
                 .map(|(idx, p)| {
                     let ptype = php_type(&p.ty);
-                    // Make param optional if it's explicitly optional OR if it comes after the first optional param
-                    let should_be_optional = p.optional || first_optional_idx.is_some_and(|first| idx >= first);
+                    // Make param optional if:
+                    // 1. It's explicitly optional OR
+                    // 2. It's a config parameter OR
+                    // 3. It comes after the first optional/config param
+                    let is_config_param = if let TypeRef::Named(name) = &p.ty {
+                        name.ends_with("Config") || name == "config"
+                    } else {
+                        false
+                    };
+                    let should_be_optional = p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {

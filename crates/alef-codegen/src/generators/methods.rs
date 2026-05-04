@@ -378,6 +378,33 @@ pub fn gen_method(
                         String::new()
                     }
                 }
+                // Primitive return: cast when the binding uses a different numeric type.
+                // R maps u8/u16/u32/i8/i16 → i32 and u64/i64/usize/isize/f32 → f64.
+                TypeRef::Primitive(p) => {
+                    use crate::conversions::helpers::{needs_f64_cast, needs_i32_cast};
+                    if cfg.cast_uints_to_i32 && needs_i32_cast(p) {
+                        " as i32".to_string()
+                    } else if cfg.cast_large_ints_to_f64 && needs_f64_cast(p) {
+                        " as f64".to_string()
+                    } else {
+                        String::new()
+                    }
+                }
+                // Optional<Primitive>: cast inside map when the binding uses a different type.
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Primitive(p) = inner.as_ref() {
+                        use crate::conversions::helpers::{needs_f64_cast, needs_i32_cast};
+                        if cfg.cast_uints_to_i32 && needs_i32_cast(p) {
+                            ".map(|v| v as i32)".to_string()
+                        } else if cfg.cast_large_ints_to_f64 && needs_f64_cast(p) {
+                            ".map(|v| v as f64)".to_string()
+                        } else {
+                            String::new()
+                        }
+                    } else {
+                        String::new()
+                    }
+                }
                 _ => String::new(),
             };
             if method.error_type.is_some() {
