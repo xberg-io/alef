@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(pyo3-backend): correct boolean logic in `is_native` computation in `gen_api_py` — options types are now excluded first, then native membership is checked, preventing options types from incorrectly landing in native imports.
 - fix(rustler-backend): replace double-nested `OwnedEnv::run` + `send_and_clear` with a single `send_and_clear` call in the trait bridge field function spawn closure, eliminating a double-borrow that caused BEAM message delivery failures.
 - fix(e2e/wasm): remove `vite-plugin-top-level-await` from generated WASM e2e `package.json` and vitest config; top-level await is natively supported in modern Vite/Vitest without the plugin.
+- fix(napi-backend): force `is_param_optional = true` in bridge functions so options parameters are always treated as `Option<T>` regardless of whether the IR marks them as non-optional.
+- fix(php-backend): add `#[serde(default)]` struct attribute when `has_serde` is enabled, so `from_json()` accepts partial JSON and missing fields use `Default` values instead of failing deserialization.
 
 ## [0.14.19] - 2026-05-04
 

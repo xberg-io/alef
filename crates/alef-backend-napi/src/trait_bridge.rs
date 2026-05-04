@@ -1172,15 +1172,25 @@ pub fn gen_options_field_bridge_function(
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
 
-    // Check if the options parameter is already Optional
-    let is_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
+    // Bridge functions always treat the options param as optional: callers may pass
+    // undefined/null (no options) or an options object (with or without visitor).
+    // Even if the IR marks the param as non-optional (e.g. because has_default types
+    // get their Option<> stripped during IR parsing), we force Option<T> behavior here.
+    let is_param_optional = true;
 
-    // Build parameter list (options param stays as is, no special treatment in signature)
+    // Whether the IR already marks the options param as Optional<T>.
+    let ir_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
+
+    // Build parameter list; force the options param to Option<T> if the IR didn't already.
     let params_str = {
         let mut sig_parts = vec![];
-        for p in &func.params {
+        for (i, p) in func.params.iter().enumerate() {
             let ty = mapper.map_type(&p.ty);
-            sig_parts.push(format!("{}: {}", p.name, ty));
+            if i == options_param_idx && !ir_param_optional {
+                sig_parts.push(format!("{}: Option<{ty}>", p.name));
+            } else {
+                sig_parts.push(format!("{}: {ty}", p.name));
+            }
         }
         sig_parts.join(", ")
     };

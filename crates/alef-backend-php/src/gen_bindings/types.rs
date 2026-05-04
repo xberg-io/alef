@@ -139,12 +139,16 @@ pub(crate) fn gen_php_struct(
     };
 
     if cfg.has_serde {
-        // Build a modified config that also derives Serialize + Deserialize.
+        // Build a modified config that also derives Serialize + Deserialize, and adds
+        // #[serde(default)] so from_json() works with partial JSON (missing fields use
+        // their Default values instead of failing deserialization).
         let mut extra_derives: Vec<&str> = cfg.struct_derives.to_vec();
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
+        let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
+        serde_struct_attrs.push("serde(default)");
         let modified_cfg = RustBindingConfig {
-            struct_attrs: effective_struct_attrs,
+            struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,
             struct_derives: &extra_derives,
             method_block_attr: cfg.method_block_attr,
