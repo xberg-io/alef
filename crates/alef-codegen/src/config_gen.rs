@@ -596,8 +596,12 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
     use std::fmt::Write;
     let mut out = String::with_capacity(1024);
 
-    writeln!(out, "fn new(kwargs: magnus::RHash) -> Result<Self, magnus::Error> {{").ok();
+    // Hash-based constructor accepts 0 or 1 arguments using scan_args
+    writeln!(out, "fn new(args: &[magnus::Value]) -> Result<Self, magnus::Error> {{").ok();
     writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+    writeln!(out, "    let args = magnus::scan_args::scan_args::<(), (Option<magnus::RHash>,), (), (), (), ()>(args)?;").ok();
+    writeln!(out, "    let (kwargs_opt,) = args.optional;").ok();
+    writeln!(out, "    let kwargs = kwargs_opt.unwrap_or_else(|| ruby.hash_new());").ok();
     writeln!(out, "    Ok(Self {{").ok();
 
     for field in &typ.fields {

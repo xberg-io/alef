@@ -528,7 +528,12 @@ impl Backend for PhpBackend {
 
         // Generate wrapper methods for functions
         for func in &api.functions {
-            let method_name = func.name.to_lower_camel_case();
+            // For async functions, append "Async" to the method name to match the native function name
+            let method_name = if func.is_async {
+                format!("{}Async", func.name.to_lower_camel_case())
+            } else {
+                func.name.to_lower_camel_case()
+            };
             let return_php_type = php_type(&func.return_type);
 
             // Visible params exclude bridge params (not surfaced to PHP callers).
@@ -564,18 +569,29 @@ impl Backend for PhpBackend {
             content.push_str("     */\n");
 
             // Method signature with type hints.
-            // PHP requires required parameters before optional ones, so stable-sort
-            // visible_params: required first, then optional (preserving relative order).
-            let mut sorted_visible_params = visible_params.clone();
-            sorted_visible_params.sort_by_key(|p| p.optional);
+            // Keep parameters in their original Rust order.
+            // Since PHP doesn't allow optional params before required ones, and some Rust
+            // functions have optional params in the middle, we must make all params after
+            // the first optional one also optional (nullable with null default).
+            // This ensures e2e generated test code (which uses Rust param order) will work.
+            let mut first_optional_idx = None;
+            for (idx, p) in visible_params.iter().enumerate() {
+                if p.optional {
+                    first_optional_idx = Some(idx);
+                    break;
+                }
+            }
 
             content.push_str(&format!("    public static function {}(", method_name));
 
-            let params: Vec<String> = sorted_visible_params
+            let params: Vec<String> = visible_params
                 .iter()
-                .map(|p| {
+                .enumerate()
+                .map(|(idx, p)| {
                     let ptype = php_type(&p.ty);
-                    if p.optional {
+                    // Make param optional if it's explicitly optional OR if it comes after the first optional param
+                    let should_be_optional = p.optional || first_optional_idx.is_some_and(|first| idx >= first);
+                    if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
                         format!("{} ${}", ptype, p.name)
@@ -595,9 +611,11 @@ impl Backend for PhpBackend {
                 func.name.to_lower_camel_case()
             };
             let is_void = matches!(&func.return_type, TypeRef::Unit);
-            // For functions with 2 params and the second is an object type (likely ConversionOptions),
-            // pass only the visible params without duplicating fields from within the options object.
-            let call_params = sorted_visible_params
+            // Pass parameters to the native function in their ORIGINAL order (not sorted).
+            // The native extension expects parameters in the order defined in the Rust function.
+            // The PHP facade reorders them only in its own signature for PHP syntax compliance,
+            // but must pass them in the original order when calling the native method.
+            let call_params = visible_params
                 .iter()
                 .map(|p| format!("${}", p.name))
                 .collect::<Vec<_>>()
@@ -859,9 +877,10 @@ impl Backend for PhpBackend {
                     .iter()
                     .filter(|p| !bridge_param_names_stubs.contains(p.name.as_str()))
                     .collect();
-                // PHP requires required parameters before optional ones — stable sort.
-                let mut sorted_visible_params = visible_params.clone();
-                sorted_visible_params.sort_by_key(|p| p.optional);
+                // Stubs declare the ACTUAL native interface, which has parameters in their original order
+                // (ext-php-rs doesn't reorder them). DO NOT sort them here.
+                // The PHP facade may reorder them for syntax compliance, but the stub must match
+                // the actual native extension signature.
                 // Emit PHPDoc when any param or the return type is an array, so PHPStan
                 // understands generic element types (e.g. array<string> vs bare array).
                 let has_array_params = visible_params
@@ -879,7 +898,7 @@ impl Backend for PhpBackend {
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
                     content.push_str("     */\n");
                 }
-                let params: Vec<String> = sorted_visible_params
+                let params: Vec<String> = visible_params
                     .iter()
                     .map(|p| {
                         let ptype = php_type_fq(&p.ty, &namespace);

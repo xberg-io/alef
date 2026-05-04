@@ -13,6 +13,23 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Prepend `KEY=VALUE` exports inside the shell command string. macOS SIP
+/// strips `DYLD_*` env vars when re-execing through `/bin/sh`, so passing them
+/// via `Command::env` alone is unreliable. Inlining the export into the shell
+/// command itself keeps the values in the shell's own environment, which then
+/// propagates to its children normally.
+fn inline_env_in_shell_cmd(cmd: &str, env_vars: &[(&str, String)]) -> String {
+    if env_vars.is_empty() {
+        return cmd.to_string();
+    }
+    let mut prefix = String::new();
+    for (key, value) in env_vars {
+        let escaped = value.replace('\'', "'\\''");
+        prefix.push_str(&format!("export {key}='{escaped}'; "));
+    }
+    format!("{prefix}{cmd}")
+}
+
 /// Run a shell command with stdout/stderr streamed to the parent's stderr in
 /// real time, optionally line-prefixed with `[label] `.
 ///
@@ -35,11 +52,12 @@ pub(crate) fn run_command_streamed_with_env(
     label: Option<&str>,
     env_vars: &[(&str, String)],
 ) -> anyhow::Result<()> {
-    info!("Running: {cmd}");
+    let cmd_with_env = inline_env_in_shell_cmd(cmd, env_vars);
+    info!("Running: {cmd_with_env}");
     let mut command = std::process::Command::new("sh");
-    command.args(["-c", cmd]);
+    command.args(["-c", &cmd_with_env]);
 
-    // Apply environment variable overrides
+    // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
     for (key, value) in env_vars {
         command.env(key, value);
     }
@@ -121,13 +139,14 @@ pub(crate) fn run_command_streamed_with_timeout_and_env(
     let Some(secs) = timeout_secs else {
         return run_command_streamed_with_env(cmd, label, env_vars);
     };
-    info!("Running (timeout {secs}s): {cmd}");
+    let cmd_with_env = inline_env_in_shell_cmd(cmd, env_vars);
+    info!("Running (timeout {secs}s): {cmd_with_env}");
     let prefix = label.map(|l| format!("[{l}] "));
 
     let mut command = std::process::Command::new("sh");
-    command.args(["-c", cmd]);
+    command.args(["-c", &cmd_with_env]);
 
-    // Apply environment variable overrides
+    // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
     for (key, value) in env_vars {
         command.env(key, value);
     }

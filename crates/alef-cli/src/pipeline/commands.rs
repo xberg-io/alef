@@ -220,6 +220,10 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
         // Set platform-appropriate library search path
         #[cfg(target_os = "macos")]
         {
+            // DYLD_LIBRARY_PATH is stripped by macOS SIP across some exec chains
+            // (notably when child processes are signed/notarized).
+            // DYLD_FALLBACK_LIBRARY_PATH is preserved and serves the same role for dlopen.
+            env_vars.push(("DYLD_FALLBACK_LIBRARY_PATH", lib_dir.clone()));
             env_vars.push(("DYLD_LIBRARY_PATH", lib_dir));
         }
         #[cfg(target_os = "linux")]
