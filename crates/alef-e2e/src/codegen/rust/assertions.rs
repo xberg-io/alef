@@ -31,6 +31,7 @@ pub fn render_assertion(
     result_is_simple: bool,
     result_is_vec: bool,
     result_is_option: bool,
+    returns_result: bool,
 ) {
     // Vec<T> result: iterate per-element so each assertion checks every element.
     // Field-path assertions become `for r in &{result} { <assert using r> }`.
@@ -52,6 +53,7 @@ pub fn render_assertion(
             result_is_simple,
             false, // already inside loop
             result_is_option,
+            returns_result,
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -92,6 +94,7 @@ pub fn render_assertion(
             result_is_simple,
             result_is_vec,
             false, // already unwrapped
+            returns_result,
         );
         return;
     }
@@ -141,6 +144,24 @@ pub fn render_assertion(
         }
     }
 
+    // Check if this field was unwrapped (i.e., it is optional and was bound to a local).
+    let is_unwrapped = assertion
+        .field
+        .as_ref()
+        .is_some_and(|f| unwrapped_fields.iter().any(|(ff, _)| ff == f));
+
+    // When in error context with returns_result=true and accessing a field (not an error check),
+    // we need to unwrap the Result first. The test generator creates a binding like
+    // `let result_ok = result.as_ref().ok();` which we can dereference here.
+    let has_field = assertion.field.as_ref().is_some_and(|f| !f.is_empty());
+    let is_field_assertion = !matches!(assertion.assertion_type.as_str(), "error" | "not_error");
+    let effective_result_var = if has_field && is_error_context && returns_result && is_field_assertion {
+        // Dereference the Option<&T> bound as {result_var}_ok
+        format!("{result_var}_ok.as_ref().unwrap()")
+    } else {
+        result_var.to_string()
+    };
+
     // Determine field access expression:
     // 1. If the field was unwrapped to a local var, use that local var name.
     // 2. When result_is_simple, the function returns a plain type (String etc.) — use result_var.
@@ -155,27 +176,21 @@ pub fn render_assertion(
             } else if result_is_simple {
                 // Plain return type (String, Vec<T>, etc.) has no struct fields.
                 // Use the result variable directly so assertions operate on the value itself.
-                result_var.to_string()
+                effective_result_var.clone()
             } else if f == result_var {
                 // Sentinel: fixture uses `field: "result"` (or matches the result variable name)
                 // to refer to the whole return value, not a struct field named "result".
-                result_var.to_string()
+                effective_result_var.clone()
             } else if result_is_tree {
                 // Tree is an opaque type — its "fields" are accessed via root_node() or
                 // free functions. Map known pseudo-field names to correct Rust expressions.
-                tree_field_access_expr(f, result_var, module)
+                tree_field_access_expr(f, &effective_result_var, module)
             } else {
-                field_resolver.accessor(f, "rust", result_var)
+                field_resolver.accessor(f, "rust", &effective_result_var)
             }
         }
-        _ => result_var.to_string(),
+        _ => effective_result_var,
     };
-
-    // Check if this field was unwrapped (i.e., it is optional and was bound to a local).
-    let is_unwrapped = assertion
-        .field
-        .as_ref()
-        .is_some_and(|f| unwrapped_fields.iter().any(|(ff, _)| ff == f));
 
     match assertion.assertion_type.as_str() {
         "error" => {
@@ -185,11 +200,10 @@ pub fn render_assertion(
                 // Use `.err().unwrap()` instead of `.unwrap_err()` to avoid the
                 // `Ok: Debug` requirement — `BoxStream` (for streaming calls) does
                 // not implement `Debug`, which would cause a compile error.
-                // Compare against `error_type()` (e.g. "Authentication", "BadRequest")
-                // rather than `to_string()` which uses lowercase display format.
+                // Use `to_string()` which includes the error prefix (e.g., "unauthorized: ...", "timeout: ...").
                 let _ = writeln!(
                     out,
-                    "    assert!({result_var}.as_ref().err().unwrap().error_type().contains(\"{escaped}\"), \"error message mismatch\");"
+                    "    assert!({result_var}.as_ref().err().unwrap().to_string().contains(\"{escaped}\"), \"error message mismatch\");"
                 );
             }
         }
@@ -392,6 +406,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         );
         assert!(out.contains("is_err()"), "got: {out}");
     }
@@ -414,6 +429,7 @@ mod tests {
             false,
             true,
             false,
+            false,
         );
         assert!(out.contains("for r in"), "got: {out}");
     }
@@ -432,6 +448,7 @@ mod tests {
             false,
             &[],
             &resolver,
+            false,
             false,
             false,
             false,

@@ -1239,7 +1239,7 @@ fn main() -> Result<()> {
 
                 eprintln!("Generating scaffolding...");
                 let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
-                let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+                let scaffold_count = pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, clean)?;
                 for file in &scaffold_files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }

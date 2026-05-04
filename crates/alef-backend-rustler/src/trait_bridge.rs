@@ -786,8 +786,8 @@ fn gen_visitor_method_async(
 
     // Convert method name from visit_* to handle_* for Elixir convention.
     // E.g., "visit_audio" -> "handle_audio"
-    let handle_name = if name.starts_with("visit_") {
-        format!("handle_{}", &name[6..])
+    let handle_name = if let Some(suffix) = name.strip_prefix("visit_") {
+        format!("handle_{suffix}")
     } else {
         name.clone()
     };

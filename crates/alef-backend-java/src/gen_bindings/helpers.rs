@@ -132,6 +132,16 @@ pub(crate) fn gen_infrastructure_exception_class(
     writeln!(out, "    public {}(final String message) {{", class_name).ok();
     writeln!(out, "        super({}, message);", code).ok();
     writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+    writeln!(out, "    /** Creates a new {} with a cause. */", class_name).ok();
+    writeln!(
+        out,
+        "    public {}(final String message, final Throwable cause) {{",
+        class_name
+    )
+    .ok();
+    writeln!(out, "        super(message, cause);").ok();
+    writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
     out
 }

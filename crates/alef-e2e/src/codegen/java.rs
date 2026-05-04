@@ -1197,13 +1197,22 @@ fn render_assertion(
                 let resolved = field_resolver.resolve(f);
                 // Unwrap Optional fields with a type-appropriate fallback.
                 // Map.get() returns nullable, not Optional, so skip .orElse() for map access.
+                // NOTE: is_optional() means the field is in optional_fields, but that doesn't
+                // guarantee it returns Optional<T> in Java — nested fields like metadata.twitterCard
+                // return @Nullable String, not Optional<String>. We detect this by checking
+                // if the field path contains a dot (nested access).
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    // For Java records, fields declared as Optional<X> have accessors that
-                    // directly return Optional<X>, so we don't need to wrap them.
-                    // The accessor for an optional field is a method call that returns Optional,
-                    // so it already ends with `()`. Don't wrap it again in Optional.ofNullable().
-                    // Example: result.title() or result.metadata().get().title()
-                    let optional_expr = accessor.clone();
+                    // For direct optional fields (no dot in path), the accessor returns Optional<T>.
+                    // For nested optional fields (dot in path), the accessor returns nullable type,
+                    // so we need to wrap in Optional.ofNullable().
+                    let is_nested = f.contains('.');
+                    let optional_expr = if is_nested {
+                        // Wrap nullable nested fields in Optional.ofNullable()
+                        format!("java.util.Optional.ofNullable({accessor})")
+                    } else {
+                        // Direct optional fields already return Optional<T>
+                        accessor.clone()
+                    };
                     match assertion.assertion_type.as_str() {
                         // For not_empty / is_empty on Optional fields, return the raw Optional
                         // so the assertion arms can call isPresent()/isEmpty().

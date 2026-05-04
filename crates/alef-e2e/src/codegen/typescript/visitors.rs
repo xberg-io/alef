@@ -80,17 +80,10 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         CallbackAction::CustomTemplate { template } => {
             // Convert {placeholder} to ${placeholder} for JavaScript template literals
             let mut processed = String::new();
-            let mut in_placeholder = false;
             for ch in template.chars() {
                 match ch {
-                    '{' => {
-                        processed.push_str("${");
-                        in_placeholder = true;
-                    }
-                    '}' => {
-                        processed.push('}');
-                        in_placeholder = false;
-                    }
+                    '{' => processed.push_str("${"),
+                    '}' => processed.push('}'),
                     _ => processed.push(ch),
                 }
             }

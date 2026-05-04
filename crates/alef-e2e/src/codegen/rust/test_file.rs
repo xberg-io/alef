@@ -246,6 +246,19 @@ pub fn render_test_function(
     let result_var = &call_config.result_var;
     let has_mock = fixture.mock_response.is_some();
 
+    // Resolve Rust-specific overrides early since we need them for returns_result.
+    let rust_overrides = call_config.overrides.get("rust");
+
+    // Determine if this call returns Result<T, E>. Per-rust override takes precedence.
+    // When client_factory is set, methods always return Result<T>.
+    let returns_result = rust_overrides
+        .and_then(|o| o.returns_result)
+        .unwrap_or(if client_factory.is_some() {
+            true
+        } else {
+            call_config.returns_result
+        });
+
     // Tests with a mock server are always async (Axum requires a Tokio runtime).
     let is_async = call_config.r#async || has_mock;
     if is_async {
@@ -266,8 +279,7 @@ pub fn render_test_function(
     // Check if any assertion is an error assertion.
     let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Resolve Rust-specific overrides for argument shaping.
-    let rust_overrides = call_config.overrides.get("rust");
+    // Extract additional overrides for argument shaping.
     let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
     let extra_args: Vec<String> = rust_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
     // options_type from the rust override (e.g. "ConversionOptions") — used to annotate
@@ -430,6 +442,17 @@ pub fn render_test_function(
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
+        // Check if any assertion is NOT an error assertion (i.e., accesses fields on the Ok value).
+        let has_non_error_assertions = fixture
+            .assertions
+            .iter()
+            .any(|a| !matches!(a.assertion_type.as_str(), "error" | "not_error"));
+        // When returns_result=true and there are field assertions (non-error), we need to
+        // handle the Result wrapper: unwrap Ok for field assertions, extract Err for error assertions.
+        if returns_result && has_non_error_assertions {
+            // Emit a temporary binding for the unwrapped Ok value.
+            let _ = writeln!(out, "    let {result_var}_ok = {result_var}.as_ref().ok();");
+        }
         // Render error assertions.
         for assertion in &fixture.assertions {
             render_assertion(
@@ -445,6 +468,7 @@ pub fn render_test_function(
                 result_is_simple,
                 false,
                 false,
+                returns_result,
             );
         }
         let _ = writeln!(out, "}}");
@@ -505,18 +529,6 @@ pub fn render_test_function(
                 a.assertion_type.as_str(),
                 "is_empty" | "is_false" | "not_empty" | "is_true" | "not_error"
             )
-        });
-
-    // Per-rust override of the call-level `returns_result`. When set, takes
-    // precedence over `CallConfig.returns_result` for the Rust generator only.
-    // When client_factory is set, methods on the client always return Result<T>,
-    // so we must unwrap regardless of the call-level default.
-    let returns_result = rust_overrides
-        .and_then(|o| o.returns_result)
-        .unwrap_or(if client_factory.is_some() {
-            true
-        } else {
-            call_config.returns_result
         });
 
     let unwrap_suffix = if returns_result {
@@ -595,6 +607,7 @@ pub fn render_test_function(
             result_is_simple,
             result_is_vec,
             result_is_option,
+            returns_result,
         );
     }
 
