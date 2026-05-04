@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.12] - 2026-05-04
+
 ### Fixed
 
 - fix(pyo3): use `val.kind.into()` instead of `Default::default()` for data enum fields in `From` impls. Data enums (like `StructureKind`) were added to `opaque_names_set` which caused the conversion generator to treat their fields as opaque and emit `Default::default()`. A separate `conversion_opaque_set` now excludes data enum names so their fields convert correctly with `.into()`.
