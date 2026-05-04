@@ -742,12 +742,9 @@ fn gen_visitor_method_napi(
         } else {
             format!("({})", tuple_args.join(", "))
         };
-        // For multi-argument functions, wrap in FnArgs to ensure arguments are unpacked to JavaScript
-        if arg_count > 1 {
-            writeln!(out, "        let result = func.call({tuple_str}.into());").unwrap();
-        } else {
-            writeln!(out, "        let result = func.call({tuple_str});").unwrap();
-        }
+        // Call the function with the tuple of arguments
+        // For NAPI, pass the tuple directly without conversion
+        writeln!(out, "        let result = func.call({tuple_str});").unwrap();
     }
 
     // Parse result

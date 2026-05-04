@@ -717,7 +717,7 @@ fn render_test_method(
         );
         let _ = writeln!(
             out,
-            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl);"
+            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);"
         );
     }
 

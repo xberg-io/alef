@@ -214,7 +214,9 @@ impl E2eCodegen for WasmCodegen {
             );
 
             // Inject WASM initialization code for Node.js environments.
-            content = inject_wasm_init(&content, &pkg_name, config.name.as_str());
+            // Pass the WASM crate name (e.g., "html-to-markdown-wasm") instead of the core crate name.
+            let wasm_crate_name = format!("{}-wasm", config.name);
+            content = inject_wasm_init(&content, &pkg_name, &wasm_crate_name);
 
             files.push(GeneratedFile {
                 path: tests_base.join(filename),

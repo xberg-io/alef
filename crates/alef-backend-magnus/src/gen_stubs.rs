@@ -186,10 +186,45 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 /// Unit-variant enums are represented as Ruby Symbols (e.g., :left_to_right).
 /// RBS stubs are minimal — actual return types use symbol unions in method signatures.
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
-    // Empty class stub — the actual type is expressed where it's used (method returns, fields).
-    // RBS does not support standalone type declarations for symbol unions; they must be
-    // inline in type annotations or use class hierarchy.
-    format!("  class {}\n  end", enum_def.name)
+    let mut lines = vec![];
+
+    // Always emit class stub (even for unit enums, for Ruby introspection)
+    lines.push(format!("  class {}", enum_def.name));
+
+    // Add docstring if present
+    if !enum_def.doc.is_empty() {
+        for doc_line in enum_def.doc.lines() {
+            lines.push(format!("    # {doc_line}"));
+        }
+    }
+
+    // Check if enum has data (non-unit variants)
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    if !has_data {
+        // Unit enum: also emit as type alias with symbol union inside the class
+        let symbol_variants: Vec<String> = enum_def
+            .variants
+            .iter()
+            .map(|v| format!(":{}", to_snake_case(&v.name)))
+            .collect();
+        lines.push(format!("    type instance = {}", symbol_variants.join(" | ")));
+    }
+
+    lines.push("  end".to_string());
+
+    lines.join("\n")
+}
+
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && ch.is_uppercase() {
+            result.push('_');
+        }
+        result.push(ch.to_ascii_lowercase());
+    }
+    result
 }
 
 /// Generate a function stub (module method) using RBS declaration syntax.

@@ -323,9 +323,7 @@ pub(super) fn gen_api_py(
         ));
         // Allow dict input as a convenience (callers may pass a literal `{...}` instead
         // of constructing the dataclass). Coerce enum fields in the dict before constructing.
-        out.push_str(&format!(
-            "    if isinstance(value, dict):\n"
-        ));
+        out.push_str("    if isinstance(value, dict):\n");
         let has_enum_field = typ.fields.iter().any(|f| {
             let inner_name = match &f.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
@@ -338,7 +336,7 @@ pub(super) fn gen_api_py(
                 }
                 _ => None,
             };
-            inner_name.map_or(false, |n| enum_names.contains(n) && !data_enum_names.contains(n))
+            inner_name.is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
         });
         if has_enum_field {
             for field in &typ.fields {
@@ -363,9 +361,7 @@ pub(super) fn gen_api_py(
                 }
             }
         }
-        out.push_str(&format!(
-            "        value = {type_name}(**value)\n"
-        ));
+        out.push_str(&format!("        value = {type_name}(**value)\n"));
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             // When value is None but visitor override is provided, construct a default instance.

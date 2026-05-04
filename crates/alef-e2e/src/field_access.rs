@@ -649,7 +649,12 @@ fn render_pascal_dot(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_pascal_case());
-                out.push_str(&format!("[\"{key}\"]"));
+                // Numeric keys are List<T> indices in C# — emit as integer, not string.
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".Count");
@@ -701,7 +706,12 @@ fn render_csharp_with_optionals(
                 path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(&field.to_pascal_case());
-                out.push_str(&format!("[\"{key}\"]"));
+                // Numeric keys are List<T> indices in C# — emit as integer, not string.
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".Count");
@@ -1004,7 +1014,9 @@ mod tests {
         let r = make_resolver();
         let (binding, var) = r.rust_unwrap_binding("title", "result").unwrap();
         assert_eq!(var, "metadata_document_title");
-        assert!(binding.contains("as_deref().unwrap_or(\"\")"));
+        // Non-map, non-array optional fields use as_ref().map(|v| v.to_string()).unwrap_or_default()
+        // to handle enum types that implement Display and avoid temporary lifetime issues.
+        assert!(binding.contains("as_ref().map(|v| v.to_string()).unwrap_or_default()"));
     }
 
     #[test]

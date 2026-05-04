@@ -80,7 +80,10 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
             return true;
         }
         let cc = e2e_config.resolve_call(f.call.as_deref());
-        let python_override = cc.overrides.get("python").or_else(|| e2e_config.call.overrides.get("python"));
+        let python_override = cc
+            .overrides
+            .get("python")
+            .or_else(|| e2e_config.call.overrides.get("python"));
         python_override.and_then(|o| o.client_factory.as_deref()).is_some()
     });
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.16] - 2026-05-04
+
+### Fixed
+
+- fix(scaffold): `alef all --clean` now force-regenerates scaffold files (Cargo.toml templates, gemspec, etc.) matching the behaviour of README and e2e file writes. Previously scaffold files were never overwritten by `--clean`, leaving stale content (e.g. removed `[lints]` section) on disk indefinitely.
+
+- fix(scaffold/php): downgrade `ext-php-rs` template version from `0.15.12` back to `0.15.4`. Version 0.15.12 introduced an `ext-php-rs-clang-sys` fork that conflicts with `clang-sys` when `kreuzberg-php` is a member of a shared Cargo workspace.
+
+- fix(pyo3): coerce enum fields in dict input before constructing dataclass. When a config dict (e.g. `ExtractionConfig`) contains an enum-typed field, the dict→dataclass path now converts the string value to the correct Python enum member before calling `DataClass(**value)`.
+
+- fix(rustler): extend visitor callback return handler to recognise all `CallbackAction` variants. Previously only `is_binary(result)` was checked; `:continue`, `:skip`, `:preserve_html`, and `{:custom, value}` tuples are now handled correctly.
+
+- fix(e2e/csharp): normalise enum field values to lowercase before serialising fixture input JSON. C# `JsonStringEnumConverter` emits lowercase names; passing PascalCase values (e.g. `"Tildes"`) from fixtures caused deserialization mismatches.
+
+- fix(e2e/elixir): include fixtures that use `client_factory` override when computing `has_mock_server_tests` in the test module header. Previously only fixtures that called `needs_mock_server()` were counted, causing the mock server setup to be omitted for client-factory fixtures.
+
+- fix(e2e/python): include fixtures that use a `client_factory` Python override when computing `has_http_fixtures` in `conftest.py`. Same root cause as the Elixir fix above.
+
 ## [0.14.15] - 2026-05-04
 
 ### Fixed

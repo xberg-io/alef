@@ -79,7 +79,10 @@ impl E2eCodegen for ElixirCodegen {
                     return true;
                 }
                 let cc = e2e_config.resolve_call(f.call.as_deref());
-                let elixir_override = cc.overrides.get("elixir").or_else(|| e2e_config.call.overrides.get("elixir"));
+                let elixir_override = cc
+                    .overrides
+                    .get("elixir")
+                    .or_else(|| e2e_config.call.overrides.get("elixir"));
                 elixir_override.and_then(|o| o.client_factory.as_deref()).is_some()
             })
         });
@@ -1039,6 +1042,12 @@ fn build_args_and_setup(
 
                         // Push the variable name as the argument.
                         parts.push(options_var.to_string());
+                        continue;
+                    }
+                    // When element_type is set, the value is an array of a simple type (e.g.
+                    // Vec<String>). The NIF accepts an Elixir list directly — emit one.
+                    if arg.element_type.is_some() && v.is_array() {
+                        parts.push(json_to_elixir(v));
                         continue;
                     }
                     // When there's no options_type+options_via, the Elixir NIF expects a JSON

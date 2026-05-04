@@ -195,20 +195,26 @@ impl Backend for CsharpBackend {
             }
         }
 
+        // Collect enum names so record generation can distinguish enum fields from class fields.
+        let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
+
         // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 let type_filename = typ.name.to_pascal_case();
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
-                    content: strip_trailing_whitespace(&types::gen_opaque_handle(typ, &namespace)),
+                    content: strip_trailing_whitespace(&types::gen_opaque_handle(
+                        typ,
+                        &namespace,
+                        &exception_class_name,
+                        &enum_names,
+                        &streaming_methods,
+                    )),
                     generated_header: true,
                 });
             }
         }
-
-        // Collect enum names so record generation can distinguish enum fields from class fields.
-        let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
 
         // Collect complex enums (enums with data variants and no serde tag) — these can't be
         // simple C# enums and should be represented as JsonElement for flexible deserialization.

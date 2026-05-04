@@ -1,7 +1,7 @@
 //! Struct and enum code generators for the Magnus (Ruby) backend.
 
 use ahash::AHashSet;
-use alef_codegen::builder::{ImplBuilder, StructBuilder};
+use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators;
 use alef_codegen::shared::{constructor_parts, function_params};
 use alef_codegen::type_mapper::TypeMapper;
@@ -212,26 +212,23 @@ pub(super) fn gen_struct(
     _api: &alef_core::ir::ApiSurface,
     generates_default: bool,
 ) -> String {
+    use std::fmt::Write as FmtWrite;
+
     let class_path = format!("{}::{}", module_name, typ.name);
+    let name = &typ.name;
 
-    let mut struct_builder = StructBuilder::new(&typ.name);
-    struct_builder.add_attr(&format!(r#"magnus::wrap(class = "{}")"#, class_path));
-
-    // Magnus requires Clone for TryConvert on owned types
-    struct_builder.add_derive("Clone");
-    struct_builder.add_derive("Debug");
-    // Only derive Default when no manual impl Default will be generated.
-    // When generates_default is true, a manual impl Default is emitted separately
-    // (via gen_struct_default_impl), so adding #[derive(Default)] here would
-    // cause a conflicting implementations error.
+    // Build struct definition with private fields (to avoid conflicts with method names)
+    let mut out = String::with_capacity(512);
+    write!(out, "#[derive(Clone, Debug, serde::Serialize, serde::Deserialize").ok();
     if !generates_default {
-        struct_builder.add_derive("Default");
+        write!(out, ", Default").ok();
     }
-    struct_builder.add_derive("serde::Serialize");
-    struct_builder.add_derive("serde::Deserialize");
+    writeln!(out, ")]").ok();
     if typ.has_default {
-        struct_builder.add_attr("serde(default)");
+        writeln!(out, "#[serde(default)]").ok();
     }
+    writeln!(out, r#"#[magnus::wrap(class = "{}")]"#, class_path).ok();
+    writeln!(out, "pub struct {} {{", name).ok();
 
     for field in &typ.fields {
         // Skip visitor fields: VisitorHandle is Rc<RefCell<dyn HtmlVisitor>> which is !Send + !Sync.
@@ -245,14 +242,15 @@ pub(super) fn gen_struct(
         } else {
             mapper.map_type(&field.ty)
         };
-        struct_builder.add_field(&field.name, &field_type, vec![]);
+        // Fields are private to avoid conflicts with auto-generated method names
+        writeln!(out, "    {}: {},", field.name, field_type).ok();
     }
 
-    let mut out = struct_builder.build();
-    let name = &typ.name;
+    writeln!(out, "}}").ok();
+
     // SAFETY: #[magnus::wrap] already provides IntoValue. This marker trait
     // enables use in Vec<T> returns from Magnus function!/method! macros.
-    writeln!(out, "\n\nunsafe impl IntoValueFromNative for {name} {{}}").ok();
+    writeln!(out, "\nunsafe impl IntoValueFromNative for {name} {{}}").ok();
     // Magnus only provides TryConvert for &T (references) on TypedData types.
     // We need TryConvert for owned T so wrapped types can be used as function parameters.
     writeln!(out, "\nimpl magnus::TryConvert for {name} {{").ok();

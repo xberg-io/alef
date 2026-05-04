@@ -48,17 +48,20 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
     );
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "            return \"skip\"");
+            let _ = writeln!(out, "            return {{\"type\": \"Skip\"}}");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "            return \"continue\"");
+            let _ = writeln!(out, "            return {{\"type\": \"Continue\"}}");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "            return \"preserve_html\"");
+            let _ = writeln!(out, "            return {{\"type\": \"PreserveHtml\"}}");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_python(output);
-            let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
+            let _ = writeln!(
+                out,
+                "            return {{\"type\": \"Custom\", \"_0\": \"{escaped}\"}}"
+            );
         }
         CallbackAction::CustomTemplate { template } => {
             // Use single-quoted f-string so that double quotes inside the template
@@ -69,7 +72,10 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
                 .replace('\n', "\\n")
                 .replace('\r', "\\r")
                 .replace('\t', "\\t");
-            let _ = writeln!(out, "            return {{\"custom\": f'{escaped_template}'}}");
+            let _ = writeln!(
+                out,
+                "            return {{\"type\": \"Custom\", \"_0\": f'{escaped_template}'}}"
+            );
         }
     }
 }
@@ -82,7 +88,7 @@ mod tests {
     fn emit_python_visitor_method_skip_returns_skip() {
         let mut out = String::new();
         emit_python_visitor_method(&mut out, "visit_text", &CallbackAction::Skip);
-        assert!(out.contains("return \"skip\""), "got: {out}");
+        assert!(out.contains("return {\"type\": \"Skip\"}"), "got: {out}");
     }
 
     #[test]

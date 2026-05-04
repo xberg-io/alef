@@ -451,10 +451,7 @@ pub fn render_test_function(
         // handle the Result wrapper: unwrap Ok for field assertions, extract Err for error assertions.
         if returns_result && has_non_error_assertions {
             // Emit a temporary binding for the unwrapped Ok value.
-            eprintln!("DEBUG: fixture {} has_non_error={}, emitting unwrap", fixture.id, has_non_error_assertions);
             let _ = writeln!(out, "    let {result_var}_ok = {result_var}.as_ref().ok();");
-        } else {
-            eprintln!("DEBUG: fixture {} returns_result={}, has_non_error={}", fixture.id, returns_result, has_non_error_assertions);
         }
         // Render error assertions.
         for assertion in &fixture.assertions {
