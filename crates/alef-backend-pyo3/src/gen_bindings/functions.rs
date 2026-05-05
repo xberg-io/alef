@@ -337,7 +337,7 @@ pub(super) fn gen_api_py(
                 }
                 _ => None,
             };
-            inner_name.is_some_and(|n| enum_names.contains(n))
+            inner_name.is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
         });
         if has_enum_field {
             for field in &typ.fields {
@@ -353,9 +353,48 @@ pub(super) fn gen_api_py(
                     _ => None,
                 };
                 if let Some(enum_name) = inner_name {
-                    if enum_names.contains(enum_name) {
+                    if enum_names.contains(enum_name) && !data_enum_names.contains(enum_name) {
                         out.push_str(&format!(
                             "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
+                            field_name = field.name,
+                        ));
+                    }
+                }
+            }
+        }
+        // Also coerce nested has_default struct types in the dict before constructing the dataclass
+        let has_nested_struct = typ.fields.iter().any(|f| {
+            let inner_name = match &f.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            inner_name.is_some_and(|n| default_types.contains_key(n))
+        });
+        if has_nested_struct {
+            for field in &typ.fields {
+                let inner_name = match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(nested_name) = inner_name {
+                    if default_types.contains_key(nested_name) {
+                        let nested_snake = nested_name.to_snake_case();
+                        out.push_str(&format!(
+                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _to_rust_{nested_snake}(value[\"{field_name}\"])\n",
                             field_name = field.name,
                         ));
                     }

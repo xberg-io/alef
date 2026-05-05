@@ -83,6 +83,20 @@ impl E2eCodegen for JavaCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
+
+        // Get Java-specific enum_fields from override (required for correct enum handling).
+        let empty_enum_fields = std::collections::HashMap::new();
+        let java_enum_fields = overrides
+            .as_ref()
+            .map(|o| &o.enum_fields)
+            .unwrap_or(&empty_enum_fields);
+
+        // Build effective nested_types by merging defaults with configured overrides.
+        let mut effective_nested_types = default_java_nested_types();
+        if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
+            effective_nested_types.extend(overrides_map.clone());
+        }
+
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,
@@ -113,8 +127,9 @@ impl E2eCodegen for JavaCodegen {
                 options_type.as_deref(),
                 &field_resolver,
                 result_is_simple,
-                &e2e_config.fields_enum,
+                java_enum_fields,
                 e2e_config,
+                &effective_nested_types,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -266,8 +281,9 @@ fn render_test_file(
     options_type: Option<&str>,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
+    enum_fields: &std::collections::HashMap<String, String>,
     e2e_config: &E2eConfig,
+    nested_types: &std::collections::HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -332,6 +348,25 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
     }
+    // Collect all enum types used in builder expressions across all fixtures.
+    let enum_field_keys: std::collections::HashSet<String> = enum_fields.keys().cloned().collect();
+    let mut enum_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for f in fixtures.iter() {
+        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
+        for arg in &call_cfg.args {
+            if arg.arg_type == "json_object" {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                if let Some(val) = f.input.get(field) {
+                    if !val.is_null() && !val.is_array() {
+                        if let Some(obj) = val.as_object() {
+                            collect_enum_and_nested_types(obj, &enum_field_keys, &mut enum_types_used);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Import all options types used across fixtures (for builder expressions and MAPPER).
     if !all_options_types.is_empty() {
         let opts_pkg = if !import_path.is_empty() {
@@ -346,6 +381,14 @@ fn render_test_file(
                 format!("{opts_pkg}.{opts_type}")
             };
             let _ = writeln!(out, "import {qualified};");
+        }
+    }
+
+    // Import all enum types used in builder expressions
+    if !enum_types_used.is_empty() && !import_path.is_empty() {
+        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+        for enum_type in &enum_types_used {
+            let _ = writeln!(out, "import {binding_pkg}.{enum_type};");
         }
     }
     // Import CrawlConfig when handle args need JSON deserialization.
@@ -393,6 +436,7 @@ fn render_test_file(
             result_is_simple,
             enum_fields,
             e2e_config,
+            nested_types,
         );
         let _ = writeln!(out);
     }
@@ -681,8 +725,9 @@ fn render_test_method(
     options_type: Option<&str>,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &HashSet<String>,
+    enum_fields: &std::collections::HashMap<String, String>,
     e2e_config: &E2eConfig,
+    nested_types: &std::collections::HashMap<String, String>,
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -752,6 +797,7 @@ fn render_test_method(
 
     // Emit builder expressions for json_object args.
     if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
+        let enum_field_keys: std::collections::HashSet<String> = enum_fields.keys().cloned().collect();
         for arg in args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -759,7 +805,7 @@ fn render_test_method(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
-                            let builder_expr = java_builder_expression(obj, opts_type);
+                            let builder_expr = java_builder_expression(obj, opts_type, &enum_field_keys, nested_types);
                             let var_name = &arg.name;
                             let _ = writeln!(out, "        var {var_name} = {builder_expr};");
                         }
@@ -992,7 +1038,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_bytes: bool,
-    enum_fields: &HashSet<String>,
+    enum_fields: &std::collections::HashMap<String, String>,
 ) {
     // Handle synthetic/virtual fields that are computed rather than direct record accessors.
     if let Some(f) = &assertion.field {
@@ -1194,7 +1240,7 @@ fn render_assertion(
     let field_is_enum = assertion
         .field
         .as_deref()
-        .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
+        .is_some_and(|f| enum_fields.contains_key(f) || enum_fields.contains_key(field_resolver.resolve(f)));
 
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
     // contains assertions, since List.contains(Object) uses equals() which won't match
@@ -1687,25 +1733,49 @@ fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> 
 
 /// Generate a Java builder expression for a JSON object.
 /// E.g., `obj = {"language": "abl", "chunk_max_size": 50}`
-/// becomes: `TypeName.builder().withLanguage("abl").withChunkMaxSize(Optional.of(50L)).build()`
+/// becomes: `TypeName.builder().withLanguage("abl").withChunkMaxSize(50L).build()`
 ///
-/// For simple types (string, bool), use the value directly.
-/// For numbers and complex types, wrap in Optional.of().
-fn java_builder_expression(obj: &serde_json::Map<String, serde_json::Value>, type_name: &str) -> String {
+/// For enums: emit `EnumType.VariantName` (detected via camelCase lookup in enum_fields)
+/// For strings and bools: use the value directly
+/// For plain numbers: emit the literal with type suffix (long uses L, double uses d)
+/// For nested objects: recurse with Options suffix
+fn java_builder_expression(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    type_name: &str,
+    enum_fields: &HashSet<String>,
+    nested_types: &std::collections::HashMap<String, String>,
+) -> String {
     let mut expr = format!("{}.builder()", type_name);
     for (key, val) in obj {
-        // Convert snake_case key to withCamelCase method
-        let method_name = format!("with{}", key.to_upper_camel_case());
+        // Convert snake_case key to camelCase for method name
+        let camel_key = key.to_lower_camel_case();
+        let method_name = format!("with{}", camel_key.to_upper_camel_case());
+
         let java_val = match val {
-            serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),
+            serde_json::Value::String(s) => {
+                // Check if this field is an enum type by looking up in enum_fields.
+                // enum_fields is keyed by camelCase names (e.g., "codeBlockStyle"), not snake_case.
+                if enum_fields.contains(&camel_key) {
+                    // Enum field: convert string value to EnumType.VariantName
+                    // The enum variant in this project is PascalCase (e.g., "Backticks" not "BACKTICKS")
+                    let variant_name = s.to_upper_camel_case();
+                    // The enum type is also PascalCase (derived from the camelCase field name)
+                    let enum_type_name = camel_key.to_upper_camel_case();
+                    format!("{}.{}", enum_type_name, variant_name)
+                } else {
+                    // String field: emit as a quoted literal
+                    format!("\"{}\"", escape_java(s))
+                }
+            }
             serde_json::Value::Bool(b) => b.to_string(),
             serde_json::Value::Null => "null".to_string(),
             serde_json::Value::Number(n) => {
-                // Wrap numbers in Optional.of() since they may be Optional<Long> or Optional<Double>
+                // Number field: emit literal with type suffix
+                // Builder setters take plain numbers, not Optional<Number>
                 if n.is_f64() {
-                    format!("Optional.of({}d)", n)
+                    format!("{}d", n)
                 } else {
-                    format!("Optional.of({}L)", n)
+                    format!("{}L", n)
                 }
             }
             serde_json::Value::Array(arr) => {
@@ -1713,17 +1783,44 @@ fn java_builder_expression(obj: &serde_json::Map<String, serde_json::Value>, typ
                 format!("java.util.List.of({})", items.join(", "))
             }
             serde_json::Value::Object(nested) => {
-                // Recurse with a type derived from the field name (snake_case → PascalCase + "Options").
-                // Without this the codegen fell back to a JSON string literal, which the builder's
-                // typed `withPreprocessing(PreprocessingOptions)` setter rejected at compile time.
-                let nested_type = format!("{}Options", key.to_upper_camel_case());
-                java_builder_expression(nested, &nested_type)
+                // Recurse with the type from nested_types mapping, or default to snake_case → PascalCase + "Options".
+                let nested_type = nested_types
+                    .get(key.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}Options", key.to_upper_camel_case()));
+                java_builder_expression(nested, &nested_type, enum_fields, nested_types)
             }
         };
         expr.push_str(&format!(".{}({})", method_name, java_val));
     }
     expr.push_str(".build()");
     expr
+}
+
+// ---------------------------------------------------------------------------
+// Import collection helpers
+// ---------------------------------------------------------------------------
+
+/// Recursively collect enum types and nested option types used in a builder expression.
+/// Enums are keyed in the enum_fields map by camelCase names (e.g., "codeBlockStyle" → "CodeBlockStyle").
+fn collect_enum_and_nested_types(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    enum_fields: &HashSet<String>,
+    types_out: &mut std::collections::BTreeSet<String>,
+) {
+    for (key, val) in obj {
+        // enum_fields is keyed by camelCase, not snake_case.
+        let camel_key = key.to_lower_camel_case();
+        if enum_fields.contains(&camel_key) {
+            // Add the enum type in PascalCase (derived from camelCase key).
+            let enum_type = camel_key.to_upper_camel_case();
+            types_out.insert(enum_type);
+        }
+        // Recurse into nested objects to find their nested enum types.
+        if let Some(nested) = val.as_object() {
+            collect_enum_and_nested_types(nested, enum_fields, types_out);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
