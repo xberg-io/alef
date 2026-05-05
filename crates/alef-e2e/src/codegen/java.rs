@@ -1712,9 +1712,12 @@ fn java_builder_expression(obj: &serde_json::Map<String, serde_json::Value>, typ
                 let items: Vec<String> = arr.iter().map(|v| json_to_java_typed(v, None)).collect();
                 format!("java.util.List.of({})", items.join(", "))
             }
-            serde_json::Value::Object(_) => {
-                let json_str = serde_json::to_string(val).unwrap_or_default();
-                format!("\"{}\"", escape_java(&json_str))
+            serde_json::Value::Object(nested) => {
+                // Recurse with a type derived from the field name (snake_case → PascalCase + "Options").
+                // Without this the codegen fell back to a JSON string literal, which the builder's
+                // typed `withPreprocessing(PreprocessingOptions)` setter rejected at compile time.
+                let nested_type = format!("{}Options", key.to_upper_camel_case());
+                java_builder_expression(nested, &nested_type)
             }
         };
         expr.push_str(&format!(".{}({})", method_name, java_val));
