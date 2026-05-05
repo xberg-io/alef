@@ -314,12 +314,14 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.to_string()")
             }
         }
-        // Bytes: core uses bytes::Bytes, binding uses Vec<u8>
+        // Bytes: core uses bytes::Bytes, binding uses Vec<u8> or napi `Buffer`.
+        // `.into()` is a no-op when destination is Vec<u8> (identity From) and
+        // a Vec→Buffer wrap when destination is `napi::bindgen_prelude::Buffer`.
         TypeRef::Bytes => {
             if optional {
-                format!("{name}: val.{name}.map(|v| v.to_vec())")
+                format!("{name}: val.{name}.map(|v| v.to_vec().into())")
             } else {
-                format!("{name}: val.{name}.to_vec()")
+                format!("{name}: val.{name}.to_vec().into()")
             }
         }
         // Opaque Named types: wrap in Arc to create the binding wrapper
@@ -946,12 +948,12 @@ fn apply_core_wrapper_from_core(
             }
         }
         CoreWrapper::Bytes => {
-            // Bytes → Vec<u8>: .to_vec()
+            // Bytes → Vec<u8> (or napi Buffer via From<Vec<u8>>): .to_vec().into()
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
-                    format!("{name}: {expr}.map(|v| v.to_vec())")
+                    format!("{name}: {expr}.map(|v| v.to_vec().into())")
                 } else if expr == format!("val.{name}") {
-                    format!("{name}: val.{name}.to_vec()")
+                    format!("{name}: val.{name}.to_vec().into()")
                 } else {
                     conversion.to_string()
                 }

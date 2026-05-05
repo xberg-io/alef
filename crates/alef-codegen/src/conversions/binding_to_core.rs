@@ -432,12 +432,15 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit => {
             format!("{name}: val.{name}")
         }
-        // Bytes: binding uses Vec<u8>, core uses bytes::Bytes — convert via Into
+        // Bytes: binding may use Vec<u8> or napi `Buffer`; core uses `bytes::Bytes`
+        // (or `Vec<u8>` for some targets). `.to_vec().into()` works in all cases:
+        // Buffer → Vec<u8> via `From<Buffer> for Vec<u8>`, then `Vec<u8> → Bytes`
+        // via `From<Vec<u8>> for Bytes` (or identity From for Vec<u8>→Vec<u8>).
         TypeRef::Bytes => {
             if optional {
-                format!("{name}: val.{name}.map(Into::into)")
+                format!("{name}: val.{name}.map(|v| v.to_vec().into())")
             } else {
-                format!("{name}: val.{name}.into()")
+                format!("{name}: val.{name}.to_vec().into()")
             }
         }
         // Json: binding uses String, core uses serde_json::Value — parse or default
