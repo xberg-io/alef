@@ -94,7 +94,7 @@ impl E2eCodegen for JavaCodegen {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
-                .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
                 .collect();
 
             if active.is_empty() {
@@ -1622,10 +1622,7 @@ fn emit_java_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                         }
                         "BatchFileItem" => {
                             let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!(
-                                "new {}(java.nio.file.Paths.get(\"{}\"), null)",
-                                elem_type, path
-                            ))
+                            Some(format!("new {}(java.nio.file.Paths.get(\"{}\"), null)", elem_type, path))
                         }
                         _ => None,
                     }

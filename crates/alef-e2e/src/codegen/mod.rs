@@ -38,10 +38,30 @@ pub mod wasm;
 pub mod zig;
 
 use crate::config::E2eConfig;
-use crate::fixture::FixtureGroup;
+use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use anyhow::Result;
+
+/// Check if a fixture should be included for the given language.
+///
+/// Returns false if:
+/// - The fixture has a skip condition that applies to this language
+/// - The fixture's call has language-specific overrides but not for this language
+pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_config: &E2eConfig) -> bool {
+    // Check if fixture should skip this language
+    if let Some(skip) = &fixture.skip {
+        if skip.should_skip(language) {
+            return false;
+        }
+    }
+    // Check if call has language-specific overrides but not for this language
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    if !call_config.overrides.is_empty() && !call_config.overrides.contains_key(language) {
+        return false;
+    }
+    true
+}
 
 /// Convert a JSON value's object keys from camelCase to snake_case recursively.
 ///

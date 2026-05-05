@@ -86,7 +86,7 @@ impl E2eCodegen for GleamE2eCodegen {
                 .fixtures
                 .iter()
                 // Include both HTTP and non-HTTP fixtures. Filter out those marked as skip.
-                .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
                 // gleam_httpc cannot follow HTTP/1.1 protocol upgrades (101 Switching
                 // Protocols), so skip WebSocket-upgrade fixtures whose request advertises
                 // Upgrade: websocket. The server returns 101 and gleam_httpc times out.

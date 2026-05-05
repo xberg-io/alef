@@ -94,7 +94,7 @@ impl E2eCodegen for WasmCodegen {
                 group
                     .fixtures
                     .iter()
-                    .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                    .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
                     // Honor per-call `skip_languages`: when the resolved call's
                     // `skip_languages` contains `wasm`, the wasm binding doesn't
                     // export that function and any test file referencing it
