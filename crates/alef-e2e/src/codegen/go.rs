@@ -504,20 +504,11 @@ fn render_test_file(
         has_handle || has_json_obj
     });
 
-    // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
-    let needs_base64 = fixtures.iter().any(|f| {
-        if !emits_executable_test(f) {
-            return false;
-        }
-        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
-        call_args.iter().any(|a| {
-            if a.arg_type != "bytes" {
-                return false;
-            }
-            let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-            matches!(f.input.get(field), Some(serde_json::Value::String(_)))
-        })
-    });
+    // No runtime base64 calls remain in generated Go code. Bytes args with string values
+    // are now loaded via os.ReadFile (see needs_os) and HTTP body byte arrays are
+    // base64-encoded at codegen time and embedded as literal strings in the json.Unmarshal
+    // call, which doesn't require the `encoding/base64` import in the test file.
+    let needs_base64 = false;
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions
     // with placeholders or string assertions rendered through fmt.Sprint).
