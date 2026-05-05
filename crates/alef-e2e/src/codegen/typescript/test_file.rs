@@ -358,9 +358,10 @@ fn render_test_case(
 
     let final_args = if visitor_arg.is_empty() {
         args_str
-    } else if lang == "wasm" {
-        // WASM: visitor must be merged into the options object (2nd arg), not appended as a
-        // separate argument. The wasm binding accepts a single plain-object options param.
+    } else if lang == "wasm" || lang == "node" {
+        // WASM and Node: visitor must be merged into the options object (2nd arg) — both
+        // bindings expose convert(html, options?) and ignore any additional positional
+        // arguments, so 'append the visitor as a 3rd arg' silently dropped the visitor.
         if args_str.is_empty() {
             format!("{{ visitor: {visitor_arg} }}")
         } else if let Some(as_pos) = args_str.rfind(" as unknown as ") {
