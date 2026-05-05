@@ -34,7 +34,15 @@ pub fn render_test_file(
     // `lang` is used for wasm visitor arg placement and override routing
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    let _ = writeln!(out, "import {{ describe, expect, it }} from 'vitest';");
+
+    let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
+
+    let import_line = if needs_cache_isolation && has_configure {
+        "import { describe, expect, it, beforeAll, afterAll } from 'vitest';"
+    } else {
+        "import { describe, expect, it } from 'vitest';"
+    };
+    let _ = writeln!(out, "{}", import_line);
 
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
@@ -118,6 +126,12 @@ pub fn render_test_file(
             let imports_str = imports.join(", ");
             let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
         }
+
+        if needs_cache_isolation && has_configure {
+            let _ = writeln!(out, "import {{ mkdtempSync, rmSync }} from 'node:fs';");
+            let _ = writeln!(out, "import {{ join }} from 'node:path';");
+            let _ = writeln!(out, "import {{ tmpdir }} from 'node:os';");
+        }
     }
 
     if has_non_http_fixtures {
@@ -144,6 +158,10 @@ pub fn render_test_file(
 
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
+
+    if needs_cache_isolation && has_configure {
+        emit_cache_isolation_setup(&mut out);
+    }
 
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
@@ -659,6 +677,43 @@ fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
+}
+
+/// Detect if cache isolation is needed: checks if any fixture calls `cleanCache`
+/// and if a `configure` function is available.
+/// Returns (has_clean_cache, has_configure).
+fn detect_cache_isolation_needs(fixtures: &[&Fixture], e2e_config: &E2eConfig) -> (bool, bool) {
+    let has_clean_cache = fixtures.iter().any(|fixture| {
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        resolve_node_function_name(call_config) == "cleanCache"
+    });
+
+    let has_configure = e2e_config
+        .calls
+        .iter()
+        .any(|(_, call_config)| resolve_node_function_name(call_config) == "configure")
+        || resolve_node_function_name(&e2e_config.call) == "configure";
+
+    (has_clean_cache, has_configure)
+}
+
+/// Emit the cache isolation setup code (beforeAll/afterAll blocks).
+fn emit_cache_isolation_setup(out: &mut String) {
+    let _ = writeln!(out, "  let _tslpTestCacheDir: string;");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  beforeAll(() => {{");
+    let _ = writeln!(out, "    _tslpTestCacheDir = mkdtempSync(join(tmpdir(), 'tslp-e2e-'));");
+    let _ = writeln!(out, "    configure({{ cacheDir: _tslpTestCacheDir }});");
+    let _ = writeln!(out, "  }});");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  afterAll(() => {{");
+    let _ = writeln!(out, "    configure({{}});");
+    let _ = writeln!(
+        out,
+        "    try {{ rmSync(_tslpTestCacheDir, {{ recursive: true, force: true }}); }} catch (_e) {{}}"
+    );
+    let _ = writeln!(out, "  }});");
+    let _ = writeln!(out);
 }
 
 #[cfg(test)]

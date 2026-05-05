@@ -51,7 +51,7 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         "visit_table_row" => "ctx: any, cells: any, isHeader: any",
         "visit_custom_element" => "ctx: any, tagName: any, html: any",
         "visit_form" => "ctx: any, actionUrl: any, method: any",
-        "visit_input" => "ctx: any, inputType: any, name: any, value: any",
+        "visit_input" => "ctx: any, input_type: any, name: any, value: any",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx: any, src: any",
         "visit_details" => "ctx: any, isOpen: any",
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {

@@ -273,10 +273,18 @@ fn render_test_case(
     let mut setup_lines = Vec::new();
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         build_r_visitor(&mut setup_lines, visitor_spec);
-        if args_str.is_empty() {
-            "options = list(visitor = visitor)".to_string()
+        // Strip any `options = NULL` placeholder that build_args_string may have emitted
+        // for the optional options arg — we replace it with the visitor options list.
+        let base = args_str
+            .replace(", options = NULL", "")
+            .replace("options = NULL, ", "")
+            .replace("options = NULL", "");
+        let visitor_opts = "options = list(visitor = visitor)";
+        let trimmed = base.trim_matches([' ', ',']);
+        if trimmed.is_empty() {
+            visitor_opts.to_string()
         } else {
-            format!("{args_str}, options = list(visitor = visitor)")
+            format!("{trimmed}, {visitor_opts}")
         }
     } else {
         args_str
@@ -445,7 +453,8 @@ fn render_bytes_value(raw: &str) -> String {
 fn r_default_for_config_arg(arg_name: &str) -> String {
     match arg_name {
         "config" => "ExtractionConfig$default()".to_string(),
-        "options" | "html_output" => "HtmlOutputConfig$default()".to_string(),
+        "options" => "NULL".to_string(),
+        "html_output" => "HtmlOutputConfig$default()".to_string(),
         "chunking" => "ChunkingConfig$default()".to_string(),
         "ocr" => "OcrConfig$default()".to_string(),
         "image" | "images" => "ImageExtractionConfig$default()".to_string(),

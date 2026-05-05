@@ -349,6 +349,10 @@ fn render_test_file(
     }
     // Collect all enum types used in builder expressions across all fixtures.
     let mut enum_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // Collect nested config types actually referenced in fixture builder expressions
+    // (rather than importing all defaults unconditionally, which causes javac errors
+    // when a type like ChunkingConfig doesn't exist in the binding's package).
+    let mut nested_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
         let call_cfg = e2e_config.resolve_call(f.call.as_deref());
         for arg in &call_cfg.args {
@@ -358,6 +362,7 @@ fn render_test_file(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             collect_enum_and_nested_types(obj, enum_fields, &mut enum_types_used);
+                            collect_nested_type_names(obj, nested_types, &mut nested_types_used);
                         }
                     }
                 }
@@ -390,18 +395,14 @@ fn render_test_file(
         }
     }
 
-    // Import nested options types (e.g. SecurityLimits, ChunkingConfig) emitted by
-    // builder expressions. Pulls from the merged `nested_types` map that combines
-    // the per-language defaults (`default_java_nested_types`) with the configured
-    // overrides — earlier this only consulted `overrides.nested_types`, which missed
-    // the defaults like SecurityLimits → causing javac `cannot find symbol` errors.
-    if !nested_types.is_empty() && !import_path.is_empty() {
+    // Import only the nested options types that are actually referenced in fixture
+    // builder expressions. Using `nested_types_used` (populated above) rather than
+    // all `nested_types.values()` avoids javac `cannot find symbol` errors for types
+    // like ChunkingConfig that exist in other Kreuzberg bindings but not this one.
+    if !nested_types_used.is_empty() && !import_path.is_empty() {
         let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-        let mut imported: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-        for type_name in nested_types.values() {
-            if imported.insert(type_name.as_str()) {
-                let _ = writeln!(out, "import {binding_pkg}.{type_name};");
-            }
+        for type_name in &nested_types_used {
+            let _ = writeln!(out, "import {binding_pkg}.{type_name};");
         }
     }
 
@@ -1880,6 +1881,21 @@ fn collect_enum_and_nested_types(
         // Recurse into nested objects to find their nested enum types.
         if let Some(nested) = val.as_object() {
             collect_enum_and_nested_types(nested, enum_fields, types_out);
+        }
+    }
+}
+
+fn collect_nested_type_names(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    nested_types: &std::collections::HashMap<String, String>,
+    types_out: &mut std::collections::BTreeSet<String>,
+) {
+    for (key, val) in obj {
+        if let Some(type_name) = nested_types.get(key.as_str()) {
+            types_out.insert(type_name.clone());
+        }
+        if let Some(nested) = val.as_object() {
+            collect_nested_type_names(nested, nested_types, types_out);
         }
     }
 }
