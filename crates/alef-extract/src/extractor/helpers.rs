@@ -299,9 +299,11 @@ pub(crate) fn extract_serde_rename_all(attrs: &[syn::Attribute]) -> Option<Strin
                         found = Some(s.value());
                     }
                 }
-            } else {
-                // Skip arbitrary nested values without erroring out the parse.
-                let _ = meta.value();
+            } else if let Ok(value) = meta.value() {
+                // Consume the value so parse_nested_meta can advance to the next key.
+                // Without this, sibling keys (e.g. `tag = "..."` before `rename_all`) leave
+                // the cursor mid-value and the outer parse aborts before reaching `rename_all`.
+                let _: syn::Expr = value.parse()?;
             }
             Ok(())
         });
@@ -326,13 +328,13 @@ pub(crate) fn extract_serde_rename_all(attrs: &[syn::Attribute]) -> Option<Strin
                                     inner = Some(s.value());
                                 }
                             }
-                        } else {
-                            let _ = inner_meta.value();
+                        } else if let Ok(value) = inner_meta.value() {
+                            let _: syn::Expr = value.parse()?;
                         }
                         Ok(())
                     });
-                } else {
-                    let _ = meta.value();
+                } else if let Ok(value) = meta.value() {
+                    let _: syn::Expr = value.parse()?;
                 }
                 Ok(())
             });

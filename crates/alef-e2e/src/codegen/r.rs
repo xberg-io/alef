@@ -361,6 +361,15 @@ fn build_args_string(
                 let r_value = r_default_for_config_arg(arg_name);
                 return Some(format!("{arg_name} = {r_value}"));
             }
+            // `json_object` arrays are passed to extendr functions whose Rust
+            // signature is `items: String` (JSON-serialized batch items). The
+            // wrapper has no R-list → JSON conversion, so we must serialize the
+            // fixture value to a literal JSON string at test-emit time.
+            if arg.arg_type == "json_object" && val.is_array() {
+                let json_literal = serde_json::to_string(val).unwrap_or_else(|_| "[]".to_string());
+                let escaped = escape_r(&json_literal);
+                return Some(format!("{arg_name} = \"{escaped}\""));
+            }
             // `bytes` arg type: convert string fixture values into runtime
             // `readBin(...)` calls so the wrapper receives raw bytes instead
             // of an R character vector. This mirrors the Python emit_bytes_arg

@@ -609,13 +609,13 @@ impl Backend for ExtendrBackend {
         } else {
             "packages/r/R/".to_string()
         };
+        // The NAMESPACE / DESCRIPTION sit one directory above R/ (i.e. packages/r/).
+        let r_pkg_dir = r_wrapper_dir.trim_end_matches("R/").trim_end_matches("R");
 
         let mut files = Vec::new();
 
-        // {package_name}.R: only @useDynLib — no function wrappers.
-        // extendr auto-generates extendr-wrappers.R at build time with the correct
-        // `wrap__<funcname>` symbol references. Emitting a second convert() here would
-        // create a duplicate export and call the wrong (non-existent) symbol.
+        // {package_name}.R: only @useDynLib stub. The actual call wrappers and class
+        // dispatchers live in extendr-wrappers.R which is regenerated below.
         let mut pkg_content = hash::header(CommentStyle::Hash);
         pkg_content.push('\n');
         pkg_content.push_str(&format!("#' @useDynLib {package_name}, .registration = TRUE\n"));
@@ -623,6 +623,28 @@ impl Backend for ExtendrBackend {
         files.push(GeneratedFile {
             path: PathBuf::from(&r_wrapper_dir).join(format!("{package_name}.R")),
             content: pkg_content,
+            generated_header: false,
+        });
+
+        // extendr-wrappers.R: R-side bindings for every `#[extendr]` function and method
+        // registered in the `extendr_module!` macro. Without this file, R callers cannot
+        // invoke the native `wrap__<symbol>` entry points exported by the .so.
+        // Historically `rextendr::document()` produced this at package-development time;
+        // alef now emits it directly so install-time builds (which never run rextendr)
+        // still expose the public API.
+        let wrappers_content = gen_extendr_wrappers_r(api, &package_name);
+        files.push(GeneratedFile {
+            path: PathBuf::from(&r_wrapper_dir).join("extendr-wrappers.R"),
+            content: wrappers_content,
+            generated_header: false,
+        });
+
+        // NAMESPACE: regenerated each run so that newly added `#[extendr]` functions and
+        // methods are exported. Scaffolding only writes a useDynLib bootstrap on init.
+        let namespace_content = gen_namespace(api, &package_name);
+        files.push(GeneratedFile {
+            path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),
+            content: namespace_content,
             generated_header: false,
         });
 
@@ -1050,6 +1072,252 @@ fn gen_extendr_json_bridged_function(
     )
 }
 
+/// Return the set of type names that are excluded from extendr class registration.
+///
+/// Mirrors the filters applied in `generate_bindings`:
+///   • Trait types — never registered (no concrete class).
+///   • Arc-incompatible opaque types (Rc-based, cfg-feature-gated) — skipped.
+///   • Extendr-incompatible types: structs whose fields contain `Vec<T>` where T is a
+///     non-opaque, non-enum named type. Extendr cannot convert these from R lists.
+///
+/// The returned set is used by wrapper-file generation to skip class env emission for
+/// types that are not present in `extendr_module!`.
+fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
+    let opaque_types: ahash::AHashSet<String> =
+        api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.clone()).collect();
+    let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let arc_incompatible: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && t.cfg.is_some())
+        .map(|t| t.name.clone())
+        .collect();
+
+    let is_struct_like = |n: &str| -> bool {
+        !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n)
+    };
+    let is_native_incompatible = |ty: &TypeRef| -> bool {
+        match ty {
+            TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if is_struct_like(n)),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Vec(inner2) => matches!(inner2.as_ref(), TypeRef::Named(n) if is_struct_like(n)),
+                _ => false,
+            },
+            _ => false,
+        }
+    };
+
+    let mut excluded: ahash::AHashSet<String> = api.types.iter().filter(|t| t.is_trait).map(|t| t.name.clone()).collect();
+    for t in &arc_incompatible {
+        excluded.insert(t.clone());
+    }
+    for t in &api.types {
+        if t.is_opaque || t.is_trait {
+            continue;
+        }
+        if t.fields.iter().any(|f| is_native_incompatible(&f.ty)) {
+            excluded.insert(t.name.clone());
+        }
+    }
+    excluded
+}
+
+/// Return true if the method should be filtered out of an emitted impl block.
+///
+/// Mirrors `method_references_arc_incompatible` and `method_references_enum` from
+/// `generate_bindings`. Used by wrapper-file generation to skip wrapper entries for
+/// methods that the Rust impl block will not contain.
+fn method_is_excluded_from_impl(
+    method: &alef_core::ir::MethodDef,
+    api: &ApiSurface,
+) -> bool {
+    let opaque_types: ahash::AHashSet<String> =
+        api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.clone()).collect();
+    let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let arc_incompatible: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && t.cfg.is_some())
+        .map(|t| t.name.clone())
+        .collect();
+
+    let references_arc_incompatible = |ty: &TypeRef| -> bool {
+        match ty {
+            TypeRef::Named(n) => arc_incompatible.contains(n),
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if arc_incompatible.contains(n)),
+            _ => false,
+        }
+    };
+    let references_enum = |ty: &TypeRef| -> bool {
+        match ty {
+            TypeRef::Named(n) => enum_names.contains(n.as_str()),
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())),
+            _ => false,
+        }
+    };
+    let param_is_owned_struct = |ty: &TypeRef| -> bool {
+        let is_non_opaque_struct = |n: &str| {
+            !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n)
+        };
+        match ty {
+            TypeRef::Named(n) => is_non_opaque_struct(n),
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if is_non_opaque_struct(n)),
+            _ => false,
+        }
+    };
+
+    if references_arc_incompatible(&method.return_type)
+        || method.params.iter().any(|p| references_arc_incompatible(&p.ty))
+    {
+        return true;
+    }
+    if references_enum(&method.return_type)
+        || method
+            .params
+            .iter()
+            .any(|p| references_enum(&p.ty) || param_is_owned_struct(&p.ty))
+    {
+        return true;
+    }
+    if method.sanitized {
+        return true;
+    }
+    false
+}
+
+/// Generate `extendr-wrappers.R` — the R-side bindings for every `#[extendr]` symbol
+/// registered in the generated `extendr_module!` macro.
+///
+/// The output mirrors what `rextendr::document()` would produce at package-development
+/// time, but is written directly from the alef IR so it is always present at install time.
+///
+/// Layout:
+///   1. Free-function wrappers: `name <- function(...) .Call("wrap__name", ..., PACKAGE = "<pkg>")`.
+///      Exported via `#' @export` (paired with explicit `export(name)` lines in NAMESPACE).
+///   2. One `<TypeName> <- new.env(parent = emptyenv())` block per registered class, with:
+///       • static methods bound as `Type$method <- function(...) .Call("wrap__Type__method", ...)`,
+///       • instance methods bound as `Type$method <- function(...) .Call("wrap__Type__method", self, ...)`,
+///       • dispatch operators (`$.Type`, `[[.Type`) so callers can write `instance$method(...)`.
+fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str) -> String {
+    let mut out = String::with_capacity(8 * 1024);
+    out.push_str("# Generated by extendr: Do not edit by hand\n");
+    out.push_str("#\n");
+    out.push_str("# This file is regenerated by alef on every `alef generate` run.\n");
+    out.push_str("# It mirrors the output of `rextendr::document()` and binds every\n");
+    out.push_str("# wrap__<symbol> entry registered in extendr_module! to an R-callable\n");
+    out.push_str("# function or class env.\n\n");
+
+    out.push_str(&format!("#' @useDynLib {package_name}, .registration = TRUE\n"));
+    out.push_str("NULL\n\n");
+
+    // Free functions. Every entry in `api.functions` is registered in extendr_module!.
+    for func in &api.functions {
+        let params: Vec<&str> = func.params.iter().map(|p| p.name.as_str()).collect();
+        let params_sig = params.join(", ");
+        let mut call_args = vec![format!("\"wrap__{}\"", func.name)];
+        for p in &params {
+            call_args.push((*p).to_string());
+        }
+        call_args.push(format!("PACKAGE = \"{package_name}\""));
+        let call_args_str = call_args.join(", ");
+
+        out.push_str("#' @export\n");
+        out.push_str(&format!(
+            "{name} <- function({params_sig}) .Call({call_args_str})\n\n",
+            name = func.name,
+        ));
+    }
+
+    // Class env blocks. One per non-trait, non-extendr-incompatible type — matching the
+    // set registered in `extendr_module! { impl Type; ... }`.
+    let excluded = collect_excluded_class_types(api);
+    for typ in &api.types {
+        if typ.is_trait || excluded.contains(&typ.name) {
+            continue;
+        }
+
+        out.push_str(&format!(
+            "{name} <- new.env(parent = emptyenv())\n\n",
+            name = typ.name
+        ));
+
+        // Emit method bindings. Skip methods that are filtered out of the Rust impl
+        // block — they have no `wrap__Type__method` symbol.
+        for method in &typ.methods {
+            if method_is_excluded_from_impl(method, api) {
+                continue;
+            }
+            let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+            let params_sig = params.join(", ");
+            let mut call_args = vec![format!(
+                "\"wrap__{type_name}__{method_name}\"",
+                type_name = typ.name,
+                method_name = method.name,
+            )];
+            // Instance methods: extendr's wrap__Type__method symbol takes self as the
+            // first argument. The class dispatch operator (`$.Type`) below captures
+            // `self` from the calling environment so callers write `instance$method(...)`.
+            if !method.is_static {
+                call_args.push("self".to_string());
+            }
+            for p in &params {
+                call_args.push((*p).to_string());
+            }
+            call_args.push(format!("PACKAGE = \"{package_name}\""));
+            let call_args_str = call_args.join(", ");
+
+            out.push_str(&format!(
+                "{type_name}${method_name} <- function({params_sig}) .Call({call_args_str})\n\n",
+                type_name = typ.name,
+                method_name = method.name,
+            ));
+        }
+
+        // Dispatch operators: `instance$method` and `instance[["method"]]` resolve via
+        // the class env. The dispatcher captures `self` so instance methods see it.
+        out.push_str("#' @export\n");
+        out.push_str(&format!(
+            "`$.{type_name}` <- function(self, name) {{\n  func <- {type_name}[[name]]\n  environment(func) <- environment()\n  func\n}}\n\n",
+            type_name = typ.name
+        ));
+        out.push_str("#' @export\n");
+        out.push_str(&format!(
+            "`[[.{type_name}` <- `$.{type_name}`\n\n",
+            type_name = typ.name
+        ));
+    }
+
+    out
+}
+
+/// Generate `NAMESPACE` from the alef IR.
+///
+/// Lists every free function and every class dispatch operator (`$.Type`, `[[.Type`)
+/// emitted by `gen_extendr_wrappers_r`. Without explicit `export()` entries, R loads
+/// the wrapper file but treats the symbols as internal — calling code receives
+/// `could not find function`.
+fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
+    let mut out = String::with_capacity(2 * 1024);
+    out.push_str("# Generated by alef — do not edit.\n\n");
+    out.push_str(&format!("useDynLib({package_name}, .registration = TRUE)\n\n"));
+
+    for func in &api.functions {
+        out.push_str(&format!("export({})\n", func.name));
+    }
+
+    let excluded = collect_excluded_class_types(api);
+    for typ in &api.types {
+        if typ.is_trait || excluded.contains(&typ.name) {
+            continue;
+        }
+        out.push_str(&format!("export({})\n", typ.name));
+        out.push_str(&format!("S3method(\"$\", {})\n", typ.name));
+        out.push_str(&format!("S3method(\"[[\", {})\n", typ.name));
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::ExtendrBackend;
@@ -1186,11 +1454,73 @@ package_name = "testlib"
         let config = make_config();
         let api = make_api_surface();
         let files = backend.generate_public_api(&api, &config).unwrap();
-        assert_eq!(files.len(), 1);
-        let path_str = files[0].path.to_string_lossy();
+        // Expect: <package>.R (useDynLib stub), extendr-wrappers.R, NAMESPACE.
+        let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
         assert!(
-            path_str.ends_with("testlib.R"),
-            "public API file must be {{package_name}}.R"
+            paths.iter().any(|p| p.ends_with("testlib.R")),
+            "public API file must include {{package_name}}.R, got {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("extendr-wrappers.R")),
+            "public API file must include extendr-wrappers.R, got {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("NAMESPACE")),
+            "public API file must include NAMESPACE, got {paths:?}"
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_function_call_binding() {
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = make_api_surface();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        assert!(
+            wrappers.content.contains("process <- function()"),
+            "free function must produce a wrapper: {}",
+            wrappers.content
+        );
+        assert!(
+            wrappers.content.contains(".Call(\"wrap__process\""),
+            "wrapper must invoke the wrap__ symbol: {}",
+            wrappers.content
+        );
+        assert!(
+            wrappers.content.contains("Config <- new.env(parent = emptyenv())"),
+            "non-trait class must be registered as an env: {}",
+            wrappers.content
+        );
+    }
+
+    #[test]
+    fn namespace_exports_functions_and_classes() {
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = make_api_surface();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let namespace = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+            .expect("NAMESPACE must be generated");
+        assert!(
+            namespace.content.contains("export(process)"),
+            "free function must be exported: {}",
+            namespace.content
+        );
+        assert!(
+            namespace.content.contains("export(Config)"),
+            "class env must be exported: {}",
+            namespace.content
+        );
+        assert!(
+            namespace.content.contains("S3method(\"$\", Config)"),
+            "S3 dispatch operator must be registered: {}",
+            namespace.content
         );
     }
 }
