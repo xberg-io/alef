@@ -146,7 +146,57 @@ pub(crate) fn gen_record_type(
                 let doc_summary = escape_javadoc_line(entry.doc.lines().next().unwrap_or("").trim());
                 writeln!(record_block, "    /** {doc_summary} */").ok();
             }
-            writeln!(record_block, "    {}{}", entry.decl, comma).ok();
+            // Check if the field declaration line would exceed 120 chars; if so, split annotations
+            let line_with_indent_and_comma = format!("    {}{}", entry.decl, comma);
+            if line_with_indent_and_comma.len() > 120 {
+                // Try to split: put each annotation on its own line, then the field type and name
+                let mut anno_lines = Vec::new();
+                let mut rest_of_decl = entry.decl.as_str();
+
+                // Extract @-prefixed tokens as separate annotations
+                loop {
+                    let trimmed = rest_of_decl.trim_start();
+                    if trimmed.starts_with('@') {
+                        // Find the end of this annotation (either space or paren)
+                        if let Some(paren_pos) = trimmed.find('(') {
+                            // Annotation with parameters — find matching )
+                            let mut paren_count = 1;
+                            let after_paren = &trimmed[paren_pos + 1..];
+                            let mut end_pos = paren_pos + 1;
+                            for ch in after_paren.chars() {
+                                if ch == '(' {
+                                    paren_count += 1;
+                                } else if ch == ')' {
+                                    paren_count -= 1;
+                                    if paren_count == 0 {
+                                        break;
+                                    }
+                                }
+                                end_pos += 1;
+                            }
+                            let anno = trimmed[..end_pos + 1].trim_end();
+                            anno_lines.push(anno.to_string());
+                            rest_of_decl = &trimmed[end_pos + 1..];
+                        } else {
+                            // Annotation without parameters
+                            let space_pos = trimmed.find(' ').unwrap_or(trimmed.len());
+                            anno_lines.push(trimmed[..space_pos].to_string());
+                            rest_of_decl = &trimmed[space_pos..];
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // Emit annotations on separate lines
+                for anno in anno_lines {
+                    writeln!(record_block, "    {}", anno).ok();
+                }
+                // Emit the type and field name on the final line
+                writeln!(record_block, "    {}{}", rest_of_decl.trim(), comma).ok();
+            } else {
+                writeln!(record_block, "    {}{}", entry.decl, comma).ok();
+            }
         }
         writeln!(record_block, ") {{").ok();
     } else {
