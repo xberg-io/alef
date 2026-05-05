@@ -92,7 +92,7 @@ pub(crate) fn gen_facade_class(
         } else if matches!(func.return_type, TypeRef::Optional(_)) {
             writeln!(
                 body,
-                "        return {}.{}({}).orElseThrow();",
+                "        return {}.{}({}).orElse(null);",
                 raw_class,
                 to_java_name(&func.name),
                 call_args.join(", ")
@@ -182,10 +182,10 @@ pub(crate) fn gen_facade_class(
                 .ok();
             } else if matches!(func.return_type, TypeRef::Optional(_)) {
                 // FFI returns Optional<T>, but facade declares T (unwrapped).
-                // Unwrap the Optional and throw if empty.
+                // Return null when absent rather than throwing.
                 writeln!(
                     body,
-                    "        return {}.{}({}).orElseThrow();",
+                    "        return {}.{}({}).orElse(null);",
                     raw_class,
                     to_java_name(&func.name),
                     full_args.join(", ")

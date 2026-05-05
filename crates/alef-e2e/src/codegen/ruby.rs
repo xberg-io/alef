@@ -128,7 +128,8 @@ impl E2eCodegen for RubyCodegen {
                     return true;
                 }
                 let expects_error = f.assertions.iter().any(|a| a.assertion_type == "error");
-                expects_error || has_usable_assertion(f, &field_resolver_pre, result_is_simple)
+                let has_not_error = f.assertions.iter().any(|a| a.assertion_type == "not_error");
+                expects_error || has_not_error || has_usable_assertion(f, &field_resolver_pre, result_is_simple)
             });
             if !has_any_output {
                 continue;
@@ -378,16 +379,47 @@ fn render_spec_file(
         if fixture.http.is_some() {
             render_http_example(&mut out, fixture);
         } else {
-            // Non-HTTP fixtures (WebSocket, SSE, gRPC, etc.) that have no usable assertions
-            // cannot be tested via Net::HTTP. Emit a pending example instead.
+            // Non-HTTP fixtures that have no usable assertions:
+            // - if they carry a not_error assertion, emit expect { }.not_to raise_error
+            // - otherwise emit a pending skip
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+            let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
             if !expects_error && !has_usable {
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
-                let _ = writeln!(out, "  it '{test_name}: {description}' do");
-                let _ = writeln!(out, "    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'");
-                let _ = writeln!(out, "  end");
+                if has_not_error {
+                    let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
+                    let fixture_call_overrides = fixture_call.overrides.get("ruby");
+                    let fixture_function_name = fixture_call_overrides
+                        .and_then(|o| o.function.as_ref())
+                        .cloned()
+                        .unwrap_or_else(|| fixture_call.function.clone());
+                    let fixture_args = &fixture_call.args;
+                    let fixture_options_type = fixture_call_overrides
+                        .and_then(|o| o.options_type.as_deref())
+                        .or(options_type);
+                    let (setup_lines, args_str) = build_args_and_setup(
+                        &fixture.input,
+                        fixture_args,
+                        &call_receiver,
+                        fixture_options_type,
+                        enum_fields,
+                        result_is_simple,
+                        &fixture.id,
+                    );
+                    let call_expr = format!("{call_receiver}.{fixture_function_name}({args_str})");
+                    let _ = writeln!(out, "  it '{test_name}: {description}' do");
+                    for line in &setup_lines {
+                        let _ = writeln!(out, "    {line}");
+                    }
+                    let _ = writeln!(out, "    expect {{ {call_expr} }}.not_to raise_error");
+                    let _ = writeln!(out, "  end");
+                } else {
+                    let _ = writeln!(out, "  it '{test_name}: {description}' do");
+                    let _ = writeln!(out, "    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'");
+                    let _ = writeln!(out, "  end");
+                }
             } else {
                 // Resolve per-fixture call config (supports named calls via fixture.call field).
                 let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());

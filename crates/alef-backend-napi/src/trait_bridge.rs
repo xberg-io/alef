@@ -598,11 +598,12 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct: store Object<'static> to avoid Object<'env> lifetime constraints.
+    // Bridge struct: store Object<'static> and Env to avoid Object<'env> lifetime constraints.
     // SAFETY invariant: the Object is kept alive by the JS caller for the duration of the
     // #[napi] function that created the bridge, and by extension for all visitor callbacks.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
     writeln!(out, "    obj: napi::bindgen_prelude::Object<'static>,").unwrap();
+    writeln!(out, "    env: napi::Env,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
@@ -619,12 +620,44 @@ fn gen_visitor_bridge(
     writeln!(out).unwrap();
 
     // Constructor: transmute Object<'_> to Object<'static> to bypass the lifetime.
+    // Extract env before transmuting so we can store it and avoid relying on unsafe memory layout assumptions.
     writeln!(out, "impl {struct_name} {{").unwrap();
     writeln!(
         out,
         "    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> Self {{"
     )
     .unwrap();
+    writeln!(
+        out,
+        "        // Extract the napi_env before transmuting the Object to 'static."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        // This avoids repeatedly relying on unsafe memory layout assumptions."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        // SAFETY: Object<'_> is 3 pointer-sized words; first word is napi_env."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let env = unsafe {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            napi::Env::from_raw(raw[0] as napi::sys::napi_env)"
+    )
+    .unwrap();
+    writeln!(out, "        }};").unwrap();
     writeln!(
         out,
         "        // SAFETY: The JS object is owned by the Node.js runtime and lives for"
@@ -645,24 +678,13 @@ fn gen_visitor_bridge(
         "        let obj: napi::bindgen_prelude::Object<'static> = unsafe {{ std::mem::transmute(js_obj) }};"
     )
     .unwrap();
-    writeln!(out, "        Self {{ obj }}").unwrap();
+    writeln!(out, "        Self {{ obj, env }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
 
-    // Helper: extract napi_env from the Object. Object<'static> stores napi_env as its
-    // first pointer-sized field. This is an internal layout assumption for napi-rs v3.
+    // Helper: return the stored napi_env.
     writeln!(out, "    fn env(&self) -> napi::Env {{").unwrap();
-    writeln!(
-        out,
-        "        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env."
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "        let raw: [*mut std::ffi::c_void; 3] = unsafe {{ std::mem::transmute_copy(&self.obj) }};"
-    )
-    .unwrap();
-    writeln!(out, "        napi::Env::from_raw(raw[0] as napi::sys::napi_env)").unwrap();
+    writeln!(out, "        self.env").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();

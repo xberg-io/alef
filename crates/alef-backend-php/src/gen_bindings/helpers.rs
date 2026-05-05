@@ -36,10 +36,12 @@ pub(crate) fn has_enum_named_field(typ: &alef_core::ir::TypeDef, enum_names: &AH
 /// Non-opaque Named types use `&T` (ext-php-rs only provides `FromZvalMut` for `&mut T`/`&T`,
 /// not owned `T`, when `T` is a `#[php_class]`).
 /// Vec<NonOpaqueCustomType> also needs &Vec<T> since the elements are php_class types.
+/// Bridge type aliases (like VisitorHandle) are mapped to raw PHP object types `&mut ZendObject`.
 pub(crate) fn gen_php_function_params(
     params: &[alef_core::ir::ParamDef],
     mapper: &PhpMapper,
     _opaque_types: &AHashSet<String>,
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     params
         .iter()
@@ -47,10 +49,17 @@ pub(crate) fn gen_php_function_params(
             let base_ty = mapper.map_type(&p.ty);
             let ty = match &p.ty {
                 TypeRef::Named(name) => {
-                    // Enum types are mapped to String in PHP — use owned String, not &String.
-                    // Only php_class struct types need &T (ext-php-rs only provides
-                    // FromZvalMut for &T/&mut T, not owned T, for php_class types).
-                    if mapper.enum_names.contains(name.as_str()) {
+                    // Bridge type aliases: map to &mut ZendObject for direct PHP object access
+                    if bridge_type_aliases.contains(name.as_str()) {
+                        if p.optional {
+                            "Option<&mut ext_php_rs::types::ZendObject>".to_string()
+                        } else {
+                            "&mut ext_php_rs::types::ZendObject".to_string()
+                        }
+                    } else if mapper.enum_names.contains(name.as_str()) {
+                        // Enum types are mapped to String in PHP — use owned String, not &String.
+                        // Only php_class struct types need &T (ext-php-rs only provides
+                        // FromZvalMut for &T/&mut T, not owned T, for php_class types).
                         if p.optional {
                             format!("Option<{base_ty}>")
                         } else {

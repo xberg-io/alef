@@ -772,20 +772,6 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Emit a compilable stub for non-HTTP fixtures that have no call override.
-    if call_overrides.is_none() {
-        let _ = writeln!(out, "    @Test");
-        let _ = writeln!(out, "    void test{method_name}() {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(
-            out,
-            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e test for fixture '{}'\");",
-            fixture.id
-        );
-        let _ = writeln!(out, "    }}");
-        return;
-    }
-
     // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
@@ -793,7 +779,8 @@ fn render_test_method(
     let effective_options_type = effective_options_type.as_deref();
 
     // Resolve per-fixture result_is_simple and result_is_bytes from the call override.
-    let effective_result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
+    let effective_result_is_simple =
+        call_overrides.is_some_and(|o| o.result_is_simple) || call_config.result_is_simple || result_is_simple;
     let effective_result_is_bytes = call_overrides.is_some_and(|o| o.result_is_bytes);
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
@@ -890,6 +877,12 @@ fn render_test_method(
             out,
             "        assertThrows(Exception.class, () -> {class_name}.{function_name}({final_args}));"
         );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    if call_config.returns_void {
+        let _ = writeln!(out, "        {class_name}.{function_name}({final_args});");
         let _ = writeln!(out, "    }}");
         return;
     }
@@ -1412,13 +1405,13 @@ fn render_assertion(
         "not_empty" => {
             let _ = writeln!(
                 out,
-                "        assertFalse({field_expr}.isEmpty(), \"expected non-empty value\");"
+                "        assertFalse({field_expr} == null || {field_expr}.isEmpty(), \"expected non-empty value\");"
             );
         }
         "is_empty" => {
             let _ = writeln!(
                 out,
-                "        assertTrue({field_expr}.isEmpty(), \"expected empty value\");"
+                "        assertTrue({field_expr} == null || {field_expr}.isEmpty(), \"expected empty value\");"
             );
         }
         "contains_any" => {

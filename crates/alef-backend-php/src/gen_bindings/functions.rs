@@ -211,7 +211,8 @@ pub(crate) fn gen_instance_method(
     core_import: &str,
     adapter_bodies: &AdapterBodies,
 ) -> String {
-    let params = gen_php_function_params(&method.params, mapper, opaque_types);
+    let empty_bridges = AHashSet::new();
+    let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -349,8 +350,9 @@ pub(crate) fn gen_instance_method_non_opaque(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     enums: &[EnumDef],
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
-    let params = gen_php_function_params(&method.params, mapper, opaque_types);
+    let params = gen_php_function_params(&method.params, mapper, opaque_types, bridge_type_aliases);
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -445,7 +447,8 @@ pub(crate) fn gen_static_method(
     typ: &TypeDef,
     _core_import: &str,
 ) -> String {
-    let params = gen_php_function_params(&method.params, mapper, opaque_types);
+    let empty_bridges = AHashSet::new();
+    let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -559,7 +562,7 @@ pub(crate) fn gen_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
-    let params = gen_php_function_params(&visible_params, mapper, opaque_types);
+    let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
@@ -720,7 +723,7 @@ pub(crate) fn gen_async_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
-    let params = gen_php_function_params(&visible_params, mapper, opaque_types);
+    let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
@@ -814,7 +817,8 @@ pub(crate) fn gen_async_instance_method(
     opaque_types: &AHashSet<String>,
     adapter_bodies: &AdapterBodies,
 ) -> String {
-    let params = gen_php_function_params(&method.params, mapper, opaque_types);
+    let empty_bridges = AHashSet::new();
+    let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 

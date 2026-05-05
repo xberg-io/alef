@@ -154,7 +154,7 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        serde_struct_attrs.push("serde(default)");
+        serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,
@@ -209,6 +209,7 @@ pub(crate) fn gen_struct_methods(
         enum_names,
         enums,
         &[], // exclude_functions: empty by default
+        &AHashSet::new(), // bridge_type_aliases: empty by default
     )
 }
 
@@ -222,6 +223,7 @@ pub fn gen_struct_methods_with_exclude(
     enum_names: &AHashSet<String>,
     enums: &[EnumDef],
     exclude_functions: &[String],
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     gen_struct_methods_impl(
         typ,
@@ -232,6 +234,7 @@ pub fn gen_struct_methods_with_exclude(
         enum_names,
         enums,
         exclude_functions,
+        bridge_type_aliases,
     )
 }
 
@@ -245,6 +248,7 @@ fn gen_struct_methods_impl(
     enum_names: &AHashSet<String>,
     enums: &[EnumDef],
     exclude_functions: &[String],
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -343,6 +347,7 @@ fn gen_struct_methods_impl(
                 core_import,
                 opaque_types,
                 enums,
+                bridge_type_aliases,
             ));
         }
     }
