@@ -59,15 +59,38 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         writeln!(out, "    #[new]").ok();
         writeln!(
             out,
-            "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
+            "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Self> {{"
         )
         .ok();
-        writeln!(out, "        let json_mod = py.import(\"json\")?;").ok();
         writeln!(
             out,
-            "        let json_str: String = json_mod.call_method1(\"dumps\", (value,))?.extract()?;"
+            "        // Accept either a Python dict (full tagged-union shape) or a string"
         )
         .ok();
+        writeln!(
+            out,
+            "        // (the unit variant name). Strings are wrapped in `\"...\"` so serde_json"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        // can deserialize into a unit-variant of the tagged enum."
+        )
+        .ok();
+        writeln!(out, "        let json_str: String = if let Ok(s) = value.extract::<String>() {{").ok();
+        writeln!(
+            out,
+            "            serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?"
+        )
+        .ok();
+        writeln!(out, "        }} else {{").ok();
+        writeln!(out, "            let json_mod = py.import(\"json\")?;").ok();
+        writeln!(
+            out,
+            "            json_mod.call_method1(\"dumps\", (value,))?.extract()?"
+        )
+        .ok();
+        writeln!(out, "        }};").ok();
         writeln!(out, "        let inner: {core_path} = serde_json::from_str(&json_str)").ok();
         writeln!(
             out,
