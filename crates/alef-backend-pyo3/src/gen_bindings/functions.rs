@@ -401,6 +401,48 @@ pub(super) fn gen_api_py(
                 }
             }
         }
+        // Coerce data-enum fields: when a field's type is a data enum (e.g. `OutputFormat`)
+        // the PyO3 #[pyclass] reconstruction at `{type_name}(**value)` requires the field
+        // value to be an instance of that class, not a raw string/dict. Wrap any non-None,
+        // non-instance value in a constructor call so `output_format="markdown"` becomes
+        // `_rust.OutputFormat("markdown")`.
+        let has_data_enum_field = typ.fields.iter().any(|f| {
+            let inner_name = match &f.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            inner_name.is_some_and(|n| data_enum_names.contains(n))
+        });
+        if has_data_enum_field {
+            for field in &typ.fields {
+                let inner_name = match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(enum_name) = inner_name {
+                    if data_enum_names.contains(enum_name) {
+                        out.push_str(&format!(
+                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None and not isinstance(value[\"{field_name}\"], _rust.{enum_name}):\n            value[\"{field_name}\"] = _rust.{enum_name}(value[\"{field_name}\"])\n",
+                            field_name = field.name,
+                        ));
+                    }
+                }
+            }
+        }
         out.push_str(&format!("        value = {type_name}(**value)\n"));
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
