@@ -129,6 +129,8 @@ impl Backend for PhpBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(unsafe_code)");
+        // PHP parameter names are lowerCamelCase; Rust complains about non-snake_case variables.
+        builder.add_inner_attribute("allow(non_snake_case)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
         builder.add_import("ext_php_rs::prelude::*");
 
