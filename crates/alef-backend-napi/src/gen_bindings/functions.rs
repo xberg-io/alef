@@ -448,13 +448,15 @@ pub(super) fn napi_wrap_return_fn(
                 format!("{expr}.into()")
             }
         }
-        TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
+        TypeRef::String | TypeRef::Char => {
             if returns_ref {
                 format!("{expr}.into()")
             } else {
                 expr.to_string()
             }
         }
+        // Bytes always converts: core returns Vec<u8>/Bytes, binding expects napi Buffer.
+        TypeRef::Bytes => format!("{expr}.into()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
@@ -485,13 +487,14 @@ pub(super) fn napi_wrap_return_fn(
             TypeRef::Path => {
                 format!("{expr}.map(Into::into)")
             }
-            TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
+            TypeRef::String | TypeRef::Char => {
                 if returns_ref {
                     format!("{expr}.map(Into::into)")
                 } else {
                     expr.to_string()
                 }
             }
+            TypeRef::Bytes => format!("{expr}.map(Into::into)"),
             _ => expr.to_string(),
         },
         TypeRef::Vec(inner) => match inner.as_ref() {

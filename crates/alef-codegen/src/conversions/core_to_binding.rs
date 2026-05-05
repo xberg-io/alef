@@ -949,8 +949,16 @@ fn apply_core_wrapper_from_core(
         }
         CoreWrapper::Bytes => {
             // Bytes → Vec<u8> (or napi Buffer via From<Vec<u8>>): .to_vec().into()
+            // The TypeRef::Bytes field_conversion already emits the correct expression
+            // (`.to_vec().into()` non-optional, `.map(|v| v.to_vec().into())` optional).
+            // Detect those forms and pass through unchanged to avoid double conversion.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                if optional {
+                let already_converted_non_opt = expr == format!("val.{name}.to_vec().into()");
+                let already_converted_opt = expr
+                    == format!("val.{name}.map(|v| v.to_vec().into())");
+                if already_converted_non_opt || already_converted_opt {
+                    conversion.to_string()
+                } else if optional {
                     format!("{name}: {expr}.map(|v| v.to_vec().into())")
                 } else if expr == format!("val.{name}") {
                     format!("{name}: val.{name}.to_vec().into()")

@@ -96,6 +96,11 @@ impl E2eCodegen for JavaCodegen {
             effective_nested_types.extend(overrides_map.clone());
         }
 
+        // Resolve nested_types_optional from override (defaults to true for backward compatibility).
+        let nested_types_optional = overrides
+            .map(|o| o.nested_types_optional)
+            .unwrap_or(true);
+
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,
@@ -129,6 +134,7 @@ impl E2eCodegen for JavaCodegen {
                 java_enum_fields,
                 e2e_config,
                 &effective_nested_types,
+                nested_types_optional,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -283,6 +289,7 @@ fn render_test_file(
     enum_fields: &std::collections::HashMap<String, String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
+    nested_types_optional: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -452,6 +459,7 @@ fn render_test_file(
             enum_fields,
             e2e_config,
             nested_types,
+            nested_types_optional,
         );
         let _ = writeln!(out);
     }
@@ -743,6 +751,7 @@ fn render_test_method(
     enum_fields: &std::collections::HashMap<String, String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
+    nested_types_optional: bool,
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -819,7 +828,7 @@ fn render_test_method(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
-                            let builder_expr = java_builder_expression(obj, opts_type, enum_fields, nested_types);
+                            let builder_expr = java_builder_expression(obj, opts_type, enum_fields, nested_types, nested_types_optional);
                             let var_name = &arg.name;
                             let _ = writeln!(out, "        var {var_name} = {builder_expr};");
                         }
@@ -1753,11 +1762,14 @@ fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> 
 /// For strings and bools: use the value directly
 /// For plain numbers: emit the literal with type suffix (long uses L, double uses d)
 /// For nested objects: recurse with Options suffix
+/// When `nested_types_optional` is false, nested builders are passed directly without
+/// Optional.of() wrapping, allowing non-optional nested config types.
 fn java_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
     enum_fields: &std::collections::HashMap<String, String>,
     nested_types: &std::collections::HashMap<String, String>,
+    nested_types_optional: bool,
 ) -> String {
     let mut expr = format!("{}.builder()", type_name);
     for (key, val) in obj {
@@ -1773,7 +1785,7 @@ fn java_builder_expression(
                     // Enum field: use the mapped enum type name from the config
                     let variant_name = s.to_upper_camel_case();
                     format!("{}.{}", enum_type_name, variant_name)
-                } else if camel_key == "preset" && type_name == "PreprocessingOptionsBuilder" {
+                } else if camel_key == "preset" && type_name == "PreprocessingOptions" {
                     // Special case: preset field in PreprocessingOptions maps to PreprocessingPreset
                     let variant_name = s.to_upper_camel_case();
                     format!("PreprocessingPreset.{}", variant_name)
@@ -1827,7 +1839,7 @@ fn java_builder_expression(
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{}Options", key.to_upper_camel_case()));
-                let inner = java_builder_expression(nested, &nested_type, enum_fields, nested_types);
+                let inner = java_builder_expression(nested, &nested_type, enum_fields, nested_types, nested_types_optional);
                 // Top-level config builders (e.g. ExtractionConfigBuilder) declare nested
                 // record fields as `Optional<T>` (since they are nullable). Primitive-fields
                 // builders (SecurityLimitsBuilder etc.) take the bare type directly.
@@ -1835,7 +1847,7 @@ fn java_builder_expression(
                     type_name,
                     "SecurityLimits" | "SecurityLimitsBuilder"
                 );
-                if is_primitive_builder {
+                if is_primitive_builder || !nested_types_optional {
                     inner
                 } else {
                     format!("Optional.of({inner})")

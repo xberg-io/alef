@@ -39,13 +39,6 @@ repos:
       - id: cargo-sort
         args: [-w]
 
-  - repo: https://github.com/ComPWA/taplo-pre-commit
-    rev: v0.9.3
-    hooks:
-      - id: taplo-format
-        exclude: "Cargo.toml"
-
-  # Rust: formatting, linting, unused deps, license/advisory
   - repo: https://github.com/AndrejOrsula/pre-commit-cargo
     rev: 0.5.0
     hooks:
@@ -76,19 +69,15 @@ repos:
         args: ["check"]
 
   # Markdown linting
-  - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.88"
-    hooks:
-      - id: rumdl-fmt
-
-  # Shell scripts (shared kreuzberg-dev hooks)
   - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: v0.1.0
+    rev: v1.0.0
     hooks:
       - id: shfmt
         args: ["-w", "-i", "2"]
       - id: shellcheck
 
+      - id: oxfmt
+      - id: rumdl-fmt
   # Spelling
   - repo: https://github.com/crate-ci/typos
     rev: v1.46.0
