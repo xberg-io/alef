@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/rust): `not_error` assertions on `Result`-returning calls now emit `.expect("should succeed")` so the test actually panics on errors; previously the result was bound to `_` and silently discarded, making the assertion a no-op.
+- fix(php-backend): PHP method names now mirror the Rust source name verbatim (camelCased) without an extra `Async` suffix; the suffix was breaking parity with `alef.toml` call overrides.
+- fix(e2e/go): byte-array JSON arguments are now base64-encoded for Go `json.Unmarshal` compatibility; previously the raw `[0, 1, 2, …]` integer array failed to unmarshal into `[]byte`.
+- fix(e2e/r): `run_tests.R` now resolves script and test directories relative to its own path before changing the working directory to `test_documents/`; also sets `testthat::set_max_fails(Inf)` to surface all failures during triage.
+- fix(scaffold/r): R scaffold `Makevars` files now use the Rust crate name (`{core}_r`) for the static library path rather than the R package name; the two differ when the R package uses a custom user-facing name.
+
 ## [0.14.22] - 2026-05-04
 
 ### Fixed

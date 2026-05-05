@@ -1637,7 +1637,9 @@ fn build_args_and_setup(
                             } else {
                                 element_type_to_go_slice(arg.element_type.as_deref(), import_alias)
                             };
-                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            // Convert JSON for Go compatibility (e.g., byte arrays → base64 strings)
+                            let converted_v = convert_json_for_go(v.clone());
+                            let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
                             let go_literal = go_string_literal(&json_str);
                             let var_name = &arg.name;
                             setup_lines.push(format!(
@@ -2671,7 +2673,21 @@ fn convert_json_for_go(value: serde_json::Value) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(new_map)
         }
-        serde_json::Value::Array(arr) => serde_json::Value::Array(arr.into_iter().map(convert_json_for_go).collect()),
+        serde_json::Value::Array(arr) => {
+            // Check if this is a byte array (array of integers 0-255).
+            // If so, encode as base64 string for Go json.Unmarshal compatibility.
+            if is_byte_array(&arr) {
+                let bytes: Vec<u8> = arr
+                    .iter()
+                    .filter_map(|v| v.as_u64().and_then(|n| if n <= 255 { Some(n as u8) } else { None }))
+                    .collect();
+                // Encode bytes as base64 for Go json.Unmarshal (Go expects []byte as base64 strings)
+                let encoded = base64_encode(&bytes);
+                serde_json::Value::String(encoded)
+            } else {
+                serde_json::Value::Array(arr.into_iter().map(convert_json_for_go).collect())
+            }
+        }
         serde_json::Value::String(s) => {
             // Convert PascalCase enum values to snake_case.
             // Only convert values that look like PascalCase (start with uppercase, no spaces).
@@ -2679,6 +2695,59 @@ fn convert_json_for_go(value: serde_json::Value) -> serde_json::Value {
         }
         other => other,
     }
+}
+
+/// Check if an array looks like a byte array (all elements are integers 0-255).
+fn is_byte_array(arr: &[serde_json::Value]) -> bool {
+    if arr.is_empty() {
+        return false;
+    }
+    arr.iter().all(|v| {
+        if let serde_json::Value::Number(n) = v {
+            n.is_u64() && n.as_u64().is_some_and(|u| u <= 255)
+        } else {
+            false
+        }
+    })
+}
+
+/// Encode bytes as base64 string (standard alphabet without padding in this output,
+/// though Go's json.Unmarshal handles both).
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i + 2 < bytes.len() {
+        let b1 = bytes[i];
+        let b2 = bytes[i + 1];
+        let b3 = bytes[i + 2];
+
+        result.push(TABLE[(b1 >> 2) as usize] as char);
+        result.push(TABLE[(((b1 & 0x03) << 4) | (b2 >> 4)) as usize] as char);
+        result.push(TABLE[(((b2 & 0x0f) << 2) | (b3 >> 6)) as usize] as char);
+        result.push(TABLE[(b3 & 0x3f) as usize] as char);
+
+        i += 3;
+    }
+
+    // Handle remaining bytes
+    if i < bytes.len() {
+        let b1 = bytes[i];
+        result.push(TABLE[(b1 >> 2) as usize] as char);
+
+        if i + 1 < bytes.len() {
+            let b2 = bytes[i + 1];
+            result.push(TABLE[(((b1 & 0x03) << 4) | (b2 >> 4)) as usize] as char);
+            result.push(TABLE[((b2 & 0x0f) << 2) as usize] as char);
+            result.push('=');
+        } else {
+            result.push(TABLE[((b1 & 0x03) << 4) as usize] as char);
+            result.push_str("==");
+        }
+    }
+
+    result
 }
 
 /// Convert a camelCase or PascalCase string to snake_case.

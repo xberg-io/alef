@@ -536,8 +536,9 @@ pub fn render_test_function(
     } else {
         ""
     };
-    if only_emptiness_checks || !returns_result {
-        // Option-returning or non-Result-returning: bind raw value, no unwrap.
+    if !returns_result || (only_emptiness_checks && !has_not_error) {
+        // Option-returning or non-Result-returning (and not a not_error check): bind raw value, no unwrap.
+        // When returns_result=true and has_not_error, fall through to emit .expect() so errors panic.
         let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
     } else if has_not_error || !fixture.assertions.is_empty() {
         let _ = writeln!(

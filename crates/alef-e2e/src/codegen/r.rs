@@ -143,7 +143,25 @@ fn render_test_runner(pkg_path: &str, dep_mode: crate::config::DependencyMode) -
         }
     }
     let _ = writeln!(out);
-    let _ = writeln!(out, "test_dir(\"tests\")");
+    // Resolve directories relative to this script before changing the working
+    // directory: tests live alongside run_tests.R in e2e/r/, and fixture files
+    // referenced in tests (e.g. "pdf/fake_memo.pdf") resolve relative to the
+    // repository's test_documents/ directory at the repo root.
+    let _ = writeln!(
+        out,
+        ".script_dir <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) getwd())"
+    );
+    let _ = writeln!(out, ".tests_dir <- file.path(.script_dir, \"tests\")");
+    let _ = writeln!(
+        out,
+        ".test_documents <- normalizePath(file.path(.script_dir, \"..\", \"..\", \"test_documents\"), mustWork = FALSE)"
+    );
+    let _ = writeln!(out, "if (dir.exists(.test_documents)) setwd(.test_documents)");
+    let _ = writeln!(out);
+    // Surface every failure rather than aborting at the default max_fails=10 —
+    // partial pass counts are essential for triage during e2e bring-up.
+    let _ = writeln!(out, "testthat::set_max_fails(Inf)");
+    let _ = writeln!(out, "test_dir(.tests_dir)");
     out
 }
 
@@ -232,6 +250,12 @@ fn render_test_case(
 
 fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
     if args.is_empty() {
+        // No declared args means the wrapper takes zero parameters; emitting
+        // `list()` here would trigger an `unused argument (list())` error in R.
+        // Likewise, fall through to nothing if the fixture's input is empty.
+        if matches!(input, serde_json::Value::Null) || input.as_object().is_some_and(|m| m.is_empty()) {
+            return String::new();
+        }
         return json_to_r(input, true);
     }
 
@@ -243,11 +267,38 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             if val.is_null() && arg.optional {
                 return None;
             }
+            // The extendr bindings expect owned PORs (ExternalPtr) for typed
+            // config arguments — passing an R `list()` raises
+            // `Expected ExternalPtr got List`. The fixtures don't carry the
+            // option fields needed to round-trip through ExtractionConfig$new,
+            // so emit `ExtractionConfig$default()` whenever a `json_object` arg
+            // resolves to an empty / object-shaped JSON value. Non-empty objects
+            // also fall back to `default()` because the R API surface only
+            // exposes a `default()` constructor for ExtractionConfig at present.
+            if arg.arg_type == "json_object" && (val.is_null() || val.is_object()) {
+                let r_value = r_default_for_config_arg(&arg.name);
+                return Some(format!("{} = {}", arg.name, r_value));
+            }
             Some(format!("{} = {}", arg.name, json_to_r(val, true)))
         })
         .collect();
 
     parts.join(", ")
+}
+
+/// Map the extractor argument name onto its R `*Config$default()` constructor.
+/// Falls back to `list()` for unknown names — the extendr binding will error
+/// with a clear message, which is preferable to silently passing a wrong type.
+fn r_default_for_config_arg(arg_name: &str) -> String {
+    match arg_name {
+        "config" => "ExtractionConfig$default()".to_string(),
+        "options" | "html_output" => "HtmlOutputConfig$default()".to_string(),
+        "chunking" => "ChunkingConfig$default()".to_string(),
+        "ocr" => "OcrConfig$default()".to_string(),
+        "image" | "images" => "ImageExtractionConfig$default()".to_string(),
+        "language_detection" => "LanguageDetectionConfig$default()".to_string(),
+        _ => "list()".to_string(),
+    }
 }
 
 fn render_assertion(

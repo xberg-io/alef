@@ -128,11 +128,15 @@ serde_json = "1"{tokio_dep}
 
     let r_package_name = config.r_package_name();
     let lib_name = r_package_name.replace('-', "_");
+    // The Rust crate emits its staticlib as `lib{crate_name}.a`, where crate_name
+    // is `{core_crate_dir}-r` (with hyphens replaced by underscores by cargo).
+    // This is independent of the R package's user-facing name.
+    let rust_lib_name = format!("{}_r", core_crate_dir).replace('-', "_");
 
     // Makevars — tells R CMD INSTALL how to build the staticlib and link it.
     let makevars_content = format!(
-        "CARGO_BUILD_ARGS = --release\nSTATLIB = ./rust/target/release/lib{lib_name}.a\nPKG_LIBS = -L./rust/target/release -l{lib_name} $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
-        lib_name = lib_name,
+        "CARGO_BUILD_ARGS = --release\nSTATLIB = ./rust/target/release/lib{rust_lib_name}.a\nPKG_LIBS = -L./rust/target/release -l{rust_lib_name} $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
+        rust_lib_name = rust_lib_name,
     );
 
     // Makevars.in — autoconf variant; same content.
@@ -140,13 +144,16 @@ serde_json = "1"{tokio_dep}
 
     // Makevars.win.in — Windows variant; cargo produces a .lib, not .a.
     let makevars_win_content = format!(
-        "CARGO_BUILD_ARGS = --release --target x86_64-pc-windows-gnu\nSTATLIB = ./rust/target/x86_64-pc-windows-gnu/release/{lib_name}.lib\nPKG_LIBS = -L./rust/target/x86_64-pc-windows-gnu/release -l{lib_name} -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
-        lib_name = lib_name,
+        "CARGO_BUILD_ARGS = --release --target x86_64-pc-windows-gnu\nSTATLIB = ./rust/target/x86_64-pc-windows-gnu/release/{rust_lib_name}.lib\nPKG_LIBS = -L./rust/target/x86_64-pc-windows-gnu/release -l{rust_lib_name} -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
+        rust_lib_name = rust_lib_name,
     );
 
-    // entrypoint.c — C shim required by extendr.
+    // entrypoint.c — C shim required by extendr. R looks up `R_init_{pkg}` on
+    // package load. The extendr macro emits `R_init_{pkg}_extendr` (the trailing
+    // `_extendr` is hardcoded by the extendr-macros crate), so this shim
+    // forwards the call.
     let entrypoint_c_content = format!(
-        "// Generated entrypoint: calls the extendr-generated R_init function.\n// Do not edit — regenerate with `alef generate`.\n#include <R_ext/Visibility.h>\n\nvoid R_init_{lib_name}(void *dll);\n\nvoid attribute_visible R_init_{lib_name}_impl(void *dll) {{{{\n    R_init_{lib_name}(dll);\n}}}}\n",
+        "// Generated entrypoint: forwards to the extendr-generated init function.\n// Do not edit — regenerate with `alef generate`.\n#include <R_ext/Visibility.h>\n\nvoid R_init_{lib_name}_extendr(void *dll);\n\nvoid attribute_visible R_init_{lib_name}(void *dll) {{\n    R_init_{lib_name}_extendr(dll);\n}}\n",
         lib_name = lib_name,
     );
 
