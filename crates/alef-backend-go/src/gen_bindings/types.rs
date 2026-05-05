@@ -627,10 +627,27 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             }
             let go_field = to_go_name(&field.name);
             if matches!(&field.ty, TypeRef::Bytes) {
-                writeln!(out, "\taux.{} = make([]int, len(v.{}))", go_field, go_field).ok();
-                writeln!(out, "\tfor i, b := range v.{} {{", go_field).ok();
-                writeln!(out, "\t\taux.{}[i] = int(b)", go_field).ok();
-                writeln!(out, "\t}}").ok();
+                let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
+                let is_pointer = field.optional || use_default_pointer;
+                if is_pointer {
+                    // Optional `*[]byte` field: only encode when non-nil.
+                    writeln!(out, "\tif v.{} != nil {{", go_field).ok();
+                    writeln!(
+                        out,
+                        "\t\taux.{} = make([]int, len(*v.{}))",
+                        go_field, go_field
+                    )
+                    .ok();
+                    writeln!(out, "\t\tfor i, b := range *v.{} {{", go_field).ok();
+                    writeln!(out, "\t\t\taux.{}[i] = int(b)", go_field).ok();
+                    writeln!(out, "\t\t}}").ok();
+                    writeln!(out, "\t}}").ok();
+                } else {
+                    writeln!(out, "\taux.{} = make([]int, len(v.{}))", go_field, go_field).ok();
+                    writeln!(out, "\tfor i, b := range v.{} {{", go_field).ok();
+                    writeln!(out, "\t\taux.{}[i] = int(b)", go_field).ok();
+                    writeln!(out, "\t}}").ok();
+                }
             } else {
                 writeln!(out, "\taux.{} = v.{}", go_field, go_field).ok();
             }

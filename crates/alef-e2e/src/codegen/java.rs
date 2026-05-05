@@ -1827,7 +1827,19 @@ fn java_builder_expression(
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{}Options", key.to_upper_camel_case()));
-                java_builder_expression(nested, &nested_type, enum_fields, nested_types)
+                let inner = java_builder_expression(nested, &nested_type, enum_fields, nested_types);
+                // Top-level config builders (e.g. ExtractionConfigBuilder) declare nested
+                // record fields as `Optional<T>` (since they are nullable). Primitive-fields
+                // builders (SecurityLimitsBuilder etc.) take the bare type directly.
+                let is_primitive_builder = matches!(
+                    type_name,
+                    "SecurityLimits" | "SecurityLimitsBuilder"
+                );
+                if is_primitive_builder {
+                    inner
+                } else {
+                    format!("Optional.of({inner})")
+                }
             }
         };
         expr.push_str(&format!(".{}({})", method_name, java_val));
