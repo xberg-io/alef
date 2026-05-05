@@ -771,10 +771,11 @@ fn gen_visitor_method_async(
     writeln!(out, "        let mut args_map = serde_json::Map::new();").unwrap();
     for p in &method.params {
         let json_expr = build_json_arg(p);
+        // Strip leading `_` from the key so callers see "text" not "_text".
+        let key = p.name.strip_prefix('_').unwrap_or(&p.name);
         writeln!(
             out,
-            "        args_map.insert(\"{0}\".to_string(), {1});",
-            p.name, json_expr
+            "        args_map.insert(\"{key}\".to_string(), {json_expr});"
         )
         .unwrap();
     }
@@ -800,18 +801,23 @@ fn gen_visitor_method_async(
     .unwrap();
 
     // Parse the string reply into a VisitResult.
+    // Match on a lowercase copy for the keyword variants, but use the original
+    // string for Custom so that case is preserved in the output.
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            None => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Some(s) => match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                \"skip\" => {ret_ty}::Skip,").unwrap();
+    writeln!(out, "            Some(s) => {{").unwrap();
+    writeln!(out, "                let lower = s.to_lowercase();").unwrap();
+    writeln!(out, "                match lower.as_str() {{").unwrap();
+    writeln!(out, "                    \"continue\" => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "                    \"skip\" => {ret_ty}::Skip,").unwrap();
     writeln!(
         out,
-        "                \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
+        "                    \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
     )
     .unwrap();
-    writeln!(out, "                other => {ret_ty}::Custom(other.to_string()),").unwrap();
-    writeln!(out, "            }},").unwrap();
+    writeln!(out, "                    _ => {ret_ty}::Custom(s),").unwrap();
+    writeln!(out, "                }}").unwrap();
+    writeln!(out, "            }}").unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();

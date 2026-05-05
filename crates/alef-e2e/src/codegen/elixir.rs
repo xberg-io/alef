@@ -1636,7 +1636,12 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
     // ("arity 2 called with 1 argument") at runtime. Generate arity-1 functions that
     // accept the args map (and ignore it) to match the bridge's calling convention.
 
-    let _ = writeln!(out, "      :{handle_method} => fn(_args) ->");
+    // CustomTemplate needs to read from args; other actions can ignore it.
+    let arg_binding = match action {
+        CallbackAction::CustomTemplate { .. } => "args",
+        _ => "_args",
+    };
+    let _ = writeln!(out, "      :{handle_method} => fn({arg_binding}) ->");
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "        :skip");
@@ -1652,12 +1657,65 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
             let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
         }
         CallbackAction::CustomTemplate { template } => {
-            // For template, use string interpolation in Elixir (but simplified without arg binding)
-            let escaped = escape_elixir(template);
-            let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
+            // Build a <> concatenation expression so {key} placeholders are substituted
+            // from the args map at runtime without embedding double-quoted strings inside
+            // a double-quoted string literal.
+            let expr = template_to_elixir_concat(template);
+            let _ = writeln!(out, "        {{:custom, {expr}}}");
         }
     }
     let _ = writeln!(out, "      end,");
+}
+
+/// Convert a template like `"_{text}_"` into an Elixir `<>` concat expression:
+/// `"_" <> Map.get(args, "text", "") <> "_"`.
+/// Static parts are escaped via `escape_elixir`; `{key}` placeholders become
+/// `Map.get(args, "key", "")` lookups into the JSON-decoded args map.
+fn template_to_elixir_concat(template: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut static_buf = String::new();
+    let mut chars = template.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let mut key = String::new();
+            let mut closed = false;
+            for kc in chars.by_ref() {
+                if kc == '}' {
+                    closed = true;
+                    break;
+                }
+                key.push(kc);
+            }
+            if closed && !key.is_empty() {
+                if !static_buf.is_empty() {
+                    let escaped = escape_elixir(&static_buf);
+                    parts.push(format!("\"{escaped}\""));
+                    static_buf.clear();
+                }
+                let escaped_key = escape_elixir(&key);
+                parts.push(format!("Map.get(args, \"{escaped_key}\", \"\")"));
+            } else {
+                static_buf.push('{');
+                static_buf.push_str(&key);
+                if !closed {
+                    // unclosed brace — treat remaining as literal
+                }
+            }
+        } else {
+            static_buf.push(ch);
+        }
+    }
+
+    if !static_buf.is_empty() {
+        let escaped = escape_elixir(&static_buf);
+        parts.push(format!("\"{escaped}\""));
+    }
+
+    if parts.is_empty() {
+        return "\"\"".to_string();
+    }
+    parts.join(" <> ")
 }
 
 fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> bool {

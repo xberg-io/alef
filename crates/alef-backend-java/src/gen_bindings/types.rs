@@ -711,7 +711,17 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
                         // cannot deserialize as char.
                         match &field.typed_default {
                             Some(DefaultValue::StringLiteral(s)) => {
-                                format!("\"{}\"", s.replace('"', "\\\""))
+                                // Escape Java string literal: backslash, quote, and the
+                                // common control chars so newlines/tabs become valid
+                                // Java escapes rather than embedded raw characters
+                                // (which fail Java's single-line string lexer).
+                                let escaped = s
+                                    .replace('\\', "\\\\")
+                                    .replace('"', "\\\"")
+                                    .replace('\n', "\\n")
+                                    .replace('\r', "\\r")
+                                    .replace('\t', "\\t");
+                                format!("\"{escaped}\"")
                             }
                             _ => "\"\"".to_string(),
                         }
