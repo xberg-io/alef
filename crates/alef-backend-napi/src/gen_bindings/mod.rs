@@ -418,9 +418,14 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         let mut function_exports = vec![];
 
         // Collect all types (exported with prefix from native module) - export type.
-        // Include all plain structs and all trait types (opaque classes and visitor interfaces).
+        // Skip trait definitions (e.g. HtmlVisitor): the NAPI binding exposes opaque
+        // *Handle classes for trait bridges, not the trait types themselves, so
+        // re-exporting `JsHtmlVisitor` produces a TS2305 'has no exported member'
+        // error against the generated index.d.ts.
         for typ in api.types.iter() {
-            // Export all types: plain structs, opaque trait classes, and visitor trait interfaces
+            if typ.is_trait {
+                continue;
+            }
             type_exports.push(format!("{prefix}{}", typ.name));
         }
 
