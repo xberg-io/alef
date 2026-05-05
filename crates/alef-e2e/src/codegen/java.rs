@@ -798,17 +798,10 @@ fn render_test_method(
 
     // Build visitor if present and add to setup
     let mut visitor_var = String::new();
-    let mut effective_function_name_for_call = function_name.to_string();
     let mut has_visitor_fixture = false;
     if let Some(visitor_spec) = &fixture.visitor {
         visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
         has_visitor_fixture = true;
-        // Use visitor_function if present
-        if let Some(call_override) = call_overrides {
-            if let Some(visitor_fn) = &call_override.visitor_function {
-                effective_function_name_for_call = visitor_fn.clone();
-            }
-        }
     }
 
     for line in &setup_lines {
@@ -816,19 +809,40 @@ fn render_test_method(
     }
 
     // When visitor is present, attach it to the options parameter
-    // For now, since args_str may contain complex options building, we handle the simple case
     let final_args = if has_visitor_fixture {
-        // Simple case: no options provided, create new ConversionOptions with visitor
         if args_str.is_empty() {
+            // No arguments: just create ConversionOptions with visitor
             format!("new ConversionOptions().withVisitor({})", visitor_var)
         } else if args_str.contains("new ConversionOptions") || args_str.contains("ConversionOptionsBuilder") {
             // Options are being built; append .withVisitor() call
-            // This is a heuristic - better approach would be to track options building separately
             format!("{}.withVisitor({})", args_str, visitor_var)
+        } else if args_str.contains("MAPPER.readValue") {
+            // Options are being deserialized from JSON — replace the readValue call with withVisitor
+            // Pattern: "html", MAPPER.readValue("{}", ConversionOptions.class)
+            // Find the first comma that separates html and the MAPPER.readValue call
+            // We need to be careful about commas inside the MAPPER.readValue() call
+            if let Some(first_comma_idx) = args_str.find(',') {
+                let html_part = &args_str[..first_comma_idx];
+                // Skip the comma and following whitespace to get to MAPPER.readValue
+                let after_comma = args_str[first_comma_idx + 1..].trim_start();
+                // Check if the remaining part is MAPPER.readValue
+                if after_comma.starts_with("MAPPER.readValue") {
+                    format!("{}, new ConversionOptions().withVisitor({})", html_part, visitor_var)
+                } else {
+                    // Unexpected format; fallback to simple append
+                    format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
+                }
+            } else {
+                // No comma found; shouldn't happen with MAPPER.readValue, but fallback
+                format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
+            }
+        } else if args_str.ends_with(", null") {
+            // Replace trailing null options with ConversionOptions containing visitor
+            let base = &args_str[..args_str.len() - 6];
+            format!("{}, new ConversionOptions().withVisitor({})", base, visitor_var)
         } else {
-            // Fall back to: create options with visitor and ignore args_str for now
-            // This is a limitation that would need fixture redesign to fix properly
-            format!("new ConversionOptions().withVisitor({})", visitor_var)
+            // args_str is just the html argument(s) — append new ConversionOptions with visitor
+            format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
         }
     } else {
         args_str
@@ -837,7 +851,7 @@ fn render_test_method(
     if expects_error {
         let _ = writeln!(
             out,
-            "        assertThrows(Exception.class, () -> {class_name}.{effective_function_name_for_call}({final_args}));"
+            "        assertThrows(Exception.class, () -> {class_name}.{function_name}({final_args}));"
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -845,7 +859,7 @@ fn render_test_method(
 
     let _ = writeln!(
         out,
-        "        var {result_var} = {class_name}.{effective_function_name_for_call}({final_args});"
+        "        var {result_var} = {class_name}.{function_name}({final_args});"
     );
 
     // Emit a `source` variable for run_query assertions that need the raw bytes.

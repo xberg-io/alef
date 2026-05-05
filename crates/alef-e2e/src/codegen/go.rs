@@ -855,12 +855,17 @@ fn render_test_function(
         call_options_ptr,
     );
 
-    // Build visitor if present — struct is at package level, just instantiate here.
-    let mut visitor_arg = String::new();
+    // Build visitor if present — integrate into options instead of separate parameter.
+    // Go binding's Convert() checks options.Visitor and delegates to convertWithVisitorHelper when set.
     if fixture.visitor.is_some() {
         let struct_name = visitor_struct_name(&fixture.id);
         setup_lines.push(format!("visitor := &{struct_name}{{}}"));
-        visitor_arg = "visitor".to_string();
+        // The options variable must exist (created during build_args_and_setup).
+        // Now append the visitor to it.
+        setup_lines.push("if opts == nil {".to_string());
+        setup_lines.push("\topts = &".to_string() + call_options_type.unwrap_or("ConversionOptions") + "{}");
+        setup_lines.push("}".to_string());
+        setup_lines.push("opts.Visitor = visitor".to_string());
     }
 
     let go_extra_args = overrides.map(|o| o.extra_args.as_slice()).unwrap_or(&[]).to_vec();
@@ -870,9 +875,6 @@ fn render_test_function(
             parts.push(args_str);
         }
         parts.extend(go_extra_args);
-        if !visitor_arg.is_empty() {
-            parts.push(visitor_arg);
-        }
         parts.join(", ")
     };
 

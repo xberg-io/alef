@@ -2,7 +2,7 @@ mod functions;
 mod methods;
 pub(super) mod types;
 
-use functions::gen_function_wrapper;
+use functions::{gen_function_wrapper, gen_convert_with_visitor_wrapper};
 use methods::gen_method_wrapper;
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
@@ -137,6 +137,7 @@ impl Backend for GoBackend {
             &bridge_type_aliases,
             &streaming_methods,
             &ffi_exclude_functions,
+            has_options_field_bridge,
         )));
 
         // Build adapter body map (consumed by generators via body substitution)
@@ -318,6 +319,7 @@ fn gen_go_file(
     bridge_type_aliases: &HashSet<String>,
     streaming_methods: &HashSet<String>,
     ffi_exclude_functions: &HashSet<String>,
+    has_options_field_bridge: bool,
 ) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -521,12 +523,23 @@ fn gen_go_file(
         !ffi_exclude_functions.contains(&f.name)
             && !uses_ffi_enum_type(&f.params, &f.return_type, &ffi_enum_names, &opaque_names)
     }) {
-        writeln!(
-            out,
-            "{}\n",
-            gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
-        )
-        .ok();
+        // For the convert function with visitor support, wrap it with visitor-awareness logic
+        // instead of generating the basic wrapper.
+        if func.name == "convert" && has_options_field_bridge {
+            writeln!(
+                out,
+                "{}\n",
+                gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names)
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "{}\n",
+                gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
+            )
+            .ok();
+        }
     }
 
     // Generate struct methods.

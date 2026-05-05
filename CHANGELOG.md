@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(java-e2e-codegen): visitor test fixtures now correctly emit `convert(html, new ConversionOptions().withVisitor(visitor))` instead of losing the html argument. The codegen now properly detects and replaces optional arguments when visitor is present.
 - fix(go-backend): `*C.char` returns now check `if ptr == nil { return nil }` before calling `C.GoString`; previously `C.GoString(nil)` returned `""` and `&v` was returned as a non-nil `*string`, so `Option<String> = None` was misrepresented as a non-nil pointer to an empty string.
 - fix(go-backend): `{ffi_prefix}_last_error_context()` is now used in all receiver/param `from_json` error messages; the `kreuzberg_` prefix was hardcoded, causing a CGo "could not determine what C.kreuzberg_last_error_context refers to" build error when the FFI prefix differs.
 

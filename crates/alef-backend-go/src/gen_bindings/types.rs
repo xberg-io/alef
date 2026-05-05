@@ -497,6 +497,21 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             continue;
         }
 
+        // Special handling for Visitor field: use Visitor interface, not a handle type,
+        // and mark as json:"-" since it's not serializable
+        let is_visitor_field = field.name == "visitor"
+            && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+
+        if is_visitor_field {
+            if !field.doc.is_empty() {
+                for line in field.doc.lines() {
+                    writeln!(out, "\t// {}", line.trim()).ok();
+                }
+            }
+            writeln!(out, "\t{} {} `json:\"-\"`", to_go_name(&field.name), "Visitor").ok();
+            continue;
+        }
+
         // A non-optional field in a defaulted struct may still need pointer+omitempty when
         // the Go zero value differs from the Rust Default value (e.g., Duration, bool true, int != 0).
         let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);

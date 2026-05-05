@@ -90,8 +90,8 @@ pub(super) fn gen_function_wrapper(
     // All optional params (wherever they appear) are represented as pointer types in the Go
     // signature so callers can pass nil to omit them.  This is simpler and more correct than
     // the earlier variadic approach which broke when more than one trailing optional existed.
-    // Bridge params (visitor handles) are stripped from the public signature — ConvertWithVisitor
-    // provides the visitor-accepting variant separately.
+    // Bridge params (visitor handles) are stripped from the public signature and integrated
+    // into the function via ConversionOptions.Visitor field instead.
     let mut param_strs: Vec<String> = Vec::new();
     for p in func.params.iter() {
         if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
@@ -313,6 +313,104 @@ pub(super) fn gen_function_wrapper(
     }
 
     writeln!(out, "}}").ok();
+    out
+}
+
+/// Generate a custom wrapper for the `convert` function that integrates visitor support.
+///
+/// When options.Visitor is not nil, the wrapper delegates to convertWithVisitorHelper.
+/// Otherwise, it calls the base convert via the FFI layer (with nil visitor).
+pub(super) fn gen_convert_with_visitor_wrapper(
+    func: &FunctionDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
+    let mut out = String::with_capacity(2048);
+
+    let func_go_name = to_go_name(&func.name);
+    emit_type_doc(&mut out, &func_go_name, &func.doc, "converts HTML to Markdown.");
+
+    // Find the html and options parameters.
+    let options_param = func.params.iter().find(|p| p.name == "options");
+
+    write!(out, "func {}(", func_go_name).ok();
+    let mut param_strs: Vec<String> = Vec::new();
+    for p in &func.params {
+        let param_type = if p.optional {
+            go_optional_type(&p.ty).into_owned()
+        } else if let TypeRef::Named(name) = &p.ty {
+            if opaque_names.contains(name.as_str()) {
+                format!("*{}", go_type(&p.ty))
+            } else {
+                go_type(&p.ty).into_owned()
+            }
+        } else {
+            go_type(&p.ty).into_owned()
+        };
+        param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
+    }
+    write!(out, "{}", param_strs.join(", ")).ok();
+
+    // Return type is (*ConversionResult, error) for convert
+    writeln!(out, ") (*ConversionResult, error) {{").ok();
+
+    // Check if options.Visitor is set and delegate to helper
+    if options_param.is_some() {
+        writeln!(out, "\tif options != nil && options.Visitor != nil {{").ok();
+        writeln!(out, "\t\treturn convertWithVisitorHelper(html, options, options.Visitor)").ok();
+        writeln!(out, "\t}}").ok();
+        writeln!(out).ok();
+    }
+
+    // Otherwise, call the FFI convert directly (no visitor).
+    let func_snake = func.name.to_snake_case();
+    let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
+
+    writeln!(out, "\tcHTML := C.CString(html)").ok();
+    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
+    writeln!(out).ok();
+
+    // Handle options parameter.
+    if options_param.is_some() {
+        writeln!(out, "\tvar cOptions *C.HTMConversionOptions").ok();
+        writeln!(out, "\tif options != nil {{").ok();
+        writeln!(out, "\t\tjsonBytes, err := json.Marshal(options)").ok();
+        writeln!(out, "\t\tif err != nil {{").ok();
+        writeln!(out, "\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)").ok();
+        writeln!(out, "\t\t}}").ok();
+        writeln!(out, "\t\ttmpStr := C.CString(string(jsonBytes))").ok();
+        writeln!(out, "\t\tcOptions = C.{}_conversion_options_from_json(tmpStr)", ffi_prefix).ok();
+        writeln!(out, "\t\tC.free(unsafe.Pointer(tmpStr))").ok();
+        writeln!(out, "\t\tdefer C.{}_conversion_options_free(cOptions)", ffi_prefix).ok();
+        writeln!(out, "\t}}").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "\tptr := {}(cHTML, cOptions)", ffi_name).ok();
+    } else {
+        writeln!(out, "\tptr := {}(cHTML, nil)", ffi_name).ok();
+    }
+
+    writeln!(out, "\tif ptr == nil {{").ok();
+    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
+    writeln!(out, "\t\t\treturn nil, err").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{}_conversion_result_free(ptr)", ffi_prefix).ok();
+    writeln!(out).ok();
+
+    writeln!(out, "\tjsonPtr := C.{}_conversion_result_to_json(ptr)", ffi_prefix).ok();
+    writeln!(out, "\tif jsonPtr == nil {{").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{}_free_string(jsonPtr)", ffi_prefix).ok();
+    writeln!(out, "\tvar result ConversionResult").ok();
+    writeln!(out, "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn &result, nil").ok();
+    writeln!(out, "}}").ok();
+
     out
 }
 

@@ -1133,23 +1133,122 @@ pub fn gen_visitor_file(
         gen_trampoline(&mut out, spec);
     }
 
-    // -------------------------------------------------------------------------
-    // ConvertWithVisitor
-    // -------------------------------------------------------------------------
-    gen_convert_with_visitor(
-        &mut out,
-        ffi_prefix,
-        &conversion_options_type,
-        &vtable_c_type,
-        &bridge_c_type,
-        &fn_bridge_new,
-        &fn_bridge_free,
-        &fn_options_set_visitor,
-        &fn_options_free,
-        &fn_options_from_json,
-        &fn_convert,
-        &fn_result_free,
-    );
+    // -----------------------------------------------------------------------
+    // Internal helper: convertWithVisitorHelper
+    // -----------------------------------------------------------------------
+    // This helper is called by Convert() in binding.go when options.Visitor is not nil.
+    // It registers the visitor, builds the VTable, creates a bridge, attaches it to
+    // options, calls the FFI convert function, and cleans up.
+    writeln!(out).ok();
+    writeln!(out, "// convertWithVisitorHelper converts HTML with visitor support.").ok();
+    writeln!(out, "// Called by Convert() when options.Visitor is not nil.").ok();
+    writeln!(out, "// Returns the ConversionResult or an error.").ok();
+    writeln!(
+        out,
+        "func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{"
+    )
+    .ok();
+    writeln!(out, "\tcHTML := C.CString(html)").ok();
+    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
+    writeln!(out).ok();
+
+    // Build ConversionOptions C pointer.
+    writeln!(out, "\tvar cOptions *C.{conversion_options_type}").ok();
+    writeln!(out, "\tif options != nil {{").ok();
+    writeln!(
+        out,
+        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)"
+    )
+    .ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tif cOptions == nil {{").ok();
+    writeln!(
+        out,
+        "\t\t// Allocate a default options struct so we can attach the visitor."
+    )
+    .ok();
+    writeln!(out, "\t\tdefaultJSON := C.CString(\"{{}}\")").ok();
+    writeln!(out, "\t\tcOptions = C.{fn_options_from_json}(defaultJSON)").ok();
+    writeln!(out, "\t\tC.free(unsafe.Pointer(defaultJSON))").ok();
+    writeln!(out, "\t\tdefer C.{fn_options_free}(cOptions)").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out).ok();
+
+    // Register visitor and build VTable.
+    writeln!(
+        out,
+        "\t// Register visitor and build the C VTable via the static C helper."
+    )
+    .ok();
+    writeln!(out, "\tid := registerVisitor(visitor)").ok();
+    writeln!(out, "\tdefer unregisterVisitor(id)").ok();
+    writeln!(out, "\tvtbl := C.makeVisitorVTable()").ok();
+    writeln!(out).ok();
+
+    // Create bridge from VTable + user_data.
+    writeln!(
+        out,
+        "\t// Create a bridge that holds the VTable and the visitor ID as user_data."
+    )
+    .ok();
+    writeln!(out, "\tbridge := C.{fn_bridge_new}(&vtbl, unsafe.Pointer(id))").ok();
+    writeln!(out, "\tif bridge == nil {{").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{fn_bridge_free}(bridge)").ok();
+    writeln!(out).ok();
+
+    // Attach bridge to options.
+    writeln!(
+        out,
+        "\t// Attach the bridge to the options struct so convert() picks it up."
+    )
+    .ok();
+    writeln!(
+        out,
+        "\tC.{fn_options_set_visitor}(cOptions, (*C.{bridge_c_type})(bridge))"
+    )
+    .ok();
+    writeln!(out).ok();
+
+    // Call convert.
+    writeln!(out, "\tptr := C.{fn_convert}(cHTML, cOptions)").ok();
+    writeln!(out, "\tif ptr == nil {{").ok();
+    writeln!(out, "\t\tif err := lastError(); err != nil {{").ok();
+    writeln!(out, "\t\t\treturn nil, err").ok();
+    writeln!(out, "\t\t}}").ok();
+    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{fn_result_free}(ptr)").ok();
+    writeln!(out).ok();
+
+    // Deserialize ConversionResult.
+    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
+    let fn_free_string = format!("{ffi_prefix}_free_string");
+    writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
+    writeln!(out, "\tif jsonPtr == nil {{").ok();
+    writeln!(
+        out,
+        "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")"
+    )
+    .ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tdefer C.{fn_free_string}(jsonPtr)").ok();
+    writeln!(out, "\tvar result ConversionResult").ok();
+    writeln!(
+        out,
+        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)"
+    )
+    .ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn &result, nil").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
 
     out
 }
@@ -1256,7 +1355,10 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 /// 4. Attach the bridge to options via `{fn_options_set_visitor}(cOptions, bridge)`.
 /// 5. Call `{fn_convert}(cHTML, cOptions)` to run conversion.
 /// 6. Free bridge and options after conversion completes.
-#[allow(clippy::too_many_arguments)]
+///
+/// NOTE: This function is no longer used. The same logic is now inlined in
+/// `convertWithVisitorHelper` and generated directly in `gen_visitor_file`.
+#[allow(clippy::too_many_arguments, dead_code)]
 fn gen_convert_with_visitor(
     out: &mut String,
     _ffi_prefix: &str,
