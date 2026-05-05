@@ -70,7 +70,7 @@ pub(crate) fn gen_record_type(
 
         // Visitor field is transient and not serialized to JSON.
         if is_visitor_field {
-            decl.push_str("@Transient @JsonIgnore ");
+            decl.push_str("@JsonIgnore ");
         }
 
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)
@@ -294,9 +294,9 @@ pub(crate) fn gen_record_type(
     if needs_json_ignore {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
     }
-    if needs_transient {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
-    }
+    // No `import java.beans.Transient;` is needed: records have no fields to mark
+    // `transient` and the `@Transient` annotation is meaningful only on JavaBean
+    // getters, not record components. `@JsonIgnore` already covers serialization.
     if needs_nullable {
         writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
     }
