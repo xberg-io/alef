@@ -140,7 +140,7 @@ impl E2eCodegen for PhpCodegen {
         // Generate run_tests.php that loads the extension and invokes phpunit.
         files.push(GeneratedFile {
             path: output_base.join("run_tests.php"),
-            content: render_run_tests_php(&extension_name),
+            content: render_run_tests_php(&extension_name, config.php_cargo_crate_name()),
             generated_header: true,
         });
 
@@ -338,10 +338,15 @@ if (file_exists($pkgAutoloader)) {{
     )
 }
 
-fn render_run_tests_php(extension_name: &str) -> String {
+fn render_run_tests_php(extension_name: &str, cargo_crate_name: Option<&str>) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    let ext_lib_name = format!("lib{extension_name}_php");
-    let ext_class_name = format!("{}_php", extension_name);
+    let ext_lib_name = if let Some(crate_name) = cargo_crate_name {
+        // Cargo replaces hyphens with underscores for lib names, and the crate name
+        // already includes the _php suffix.
+        format!("lib{}", crate_name.replace('-', "_"))
+    } else {
+        format!("lib{extension_name}_php")
+    };
     format!(
         r#"#!/usr/bin/env php
 <?php
@@ -355,28 +360,25 @@ $extSuffix = match (PHP_OS_FAMILY) {{
 }};
 $extPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
 
-// If extension is not already loaded and the extension file exists, we need to
-// restart PHP with the extension enabled via command-line.
-if (!extension_loaded('{ext_class_name}') && file_exists($extPath)) {{
-    // Reconstruct the command with the extension flag.
+// If the locally-built extension exists and we have not already restarted with it,
+// re-exec PHP with no system ini (-n) to avoid conflicts with any system-installed
+// version of the extension, then load the local build explicitly.
+if (file_exists($extPath) && !getenv('ALEF_PHP_LOCAL_EXT_LOADED')) {{
+    putenv('ALEF_PHP_LOCAL_EXT_LOADED=1');
     $php = PHP_BINARY;
-    $extFlag = "-d";
-    $extVal = "extension=" . $extPath;
     $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 
-    // Build the full command: php -d extension=... vendor/bin/phpunit [args...]
     $cmd = array_merge(
-        [$php, $extFlag, $extVal],
+        [$php, '-n', '-d', 'extension=' . $extPath],
         [$phpunitPath],
         array_slice($GLOBALS['argv'], 1)
     );
 
-    // Execute and exit with the same code.
     passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);
     exit($exitCode);
 }}
 
-// Extension is already loaded (either built-in or via this script after restart).
+// Extension is now loaded (via the restart above with -n flag).
 // Invoke PHPUnit normally.
 $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 if (!file_exists($phpunitPath)) {{

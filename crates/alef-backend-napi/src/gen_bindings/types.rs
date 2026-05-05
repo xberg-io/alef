@@ -18,10 +18,22 @@ pub(super) fn gen_struct(
     has_serde: bool,
     opaque_types: &ahash::AHashSet<String>,
 ) -> String {
+    // Detect Buffer fields — `napi::bindgen_prelude::Buffer` does NOT impl Clone,
+    // Serialize, or Deserialize. When present we must skip the Clone derive
+    // (and emit a manual impl) and tag the fields with #[serde(skip)] so the
+    // serde derives can still apply to the rest of the struct.
+    let has_bytes_field = typ.fields.iter().any(|f| match &f.ty {
+        TypeRef::Bytes => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+        _ => false,
+    });
+
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
-    struct_builder.add_derive("Clone");
+    if !has_bytes_field {
+        struct_builder.add_derive("Clone");
+    }
     // Binding types always derive Default, Serialize, and Deserialize.
     // Default: enables using unwrap_or_default() in constructors for types with has_default.
     // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
@@ -68,15 +80,61 @@ pub(super) fn gen_struct(
             base_type
         };
         let js_name = to_node_name(&field.name);
-        let attrs = if js_name != field.name {
+        let mut attrs = if js_name != field.name {
             vec![format!("napi(js_name = \"{}\")", js_name)]
         } else {
             vec![]
         };
+        // Bytes fields use napi `Buffer`, which does NOT impl Serialize/Deserialize.
+        // Skip them in serde so the rest of the struct can still derive serde traits.
+        // `Buffer::default()` exists, so #[serde(skip)] is safe for both directions.
+        let is_bytes = matches!(&field.ty, TypeRef::Bytes)
+            || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+        if is_bytes && has_serde {
+            attrs.push("serde(skip)".to_string());
+        }
         struct_builder.add_field(&field.name, &field_type, attrs);
     }
 
-    struct_builder.build()
+    let mut out = struct_builder.build();
+
+    // `napi::bindgen_prelude::Buffer` does not impl Clone. Emit a manual Clone
+    // impl that copies the underlying byte payload via `.to_vec().into()`.
+    if has_bytes_field {
+        let struct_name = format!("{prefix}{}", typ.name);
+        out.push('\n');
+        out.push_str(&format!("\nimpl Clone for {struct_name} {{\n    fn clone(&self) -> Self {{\n        Self {{\n"));
+        for field in &typ.fields {
+            let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
+            let is_opt_bytes = matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+            // Whether the field is wrapped in Option<> in the binding struct: either
+            // because it's TypeRef::Optional, or because typ.has_default makes all
+            // fields optional in the struct, or because of opaque-class Option-wrap.
+            let is_opaque_named = matches!(&field.ty, TypeRef::Named(name) if opaque_types.contains(name));
+            let is_opt_opaque_named = matches!(&field.ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(name) if opaque_types.contains(name)));
+            let field_is_optional_in_struct = field.optional
+                || typ.has_default
+                || is_opt_bytes
+                || is_opt_opaque_named
+                || matches!(&field.ty, TypeRef::Optional(_));
+            let _ = is_opaque_named;
+            let expr = if is_bytes_field && field_is_optional_in_struct {
+                // Option<Buffer>: clone via map to Vec<u8>→Buffer
+                format!("self.{}.as_ref().map(|b| b.to_vec().into())", field.name)
+            } else if is_bytes_field {
+                format!("self.{}.to_vec().into()", field.name)
+            } else if is_opt_bytes {
+                format!("self.{}.as_ref().map(|b| b.to_vec().into())", field.name)
+            } else {
+                format!("self.{}.clone()", field.name)
+            };
+            out.push_str(&format!("            {}: {},\n", field.name, expr));
+        }
+        out.push_str("        }\n    }\n}\n");
+    }
+
+    out
 }
 
 /// Generate NAPI methods for an opaque struct (delegates to self.inner).

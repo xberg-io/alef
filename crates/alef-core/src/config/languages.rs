@@ -145,6 +145,11 @@ pub struct RubyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhpConfig {
     pub extension_name: Option<String>,
+    /// Cargo crate name for the PHP binding (e.g. `"ts-pack-core-php"`).
+    /// Used to derive the shared library filename in the e2e test runner.
+    /// When absent, the lib name is derived from `extension_name` by appending `_php`.
+    #[serde(default)]
+    pub cargo_crate_name: Option<String>,
     /// Override the PHP namespace used for class registration and PSR-4 autoloading.
     ///
     /// When set, this value is used verbatim as the PHP namespace (e.g. `"HtmlToMarkdown"`).

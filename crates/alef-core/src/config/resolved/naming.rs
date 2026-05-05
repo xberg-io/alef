@@ -39,6 +39,11 @@ impl ResolvedCrateConfig {
             .unwrap_or_else(|| self.name.replace('-', "_"))
     }
 
+    /// Get the PHP binding Cargo crate name (used for deriving the shared library filename).
+    pub fn php_cargo_crate_name(&self) -> Option<&str> {
+        self.php.as_ref().and_then(|p| p.cargo_crate_name.as_deref())
+    }
+
     /// Get the Elixir app name.
     pub fn elixir_app_name(&self) -> String {
         self.elixir
