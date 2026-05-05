@@ -40,21 +40,11 @@ pub(crate) fn scaffold_node_cargo(
         format!("\n{all_deps}")
     };
 
-    // Only include serde when tagged data enums exist — those need serde::Serialize/Deserialize
-    // derives for discriminated-union JSON conversion. napi(object) structs are serialized by
-    // NAPI natively and don't require serde derives.
-    let needs_serde = api
-        .enums
-        .iter()
-        .any(|e| e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()));
-    let serde_dep = if needs_serde {
-        "\nserde = { version = \"1\", features = [\"derive\"] }"
-    } else {
-        ""
-    };
-
     let content = format!(
         r#"{pkg_header}
+
+[package.metadata.cargo-machete]
+ignored = ["serde"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -62,7 +52,8 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 napi = {{ version = "{napi}", features = ["async"] }}
-napi-derive = "{napi_derive}"{serde_dep}
+napi-derive = "{napi_derive}"
+serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
 [build-dependencies]
@@ -77,7 +68,6 @@ workspace = true
         features = core_dep_features(config, Language::Node),
         napi = tv::cargo::NAPI,
         napi_derive = tv::cargo::NAPI_DERIVE,
-        serde_dep = serde_dep,
         napi_build = tv::cargo::NAPI_BUILD,
         extra_deps_section = extra_deps_section,
     );
