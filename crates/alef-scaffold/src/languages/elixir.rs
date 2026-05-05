@@ -153,7 +153,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
   defp deps do
     [{jason_dep}
-      {{:rustler, "{rustler_hex}", optional: true, runtime: false}},
+      {{:rustler, "{rustler_hex}", runtime: false}},
       {{:rustler_precompiled, "{rustler_precompiled}"}},
       {{:credo, "{credo}", only: [:dev, :test], runtime: false}},
       {{:ex_doc, "{ex_doc}", only: :dev, runtime: false}}
