@@ -96,6 +96,16 @@ repos:
       - id: typos
         args: [--force-exclude]
 
+  # Python linting (hooks/)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^hooks/.*\.py$
+      - id: ruff-format
+        files: ^hooks/.*\.py$
+
   # GitHub Actions linting
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12

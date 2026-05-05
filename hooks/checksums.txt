@@ -1,0 +1,4 @@
+# sha256 checksums for alef release binaries — updated by the release process
+# Format: <sha256>  <asset-name>
+# Example:
+#   abc123...  alef-aarch64-apple-darwin.tar.gz

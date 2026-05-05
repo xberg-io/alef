@@ -1,0 +1,23 @@
+target-version = "py310"
+line-length = 120
+src = ["hooks"]
+
+[lint]
+select = ["ALL"]
+ignore = [
+  "ANN",
+  "COM812",
+  "D",
+  "EM",
+  "FBT",
+  "FIX",
+  "ISC001",
+  "S603",
+  "S607",
+  "T201",
+  "TD",
+  "TRY",
+]
+
+[format]
+line-length = 120

@@ -7,16 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(hooks): add `hooks/alef_hook.py` plus pinned `hooks/VERSION` so consumers can run `alef` as a pre-commit hook without a local Rust toolchain — the hook downloads, sha-verifies, caches, and execs the matching pre-built `alef` binary for the host platform.
+
+### Changed
+
+- chore(scaffold/rustler): generated Elixir NIF wrappers now use `RustlerPrecompiled` unconditionally with a `force_build:` option pointing at `<APP>_BUILD_FROM_SOURCE` / `Mix.env() in [:test, :dev]`, instead of branching on `if force_build do use Rustler else use RustlerPrecompiled end`. The branching pattern broke `mix compile` in published packages because `RustlerPrecompiled.__using__` cannot be invoked dynamically.
+- chore(scaffold/java): generated Checkstyle config tightens line length from 200 → 120, adds `UnusedImports`, and caps `MethodLength` at 150 lines, matching the wider Kreuzberg Java conventions.
+- chore(scaffold/php): generated `composer.json` emits a single-escaped `psr-4` namespace (`"Foo\\": "src/"`) and a lowercased package `name`; the previous double-escaped form produced an invalid `composer.json`, and uppercase names violate Composer's name regex.
+
 ### Fixed
 
 - fix(csharp-backend): remove public `ConvertWithVisitor` method and embed visitor handling into single `Convert(string html, ConversionOptions? options)` method; `ConversionOptions.Visitor` is now typed as `IHtmlVisitor?` (managed interface) with `[JsonIgnore]` instead of `VisitorHandle?`, achieving full API parity across all language bindings (one convert function per language, visitor passed via options).
+- fix(java-backend): mirror the C# visitor fix on the Java FFI class — `convertWithVisitor` is no longer emitted as a parallel public method; the visitor dispatch is folded into the main `convert` body, with the `has_visitor_bridge` flag plumbed through `gen_sync_function_method`.
 - fix(rustler): generated Elixir visitor wrappers now pattern-match `{:ok, _}` instead of `:ok` on the `_with_visitor` NIF call; Rustler encodes `Result<(), String>` as `{:ok, {}}`, so the bare `:ok` match always failed at runtime.
 - fix(php): `from_binding_skip_types` field added to `ConversionConfig`; the PHP backend populates it with trait bridge type aliases (e.g. `VisitorHandle`) so their fields emit `Default::default()` in the binding→core `From` impl instead of `val.field.map(Into::into)`, which failed to compile because no `From` impl exists for the PHP-side bridge handle.
 - fix(e2e/rust): `not_error` assertions on `Result`-returning calls now emit `.expect("should succeed")` so the test actually panics on errors; previously the result was bound to `_` and silently discarded, making the assertion a no-op.
 - fix(php-backend): PHP method names now mirror the Rust source name verbatim (camelCased) without an extra `Async` suffix; the suffix was breaking parity with `alef.toml` call overrides.
 - fix(e2e/go): byte-array JSON arguments are now base64-encoded for Go `json.Unmarshal` compatibility; previously the raw `[0, 1, 2, …]` integer array failed to unmarshal into `[]byte`.
+- fix(e2e/go): `not_error` and `error` assertions are excluded from the "only nil assertions" short-circuit, so a single `not_error` / `error` assertion no longer collapses the entire test body into a no-op.
 - fix(e2e/r): `run_tests.R` now resolves script and test directories relative to its own path before changing the working directory to `test_documents/`; also sets `testthat::set_max_fails(Inf)` to surface all failures during triage.
 - fix(scaffold/r): R scaffold `Makevars` files now use the Rust crate name (`{core}_r`) for the static library path rather than the R package name; the two differ when the R package uses a custom user-facing name.
+- fix(napi): `Vec<u8>` / `Bytes` parameters now emit a `let name: Vec<u8> = name.to_vec();` conversion in the generated function body so JS `Buffer` arguments round-trip through `napi::Buffer` to the Rust core. Adds a dedicated `gen_napi_buffer_conversion_bindings` helper and `is_bytes_param` predicate, and gates `use_let_bindings` on bytes params so the conversion always runs.
+- fix(magnus/trait_bridge): `default_types` parameters in bridge functions are now passed as the binding type and converted to the core type via `.into()` (the Magnus binding already accepts the typed value), instead of being typed `Option<String>` / `String` and parsed via `serde_json::from_str`. The JSON-string detour silently dropped non-string fixture values and forced callers to pre-encode every nested struct.
+- fix(codegen/config_gen): `gen_magnus_kwargs_constructor` now accepts kwargs as `Option<magnus::RHash>` via `scan_args`, so callers can omit the kwargs hash entirely (matching idiomatic Ruby) instead of always passing an empty `{}`.
+- fix(codegen/shared): `constructor_parts_with_renames` no longer double-wraps already-`Optional<T>` fields in another `Option<…>`; previously fields whose IR type is already optional became `Option<Option<T>>` in the generated constructor signature.
 
 ## [0.14.22] - 2026-05-04
 

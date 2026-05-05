@@ -715,7 +715,6 @@ fn render_test_method(
         // For now, we'll use a simpler approach: create the options, then set Visitor
         if args_str.contains("JsonSerializer.Deserialize") && effective_options_type.is_some() {
             // Extract the deserialized object and add Visitor assignment
-            let opts_type = effective_options_type.unwrap_or("ConversionOptions");
             setup_lines.push(format!("var options = {args_str};"));
             setup_lines.push(format!("options.Visitor = {visitor_arg};"));
             "options".to_string()
