@@ -124,7 +124,11 @@ pub fn gen_trait_bridges_file(
     writeln!(out, "/// <summary>FFI JSON serialization extension methods</summary>").ok();
     writeln!(out, "internal static class FfiJsonExtensions {{").ok();
     writeln!(out).ok();
-    writeln!(out, "    /// <summary>Serialize any object to JSON for FFI marshalling</summary>").ok();
+    writeln!(
+        out,
+        "    /// <summary>Serialize any object to JSON for FFI marshalling</summary>"
+    )
+    .ok();
     writeln!(out, "    internal static string ToFfiJson<T>(this T value) {{").ok();
     writeln!(out, "        return JsonSerializer.Serialize(value);").ok();
     writeln!(out, "    }}").ok();

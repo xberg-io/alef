@@ -2,7 +2,7 @@ mod functions;
 mod methods;
 pub(super) mod types;
 
-use functions::{gen_function_wrapper, gen_convert_with_visitor_wrapper};
+use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::gen_method_wrapper;
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,

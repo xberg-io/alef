@@ -448,10 +448,7 @@ fn render_test_file(
                 .filter_map(|a| a.element_type.as_ref().map(|t| t.to_string()))
                 .filter(|t| !is_php_reserved_type(t))
                 .collect();
-            opt_type
-                .map(|t| t.to_string())
-                .into_iter()
-                .chain(element_types)
+            opt_type.map(|t| t.to_string()).into_iter().chain(element_types)
         })
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -925,7 +922,14 @@ fn render_test_method(
 
     let result_is_array = call_config.result_is_array;
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, result_is_array);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            field_resolver,
+            result_is_simple,
+            result_is_array,
+        );
     }
 
     let _ = writeln!(out, "    }}");
@@ -1397,7 +1401,10 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let php_val = json_to_php(expected);
-                let field_is_array = assertion.field.as_deref().is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
+                let field_is_array = assertion
+                    .field
+                    .as_deref()
+                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
                 if result_is_array && assertion.field.is_none() {
                     // Top-level result is an array; use in_array check.
                     let _ = writeln!(out, "        $this->assertContains({php_val}, {field_expr});");
@@ -1417,7 +1424,10 @@ fn render_assertion(
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                let field_is_array = assertion.field.as_deref().is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
+                let field_is_array = assertion
+                    .field
+                    .as_deref()
+                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
                 let effective_expr = if field_is_array {
                     format!("json_encode({field_expr})")
                 } else {
@@ -1695,10 +1705,7 @@ fn filter_empty_enum_strings(value: &serde_json::Value) -> serde_json::Value {
             serde_json::Value::Object(filtered)
         }
         serde_json::Value::Array(arr) => {
-            let filtered: Vec<serde_json::Value> = arr
-                .iter()
-                .map(filter_empty_enum_strings)
-                .collect();
+            let filtered: Vec<serde_json::Value> = arr.iter().map(filter_empty_enum_strings).collect();
             serde_json::Value::Array(filtered)
         }
         other => other.clone(),
@@ -1803,8 +1810,25 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
 fn is_php_reserved_type(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "string" | "int" | "integer" | "float" | "double" | "bool" | "boolean" | "array"
-            | "object" | "null" | "void" | "callable" | "iterable" | "never" | "self"
-            | "parent" | "static" | "true" | "false" | "mixed"
+        "string"
+            | "int"
+            | "integer"
+            | "float"
+            | "double"
+            | "bool"
+            | "boolean"
+            | "array"
+            | "object"
+            | "null"
+            | "void"
+            | "callable"
+            | "iterable"
+            | "never"
+            | "self"
+            | "parent"
+            | "static"
+            | "true"
+            | "false"
+            | "mixed"
     )
 }

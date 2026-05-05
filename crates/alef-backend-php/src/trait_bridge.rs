@@ -529,19 +529,35 @@ fn gen_visitor_bridge(
     // Helper: map a PHP return Zval to VisitResult.
     // Handles string returns ('skip', 'continue', 'preserve_html', custom strings)
     // and PHP array returns like ['custom' => 'replacement text'].
-    writeln!(out, "fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {core_crate}::VisitResult {{").unwrap();
+    writeln!(
+        out,
+        "fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {core_crate}::VisitResult {{"
+    )
+    .unwrap();
     writeln!(out, "    if let Some(s) = val.string() {{").unwrap();
     writeln!(out, "        return match s.to_lowercase().as_str() {{").unwrap();
     writeln!(out, "            \"skip\" => {core_crate}::VisitResult::Skip,").unwrap();
     writeln!(out, "            \"continue\" => {core_crate}::VisitResult::Continue,").unwrap();
-    writeln!(out, "            \"preserve_html\" | \"preservehtml\" => {core_crate}::VisitResult::PreserveHtml,").unwrap();
-    writeln!(out, "            other => {core_crate}::VisitResult::Custom(other.to_string()),").unwrap();
+    writeln!(
+        out,
+        "            \"preserve_html\" | \"preservehtml\" => {core_crate}::VisitResult::PreserveHtml,"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "            other => {core_crate}::VisitResult::Custom(other.to_string()),"
+    )
+    .unwrap();
     writeln!(out, "        }};").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "    if let Some(arr) = val.array() {{").unwrap();
     writeln!(out, "        if let Some(custom_val) = arr.get(\"custom\") {{").unwrap();
     writeln!(out, "            if let Some(s) = custom_val.string() {{").unwrap();
-    writeln!(out, "                return {core_crate}::VisitResult::Custom(s.to_string());").unwrap();
+    writeln!(
+        out,
+        "                return {core_crate}::VisitResult::Custom(s.to_string());"
+    )
+    .unwrap();
     writeln!(out, "            }}").unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();

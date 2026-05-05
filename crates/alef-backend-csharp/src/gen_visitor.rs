@@ -668,7 +668,11 @@ pub fn gen_native_methods_visitor(
         "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_bridge_free}\")]"
     )
     .ok();
-    writeln!(out, "    internal static extern void HtmlVisitorBridgeFree(IntPtr bridge);").ok();
+    writeln!(
+        out,
+        "    internal static extern void HtmlVisitorBridgeFree(IntPtr bridge);"
+    )
+    .ok();
     writeln!(out).ok();
 
     writeln!(

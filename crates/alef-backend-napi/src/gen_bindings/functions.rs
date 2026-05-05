@@ -60,10 +60,7 @@ pub(super) fn gen_function(
         .zip(func.params.iter())
         .enumerate()
         .filter_map(|(idx, (aug, orig))| {
-            if aug.optional
-                && !orig.optional
-                && !alef_codegen::shared::is_promoted_optional(&func.params, idx)
-            {
+            if aug.optional && !orig.optional && !alef_codegen::shared::is_promoted_optional(&func.params, idx) {
                 Some(format!("    let {} = {}.unwrap_or_default();\n", orig.name, orig.name))
             } else {
                 None

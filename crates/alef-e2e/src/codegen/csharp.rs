@@ -968,9 +968,7 @@ fn build_args_and_setup(
                     // Object value with known type: generate idiomatic C# object initializer.
                     if let Some(opts_type) = options_type {
                         if let Some(obj) = v.as_object() {
-                            parts.push(csharp_object_initializer(
-                                obj, opts_type, enum_fields, nested_types,
-                            ));
+                            parts.push(csharp_object_initializer(obj, opts_type, enum_fields, nested_types));
                             continue;
                         }
                     }
@@ -1669,10 +1667,7 @@ fn csharp_object_initializer(
                     "null".to_string()
                 } else {
                     let json_str = serde_json::to_string(val).unwrap_or_default();
-                    format!(
-                        "JsonDocument.Parse(\"{}\").RootElement",
-                        escape_csharp(&json_str)
-                    )
+                    format!("JsonDocument.Parse(\"{}\").RootElement", escape_csharp(&json_str))
                 }
             } else {
                 json_to_csharp(val)

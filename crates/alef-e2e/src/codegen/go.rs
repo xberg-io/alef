@@ -863,9 +863,7 @@ fn render_test_function(
         // Create a fresh opts variable with the visitor attached.
         let opts_type = call_options_type.unwrap_or("ConversionOptions");
         let opts_var = "opts".to_string();
-        setup_lines.push(format!(
-            "opts := &{import_alias}.{opts_type}{{}}"
-        ));
+        setup_lines.push(format!("opts := &{import_alias}.{opts_type}{{}}"));
         setup_lines.push("opts.Visitor = visitor".to_string());
         visitor_opts_var = Some(opts_var);
     }
