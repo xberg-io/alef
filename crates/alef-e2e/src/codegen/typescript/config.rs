@@ -65,7 +65,8 @@ export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
     globalSetup: './globalSetup.ts',
-{setup_files_line}  }},
+{setup_files_line}    singleThread: true,
+  }},
 }});
 "#
         )
@@ -76,7 +77,8 @@ export default defineConfig({{
 export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
-{setup_files_line}  }},
+{setup_files_line}    singleThread: true,
+  }},
 }});
 "#
         )
