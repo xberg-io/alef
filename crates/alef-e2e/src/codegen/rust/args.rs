@@ -95,6 +95,17 @@ pub fn render_rust_arg(
             );
         }
     }
+    // file_path args are fixture-relative paths into the repo-root `test_documents/`
+    // directory; resolve to a `&'static str` absolute path at compile time so the test
+    // can run from any cwd without depending on the current working directory.
+    if arg_type == "file_path" {
+        if let serde_json::Value::String(path_str) = value {
+            let binding = format!(
+                "let {name}: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{path_str}\");"
+            );
+            return (vec![binding], name.to_string());
+        }
+    }
 
     let literal = json_to_rust_literal(value, arg_type);
     // String args are raw string literals (`r#"..."#`) — already `&str`, no extra `&` needed.
