@@ -338,18 +338,16 @@ fn render_test_case(
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
-    let mut is_async = call_config.r#async;
+    let call_is_async = call_config.r#async;
     let args = &call_config.args;
 
-    // Force async if we need to read files for bytes args
-    if !is_async && has_bytes_file_reads(&fixture.input, args) {
-        is_async = true;
-    }
+    // Force test to async if we need to read files for bytes args
+    let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args);
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
-    let async_kw = if is_async { "async " } else { "" };
-    let await_kw = if is_async { "await " } else { "" };
+    let async_kw = if test_is_async { "async " } else { "" };
+    let await_kw = if call_is_async { "await " } else { "" };
 
     let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, options_type, &fixture.id);
 
