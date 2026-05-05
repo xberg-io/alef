@@ -47,17 +47,18 @@ use anyhow::Result;
 ///
 /// Returns false if:
 /// - The fixture has a skip condition that applies to this language
-/// - The fixture's call has language-specific overrides but not for this language
+/// - The fixture's call has no resolvable function for this language (no base
+///   `function` set and no override for the language). Calls that share a base
+///   function but only carry per-language type/arg overrides are still emitted
+///   for languages without an explicit override.
 pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_config: &E2eConfig) -> bool {
-    // Check if fixture should skip this language
     if let Some(skip) = &fixture.skip {
         if skip.should_skip(language) {
             return false;
         }
     }
-    // Check if call has language-specific overrides but not for this language
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    if !call_config.overrides.is_empty() && !call_config.overrides.contains_key(language) {
+    if call_config.function.is_empty() && !call_config.overrides.contains_key(language) {
         return false;
     }
     true
