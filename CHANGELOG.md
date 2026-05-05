@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e-typescript): configure vitest with `pool: 'forks'`, `singleFork: true`, and `isolate: false` to reduce NAPI environment teardown crashes when visitor bridges hold references to `napi_env`. Running all tests in a single forked worker instead of creating multiple isolated processes greatly reduces (but does not fully eliminate) the frequency of "Worker exited unexpectedly" errors during test cleanup.
+
+### Fixed
+
 - fix(php-backend): `ConversionOptionsBuilder.visitor()` method now correctly accepts a `&mut ZendObject` parameter, creates a `PhpHtmlVisitorBridge` from it, wraps it in `Arc::new()`, and passes `Some(&handle)` to the inner builder — instead of ignoring the parameter and always passing `None`. The PHP visitor bridge can now be invoked through the builder API.
 - fix(php-e2e-codegen): `CallbackAction::CustomTemplate` placeholder interpolation now converts `{key}` to `{$key}` in PHP double-quoted strings, enabling variable expansion in generated visitor callback templates. Template `"~{text}~"` now generates `return ['custom' => "~{$text}~"];` so PHP's string interpolation evaluates `$text` variables correctly.
 - fix(java-backend): builder classes now carry `@JsonIgnoreProperties(ignoreUnknown = true)` so flattened tagged-enum discriminators (e.g., `format_type` from `FormatMetadata` flatten on `Metadata`) and forward-compatible additions don't fail Jackson's strict deserialization. Without this, every Java SmokeTest errored with `UnrecognizedPropertyException: Unrecognized field "format_type" (class dev.kreuzberg.MetadataBuilder)` because Rust core's `#[serde(flatten)] format: Option<FormatMetadata>` puts the tag at the top level of the metadata JSON and Builder + `@JsonTypeInfo` + `@JsonUnwrapped` are mutually incompatible in Jackson.
