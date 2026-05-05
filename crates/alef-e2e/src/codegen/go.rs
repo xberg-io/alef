@@ -1526,6 +1526,19 @@ fn build_args_and_setup(
             input.get(field)
         };
 
+        // Handle file_path args: fixture-relative paths into the repo-root `test_documents/`
+        // directory; resolve at test runtime using filepath.Join so the test can run from any cwd.
+        if arg.arg_type == "file_path" {
+            if let Some(serde_json::Value::String(path_str)) = val {
+                let var_name = &arg.name;
+                setup_lines.push(format!(
+                    "var {var_name}Err error\n\t{var_name}, {var_name}Err := filepath.Abs(filepath.Join(\"../../test_documents\", \"{path_str}\"))\n\tif {var_name}Err != nil {{\n\t\tt.Fatalf(\"resolve test_documents path: %v\", {var_name}Err)\n\t}}"
+                ));
+                parts.push(var_name.to_string());
+                continue;
+            }
+        }
+
         // Handle bytes type: fixture stores base64-encoded bytes.
         // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
         if arg.arg_type == "bytes" {
