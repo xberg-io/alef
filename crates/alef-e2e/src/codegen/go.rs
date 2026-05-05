@@ -759,29 +759,12 @@ fn render_test_function(
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 
-    // Select the function name: when the fixture includes a visitor and a
-    // `visitor_function` override is configured, use the visitor-accepting
-    // entry point (e.g. `ConvertWithVisitor`) instead of the plain function.
-    let base_function_name = if fixture.visitor.is_some() {
-        overrides
-            .and_then(|o| o.visitor_function.as_deref())
-            .or_else(|| {
-                e2e_config
-                    .call
-                    .overrides
-                    .get(lang)
-                    .and_then(|o| o.visitor_function.as_deref())
-            })
-            .unwrap_or_else(|| {
-                overrides
-                    .and_then(|o| o.function.as_deref())
-                    .unwrap_or(&call_config.function)
-            })
-    } else {
-        overrides
-            .and_then(|o| o.function.as_deref())
-            .unwrap_or(&call_config.function)
-    };
+    // Select the function name: Go bindings now integrate visitor support into
+    // the main Convert() function via ConversionOptions.Visitor field.
+    // (In other languages, there may be separate visitor_function overrides, but Go uses a single function.)
+    let base_function_name = overrides
+        .and_then(|o| o.function.as_deref())
+        .unwrap_or(&call_config.function);
     let function_name = to_go_name(base_function_name);
     let result_var = &call_config.result_var;
     let args = &call_config.args;
@@ -860,12 +843,13 @@ fn render_test_function(
     if fixture.visitor.is_some() {
         let struct_name = visitor_struct_name(&fixture.id);
         setup_lines.push(format!("visitor := &{struct_name}{{}}"));
-        // The options variable must exist (created during build_args_and_setup).
-        // Now append the visitor to it.
-        setup_lines.push("if opts == nil {".to_string());
-        setup_lines.push("\topts = &".to_string() + call_options_type.unwrap_or("ConversionOptions") + "{}");
-        setup_lines.push("}".to_string());
-        setup_lines.push("opts.Visitor = visitor".to_string());
+        // The options variable is created during build_args_and_setup from the fixture input.
+        // If it wasn't created (nil), create it now before attaching the visitor.
+        let opts_type = call_options_type.unwrap_or("ConversionOptions");
+        setup_lines.push(format!("if options == nil {{"));
+        setup_lines.push(format!("\toptions = &{opts_type}{{}}"));
+        setup_lines.push(format!("}}"));
+        setup_lines.push("options.Visitor = visitor".to_string());
     }
 
     let go_extra_args = overrides.map(|o| o.extra_args.as_slice()).unwrap_or(&[]).to_vec();
