@@ -155,7 +155,7 @@ pub(super) fn gen_method_wrapper(
             // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
             let from_json_err_action = format!(
-                "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.kreuzberg_last_error_context()))"
+                "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.{ffi_prefix}_last_error_context()))"
             );
             writeln!(
                 out,
@@ -394,13 +394,11 @@ pub(super) fn gen_param_to_c(
                 };
                 let from_json_err_action = if can_return_error {
                     format!(
-                        "return {err_return_prefix}fmt.Errorf(\"failed to create {}: %s\", C.GoString(C.kreuzberg_last_error_context()))",
-                        type_snake
+                        "return {err_return_prefix}fmt.Errorf(\"failed to create {type_snake}: %s\", C.GoString(C.{ffi_prefix}_last_error_context()))"
                     )
                 } else {
                     format!(
-                        "panic(\"failed to create {}: \" + C.GoString(C.kreuzberg_last_error_context()))",
-                        type_snake
+                        "panic(\"failed to create {type_snake}: \" + C.GoString(C.{ffi_prefix}_last_error_context()))"
                     )
                 };
                 writeln!(

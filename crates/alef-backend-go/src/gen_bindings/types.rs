@@ -685,10 +685,13 @@ fn go_return_expr_inner(
             }
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            format!("func() *string {{ v := C.GoString({}); return &v }}()", var_name)
+            format!(
+                "func() *string {{ if {var} == nil {{ return nil }}; v := C.GoString({var}); return &v }}()",
+                var = var_name
+            )
         }
         TypeRef::Json => {
-            format!("func() *json.RawMessage {{ v := json.RawMessage(C.GoString({var_name})); return &v }}()")
+            format!("func() *json.RawMessage {{ if {var_name} == nil {{ return nil }}; v := json.RawMessage(C.GoString({var_name})); return &v }}()")
         }
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
