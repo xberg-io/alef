@@ -246,9 +246,12 @@ fn render_mix_exs(
             "      {{:rustler_precompiled, \"{rp}\"}}",
             rp = tv::hex::RUSTLER_PRECOMPILED
         ));
-        // rustler must be a direct dep in the consumer project for force_build to work.
+        // rustler must be a direct, non-optional dep in the consumer project for
+        // `force_build: Mix.env() in [:test, :dev]` to actually fetch the rustler hex
+        // package. With `optional: true` mix omits it when no other dep declares it as
+        // required, breaking the build-from-source path used by the e2e suite.
         deps.push(format!(
-            "      {{:rustler, \"{rustler}\", optional: true, runtime: false}}",
+            "      {{:rustler, \"{rustler}\", runtime: false}}",
             rustler = tv::hex::RUSTLER
         ));
     }
