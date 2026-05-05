@@ -840,23 +840,31 @@ fn render_test_function(
 
     // Build visitor if present — integrate into options instead of separate parameter.
     // Go binding's Convert() checks options.Visitor and delegates to convertWithVisitorHelper when set.
+    let mut visitor_opts_var: Option<String> = None;
     if fixture.visitor.is_some() {
         let struct_name = visitor_struct_name(&fixture.id);
         setup_lines.push(format!("visitor := &{struct_name}{{}}"));
-        // The options variable is created during build_args_and_setup from the fixture input.
-        // If it wasn't created (nil), create it now before attaching the visitor.
+        // Create a fresh opts variable with the visitor attached.
         let opts_type = call_options_type.unwrap_or("ConversionOptions");
-        setup_lines.push(format!("if options == nil {{"));
-        setup_lines.push(format!("\toptions = &{opts_type}{{}}"));
-        setup_lines.push(format!("}}"));
-        setup_lines.push("options.Visitor = visitor".to_string());
+        let opts_var = "opts".to_string();
+        setup_lines.push(format!(
+            "opts := &{import_alias}.{opts_type}{{}}"
+        ));
+        setup_lines.push("opts.Visitor = visitor".to_string());
+        visitor_opts_var = Some(opts_var);
     }
 
     let go_extra_args = overrides.map(|o| o.extra_args.as_slice()).unwrap_or(&[]).to_vec();
     let final_args = {
         let mut parts: Vec<String> = Vec::new();
         if !args_str.is_empty() {
-            parts.push(args_str);
+            // When visitor is present, replace trailing ", nil" with ", opts"
+            let processed_args = if let Some(ref opts_var) = visitor_opts_var {
+                args_str.trim_end_matches(", nil").to_string() + ", " + opts_var
+            } else {
+                args_str
+            };
+            parts.push(processed_args);
         }
         parts.extend(go_extra_args);
         parts.join(", ")
