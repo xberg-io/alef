@@ -396,16 +396,9 @@ fn render_test_file(
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
-    // Determine if we need the "path/filepath" import (file_path args use
-    // filepath.Abs(filepath.Join(...)) to resolve fixture-relative paths into
-    // the repo-root test_documents/ directory at test runtime).
-    let needs_filepath = fixtures.iter().any(|f| {
-        if !emits_executable_test(f) {
-            return false;
-        }
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
-        call_config.args.iter().any(|a| a.arg_type == "file_path")
-    });
+    // Note: file_path args are passed directly as relative strings — the e2e/go
+    // TestMain in main_test.go already chdir's into the repo-root test_documents/.
+    let needs_filepath = false;
 
     let _needs_json_stringify = fixtures.iter().any(|f| {
         emits_executable_test(f)
@@ -652,9 +645,7 @@ fn render_test_file(
     if needs_os {
         let _ = writeln!(out, "\t\"os\"");
     }
-    if needs_filepath {
-        let _ = writeln!(out, "\t\"path/filepath\"");
-    }
+    let _ = needs_filepath; // reserved for future use; currently always false
     if needs_reflect {
         let _ = writeln!(out, "\t\"reflect\"");
     }
@@ -1540,18 +1531,9 @@ fn build_args_and_setup(
             input.get(field)
         };
 
-        // Handle file_path args: fixture-relative paths into the repo-root `test_documents/`
-        // directory; resolve at test runtime using filepath.Join so the test can run from any cwd.
-        if arg.arg_type == "file_path" {
-            if let Some(serde_json::Value::String(path_str)) = val {
-                let var_name = &arg.name;
-                setup_lines.push(format!(
-                    "var {var_name}Err error\n\t{var_name}, {var_name}Err := filepath.Abs(filepath.Join(\"../../test_documents\", \"{path_str}\"))\n\tif {var_name}Err != nil {{\n\t\tt.Fatalf(\"resolve test_documents path: %v\", {var_name}Err)\n\t}}"
-                ));
-                parts.push(var_name.to_string());
-                continue;
-            }
-        }
+        // file_path args are fixture-relative paths under `test_documents/`. The Go test
+        // runner's TestMain (in main_test.go) already does `os.Chdir(test_documents)` so
+        // tests can pass these relative strings directly; no additional resolution needed.
 
         // Handle bytes type: fixture stores base64-encoded bytes.
         // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
