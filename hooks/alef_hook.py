@@ -69,7 +69,7 @@ def _sha256(path: Path) -> str:
 
 
 def _cache_dir(version: str, asset_name: str) -> Path:
-    target = asset_name.split(".")[0]
+    target = asset_name.split(".", maxsplit=1)[0]
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     return base / "alef-hooks" / version / target
 

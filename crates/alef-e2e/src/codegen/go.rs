@@ -1053,6 +1053,7 @@ fn render_test_function(
             .assertions
             .iter()
             .filter(|a| a.field.as_ref().is_none_or(|f| f.is_empty()))
+            .filter(|a| !matches!(a.assertion_type.as_str(), "not_error" | "error"))
             .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
         !only_nil_assertions
     } else {

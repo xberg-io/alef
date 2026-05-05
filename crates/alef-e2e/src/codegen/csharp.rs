@@ -706,7 +706,8 @@ fn render_test_method(
     }
 
     // When a visitor is present, embed it in the options object instead of passing as a separate arg.
-    // The options may or may not already be in args_str.
+    // args_str should contain the function arguments with null for missing options (e.g., "html, null").
+    // We need to replace that null with a ConversionOptions instance that has Visitor set.
     let final_args = if has_visitor && !visitor_arg.is_empty() {
         let opts_type = effective_options_type.unwrap_or("ConversionOptions");
         if args_str.contains("JsonSerializer.Deserialize") {
@@ -714,13 +715,23 @@ fn render_test_method(
             setup_lines.push(format!("var options = {args_str};"));
             setup_lines.push(format!("options.Visitor = {visitor_arg};"));
             "options".to_string()
+        } else if args_str.ends_with(", null") {
+            // Replace trailing ", null" with options
+            setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
+            let trimmed = args_str[..args_str.len() - 6].to_string(); // Remove ", null" (6 chars including space)
+            format!("{trimmed}, options")
+        } else if args_str.contains(", null,") {
+            // Options parameter is null in the middle; replace it
+            setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
+            args_str.replace(", null,", ", options,")
         } else if args_str.is_empty() {
             // No options were provided; create new instance with Visitor
             setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
             "options".to_string()
         } else {
-            // Some other form; if we can't parse it, append visitor as separate arg (shouldn't happen with Convert)
-            format!("{args_str}, {visitor_arg}")
+            // Fall back to appending options
+            setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
+            format!("{args_str}, options")
         }
     } else if extra_args_slice.is_empty() {
         args_str
