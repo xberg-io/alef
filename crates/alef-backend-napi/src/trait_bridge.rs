@@ -598,7 +598,7 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct: store Object<'static> and Env to avoid Object<'env> lifetime constraints.
+    // Bridge struct: store Object<'static> and cache the Env to avoid repeated unsafe transmute_copy.
     // SAFETY invariant: the Object is kept alive by the JS caller for the duration of the
     // #[napi] function that created the bridge, and by extension for all visitor callbacks.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
@@ -629,12 +629,12 @@ fn gen_visitor_bridge(
     .unwrap();
     writeln!(
         out,
-        "        // Extract the napi_env before transmuting the Object to 'static."
+        "        // Extract and cache the napi_env from the Object BEFORE transmuting."
     )
     .unwrap();
     writeln!(
         out,
-        "        // This avoids repeatedly relying on unsafe memory layout assumptions."
+        "        // We do this once and cache it to avoid repeated unsafe transmute_copy calls."
     )
     .unwrap();
     writeln!(
@@ -682,7 +682,7 @@ fn gen_visitor_bridge(
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
 
-    // Helper: return the stored napi_env.
+    // Helper: return the cached napi_env to avoid repeated unsafe transmute_copy calls.
     writeln!(out, "    fn env(&self) -> napi::Env {{").unwrap();
     writeln!(out, "        self.env").unwrap();
     writeln!(out, "    }}").unwrap();
