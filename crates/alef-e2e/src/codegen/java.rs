@@ -286,33 +286,10 @@ fn render_test_file(
     let _ = writeln!(out);
 
     // Check if any fixture (with its resolved call) will emit MAPPER usage.
-    // This covers: non-null json_object with options_type, optional null json_object with
-    // options_type (MAPPER default), and handle args with non-null config.
+    // Note: we no longer use MAPPER for json_object options (using builder pattern instead).
+    // But we still need it for handle args and HTTP fixtures.
     let lang_for_om = "java";
-    let needs_object_mapper_for_options = fixtures.iter().any(|f| {
-        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
-        let eff_opts = call_cfg
-            .overrides
-            .get(lang_for_om)
-            .and_then(|o| o.options_type.as_deref())
-            .or(options_type);
-        if eff_opts.is_none() {
-            return false;
-        }
-        call_cfg.args.iter().any(|arg| {
-            if arg.arg_type != "json_object" {
-                return false;
-            }
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = f.input.get(field);
-            // Needs MAPPER for: non-null non-array value (MAPPER.readValue) OR
-            // optional null value (MAPPER.readValue("{}", T.class) default).
-            match val {
-                None | Some(serde_json::Value::Null) => arg.optional, // MAPPER default for optional null
-                Some(v) => !v.is_array(),                             // MAPPER.readValue for non-array objects
-            }
-        })
-    });
+    let _needs_object_mapper_for_options = false;
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         args.iter().filter(|a| a.arg_type == "handle").any(|a| {
@@ -322,7 +299,7 @@ fn render_test_file(
     });
     // HTTP fixtures always need ObjectMapper for JSON body comparison.
     let has_http_fixtures = fixtures.iter().any(|f| f.http.is_some());
-    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle || has_http_fixtures;
+    let needs_object_mapper = needs_object_mapper_for_handle || has_http_fixtures;
 
     // Collect all options_type values used (class-level + per-fixture call overrides).
     let mut all_options_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -355,8 +332,8 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
     }
-    // Import all options types used across fixtures.
-    if needs_object_mapper && !all_options_types.is_empty() {
+    // Import all options types used across fixtures (for builder expressions and MAPPER).
+    if !all_options_types.is_empty() {
         let opts_pkg = if !import_path.is_empty() {
             import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("")
         } else {
@@ -385,6 +362,10 @@ fn render_test_file(
             let _ = writeln!(out, "import {binding_pkg}.NodeContext;");
             let _ = writeln!(out, "import {binding_pkg}.VisitResult;");
         }
+    }
+    // Import Optional when using builder expressions with optional fields
+    if !all_options_types.is_empty() {
+        let _ = writeln!(out, "import java.util.Optional;");
     }
     let _ = writeln!(out);
 
@@ -769,24 +750,19 @@ fn render_test_method(
     let _ = writeln!(out, "    void test{method_name}(){throws_clause} {{");
     let _ = writeln!(out, "        // {description}");
 
-    // Emit ObjectMapper deserialization bindings for json_object args.
+    // Emit builder expressions for json_object args.
     if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
         for arg in args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                 if let Some(val) = fixture.input.get(field) {
                     if !val.is_null() && !val.is_array() {
-                        // Fixture keys are camelCase; the Java record uses
-                        // @JsonProperty("snake_case") annotations. Normalize keys so Jackson
-                        // can deserialize them correctly.
-                        let normalized = super::normalize_json_keys_to_snake_case(val);
-                        let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                        let var_name = &arg.name;
-                        let _ = writeln!(
-                            out,
-                            "        var {var_name} = MAPPER.readValue(\"{}\", {opts_type}.class);",
-                            escape_java(&json_str)
-                        );
+                        if let Some(obj) = val.as_object() {
+                            // Generate builder expression: TypeName.builder().withFieldName(value)...build()
+                            let builder_expr = java_builder_expression(obj, opts_type);
+                            let var_name = &arg.name;
+                            let _ = writeln!(out, "        var {var_name} = {builder_expr};");
+                        }
                     }
                 }
             }
@@ -813,28 +789,16 @@ fn render_test_method(
         if args_str.is_empty() {
             // No arguments: just create ConversionOptions with visitor
             format!("new ConversionOptions().withVisitor({})", visitor_var)
-        } else if args_str.contains("new ConversionOptions") || args_str.contains("ConversionOptionsBuilder") {
-            // Options are being built; append .withVisitor() call
-            format!("{}.withVisitor({})", args_str, visitor_var)
-        } else if args_str.contains("MAPPER.readValue") {
-            // Options are being deserialized from JSON — replace the readValue call with withVisitor
-            // Pattern: "html", MAPPER.readValue("{}", ConversionOptions.class)
-            // Find the first comma that separates html and the MAPPER.readValue call
-            // We need to be careful about commas inside the MAPPER.readValue() call
-            if let Some(first_comma_idx) = args_str.find(',') {
-                let html_part = &args_str[..first_comma_idx];
-                // Skip the comma and following whitespace to get to MAPPER.readValue
-                let after_comma = args_str[first_comma_idx + 1..].trim_start();
-                // Check if the remaining part is MAPPER.readValue
-                if after_comma.starts_with("MAPPER.readValue") {
-                    format!("{}, new ConversionOptions().withVisitor({})", html_part, visitor_var)
-                } else {
-                    // Unexpected format; fallback to simple append
-                    format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
-                }
+        } else if args_str.contains("new ConversionOptions") || args_str.contains("ConversionOptionsBuilder") || args_str.contains(".builder()") {
+            // Options are being built (either new ConversionOptions(), builder pattern, or .builder().build())
+            // append .withVisitor() call before .build() if present
+            if args_str.contains(".build()") {
+                // Insert .withVisitor() before the final .build()
+                let idx = args_str.rfind(".build()").unwrap();
+                format!("{}.withVisitor({}){}", &args_str[..idx], visitor_var, &args_str[idx..])
             } else {
-                // No comma found; shouldn't happen with MAPPER.readValue, but fallback
-                format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
+                // Already a chain, just append
+                format!("{}.withVisitor({})", args_str, visitor_var)
             }
         } else if args_str.ends_with(", null") {
             // Replace trailing null options with ConversionOptions containing visitor
@@ -952,11 +916,11 @@ fn build_args_and_setup(
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: emit positional null/default so the call
-                // has the right arity. For json_object optional args, deserialise an empty object
+                // has the right arity. For json_object optional args, build an empty default object
                 // so we get the right type rather than a raw null.
                 if arg.arg_type == "json_object" {
                     if let Some(opts_type) = options_type {
-                        parts.push(format!("MAPPER.readValue(\"{{}}\", {opts_type}.class)"));
+                        parts.push(format!("{opts_type}.builder().build()"));
                     } else {
                         parts.push("null".to_string());
                     }
@@ -1232,6 +1196,14 @@ fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
+    // Determine if this field is an array (List<T>) — needed to choose .toString() for
+    // contains assertions, since List.contains(Object) uses equals() which won't match
+    // strings against complex record types like StructureItem.
+    let field_is_array = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {
@@ -1320,9 +1292,17 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let java_val = json_to_java(expected);
+                // For array fields of complex objects (e.g. List<StructureItem>), use .toString()
+                // because List.contains(Object) uses equals(), which won't match a String against
+                // a record type. Java records produce toString() like "StructureItem[kind=Function, ...]".
+                let check_expr = if field_is_array {
+                    format!("{string_expr}.toString()")
+                } else {
+                    string_expr.clone()
+                };
                 let _ = writeln!(
                     out,
-                    "        assertTrue({string_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
+                    "        assertTrue({check_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
                 );
             }
         }
@@ -1330,9 +1310,14 @@ fn render_assertion(
             if let Some(values) = &assertion.values {
                 for val in values {
                     let java_val = json_to_java(val);
+                    let check_expr = if field_is_array {
+                        format!("{string_expr}.toString()")
+                    } else {
+                        string_expr.clone()
+                    };
                     let _ = writeln!(
                         out,
-                        "        assertTrue({string_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
+                        "        assertTrue({check_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
                     );
                 }
             }
@@ -1340,9 +1325,14 @@ fn render_assertion(
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let java_val = json_to_java(expected);
+                let check_expr = if field_is_array {
+                    format!("{string_expr}.toString()")
+                } else {
+                    string_expr.clone()
+                };
                 let _ = writeln!(
                     out,
-                    "        assertFalse({string_expr}.contains({java_val}), \"expected NOT to contain: \" + {java_val});"
+                    "        assertFalse({check_expr}.contains({java_val}), \"expected NOT to contain: \" + {java_val});"
                 );
             }
         }
@@ -1693,6 +1683,44 @@ fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> 
             format!("\"{}\"", escape_java(&json_str))
         }
     }
+}
+
+/// Generate a Java builder expression for a JSON object.
+/// E.g., `obj = {"language": "abl", "chunk_max_size": 50}`
+/// becomes: `TypeName.builder().withLanguage("abl").withChunkMaxSize(Optional.of(50L)).build()`
+///
+/// For simple types (string, bool), use the value directly.
+/// For numbers and complex types, wrap in Optional.of().
+fn java_builder_expression(obj: &serde_json::Map<String, serde_json::Value>, type_name: &str) -> String {
+    let mut expr = format!("{}.builder()", type_name);
+    for (key, val) in obj {
+        // Convert snake_case key to withCamelCase method
+        let method_name = format!("with{}", key.to_upper_camel_case());
+        let java_val = match val {
+            serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Null => "null".to_string(),
+            serde_json::Value::Number(n) => {
+                // Wrap numbers in Optional.of() since they may be Optional<Long> or Optional<Double>
+                if n.is_f64() {
+                    format!("Optional.of({}d)", n)
+                } else {
+                    format!("Optional.of({}L)", n)
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(|v| json_to_java_typed(v, None)).collect();
+                format!("java.util.List.of({})", items.join(", "))
+            }
+            serde_json::Value::Object(_) => {
+                let json_str = serde_json::to_string(val).unwrap_or_default();
+                format!("\"{}\"", escape_java(&json_str))
+            }
+        };
+        expr.push_str(&format!(".{}({})", method_name, java_val));
+    }
+    expr.push_str(".build()");
+    expr
 }
 
 // ---------------------------------------------------------------------------

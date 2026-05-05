@@ -14,6 +14,7 @@
 /// - `ConvertWithVisitor`: static method on the wrapper class that creates the delegate
 ///   struct, calls `htm_visitor_create`, `htm_convert_with_visitor`, deserialises JSON.
 use alef_core::hash::{self, CommentStyle};
+use heck::ToSnakeCase;
 use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
@@ -624,126 +625,76 @@ pub fn gen_visitor_files(namespace: &str) -> Vec<(String, String)> {
 }
 
 /// Generate the P/Invoke declarations needed in NativeMethods.cs for visitor FFI.
-pub fn gen_native_methods_visitor(namespace: &str, lib_name: &str, prefix: &str) -> String {
+///
+/// Parameters:
+/// - `namespace`: C# namespace (unused, kept for compatibility)
+/// - `lib_name`: Native library name (unused, kept for compatibility)
+/// - `prefix`: C FFI function name prefix (e.g., "htm")
+/// - `trait_name`: Name of the visitor trait (e.g., "HtmlVisitor") for bridge function names
+/// - `options_field`: Field name in options to set visitor on (e.g., "visitor")
+pub fn gen_native_methods_visitor(
+    namespace: &str,
+    lib_name: &str,
+    prefix: &str,
+    trait_name: &str,
+    options_field: &str,
+) -> String {
     let mut out = String::with_capacity(512);
     writeln!(out).ok();
-    writeln!(out, "    // Visitor FFI").ok();
+    writeln!(out, "    // Visitor FFI (HtmlVisitorBridge)").ok();
+
+    // Generate function names:
+    // htm_htm_html_visitor_bridge_new, htm_htm_html_visitor_bridge_free, htm_options_set_visitor
+    let trait_snake = trait_name.to_snake_case();
+    let bridge_snake = format!("{prefix}_{trait_snake}_bridge");
+    let fn_bridge_new = format!("{prefix}_{bridge_snake}_new");
+    let fn_bridge_free = format!("{prefix}_{bridge_snake}_free");
+    let fn_options_set = format!("{prefix}_options_set_{options_field}");
+
     writeln!(
         out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_visitor_create\")]"
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_bridge_new}\")]"
     )
     .ok();
     writeln!(
         out,
-        "    internal static extern IntPtr VisitorCreate(IntPtr callbacks);"
+        "    internal static extern IntPtr HtmlVisitorBridgeNew(IntPtr vtable, IntPtr userData);"
     )
     .ok();
     writeln!(out).ok();
+
     writeln!(
         out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_visitor_free\")]"
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_bridge_free}\")]"
     )
     .ok();
-    writeln!(out, "    internal static extern void VisitorFree(IntPtr visitor);").ok();
+    writeln!(out, "    internal static extern void HtmlVisitorBridgeFree(IntPtr bridge);").ok();
     writeln!(out).ok();
+
     writeln!(
         out,
-        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_convert_with_visitor\")]"
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{fn_options_set}\")]"
     )
     .ok();
     writeln!(
         out,
-        "    internal static extern IntPtr ConvertWithVisitor([MarshalAs(UnmanagedType.LPStr)] string html, IntPtr options, IntPtr visitor);"
+        "    internal static extern int ConversionOptionsSetVisitor(IntPtr options, IntPtr visitor);"
     )
     .ok();
+
     let _ = namespace;
     let _ = lib_name;
     out
 }
 
-/// Generate the `ConvertWithVisitor` method to inject into the wrapper class.
+/// DEPRECATED: gen_convert_with_visitor_method is no longer used.
+/// The visitor logic is now integrated into the main Convert() method in gen_wrapper_function,
+/// which creates the HtmlVisitorBridge and uses htm_options_set_visitor instead.
+#[allow(dead_code)]
 pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> String {
-    let mut out = String::with_capacity(2048);
-    writeln!(out, "    /// <summary>").ok();
-    writeln!(
-        out,
-        "    /// Convert HTML to Markdown, invoking visitor callbacks during processing."
-    )
-    .ok();
-    writeln!(out, "    /// </summary>").ok();
-    writeln!(
-        out,
-        "    public static ConversionResult? ConvertWithVisitor(string html, ConversionOptions? options, IHtmlVisitor visitor)"
-    )
-    .ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        ArgumentNullException.ThrowIfNull(html);").ok();
-    writeln!(out, "        ArgumentNullException.ThrowIfNull(visitor);").ok();
-    writeln!(out).ok();
-    writeln!(out, "        using var bridge = new HtmlVisitorBridge(visitor);").ok();
-    writeln!(out).ok();
-    writeln!(out, "        var optionsHandle = IntPtr.Zero;").ok();
-    writeln!(out, "        var visitorHandle = IntPtr.Zero;").ok();
-    writeln!(out, "        try").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(out, "            if (options != null)").ok();
-    writeln!(out, "            {{").ok();
-    writeln!(
-        out,
-        "                var optionsJson = JsonSerializer.Serialize(options, JsonOptions);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);"
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "            visitorHandle = NativeMethods.VisitorCreate(bridge._vtable);"
-    )
-    .ok();
-    writeln!(out, "            if (visitorHandle == IntPtr.Zero)").ok();
-    writeln!(out, "            {{").ok();
-    writeln!(out, "                throw GetLastError();").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "            var resultPtr = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);"
-    )
-    .ok();
-    writeln!(out, "            if (resultPtr == IntPtr.Zero)").ok();
-    writeln!(out, "            {{").ok();
-    writeln!(out, "                throw GetLastError();").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "            var json = Marshal.PtrToStringUTF8(resultPtr);").ok();
-    writeln!(out, "            NativeMethods.FreeString(resultPtr);").ok();
-    writeln!(
-        out,
-        "            return JsonSerializer.Deserialize<ConversionResult>(json!, JsonOptions);"
-    )
-    .ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        finally").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(
-        out,
-        "            if (visitorHandle != IntPtr.Zero) NativeMethods.VisitorFree(visitorHandle);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            if (optionsHandle != IntPtr.Zero) NativeMethods.ConversionOptionsFree(optionsHandle);"
-    )
-    .ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
     let _ = exception_name;
     let _ = prefix;
-    out
+    String::new()
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +776,15 @@ fn gen_visit_result(namespace: &str) -> String {
     )
     .ok();
     writeln!(out, "    public sealed record Error(string Message) : VisitResult;").ok();
+    writeln!(out).ok();
+    writeln!(out, "    internal string ToFfiJson() => this switch {{").ok();
+    writeln!(out, "        VisitResult.Continue => \"\\\"Continue\\\"\",").ok();
+    writeln!(out, "        VisitResult.Skip => \"\\\"Skip\\\"\",").ok();
+    writeln!(out, "        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",").ok();
+    writeln!(out, "        VisitResult.Custom c => \"{{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}}\",").ok();
+    writeln!(out, "        VisitResult.Error e => \"{{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}}\",").ok();
+    writeln!(out, "        _ => \"\\\"Continue\\\"\"").ok();
+    writeln!(out, "    }};").ok();
     writeln!(out, "}}").ok();
     out
 }

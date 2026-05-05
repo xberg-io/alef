@@ -208,9 +208,20 @@ pub(super) fn gen_native_methods(
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
     if has_visitor_callbacks {
         out.push('\n');
-        out.push_str(&crate::gen_visitor::gen_native_methods_visitor(
-            namespace, lib_name, prefix,
-        ));
+        // Find the visitor trait bridge config to determine trait name and options field
+        let visitor_bridge = trait_bridges
+            .iter()
+            .find(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField);
+
+        if let Some(bridge) = visitor_bridge {
+            out.push_str(&crate::gen_visitor::gen_native_methods_visitor(
+                namespace,
+                lib_name,
+                prefix,
+                &bridge.trait_name,
+                bridge.options_field.as_deref().unwrap_or("visitor"),
+            ));
+        }
     }
 
     // Inject trait bridge registration/unregistration P/Invoke declarations.

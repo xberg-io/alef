@@ -222,11 +222,12 @@ fn gen_wrapper_function(
         out.push_str("            if (visitor != null)\n");
         out.push_str("            {\n");
         out.push_str("                using var bridge = new HtmlVisitorBridge(visitor);\n");
-        out.push_str("                var visitorHandle = NativeMethods.VisitorCreate(bridge._vtable);\n");
-        out.push_str("                if (visitorHandle == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str("                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n");
+        out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                try\n");
         out.push_str("                {\n");
-        out.push_str("                    var nativeResult = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);\n");
+        out.push_str("                    NativeMethods.ConversionOptionsSetVisitor(optionsHandle, bridgeHandle);\n");
+        out.push_str("                    var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
         out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
         out.push_str("                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
@@ -236,7 +237,7 @@ fn gen_wrapper_function(
         out.push_str("                }\n");
         out.push_str("                finally\n");
         out.push_str("                {\n");
-        out.push_str("                    NativeMethods.VisitorFree(visitorHandle);\n");
+        out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
         out.push_str("                }\n");
         out.push_str("            }\n");
         out.push_str("            else\n");

@@ -8,7 +8,7 @@
 
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
-use alef_core::config::TraitBridgeConfig;
+use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::fmt::Write;
@@ -260,20 +260,40 @@ fn gen_single_trait_bridge(
 
         writeln!(out, "    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]").ok();
         let method_pascal = to_csharp_name(&method.name);
+        let is_options_field = bridge_cfg.bind_via == BridgeBinding::OptionsField;
+
         if params.is_empty() {
-            writeln!(
-                out,
-                "    private delegate int {}Fn(IntPtr userData, out IntPtr outResult, out IntPtr outError);",
-                method_pascal
-            )
-            .ok();
+            if is_options_field {
+                writeln!(
+                    out,
+                    "    private delegate int {}Fn(IntPtr userData, out IntPtr outResult);",
+                    method_pascal
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "    private delegate int {}Fn(IntPtr userData, out IntPtr outResult, out IntPtr outError);",
+                    method_pascal
+                )
+                .ok();
+            }
         } else {
-            writeln!(
-                out,
-                "    private delegate int {}Fn(IntPtr userData, {}, out IntPtr outResult, out IntPtr outError);",
-                method_pascal, params
-            )
-            .ok();
+            if is_options_field {
+                writeln!(
+                    out,
+                    "    private delegate int {}Fn(IntPtr userData, {}, out IntPtr outResult);",
+                    method_pascal, params
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "    private delegate int {}Fn(IntPtr userData, {}, out IntPtr outResult, out IntPtr outError);",
+                    method_pascal, params
+                )
+                .ok();
+            }
         }
         writeln!(out).ok();
     }
@@ -490,6 +510,8 @@ fn gen_single_trait_bridge(
     }
 
     // Trait method callbacks
+    let is_options_field = bridge_cfg.bind_via == BridgeBinding::OptionsField;
+
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
 
@@ -507,12 +529,21 @@ fn gen_single_trait_bridge(
             format!("{}, ", unmanaged_param_sig)
         };
 
-        writeln!(
-            out,
-            "    private int {}FnCallback(IntPtr userData, {}out IntPtr outResult, out IntPtr outError) {{",
-            method_pascal, params_decl
-        )
-        .ok();
+        if is_options_field {
+            writeln!(
+                out,
+                "    private int {}FnCallback(IntPtr userData, {}out IntPtr outResult) {{",
+                method_pascal, params_decl
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "    private int {}FnCallback(IntPtr userData, {}out IntPtr outResult, out IntPtr outError) {{",
+                method_pascal, params_decl
+            )
+            .ok();
+        }
         writeln!(out, "        try {{").ok();
 
         // Marshal parameters from IntPtr to managed types
@@ -570,18 +601,32 @@ fn gen_single_trait_bridge(
             writeln!(out, "            outResult = IntPtr.Zero;").ok();
         } else {
             writeln!(out, "            var result = _impl.{}({});", method_pascal, param_call).ok();
+            let serialize_expr = if matches!(method.return_type, TypeRef::Named(_)) {
+                "result.ToFfiJson()".to_string()
+            } else {
+                "ToJsonString(result)".to_string()
+            };
             writeln!(
                 out,
-                "            outResult = Marshal.StringToCoTaskMemUTF8(ToJsonString(result));"
+                "            outResult = Marshal.StringToCoTaskMemUTF8({});",
+                serialize_expr
             )
             .ok();
         }
 
-        writeln!(out, "            outError = IntPtr.Zero;").ok();
+        if !is_options_field {
+            writeln!(out, "            outError = IntPtr.Zero;").ok();
+        }
         writeln!(out, "            return 0;").ok();
-        writeln!(out, "        }} catch (Exception ex) {{").ok();
+        if is_options_field {
+            writeln!(out, "        }} catch (Exception) {{").ok();
+        } else {
+            writeln!(out, "        }} catch (Exception ex) {{").ok();
+        }
         writeln!(out, "            outResult = IntPtr.Zero;").ok();
-        writeln!(out, "            outError = Marshal.StringToCoTaskMemUTF8(ex.Message);").ok();
+        if !is_options_field {
+            writeln!(out, "            outError = Marshal.StringToCoTaskMemUTF8(ex.Message);").ok();
+        }
         writeln!(out, "            return 1;").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();

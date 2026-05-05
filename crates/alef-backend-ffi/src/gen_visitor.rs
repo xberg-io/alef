@@ -6,7 +6,7 @@
 ///
 /// - `{prefix}_visitor_create(callbacks: *const {Prefix}VisitorCallbacks) -> *mut {Prefix}Visitor`
 /// - `{prefix}_visitor_free(visitor: *mut {Prefix}Visitor)`
-/// - `{prefix}_convert_with_visitor(html, options, visitor) -> *mut ConversionResult`
+/// - `{prefix}_options_set_visitor_handle(options, visitor)` — attach visitor to options before `{prefix}_convert`
 ///
 /// # Coverage
 ///
@@ -462,39 +462,12 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
 ///
 /// - `prefix`: the FFI function prefix (e.g. `"htm"`).
 /// - `core_import`: the Rust `use` path for the core crate (e.g. `"html_to_markdown_rs"`).
-/// - `embed_visitor_in_options`: when `true`, the generated `{prefix}_convert_with_visitor`
-///   embeds the visitor in `options.visitor` before calling the 2-argument `convert(html,
-///   options)`.  Set this to `true` when the library uses the OptionsField bridge pattern
-///   (visitor lives in `ConversionOptions`).  Set to `false` for the legacy FunctionParam
-///   pattern where `convert` accepts a third visitor argument directly.
-pub fn gen_visitor_bindings(prefix: &str, core_import: &str, embed_visitor_in_options: bool) -> String {
+pub fn gen_visitor_bindings(prefix: &str, core_import: &str) -> String {
     let pascal_prefix = prefix.to_pascal_case();
 
     let struct_fields = gen_struct_fields(&pascal_prefix);
     let impl_methods = gen_impl_methods(&pascal_prefix, core_import);
     let visitor_ref_methods = gen_visitor_ref_methods(core_import);
-
-    // Generate the convert call inside htm_convert_with_visitor.
-    //
-    // OptionsField path (embed_visitor_in_options = true):
-    //   The core `convert` only takes (html, options).  The visitor must be embedded into the
-    //   options before the call.  We mutate (or create) options_rs, set its visitor field, then
-    //   call convert with 2 args.
-    //
-    // Legacy FunctionParam path (embed_visitor_in_options = false):
-    //   The core `convert` takes (html, options, visitor) as three separate arguments.
-    let convert_call = if embed_visitor_in_options {
-        format!(
-            r#"    let mut options_with_visitor: Option<{core_import}::ConversionOptions> = options_rs;
-    if visitor_handle.is_some() {{
-        let opts = options_with_visitor.get_or_insert_with({core_import}::ConversionOptions::default);
-        opts.visitor = visitor_handle;
-    }}
-    match {core_import}::convert(&html_str, options_with_visitor) {{"#
-        )
-    } else {
-        format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
-    };
 
     format!(
         r#"// ---------------------------------------------------------------------------
@@ -729,94 +702,38 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
     }}
 }}
 
-/// Convert HTML to Markdown using a custom visitor.
+/// Attach a visitor to a [`{core_import}::ConversionOptions`] handle before calling `{prefix}_convert`.
 ///
-/// Equivalent to `{prefix}_convert` but threads the provided visitor through
-/// the conversion pipeline so that every `visit_*` callback is invoked during
-/// processing.
+/// The visitor will be invoked during conversion via the normal `{prefix}_convert` path.
+/// The `visitor` pointer must remain valid until after `{prefix}_convert` returns.
 ///
-/// Returns a heap-allocated null-terminated Markdown string on success, or
-/// null on failure (check `{prefix}_last_error_code` / `{prefix}_last_error_context`).
-/// The returned pointer must be freed with `{prefix}_free_string`.
-///
-/// # Arguments
-///
-/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
-/// - `options`: optional conversion options; pass null for defaults.
-/// - `visitor`: optional visitor handle from `{prefix}_visitor_create`; pass
-///   null for default conversion (equivalent to `{prefix}_convert`).
+/// Passing `null` for either argument is a no-op.
 ///
 /// # Safety
 ///
-/// All pointer arguments must be valid or null as described above.
-/// The `visitor` pointer (and its embedded `user_data`) must remain valid for
-/// the duration of this call.
+/// `options` must be a non-null pointer returned by `{prefix}_conversion_options_from_json`,
+/// valid for write access.  `visitor` must be a non-null pointer returned by
+/// `{prefix}_visitor_create`, or null.  Both must remain valid for the duration of any
+/// subsequent `{prefix}_convert` call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_convert_with_visitor(
-    html: *const std::ffi::c_char,
-    options: *const {core_import}::ConversionOptions,
+pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
+    options: *mut {core_import}::ConversionOptions,
     visitor: *mut {pascal_prefix}Visitor,
-) -> *mut std::ffi::c_char {{
-    clear_last_error();
-
-    if html.is_null() {{
-        set_last_error(1, "Null pointer passed for html");
-        return std::ptr::null_mut();
+) {{
+    if options.is_null() || visitor.is_null() {{
+        return;
     }}
-
-    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
-    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
-        Ok(s) => s.to_string(),
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in html parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-
-    let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
-        None
-    }} else {{
-        // SAFETY: null check above guarantees options is a valid pointer.
-        Some(unsafe {{ &*options }}.clone())
-    }};
-
-    // Build the visitor handle if provided.
-    let visitor_handle: Option<{core_import}::visitor::VisitorHandle> = if visitor.is_null() {{
-        None
-    }} else {{
-        // SAFETY: visitor is a valid pointer for the duration of this call.
-        let ffi_visitor = unsafe {{ &mut *visitor }};
-        // Wrap in Rc<RefCell<dyn HtmlVisitor>> as required by convert.
-        // We use a raw-pointer wrapper to avoid cloning — the {pascal_prefix}Visitor is
-        // pinned in place by the caller-owned Box.
-        struct VisitorRef(*mut {pascal_prefix}Visitor);
-        impl std::fmt::Debug for VisitorRef {{
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
-                f.debug_struct("VisitorRef").finish_non_exhaustive()
-            }}
-        }}
-        impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
-{visitor_ref_methods}        }}
-        let _ = ffi_visitor; // suppress unused warning
-        Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))))
-    }};
-
-CONVERT_CALL_PLACEHOLDER
-        Ok(result) => {{
-            let markdown = result.content.unwrap_or_default();
-            match std::ffi::CString::new(markdown) {{
-                Ok(s) => s.into_raw(),
-                Err(_) => {{
-                    set_last_error(3, "Conversion output contained null bytes");
-                    std::ptr::null_mut()
-                }}
-            }}
-        }},
-        Err(e) => {{
-            set_last_error(2, &e.to_string());
-            std::ptr::null_mut()
+    struct VisitorRef(*mut {pascal_prefix}Visitor);
+    impl std::fmt::Debug for VisitorRef {{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+            f.debug_struct("VisitorRef").finish_non_exhaustive()
         }}
     }}
+    impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
+{visitor_ref_methods}    }}
+    // SAFETY: options is non-null (checked above); caller guarantees it is valid for write.
+    let options_ref = unsafe {{ &mut *options }};
+    options_ref.visitor = Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))));
 }}"#,
         VISIT_RESULT_SKIP = VISIT_RESULT_SKIP,
         VISIT_RESULT_PRESERVE_HTML = VISIT_RESULT_PRESERVE_HTML,
@@ -829,7 +746,6 @@ CONVERT_CALL_PLACEHOLDER
         impl_methods = impl_methods,
         visitor_ref_methods = visitor_ref_methods,
     )
-    .replace("CONVERT_CALL_PLACEHOLDER", &convert_call)
 }
 
 /// Generate `{prefix}_convert` — the real no-visitor implementation of the core `convert`

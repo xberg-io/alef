@@ -621,6 +621,14 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     )
     .ok();
     writeln!(out, "            }}").ok();
+    writeln!(out, "            if (optionsPtr.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(out, "                var defaultJson = arena.allocateFrom(\"{{}}\");").ok();
+    writeln!(
+        out,
+        "                optionsPtr = (MemorySegment) NativeLib.{pu}_CONVERSION_OPTIONS_FROM_JSON.invoke(defaultJson);"
+    )
+    .ok();
+    writeln!(out, "            }}").ok();
     writeln!(out).ok();
     writeln!(
         out,
@@ -628,6 +636,13 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     )
     .ok();
     writeln!(out, "            if (visitorHandle.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(out, "                if (!optionsPtr.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(
+        out,
+        "                    NativeLib.{pu}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);"
+    )
+    .ok();
+    writeln!(out, "                }}").ok();
     writeln!(
         out,
         "                throw new {exc}(\"Failed to create visitor handle\", null);"
@@ -638,7 +653,12 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     writeln!(out, "            try {{").ok();
     writeln!(
         out,
-        "                var resultPtr = (MemorySegment) NativeLib.{pu}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);"
+        "                NativeLib.{pu}_OPTIONS_SET_VISITOR_HANDLE.invoke(optionsPtr, visitorHandle);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                var resultPtr = (MemorySegment) NativeLib.{pu}_CONVERT.invoke(cHtml, optionsPtr);"
     )
     .ok();
     writeln!(out, "                if (!optionsPtr.equals(MemorySegment.NULL)) {{").ok();
@@ -647,6 +667,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "                    NativeLib.{pu}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);"
     )
     .ok();
+    writeln!(out, "                    optionsPtr = MemorySegment.NULL;").ok();
     writeln!(out, "                }}").ok();
     writeln!(out, "                if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
     writeln!(out, "                    checkLastError();").ok();
@@ -654,13 +675,27 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     writeln!(out, "                }}").ok();
     writeln!(
         out,
-        "                var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        "                var jsonPtr = (MemorySegment) NativeLib.{pu}_CONVERSION_RESULT_TO_JSON.invoke(resultPtr);"
     )
     .ok();
-    writeln!(out, "                NativeLib.{pu}_FREE_STRING.invoke(resultPtr);").ok();
     writeln!(
         out,
-        "                return new ConversionResult(markdown, null, null, null, null, null);"
+        "                NativeLib.{pu}_CONVERSION_RESULT_FREE.invoke(resultPtr);"
+    )
+    .ok();
+    writeln!(out, "                if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(out, "                    checkLastError();").ok();
+    writeln!(out, "                    return null;").ok();
+    writeln!(out, "                }}").ok();
+    writeln!(
+        out,
+        "                String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+    )
+    .ok();
+    writeln!(out, "                NativeLib.{pu}_FREE_STRING.invoke(jsonPtr);").ok();
+    writeln!(
+        out,
+        "                return MAPPER.readValue(json, ConversionResult.class);"
     )
     .ok();
     writeln!(out, "            }} catch (Throwable e) {{").ok();

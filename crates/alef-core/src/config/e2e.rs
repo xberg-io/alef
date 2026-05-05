@@ -398,6 +398,11 @@ pub struct CallOverride {
     /// E.g., "html_to_markdown._html_to_markdown" for PyO3 native enums.
     #[serde(default)]
     pub enum_module: Option<String>,
+    /// Maps nested fixture object field names to their C# type names.
+    /// Used to generate `JsonSerializer.Deserialize<NestedType>(...)` for nested objects.
+    /// E.g., `{"preprocessing": "PreprocessingOptions"}`.
+    #[serde(default)]
+    pub nested_types: HashMap<String, String>,
     /// When `true`, the function returns a simple type (e.g., `String`) rather
     /// than a struct.  Generators that would normally emit `result.content`
     /// (or equivalent field access) will use the result variable directly.

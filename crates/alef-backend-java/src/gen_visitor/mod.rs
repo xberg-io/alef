@@ -80,17 +80,17 @@ pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
     writeln!(out).ok();
     writeln!(
         out,
-        "    static final MethodHandle {pu}_CONVERT_WITH_VISITOR = LINKER.downcallHandle("
+        "    static final MethodHandle {pu}_OPTIONS_SET_VISITOR_HANDLE = LINKER.downcallHandle("
     )
     .ok();
     writeln!(
         out,
-        "        LIB.find(\"{prefix}_convert_with_visitor\").orElseThrow(),"
+        "        LIB.find(\"{prefix}_options_set_visitor_handle\").orElseThrow(),"
     )
     .ok();
     writeln!(
         out,
-        "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+        "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
     )
     .ok();
     writeln!(out, "    );").ok();
@@ -223,8 +223,8 @@ mod tests {
         assert!(out.contains("HTM_VISITOR_CREATE"), "must have visitor create handle");
         assert!(out.contains("HTM_VISITOR_FREE"), "must have visitor free handle");
         assert!(
-            out.contains("HTM_CONVERT_WITH_VISITOR"),
-            "must have convert with visitor handle"
+            out.contains("HTM_OPTIONS_SET_VISITOR_HANDLE"),
+            "must have options set visitor handle"
         );
     }
 

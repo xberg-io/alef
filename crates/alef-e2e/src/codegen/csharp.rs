@@ -109,9 +109,11 @@ impl E2eCodegen for CSharpCodegen {
             &e2e_config.fields_array,
         );
 
-        // Resolve enum_fields from C# override config.
+        // Resolve enum_fields and nested_types from C# override config.
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
+        static EMPTY_NESTED_TYPES: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
+        let nested_types = overrides.map(|o| &o.nested_types).unwrap_or(&EMPTY_NESTED_TYPES);
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -141,6 +143,7 @@ impl E2eCodegen for CSharpCodegen {
                 is_async,
                 e2e_config,
                 enum_fields,
+                nested_types,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -250,6 +253,7 @@ fn render_test_file(
     is_async: bool,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -299,6 +303,7 @@ fn render_test_file(
             is_async,
             e2e_config,
             enum_fields,
+            nested_types,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -630,6 +635,7 @@ fn render_test_method(
     _is_async: bool,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -695,6 +701,7 @@ fn render_test_method(
         class_name,
         effective_options_type,
         enum_fields,
+        nested_types,
         &fixture.id,
     );
 
@@ -842,6 +849,7 @@ fn build_args_and_setup(
     class_name: &str,
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
@@ -953,16 +961,11 @@ fn build_args_and_setup(
                         parts.push(json_array_to_csharp_list(arr, arg.element_type.as_deref()));
                         continue;
                     }
-                    // Object value with known type: deserialize via JsonSerializer so the
-                    // library's own [JsonPropertyName] annotations handle field name mapping.
-                    // Normalize enum field values to lowercase to match [JsonPropertyName("lowercase")] attrs.
+                    // Object value with known type: generate idiomatic C# object initializer.
                     if let Some(opts_type) = options_type {
-                        if v.is_object() {
-                            let normalized = normalize_csharp_enum_values(v, enum_fields);
-                            let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                            parts.push(format!(
-                                "JsonSerializer.Deserialize<{opts_type}>(\"{}\", ConfigOptions)!",
-                                escape_csharp(&json_str),
+                        if let Some(obj) = v.as_object() {
+                            parts.push(csharp_object_initializer(
+                                obj, opts_type, enum_fields, nested_types,
                             ));
                             continue;
                         }
@@ -1580,6 +1583,54 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_csharp(&json_str))
         }
     }
+}
+
+/// Emit a C# object initializer for a JSON options object.
+///
+/// - camelCase fixture keys → PascalCase C# property names
+/// - Enum fields (from `enum_fields`) → `EnumType.Member`
+/// - Nested objects with known type (from `nested_types`) → `JsonSerializer.Deserialize<T>(...)`
+/// - Arrays → `new List<string> { ... }`
+/// - Primitives → C# literals via `json_to_csharp`
+fn csharp_object_initializer(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    type_name: &str,
+    enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
+) -> String {
+    if obj.is_empty() {
+        return format!("new {type_name}()");
+    }
+    let props: Vec<String> = obj
+        .iter()
+        .map(|(key, val)| {
+            let pascal_key = key.to_upper_camel_case();
+            let cs_val = if let Some(enum_type) = enum_fields.get(key.as_str()) {
+                // Enum: EnumType.Member
+                let member = val
+                    .as_str()
+                    .map(|s| s.to_upper_camel_case())
+                    .unwrap_or_else(|| "null".to_string());
+                format!("{enum_type}.{member}")
+            } else if let Some(nested_type) = nested_types.get(key.as_str()) {
+                // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
+                let normalized = normalize_csharp_enum_values(val, enum_fields);
+                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                format!(
+                    "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
+                    escape_csharp(&json_str)
+                )
+            } else if let Some(arr) = val.as_array() {
+                // Array: List<string>
+                let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
+                format!("new List<string> {{ {} }}", items.join(", "))
+            } else {
+                json_to_csharp(val)
+            };
+            format!("{pascal_key} = {cs_val}")
+        })
+        .collect();
+    format!("new {} {{ {} }}", type_name, props.join(", "))
 }
 
 /// Convert enum values in a JSON object to lowercase to match C# [JsonPropertyName] attributes.
