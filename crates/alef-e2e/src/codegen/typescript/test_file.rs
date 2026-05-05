@@ -127,12 +127,15 @@ pub fn render_test_file(
 
         let _ = module_path; // retained in signature for potential future use
         if let (true, Some(opts_type)) = (needs_options_import, options_type) {
-            // Import options type as a value (not just a type) since we use .fromUpdate() at runtime
+            // Import options type as a value (not just a type) since we use .fromUpdate() at runtime.
+            // We also need the Update class (e.g., WasmConversionOptionsUpdate) for the constructor.
             imports.push(opts_type.to_string());
-            // Also import any nested types used in options (e.g., WasmPreprocessingOptions)
+            imports.push(format!("{opts_type}Update"));
+            // Also import any nested types and their Update classes (e.g., WasmPreprocessingOptions)
             for nested_type in nested_types.values() {
                 if !imports.contains(nested_type) {
                     imports.push(nested_type.clone());
+                    imports.push(format!("{nested_type}Update"));
                 }
             }
             let imports_str = imports.join(", ");
