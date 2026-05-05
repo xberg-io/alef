@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(scaffold/node): generated `kreuzberg-node` `Cargo.toml` now always includes `serde = { version = "1", features = ["derive"] }` and suppresses the `cargo-machete` false positive with `[package.metadata.cargo-machete] ignored = ["serde"]`; machete flagged serde as unused because derive macros reference it via fully-qualified paths not detected by static analysis.
+- fix(napi): NAPI type map now emits `Vec<u8>` instead of removed `napi::Buffer` for `TypeRef::Bytes`; `napi::Buffer` was removed in NAPI v3 and JS `Uint8Array` ↔ `Vec<u8>` conversion is now automatic.
+- fix(php): `gen_enum_tainted_from_binding_to_core` now emits `#[allow(clippy::useless_conversion)]` before the generated `impl From` block; enum-tainted structs with `Vec<u8>` or `String` fields triggered clippy errors for no-op `.into()` conversions.
+- fix(csharp-backend): `ConvertWithVisitor` code path now uses `ConversionResultToJson` + `ConversionResultFree` on the returned handle instead of treating the pointer as a direct JSON string, matching the updated FFI API.
 - fix(go-e2e-codegen): visitor test fixtures now correctly emit `opts := &htmd.ConversionOptions{}; opts.Visitor = visitor; result, err := htmd.Convert(html, opts)` instead of an undeclared `options` variable and passing `nil` to Convert. The codegen now creates a fresh `opts` variable with the visitor attached and correctly replaces the trailing `, nil` with `, opts` in the function call.
 - fix(java-e2e-codegen): visitor test fixtures now correctly emit `convert(html, new ConversionOptions().withVisitor(visitor))` instead of losing the html argument. The codegen now properly detects and replaces optional arguments when visitor is present.
 - fix(go-backend): `*C.char` returns now check `if ptr == nil { return nil }` before calling `C.GoString`; previously `C.GoString(nil)` returned `""` and `&v` was returned as a non-nil `*string`, so `Option<String> = None` was misrepresented as a non-nil pointer to an empty string.
