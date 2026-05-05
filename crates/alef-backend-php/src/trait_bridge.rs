@@ -5,7 +5,7 @@
 
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
-    to_camel_case, visitor_param_type,
+    visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -526,6 +526,29 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
+    // Helper: map a PHP return Zval to VisitResult.
+    // Handles string returns ('skip', 'continue', 'preserve_html', custom strings)
+    // and PHP array returns like ['custom' => 'replacement text'].
+    writeln!(out, "fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {core_crate}::VisitResult {{").unwrap();
+    writeln!(out, "    if let Some(s) = val.string() {{").unwrap();
+    writeln!(out, "        return match s.to_lowercase().as_str() {{").unwrap();
+    writeln!(out, "            \"skip\" => {core_crate}::VisitResult::Skip,").unwrap();
+    writeln!(out, "            \"continue\" => {core_crate}::VisitResult::Continue,").unwrap();
+    writeln!(out, "            \"preserve_html\" | \"preservehtml\" => {core_crate}::VisitResult::PreserveHtml,").unwrap();
+    writeln!(out, "            other => {core_crate}::VisitResult::Custom(other.to_string()),").unwrap();
+    writeln!(out, "        }};").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    if let Some(arr) = val.array() {{").unwrap();
+    writeln!(out, "        if let Some(custom_val) = arr.get(\"custom\") {{").unwrap();
+    writeln!(out, "            if let Some(s) = custom_val.string() {{").unwrap();
+    writeln!(out, "                return {core_crate}::VisitResult::Custom(s.to_string());").unwrap();
+    writeln!(out, "            }}").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    {core_crate}::VisitResult::Continue").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
     // Bridge struct — stores a reference to the PHP object.
     // The reference is valid for the duration of the PHP function call that
     // created the bridge, which spans the entire Rust trait method dispatch.
@@ -599,10 +622,10 @@ fn gen_visitor_bridge(
     out
 }
 
-/// Generate a single visitor method that checks for a camelCase PHP method and calls it.
+/// Generate a single visitor method that checks for a snake_case PHP method and calls it.
 fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
     let name = &method.name;
-    let php_name = to_camel_case(name);
+    let php_name = name; // PHP conventions use snake_case method names
 
     let mut sig_parts = vec!["&mut self".to_string()];
     for p in &method.params {
@@ -716,23 +739,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(
-        out,
-        "                let s = val.string().unwrap_or_default().to_lowercase();"
-    )
-    .unwrap();
-    writeln!(out, "                match s.as_str() {{").unwrap();
-    writeln!(out, "                    \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                    \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                    \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(out, "                    other => {ret_ty}::Custom(other.to_string()),").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
+    writeln!(out, "            Ok(val) => php_zval_to_visit_result(&val),").unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
