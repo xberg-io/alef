@@ -393,7 +393,27 @@ fn render_test_file(
             return true;
         }
         let call_args = &call_config.args;
-        call_args.iter().any(|a| a.arg_type == "mock_url")
+        // Need "os" for mock_url args, or for bytes args with a string fixture value
+        // (fixture-relative path loaded via os.ReadFile at test-run time).
+        if call_args.iter().any(|a| a.arg_type == "mock_url") {
+            return true;
+        }
+        call_args.iter().any(|a| {
+            if a.arg_type != "bytes" {
+                return false;
+            }
+            // alef.toml field paths are dotted (e.g. "input.data"). The fixture's `input`
+            // field already strips the "input." prefix, so we walk the remaining segments.
+            let mut current = &f.input;
+            let path = a.field.strip_prefix("input.").unwrap_or(&a.field);
+            for segment in path.split('.') {
+                match current.get(segment) {
+                    Some(next) => current = next,
+                    None => return false,
+                }
+            }
+            current.is_string()
+        })
     });
 
     // Note: file_path args are passed directly as relative strings — the e2e/go
@@ -1548,8 +1568,14 @@ fn build_args_and_setup(
                     }
                 }
                 Some(serde_json::Value::String(s)) => {
-                    let go_b64 = go_string_literal(s);
-                    setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
+                    // Bytes args whose fixture value is a string are fixture-relative paths into
+                    // the repo-root `test_documents/` directory (matching the rust e2e codegen
+                    // convention). The Go test runner's TestMain chdirs into test_documents/, so
+                    // a bare relative path resolves correctly via os.ReadFile.
+                    let go_path = go_string_literal(s);
+                    setup_lines.push(format!(
+                        "{var_name}, {var_name}Err := os.ReadFile({go_path})\n\tif {var_name}Err != nil {{\n\t\tt.Fatalf(\"read fixture {s}: %v\", {var_name}Err)\n\t}}"
+                    ));
                     parts.push(var_name);
                 }
                 Some(other) => {
