@@ -498,7 +498,7 @@ impl Backend for PhpBackend {
                 let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
                 let options_type = bridge.options_type.as_deref().unwrap_or("ConversionOptions");
                 let builder_type = format!("{}Builder", options_type);
-                let bridge_struct = format!("Php{}", bridge.trait_name);
+                let bridge_struct = format!("Php{}Bridge", bridge.trait_name);
 
                 // Replace the old method signature and body with the corrected version.
                 // Old pattern: pub fn visitor(&self, visitor: Option<&VisitorHandle>) -> ConversionOptionsBuilder { ... }
