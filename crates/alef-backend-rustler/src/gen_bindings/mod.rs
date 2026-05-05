@@ -717,7 +717,7 @@ impl Backend for RustlerBackend {
                             .collect();
                         let with_visitor_args_str = with_visitor_args.join(", ");
                         content.push_str(&format!(
-                            "      :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str}, visitor)\n"
+                            "      {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str}, visitor)\n"
                         ));
                         content.push_str("      do_visitor_receive_loop(visitor)\n");
                         content.push_str("    else\n");
@@ -775,7 +775,7 @@ impl Backend for RustlerBackend {
                         ));
                         let with_visitor_args = nif_call_args.join(", ");
                         content.push_str(&format!(
-                            "    :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"
+                            "    {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"
                         ));
                         content.push_str(&format!("    do_visitor_receive_loop({vis_param})\n"));
                         content.push_str("  end\n\n");
