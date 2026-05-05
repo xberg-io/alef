@@ -627,7 +627,7 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
 /// `indent` is the leading whitespace prepended to each line (e.g. `""` for
 /// top-level declarations, `"    "` for class members).  Does nothing when
 /// `doc` is empty.
-pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
+pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_pattern: bool) -> String {
     let mut body = String::with_capacity(2048);
 
     emit_javadoc(&mut body, &typ.doc, "");
@@ -648,9 +648,16 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
             continue;
         }
 
+        // Match the record's special-cased ConversionOptions.visitor field (VisitorHandle in
+        // the IR but exposed as the user-facing `Visitor` interface) so the builder's
+        // build() call passes a Visitor — not a VisitorHandle — to the record constructor.
+        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+
         // Duration maps to primitive `long` in the public record, but in builder
         // classes we use boxed `Long` so that `null` can represent "not set".
-        let field_type = if field.optional {
+        let field_type = if is_visitor_field {
+            "Optional<Visitor>".to_string()
+        } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
             java_boxed_type(&field.ty).to_string()
@@ -658,7 +665,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
             java_type(&field.ty).to_string()
         };
 
-        let default_value = if field.optional {
+        let default_value = if is_visitor_field {
+            // The visitor field is wrapped in Optional<Visitor> regardless of the IR's
+            // optionality, so its default has to be Optional.empty() to match the type.
+            "Optional.empty()".to_string()
+        } else if field.optional {
             // For Optional fields, always use Optional.empty() or Optional.of(value)
             if let Some(default) = &field.default {
                 // If there's an explicit default, wrap it in Optional.of()
@@ -715,7 +726,10 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
 
         let field_name = safe_java_field_name(&field.name);
         let field_name_pascal = to_class_name(&field.name);
-        let field_type = if field.optional {
+        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        let field_type = if is_visitor_field {
+            "Optional<Visitor>".to_string()
+        } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
             java_boxed_type(&field.ty).to_string()
@@ -752,8 +766,10 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     for (i, field) in non_tuple_fields.iter().enumerate() {
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        // For optional fields, extract the value from Optional using orElse(null)
-        if field.optional {
+        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        // For optional fields (and the synthetic Optional<Visitor> visitor field),
+        // extract the value from Optional using orElse(null).
+        if field.optional || is_visitor_field {
             writeln!(body, "            {}.orElse(null){}", field_name, comma).ok();
         } else {
             writeln!(body, "            {}{}", field_name, comma).ok();

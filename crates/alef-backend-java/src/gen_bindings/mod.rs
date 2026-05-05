@@ -204,7 +204,7 @@ impl Backend for JavaBackend {
                 if typ.has_default {
                     files.push(GeneratedFile {
                         path: base_path.join(format!("{}Builder.java", typ.name)),
-                        content: gen_builder_class(&package, typ),
+                        content: gen_builder_class(&package, typ, has_visitor_pattern),
                         generated_header: true,
                     });
                 }
