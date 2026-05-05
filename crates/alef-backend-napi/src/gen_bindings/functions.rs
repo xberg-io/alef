@@ -14,9 +14,29 @@ pub(super) fn gen_function(
     mapper: &NapiMapper,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     prefix: &str,
 ) -> String {
-    let params = function_params(&func.params, &|ty| {
+    // Treat any Named param whose type derives Default as binding-optional so
+    // JS callers can omit it (or pass undefined) — we materialise the default
+    // in the body via `unwrap_or_default()`. Clone the params with that flag
+    // applied so downstream helpers see the augmented optionality.
+    let augmented_params: Vec<alef_core::ir::ParamDef> = func
+        .params
+        .iter()
+        .map(|p| {
+            let mut p2 = p.clone();
+            if !p2.optional {
+                if let TypeRef::Named(n) = &p2.ty {
+                    if default_types.contains(n.as_str()) && !opaque_types.contains(n.as_str()) {
+                        p2.optional = true;
+                    }
+                }
+            }
+            p2
+        })
+        .collect();
+    let params = function_params(&augmented_params, &|ty| {
         // Opaque Named params must be received by reference since NAPI opaque
         // structs don't implement FromNapiValue (they use Arc<T> internally).
         if let TypeRef::Named(n) = ty {
@@ -26,6 +46,30 @@ pub(super) fn gen_function(
         }
         mapper.map_type(ty)
     });
+    // Prefix the body with `unwrap_or_default()` coercions for params we promoted
+    // to Option<> in the binding signature. After these statements, the param
+    // identifiers refer to non-optional values so the rest of the body emission
+    // (which uses func.params, not augmented) remains correct.
+    //
+    // Skip the prefix when the original param is already considered
+    // "promoted-optional" by `is_promoted_optional` — the let-binding helper
+    // emits its own `unwrap_or_default()` for that case and prefixing here
+    // would yield `T.unwrap_or_default()` (no such method).
+    let default_coerce_prefix: String = augmented_params
+        .iter()
+        .zip(func.params.iter())
+        .enumerate()
+        .filter_map(|(idx, (aug, orig))| {
+            if aug.optional
+                && !orig.optional
+                && !alef_codegen::shared::is_promoted_optional(&func.params, idx)
+            {
+                Some(format!("    let {} = {}.unwrap_or_default();\n", orig.name, orig.name))
+            } else {
+                None
+            }
+        })
+        .collect();
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
@@ -161,6 +205,11 @@ pub(super) fn gen_function(
     if func.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
+    let body = if default_coerce_prefix.is_empty() {
+        body
+    } else {
+        format!("{}{}", default_coerce_prefix, body)
+    };
     format!(
         "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",

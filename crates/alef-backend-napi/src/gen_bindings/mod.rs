@@ -249,6 +249,16 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         // Collect struct names so tagged enum codegen knows which Named types have binding structs
         let struct_names: ahash::AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
 
+        // Collect Named types that have a Default impl. These are eligible to be
+        // promoted to Option<T> in binding signatures so JS callers may pass
+        // `undefined` to fall back to a default-constructed instance.
+        let default_types: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default)
+            .map(|t| t.name.clone())
+            .collect();
+
         for enum_def in &api.enums {
             builder.add_item(&enums::gen_enum(enum_def, &prefix, has_serde));
         }
@@ -294,7 +304,14 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &core_import,
                 ));
             } else {
-                builder.add_item(&functions::gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
+                builder.add_item(&functions::gen_function(
+                    func,
+                    &mapper,
+                    &cfg,
+                    &opaque_types,
+                    &default_types,
+                    &prefix,
+                ));
             }
         }
 
