@@ -903,6 +903,17 @@ fn build_args_and_setup(
                         }
                     }
                 }
+                // Special case: file path arguments need to be prefixed with the test_documents directory.
+                // When running from e2e/csharp/, paths like "docx/fake.docx" need to resolve to
+                // "../../test_documents/docx/fake.docx".
+                if arg.arg_type == "file_path" {
+                    if let Some(path_str) = v.as_str() {
+                        // Adjust path to be relative to e2e/{lang} -> ../../test_documents/{path}
+                        let adjusted_path = format!("../../test_documents/{}", path_str);
+                        parts.push(format!("\"{}\"", escape_csharp(&adjusted_path)));
+                        continue;
+                    }
+                }
                 parts.push(json_to_csharp(v));
             }
         }
