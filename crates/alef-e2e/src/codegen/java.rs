@@ -85,10 +85,7 @@ impl E2eCodegen for JavaCodegen {
 
         // Get Java-specific enum_fields from override (required for correct enum handling).
         let empty_enum_fields = std::collections::HashMap::new();
-        let java_enum_fields = overrides
-            .as_ref()
-            .map(|o| &o.enum_fields)
-            .unwrap_or(&empty_enum_fields);
+        let java_enum_fields = overrides.as_ref().map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
 
         // Build effective nested_types by merging defaults with configured overrides.
         let mut effective_nested_types = default_java_nested_types();
@@ -97,9 +94,7 @@ impl E2eCodegen for JavaCodegen {
         }
 
         // Resolve nested_types_optional from override (defaults to true for backward compatibility).
-        let nested_types_optional = overrides
-            .map(|o| o.nested_types_optional)
-            .unwrap_or(true);
+        let nested_types_optional = overrides.map(|o| o.nested_types_optional).unwrap_or(true);
 
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
@@ -828,7 +823,13 @@ fn render_test_method(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
-                            let builder_expr = java_builder_expression(obj, opts_type, enum_fields, nested_types, nested_types_optional);
+                            let builder_expr = java_builder_expression(
+                                obj,
+                                opts_type,
+                                enum_fields,
+                                nested_types,
+                                nested_types_optional,
+                            );
                             let var_name = &arg.name;
                             let _ = writeln!(out, "        var {var_name} = {builder_expr};");
                         }
@@ -858,7 +859,10 @@ fn render_test_method(
         if args_str.is_empty() {
             // No arguments: just create ConversionOptions with visitor
             format!("new ConversionOptions().withVisitor({})", visitor_var)
-        } else if args_str.contains("new ConversionOptions") || args_str.contains("ConversionOptionsBuilder") || args_str.contains(".builder()") {
+        } else if args_str.contains("new ConversionOptions")
+            || args_str.contains("ConversionOptionsBuilder")
+            || args_str.contains(".builder()")
+        {
             // Options are being built (either new ConversionOptions(), builder pattern, or .builder().build())
             // append .withVisitor() call before .build() if present
             if args_str.contains(".build()") {
@@ -1808,10 +1812,7 @@ fn java_builder_expression(
                 let is_plain_field = matches!(camel_key.as_str(), "listIndentWidth" | "wrapWidth");
                 // Builders for typed-record nested config classes use primitives
                 // throughout — they're not the optional-options pattern.
-                let is_primitive_builder = matches!(
-                    type_name,
-                    "SecurityLimits" | "SecurityLimitsBuilder"
-                );
+                let is_primitive_builder = matches!(type_name, "SecurityLimits" | "SecurityLimitsBuilder");
 
                 if is_plain_field || is_primitive_builder {
                     // Plain numeric field: no Optional wrapper
@@ -1839,14 +1840,12 @@ fn java_builder_expression(
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{}Options", key.to_upper_camel_case()));
-                let inner = java_builder_expression(nested, &nested_type, enum_fields, nested_types, nested_types_optional);
+                let inner =
+                    java_builder_expression(nested, &nested_type, enum_fields, nested_types, nested_types_optional);
                 // Top-level config builders (e.g. ExtractionConfigBuilder) declare nested
                 // record fields as `Optional<T>` (since they are nullable). Primitive-fields
                 // builders (SecurityLimitsBuilder etc.) take the bare type directly.
-                let is_primitive_builder = matches!(
-                    type_name,
-                    "SecurityLimits" | "SecurityLimitsBuilder"
-                );
+                let is_primitive_builder = matches!(type_name, "SecurityLimits" | "SecurityLimitsBuilder");
                 if is_primitive_builder || !nested_types_optional {
                     inner
                 } else {

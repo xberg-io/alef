@@ -40,11 +40,7 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "    static {{").ok();
     writeln!(body, "        loadNativeLibrary();").ok();
     writeln!(body, "        try {{").ok();
-    writeln!(
-        body,
-        "            Arena arena = Arena.ofConfined();"
-    )
-    .ok();
+    writeln!(body, "            Arena arena = Arena.ofConfined();").ok();
     writeln!(
         body,
         "            // Try the loaded library name first (for System.load() path case)"

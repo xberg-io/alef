@@ -222,7 +222,9 @@ fn gen_wrapper_function(
         out.push_str("            if (visitor != null)\n");
         out.push_str("            {\n");
         out.push_str("                using var bridge = new HtmlVisitorBridge(visitor);\n");
-        out.push_str("                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n");
+        out.push_str(
+            "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n",
+        );
         out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                try\n");
         out.push_str("                {\n");

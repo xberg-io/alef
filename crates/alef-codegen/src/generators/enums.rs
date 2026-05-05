@@ -77,7 +77,11 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
             "        // can deserialize into a unit-variant of the tagged enum."
         )
         .ok();
-        writeln!(out, "        let json_str: String = if let Ok(s) = value.extract::<String>() {{").ok();
+        writeln!(
+            out,
+            "        let json_str: String = if let Ok(s) = value.extract::<String>() {{"
+        )
+        .ok();
         writeln!(
             out,
             "            serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!(\"Invalid {name}: {{e}}\")))?"

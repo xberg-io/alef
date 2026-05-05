@@ -357,7 +357,11 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     // Check if options.Visitor is set and delegate to helper
     if options_param.is_some() {
         writeln!(out, "\tif options != nil && options.Visitor != nil {{").ok();
-        writeln!(out, "\t\treturn convertWithVisitorHelper(html, options, options.Visitor)").ok();
+        writeln!(
+            out,
+            "\t\treturn convertWithVisitorHelper(html, options, options.Visitor)"
+        )
+        .ok();
         writeln!(out, "\t}}").ok();
         writeln!(out).ok();
     }
@@ -376,10 +380,19 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         writeln!(out, "\tif options != nil {{").ok();
         writeln!(out, "\t\tjsonBytes, err := json.Marshal(options)").ok();
         writeln!(out, "\t\tif err != nil {{").ok();
-        writeln!(out, "\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)").ok();
+        writeln!(
+            out,
+            "\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)"
+        )
+        .ok();
         writeln!(out, "\t\t}}").ok();
         writeln!(out, "\t\ttmpStr := C.CString(string(jsonBytes))").ok();
-        writeln!(out, "\t\tcOptions = C.{}_conversion_options_from_json(tmpStr)", ffi_prefix).ok();
+        writeln!(
+            out,
+            "\t\tcOptions = C.{}_conversion_options_from_json(tmpStr)",
+            ffi_prefix
+        )
+        .ok();
         writeln!(out, "\t\tC.free(unsafe.Pointer(tmpStr))").ok();
         writeln!(out, "\t\tdefer C.{}_conversion_options_free(cOptions)", ffi_prefix).ok();
         writeln!(out, "\t}}").ok();
@@ -405,8 +418,16 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     writeln!(out, "\t}}").ok();
     writeln!(out, "\tdefer C.{}_free_string(jsonPtr)", ffi_prefix).ok();
     writeln!(out, "\tvar result ConversionResult").ok();
-    writeln!(out, "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)").ok();
+    writeln!(
+        out,
+        "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)"
+    )
+    .ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\treturn &result, nil").ok();
     writeln!(out, "}}").ok();

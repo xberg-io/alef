@@ -47,12 +47,7 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
         .iter()
         .map(|m| {
             let ret = java_type(&m.return_type);
-            let params = m
-                .params
-                .iter()
-                .map(|p| java_type(&p.ty))
-                .collect::<Vec<_>>()
-                .join(",");
+            let params = m.params.iter().map(|p| java_type(&p.ty)).collect::<Vec<_>>().join(",");
             format!("{ret}({params})")
         })
         .collect::<Vec<_>>()
@@ -146,12 +141,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         .iter()
         .map(|m| {
             let ret = java_type(&m.return_type);
-            let params = m
-                .params
-                .iter()
-                .map(|p| java_type(&p.ty))
-                .collect::<Vec<_>>()
-                .join(",");
+            let params = m.params.iter().map(|p| java_type(&p.ty)).collect::<Vec<_>>().join(",");
             format!("{ret}({params})")
         })
         .collect::<Vec<_>>()
@@ -193,7 +183,11 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     )
     .ok();
     // ConcurrentHashMap declaration can exceed 120 chars, so format it on multiple lines
-    writeln!(out, "    private static final ConcurrentHashMap<String, {bridge_class}>").ok();
+    writeln!(
+        out,
+        "    private static final ConcurrentHashMap<String, {bridge_class}>"
+    )
+    .ok();
     writeln!(out, "            {registry_field} = new ConcurrentHashMap<>();").ok();
     writeln!(out).ok();
 

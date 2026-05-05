@@ -103,10 +103,13 @@ pub(super) fn gen_struct(
     if has_bytes_field {
         let struct_name = format!("{prefix}{}", typ.name);
         out.push('\n');
-        out.push_str(&format!("\nimpl Clone for {struct_name} {{\n    fn clone(&self) -> Self {{\n        Self {{\n"));
+        out.push_str(&format!(
+            "\nimpl Clone for {struct_name} {{\n    fn clone(&self) -> Self {{\n        Self {{\n"
+        ));
         for field in &typ.fields {
             let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
-            let is_opt_bytes = matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+            let is_opt_bytes =
+                matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
             // Whether the field is wrapped in Option<> in the binding struct: either
             // because it's TypeRef::Optional, or because typ.has_default makes all
             // fields optional in the struct, or because of opaque-class Option-wrap.

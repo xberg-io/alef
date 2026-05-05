@@ -499,8 +499,8 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
 
         // Special handling for Visitor field: use Visitor interface, not a handle type,
         // and mark as json:"-" since it's not serializable
-        let is_visitor_field = field.name == "visitor"
-            && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+        let is_visitor_field =
+            field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
 
         if is_visitor_field {
             if !field.doc.is_empty() {
@@ -508,7 +508,7 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
                     writeln!(out, "\t// {}", line.trim()).ok();
                 }
             }
-            writeln!(out, "\t{} {} `json:\"-\"`", to_go_name(&field.name), "Visitor").ok();
+            writeln!(out, "\t{} Visitor `json:\"-\"`", to_go_name(&field.name)).ok();
             continue;
         }
 
@@ -588,8 +588,8 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field = field.name == "visitor"
-                && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field =
+                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
             if is_visitor_field {
                 continue;
             }
@@ -620,8 +620,8 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field = field.name == "visitor"
-                && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field =
+                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
             if is_visitor_field {
                 continue;
             }
@@ -632,12 +632,7 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
                 if is_pointer {
                     // Optional `*[]byte` field: only encode when non-nil.
                     writeln!(out, "\tif v.{} != nil {{", go_field).ok();
-                    writeln!(
-                        out,
-                        "\t\taux.{} = make([]int, len(*v.{}))",
-                        go_field, go_field
-                    )
-                    .ok();
+                    writeln!(out, "\t\taux.{} = make([]int, len(*v.{}))", go_field, go_field).ok();
                     writeln!(out, "\t\tfor i, b := range *v.{} {{", go_field).ok();
                     writeln!(out, "\t\t\taux.{}[i] = int(b)", go_field).ok();
                     writeln!(out, "\t\t}}").ok();
@@ -806,7 +801,9 @@ fn go_return_expr_inner(
             )
         }
         TypeRef::Json => {
-            format!("func() *json.RawMessage {{ if {var_name} == nil {{ return nil }}; v := json.RawMessage(C.GoString({var_name})); return &v }}()")
+            format!(
+                "func() *json.RawMessage {{ if {var_name} == nil {{ return nil }}; v := json.RawMessage(C.GoString({var_name})); return &v }}()"
+            )
         }
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
@@ -875,8 +872,8 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         // accept Visitor too — passing a VisitorHandle and assigning &v yielded a
         // *VisitorHandle, which doesn't satisfy the Visitor interface and broke the
         // Go build whenever the visitor pattern was active.
-        let is_visitor_field = field.name == "visitor"
-            && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+        let is_visitor_field =
+            field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
 
         // For the function parameter, always accept the direct type (not wrapped in optional)
         let param_type = if is_visitor_field {
@@ -902,9 +899,7 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         // Exception: slice (Vec) and map types are reference types in Go — go_optional_type
         // returns []T and map[K]V (not *[]T / *map[K]V), so no address-of is needed.
         let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let use_ptr = !is_visitor_field
-            && (field.optional || needs_omitempty_pointer(field))
-            && !is_slice_or_map;
+        let use_ptr = !is_visitor_field && (field.optional || needs_omitempty_pointer(field)) && !is_slice_or_map;
         let assign_val = if use_ptr { "&v" } else { "v" };
         writeln!(
             out,

@@ -63,10 +63,7 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_python(output);
-            let _ = writeln!(
-                out,
-                "            return {{\"custom\": \"{escaped}\"}}"
-            );
+            let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
         }
         CallbackAction::CustomTemplate { template } => {
             // Use single-quoted f-string so that double quotes inside the template
@@ -77,10 +74,7 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
                 .replace('\n', "\\n")
                 .replace('\r', "\\r")
                 .replace('\t', "\\t");
-            let _ = writeln!(
-                out,
-                "            return {{\"custom\": f'{escaped_template}'}}"
-            );
+            let _ = writeln!(out, "            return {{\"custom\": f'{escaped_template}'}}");
         }
     }
 }

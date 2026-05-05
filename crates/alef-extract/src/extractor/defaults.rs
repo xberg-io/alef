@@ -165,15 +165,25 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             let rhs = expr_to_default_value(&bin.right);
             match (lhs, rhs) {
                 (DefaultValue::IntLiteral(a), DefaultValue::IntLiteral(b)) => match bin.op {
-                    syn::BinOp::Add(_) => a.checked_add(b).map(DefaultValue::IntLiteral).unwrap_or(DefaultValue::Empty),
-                    syn::BinOp::Sub(_) => a.checked_sub(b).map(DefaultValue::IntLiteral).unwrap_or(DefaultValue::Empty),
-                    syn::BinOp::Mul(_) => a.checked_mul(b).map(DefaultValue::IntLiteral).unwrap_or(DefaultValue::Empty),
+                    syn::BinOp::Add(_) => a
+                        .checked_add(b)
+                        .map(DefaultValue::IntLiteral)
+                        .unwrap_or(DefaultValue::Empty),
+                    syn::BinOp::Sub(_) => a
+                        .checked_sub(b)
+                        .map(DefaultValue::IntLiteral)
+                        .unwrap_or(DefaultValue::Empty),
+                    syn::BinOp::Mul(_) => a
+                        .checked_mul(b)
+                        .map(DefaultValue::IntLiteral)
+                        .unwrap_or(DefaultValue::Empty),
                     syn::BinOp::Div(_) if b != 0 => DefaultValue::IntLiteral(a / b),
                     syn::BinOp::Rem(_) if b != 0 => DefaultValue::IntLiteral(a % b),
-                    syn::BinOp::Shl(_) if b >= 0 && b < 63 => {
-                        a.checked_shl(b as u32).map(DefaultValue::IntLiteral).unwrap_or(DefaultValue::Empty)
-                    }
-                    syn::BinOp::Shr(_) if b >= 0 && b < 63 => DefaultValue::IntLiteral(a >> (b as u32)),
+                    syn::BinOp::Shl(_) if (0..63).contains(&b) => a
+                        .checked_shl(b as u32)
+                        .map(DefaultValue::IntLiteral)
+                        .unwrap_or(DefaultValue::Empty),
+                    syn::BinOp::Shr(_) if (0..63).contains(&b) => DefaultValue::IntLiteral(a >> (b as u32)),
                     syn::BinOp::BitOr(_) => DefaultValue::IntLiteral(a | b),
                     syn::BinOp::BitAnd(_) => DefaultValue::IntLiteral(a & b),
                     syn::BinOp::BitXor(_) => DefaultValue::IntLiteral(a ^ b),

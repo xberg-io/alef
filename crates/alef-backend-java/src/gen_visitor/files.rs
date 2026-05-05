@@ -384,7 +384,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out, "            case VisitResult.Custom c -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(c.markdown());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(c.markdown());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -398,7 +402,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "            case VisitResult.Error e -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(e.message());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(e.message());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"

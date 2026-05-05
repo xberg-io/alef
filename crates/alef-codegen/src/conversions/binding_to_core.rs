@@ -944,13 +944,11 @@ pub fn apply_core_wrapper_to_core(
             // double-into chain. Detect and dedup: use the already-generated expression as-is
             // when it fully covers the conversion, or emit a fresh single .into() for bare fields.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                let already_converted_non_opt = expr == format!("val.{name}.into()")
-                    || expr == format!("val.{name}.to_vec().into()");
+                let already_converted_non_opt =
+                    expr == format!("val.{name}.into()") || expr == format!("val.{name}.to_vec().into()");
                 let already_converted_opt = expr
                     .strip_prefix(&format!("val.{name}"))
-                    .map(|s| {
-                        s == ".map(Into::into)" || s == ".map(|v| v.to_vec().into())"
-                    })
+                    .map(|s| s == ".map(Into::into)" || s == ".map(|v| v.to_vec().into())")
                     .unwrap_or(false);
                 if already_converted_non_opt || already_converted_opt {
                     // The base conversion already handles Bytes — pass through unchanged.

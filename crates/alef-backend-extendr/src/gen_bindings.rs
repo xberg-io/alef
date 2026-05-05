@@ -1083,8 +1083,12 @@ fn gen_extendr_json_bridged_function(
 /// The returned set is used by wrapper-file generation to skip class env emission for
 /// types that are not present in `extendr_module!`.
 fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
-    let opaque_types: ahash::AHashSet<String> =
-        api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.clone()).collect();
+    let opaque_types: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
     let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     let arc_incompatible: ahash::AHashSet<String> = api
         .types
@@ -1093,9 +1097,8 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
         .map(|t| t.name.clone())
         .collect();
 
-    let is_struct_like = |n: &str| -> bool {
-        !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n)
-    };
+    let is_struct_like =
+        |n: &str| -> bool { !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n) };
     let is_native_incompatible = |ty: &TypeRef| -> bool {
         match ty {
             TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if is_struct_like(n)),
@@ -1107,7 +1110,12 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
         }
     };
 
-    let mut excluded: ahash::AHashSet<String> = api.types.iter().filter(|t| t.is_trait).map(|t| t.name.clone()).collect();
+    let mut excluded: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_trait)
+        .map(|t| t.name.clone())
+        .collect();
     for t in &arc_incompatible {
         excluded.insert(t.clone());
     }
@@ -1127,12 +1135,13 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
 /// Mirrors `method_references_arc_incompatible` and `method_references_enum` from
 /// `generate_bindings`. Used by wrapper-file generation to skip wrapper entries for
 /// methods that the Rust impl block will not contain.
-fn method_is_excluded_from_impl(
-    method: &alef_core::ir::MethodDef,
-    api: &ApiSurface,
-) -> bool {
-    let opaque_types: ahash::AHashSet<String> =
-        api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.clone()).collect();
+fn method_is_excluded_from_impl(method: &alef_core::ir::MethodDef, api: &ApiSurface) -> bool {
+    let opaque_types: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
     let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     let arc_incompatible: ahash::AHashSet<String> = api
         .types
@@ -1156,9 +1165,8 @@ fn method_is_excluded_from_impl(
         }
     };
     let param_is_owned_struct = |ty: &TypeRef| -> bool {
-        let is_non_opaque_struct = |n: &str| {
-            !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n)
-        };
+        let is_non_opaque_struct =
+            |n: &str| !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n);
         match ty {
             TypeRef::Named(n) => is_non_opaque_struct(n),
             TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if is_non_opaque_struct(n)),
@@ -1236,10 +1244,7 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str) -> String {
             continue;
         }
 
-        out.push_str(&format!(
-            "{name} <- new.env(parent = emptyenv())\n\n",
-            name = typ.name
-        ));
+        out.push_str(&format!("{name} <- new.env(parent = emptyenv())\n\n", name = typ.name));
 
         // Emit method bindings. Skip methods that are filtered out of the Rust impl
         // block — they have no `wrap__Type__method` symbol.

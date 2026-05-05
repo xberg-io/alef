@@ -1219,8 +1219,11 @@ pub(super) fn gen_param_conversion(
             }
             TypeRef::Bytes => {
                 // Bytes come as (*const u8, len: usize) — the len param is a separate
-                // parameter named {name}_len by convention.
-                writeln!(out, "    if {name}.is_null() {{").ok();
+                // parameter named {name}_len by convention. A null pointer is allowed
+                // when the corresponding length is zero (empty input is a legitimate
+                // case — e.g. extracting from a 0-byte file). Reject null only when
+                // the caller claims a non-zero length.
+                writeln!(out, "    if {name}.is_null() && {name}_len > 0 {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
@@ -1230,14 +1233,18 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    }}").ok();
                 writeln!(
                     out,
-                    "    // SAFETY: null check above; ptr and len validated by caller; data is valid for len elements."
+                    "    // SAFETY: when {name} is null, {name}_len is 0 (checked above), so we use an empty slice; otherwise data is valid for len elements."
                 )
                 .ok();
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        Vec::new()").ok();
+                writeln!(out, "    }} else {{").ok();
                 writeln!(
                     out,
-                    "    let {rs_name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len) }}.to_vec();"
+                    "        unsafe {{ std::slice::from_raw_parts({name}, {name}_len) }}.to_vec()"
                 )
                 .ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Passed as JSON string

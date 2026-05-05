@@ -954,8 +954,7 @@ fn apply_core_wrapper_from_core(
             // Detect those forms and pass through unchanged to avoid double conversion.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 let already_converted_non_opt = expr == format!("val.{name}.to_vec().into()");
-                let already_converted_opt = expr
-                    == format!("val.{name}.map(|v| v.to_vec().into())");
+                let already_converted_opt = expr == format!("val.{name}.map(|v| v.to_vec().into())");
                 if already_converted_non_opt || already_converted_opt {
                     conversion.to_string()
                 } else if optional {
