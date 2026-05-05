@@ -220,12 +220,69 @@ pub(super) fn gen_function_wrapper(
                     writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                 }
             }
-            writeln!(
-                out,
-                "\treturn {}, nil",
-                go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
-            )
-            .ok();
+
+            // For Named types that require JSON unmarshaling and can return errors,
+            // inline the unmarshal logic to properly propagate errors.
+            if can_return_error {
+                if let TypeRef::Named(name) = &func.return_type {
+                    if !opaque_names.contains(name.as_str()) {
+                        let type_snake = name.to_snake_case();
+                        writeln!(out, "\tjsonPtr := C.{}_{}_to_json(ptr)", ffi_prefix, type_snake).ok();
+                        writeln!(out, "\tif jsonPtr == nil {{").ok();
+                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to convert to JSON\")").ok();
+                        writeln!(out, "\t}}").ok();
+                        writeln!(out, "\tdefer C.{}_free_string(jsonPtr)", ffi_prefix).ok();
+                        writeln!(out, "\tvar result {}", name).ok();
+                        writeln!(
+                            out,
+                            "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{"
+                        )
+                        .ok();
+                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)").ok();
+                        writeln!(out, "\t}}").ok();
+                        writeln!(out, "\treturn &result, nil").ok();
+                    } else {
+                        writeln!(
+                            out,
+                            "\treturn {}, nil",
+                            go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
+                        )
+                        .ok();
+                    }
+                } else if matches!(func.return_type, TypeRef::Vec(_)) {
+                    // Handle Vec types with error propagation
+                    if let TypeRef::Vec(inner) = &func.return_type {
+                        let go_elem = go_type(inner);
+                        writeln!(out, "\tif ptr == nil {{").ok();
+                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to get result\")").ok();
+                        writeln!(out, "\t}}").ok();
+                        writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
+                        writeln!(out, "\tvar result []{}", go_elem).ok();
+                        writeln!(
+                            out,
+                            "\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {{"
+                        )
+                        .ok();
+                        writeln!(out, "\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)").ok();
+                        writeln!(out, "\t}}").ok();
+                        writeln!(out, "\treturn result, nil").ok();
+                    }
+                } else {
+                    writeln!(
+                        out,
+                        "\treturn {}, nil",
+                        go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
+                    )
+                    .ok();
+                }
+            } else {
+                writeln!(
+                    out,
+                    "\treturn {}",
+                    go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names)
+                )
+                .ok();
+            }
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         writeln!(out, "\t{}", c_call).ok();

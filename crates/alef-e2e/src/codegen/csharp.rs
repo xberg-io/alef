@@ -91,6 +91,15 @@ impl E2eCodegen for CSharpCodegen {
             generated_header: false,
         });
 
+        // Emit a TestSetup.cs whose ModuleInitializer chdirs to test_documents
+        // so fixture-relative paths like "docx/fake.docx" resolve correctly when
+        // dotnet test runs from bin/{Configuration}/{Tfm}.
+        files.push(GeneratedFile {
+            path: output_base.join("TestSetup.cs"),
+            content: render_test_setup(),
+            generated_header: true,
+        });
+
         // Generate test files per category.
         let tests_base = output_base.join("tests");
         let field_resolver = FieldResolver::new(
@@ -186,6 +195,43 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
         xunit = tv::nuget::XUNIT,
         xunit_runner = tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
     )
+}
+
+fn render_test_setup() -> String {
+    let mut out = String::new();
+    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(
+        r#"using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+
+namespace Kreuzberg.E2eTests;
+
+internal static class TestSetup
+{
+    [ModuleInitializer]
+    internal static void Init()
+    {
+        // Walk up from the assembly directory until we find the repo root
+        // (the directory containing test_documents/) so that fixture paths
+        // like "docx/fake.docx" resolve regardless of where dotnet test
+        // launched the runner from.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var candidate = Path.Combine(dir.FullName, "test_documents");
+            if (Directory.Exists(candidate))
+            {
+                Directory.SetCurrentDirectory(candidate);
+                return;
+            }
+            dir = dir.Parent;
+        }
+    }
+}
+"#,
+    );
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -901,17 +947,6 @@ fn build_args_and_setup(
                             ));
                             continue;
                         }
-                    }
-                }
-                // Special case: file path arguments need to be prefixed with the test_documents directory.
-                // When running from e2e/csharp/, paths like "docx/fake.docx" need to resolve to
-                // "../../test_documents/docx/fake.docx".
-                if arg.arg_type == "file_path" {
-                    if let Some(path_str) = v.as_str() {
-                        // Adjust path to be relative to e2e/{lang} -> ../../test_documents/{path}
-                        let adjusted_path = format!("../../test_documents/{}", path_str);
-                        parts.push(format!("\"{}\"", escape_csharp(&adjusted_path)));
-                        continue;
                     }
                 }
                 parts.push(json_to_csharp(v));

@@ -99,6 +99,13 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
 
     // extendr requires staticlib (for R's dyn.load) + lib (for Rust tests).
     // "cdylib" alone causes linker failures on macOS/Linux.
+    let has_async =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let tokio_dep = if has_async {
+        "\ntokio = { version = \"1\", features = [\"rt-multi-thread\"] }"
+    } else {
+        ""
+    };
     let cargo_content = format!(
         r#"{pkg_header}
 
@@ -109,13 +116,14 @@ crate-type = ["staticlib", "lib"]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 extendr-api = "{extendr_api}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
+serde_json = "1"{tokio_dep}
 "#,
         pkg_header = pkg_header,
         crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::R),
         extendr_api = tv::cargo::EXTENDR_API,
+        tokio_dep = tokio_dep,
     );
 
     let r_package_name = config.r_package_name();

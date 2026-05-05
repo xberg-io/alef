@@ -22,7 +22,7 @@ pub(crate) fn gen_native_lib(
 
     writeln!(body, "final class NativeLib {{").ok();
     writeln!(body, "    private static final Linker LINKER = Linker.nativeLinker();").ok();
-    writeln!(body, "    private static final SymbolLookup LIB;").ok();
+    writeln!(body, "    private static SymbolLookup LIB;").ok();
     writeln!(
         body,
         "    private static final String NATIVES_RESOURCE_ROOT = \"/natives\";"
@@ -35,10 +35,48 @@ pub(crate) fn gen_native_lib(
     .ok();
     writeln!(body, "    private static String cachedExtractKey;").ok();
     writeln!(body, "    private static Path cachedExtractDir;").ok();
+    writeln!(body, "    private static String loadedLibraryName;").ok();
     writeln!(body).ok();
     writeln!(body, "    static {{").ok();
     writeln!(body, "        loadNativeLibrary();").ok();
-    writeln!(body, "        LIB = LINKER.defaultLookup();").ok();
+    writeln!(body, "        try {{").ok();
+    writeln!(
+        body,
+        "            java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined();"
+    )
+    .ok();
+    writeln!(
+        body,
+        "            // Try the loaded library name first (for System.load() path case)"
+    )
+    .ok();
+    writeln!(body, "            try {{").ok();
+    writeln!(
+        body,
+        "                LIB = SymbolLookup.libraryLookup(loadedLibraryName, arena);"
+    )
+    .ok();
+    writeln!(body, "            }} catch (Throwable inner1) {{").ok();
+    writeln!(
+        body,
+        "                // Try with 'lib' prefix if not already present (for System.loadLibrary() case)"
+    )
+    .ok();
+    writeln!(body, "                String nameWithLib = loadedLibraryName.startsWith(\"lib\") ? loadedLibraryName : \"lib\" + loadedLibraryName;").ok();
+    writeln!(body, "                try {{").ok();
+    writeln!(
+        body,
+        "                    LIB = SymbolLookup.libraryLookup(nameWithLib, arena);"
+    )
+    .ok();
+    writeln!(body, "                }} catch (Throwable inner2) {{").ok();
+    writeln!(body, "                    // Last fallback: use LINKER.defaultLookup()").ok();
+    writeln!(body, "                    LIB = LINKER.defaultLookup();").ok();
+    writeln!(body, "                }}").ok();
+    writeln!(body, "            }}").ok();
+    writeln!(body, "        }} catch (Throwable e) {{").ok();
+    writeln!(body, "            throw new ExceptionInInitializerError(\"Failed to initialize library symbols: \" + e.getMessage());").ok();
+    writeln!(body, "        }}").ok();
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
     writeln!(body, "    private static void loadNativeLibrary() {{").ok();
@@ -88,6 +126,13 @@ pub(crate) fn gen_native_lib(
     writeln!(body).ok();
     writeln!(body, "        try {{").ok();
     writeln!(body, "            System.loadLibrary(\"{}\");", lib_name).ok();
+    writeln!(body, "            // Find the full path by searching java.library.path").ok();
+    writeln!(
+        body,
+        "            loadedLibraryName = findLoadedLibraryPath(\"{}\", libName, libExt);",
+        lib_name
+    )
+    .ok();
     writeln!(body, "        }} catch (UnsatisfiedLinkError e) {{").ok();
     writeln!(
         body,
@@ -153,6 +198,11 @@ pub(crate) fn gen_native_lib(
     .ok();
     writeln!(body, "            }}").ok();
     writeln!(body, "            System.load(libPath.toAbsolutePath().toString());").ok();
+    writeln!(
+        body,
+        "            loadedLibraryName = libPath.toAbsolutePath().toString();"
+    )
+    .ok();
     writeln!(body, "            return libPath;").ok();
     writeln!(body, "        }} catch (Exception e) {{").ok();
     writeln!(body, "            System.err.println(\"[NativeLib] Failed to extract and load native library from resources: \" + e.getMessage());").ok();
@@ -366,6 +416,49 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "        }}").ok();
     writeln!(body).ok();
     writeln!(body, "        return os + \"-\" + arch;").ok();
+    writeln!(body, "    }}").ok();
+    writeln!(body).ok();
+    writeln!(
+        body,
+        "    private static String findLoadedLibraryPath(String libName, String fullLibName, String libExt) {{"
+    )
+    .ok();
+    writeln!(body, "        // Search java.library.path for the library file").ok();
+    writeln!(
+        body,
+        "        String javaLibPath = System.getProperty(\"java.library.path\");"
+    )
+    .ok();
+    writeln!(body, "        if (javaLibPath != null) {{").ok();
+    writeln!(
+        body,
+        "            for (String path : javaLibPath.split(File.pathSeparator)) {{"
+    )
+    .ok();
+    writeln!(
+        body,
+        "                java.nio.file.Path libPath = java.nio.file.Paths.get(path, fullLibName + libExt);"
+    )
+    .ok();
+    writeln!(body, "                if (java.nio.file.Files.exists(libPath)) {{").ok();
+    writeln!(body, "                    try {{").ok();
+    writeln!(body, "                        return libPath.toRealPath().toString();").ok();
+    writeln!(body, "                    }} catch (java.io.IOException e) {{").ok();
+    writeln!(
+        body,
+        "                        return libPath.toAbsolutePath().toString();"
+    )
+    .ok();
+    writeln!(body, "                    }}").ok();
+    writeln!(body, "                }}").ok();
+    writeln!(body, "            }}").ok();
+    writeln!(body, "        }}").ok();
+    writeln!(
+        body,
+        "        // Fallback: try just the library name (may work on some systems)"
+    )
+    .ok();
+    writeln!(body, "        return libName;").ok();
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
 
@@ -747,9 +840,11 @@ pub(crate) fn gen_native_lib(
         writeln!(out, "import java.lang.invoke.MethodHandle;").ok();
     }
     // Imports required by the JAR-extraction native loader (always present).
+    writeln!(out, "import java.io.File;").ok();
     writeln!(out, "import java.net.URL;").ok();
     writeln!(out, "import java.nio.file.Files;").ok();
     writeln!(out, "import java.nio.file.Path;").ok();
+    writeln!(out, "import java.nio.file.Paths;").ok();
     writeln!(out, "import java.nio.file.StandardCopyOption;").ok();
     writeln!(out, "import java.util.ArrayList;").ok();
     writeln!(out, "import java.util.Enumeration;").ok();

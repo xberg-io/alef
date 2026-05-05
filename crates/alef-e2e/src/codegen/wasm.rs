@@ -393,6 +393,7 @@ fn render_tsconfig() -> String {
 ///
 /// Injects top-level await for the async init() function from wasm-pack.
 /// This allows the WASM module to be initialized before tests run.
+/// Also injects chdir to test_documents before init() so file paths resolve.
 ///
 /// # Arguments
 /// * `content` — the generated TypeScript test file content
@@ -430,27 +431,34 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
             // export is bound and `await init()` works at the top level.
             let new_import = import_section.replacen("import {", "import init, {", 1);
 
-            // Node.js fetch does not support file:// URLs, so we cannot call init() without
-            // arguments (which internally calls fetch on the .wasm file URL). Instead, read the
-            // binary via readFileSync and pass the buffer directly to init(), bypassing fetch.
-            // We resolve the .wasm path from the installed package directory by replacing the .js
-            // main entry extension. Dynamic imports avoid adding new static import statements that
-            // would require import-order adjustments.
-            let init_code = format!(
+            // Change to test_documents directory BEFORE init() so that when the WASM module
+            // or tests try to read files with relative paths, they resolve correctly.
+            // Path: tests/contract.test.ts -> dirname -> tests -> .. -> wasm -> .. -> e2e -> .. -> repo root
+            // Then, init() reads the WASM binary and initializes the module.
+            let setup_and_init_code = format!(
                 concat!(
+                    "import {{ fileURLToPath }} from \"url\";\n",
+                    "import {{ dirname, join }} from \"path\";\n",
+                    "const __filename = fileURLToPath(import.meta.url);\n",
+                    "const __dirname = dirname(__filename);\n",
+                    "const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n",
+                    "process.chdir(testDocumentsDir);\n",
+                    "const wasmBinaryPath = (await import(\"node:module\"))\n",
+                    "  .createRequire(import.meta.url)\n",
+                    "  .resolve(\"{pkg_name}\")\n",
+                    "  .replace(/\\.js$/, \"_bg.wasm\");\n",
                     "await init(\n",
-                    "  (await import(\"node:fs\")).readFileSync(\n",
-                    "    (await import(\"node:module\"))\n",
-                    "      .createRequire(import.meta.url)\n",
-                    "      .resolve(\"{pkg_name}\")\n",
-                    "      .replace(/\\.js$/, \"_bg.wasm\"),\n",
-                    "  ),\n",
+                    "  (await import(\"node:fs\")).readFileSync(wasmBinaryPath),\n",
                     ");\n",
                 ),
                 pkg_name = pkg_name,
             );
 
-            return content[..import_pos].to_string() + &new_import + "\n" + &init_code + &content[full_from_pos..];
+            return content[..import_pos].to_string()
+                + &new_import
+                + "\n"
+                + &setup_and_init_code
+                + &content[full_from_pos..];
         }
     }
 

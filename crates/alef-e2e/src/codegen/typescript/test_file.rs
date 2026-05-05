@@ -530,6 +530,18 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
+    // Check if any later arg (after current) is a json_object that will get a default value
+    // (needed to insert undefineds as placeholders for earlier missing optional args)
+    fn has_later_json_object_default(args: &[ArgMapping], from_idx: usize, input: &serde_json::Value) -> bool {
+        args[from_idx..].iter().any(|arg| {
+            if arg.arg_type != "json_object" || !arg.optional {
+                return false;
+            }
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field).is_none() || input.get(field).map(|v| v.is_null()).unwrap_or(true)
+        })
+    }
+
     for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
@@ -569,7 +581,17 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                if has_later_arg_value(args, idx + 1, input) {
+                // For json_object args (like config), always pass a default empty object
+                // so all function arguments are present. For other types, omit if no later args.
+                if arg.arg_type == "json_object" {
+                    if let Some(opts_type) = options_type {
+                        parts.push(format!("{{}} as {}", opts_type));
+                    } else {
+                        parts.push("{}".to_string());
+                    }
+                } else if has_later_arg_value(args, idx + 1, input)
+                    || has_later_json_object_default(args, idx + 1, input)
+                {
                     parts.push("undefined".to_string());
                 }
             }

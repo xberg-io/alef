@@ -767,21 +767,42 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                         "BatchBytesItem" => {
                             let content = obj.get("content").and_then(|v| v.as_array());
                             let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+                            let config = obj.get("config");
                             let content_code = if let Some(arr) = content {
                                 let bytes: Vec<String> =
                                     arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                format!("[{}].pack('C*')", bytes.join(", "))
+                                // Pass as Ruby array - Magnus will convert Array<u8> to Vec<u8>
+                                format!("[{}]", bytes.join(", "))
                             } else {
-                                "''.b".to_string()
+                                "[]".to_string()
+                            };
+                            let config_arg = if let Some(cfg) = config {
+                                if cfg.is_null() {
+                                    "nil".to_string()
+                                } else {
+                                    json_to_ruby(cfg)
+                                }
+                            } else {
+                                "nil".to_string()
                             };
                             Some(format!(
-                                "Kreuzberg::{}.new(content: {}, mime_type: \"{}\")",
-                                elem_type, content_code, mime_type
+                                "Kreuzberg::{}.new({}, \"{}\", {})",
+                                elem_type, content_code, mime_type, config_arg
                             ))
                         }
                         "BatchFileItem" => {
                             let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!("Kreuzberg::{}.new(path: \"{}\")", elem_type, path))
+                            let config = obj.get("config");
+                            let config_arg = if let Some(cfg) = config {
+                                if cfg.is_null() {
+                                    "nil".to_string()
+                                } else {
+                                    json_to_ruby(cfg)
+                                }
+                            } else {
+                                "nil".to_string()
+                            };
+                            Some(format!("Kreuzberg::{}.new(\"{}\", {})", elem_type, path, config_arg))
                         }
                         _ => None,
                     }
@@ -838,6 +859,53 @@ fn build_args_and_setup(
                 arg.name,
             ));
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        // Handle bytes arguments: load from file if needed
+        if arg.arg_type == "bytes" {
+            // Flush any pending nil placeholders for skipped optionals before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
+            let resolved = resolve_field(input, &arg.field);
+            if let Some(s) = resolved.as_str() {
+                if is_file_path(s) {
+                    // File path: load with File.read and convert to bytes array
+                    setup_lines.push(format!("{} = File.read(\"{}\").bytes", arg.name, s));
+                } else if is_base64(s) {
+                    // Base64: decode it
+                    setup_lines.push(format!("{} = Base64.decode64(\"{}\").bytes", arg.name, s));
+                } else {
+                    // Inline text: encode to binary and convert to bytes array
+                    let escaped = ruby_string_literal(s);
+                    setup_lines.push(format!("{} = {}.b.bytes", arg.name, escaped));
+                }
+                parts.push(arg.name.clone());
+            } else {
+                parts.push("nil".to_string());
+            }
+            continue;
+        }
+
+        // Handle file_path arguments: pass the path string as-is
+        if arg.arg_type == "file_path" {
+            // Flush any pending nil placeholders for skipped optionals before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
+            let resolved = resolve_field(input, &arg.field);
+            if let Some(s) = resolved.as_str() {
+                let escaped = ruby_string_literal(s);
+                parts.push(escaped);
+            } else if arg.optional {
+                skipped_optional_count += 1;
+                continue;
+            } else {
+                parts.push("''".to_string());
+            }
             continue;
         }
 
@@ -1506,4 +1574,42 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
         }
     }
     setup_lines.push("  end".to_string());
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+///
+/// Returns true if the value looks like a file path (e.g. "pdf/fake_memo.pdf").
+/// File paths have the pattern: alphanumeric/something.extension
+fn is_file_path(s: &str) -> bool {
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return false;
+    }
+
+    let first = s.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash_pos) = s.find('/') {
+            if slash_pos > 0 {
+                let after_slash = &s[slash_pos + 1..];
+                if after_slash.contains('.') && !after_slash.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if a string looks like base64-encoded data.
+/// If it's not a file path or inline text, assume it's base64.
+fn is_base64(s: &str) -> bool {
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return false;
+    }
+
+    if is_file_path(s) {
+        return false;
+    }
+
+    true
 }
