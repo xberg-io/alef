@@ -403,6 +403,12 @@ pub struct CallOverride {
     /// E.g., `{"preprocessing": "PreprocessingOptions"}`.
     #[serde(default)]
     pub nested_types: HashMap<String, String>,
+    /// When `false`, nested config builder results are passed directly to builder methods
+    /// without wrapping in `Optional.of(...)`. Set to `false` for bindings where nested
+    /// option types are non-optional (e.g., html-to-markdown Java).
+    /// Defaults to `true` for backward compatibility.
+    #[serde(default = "default_true")]
+    pub nested_types_optional: bool,
     /// When `true`, the function returns a simple type (e.g., `String`) rather
     /// than a struct.  Generators that would normally emit `result.content`
     /// (or equivalent field access) will use the result variable directly.
@@ -598,6 +604,10 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub trait_imports: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Per-language package reference configuration.
