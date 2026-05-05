@@ -142,10 +142,13 @@ fn render_setup_fixtures() -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out);
-    let _ = writeln!(out, "# Resolve and chdir to test_documents/ before any test runs.");
     let _ = writeln!(
         out,
-        "# testthat sources setup-*.R with the working directory set to tests/,"
+        "# Resolve fixture paths against the repo's `test_documents/` directory."
+    );
+    let _ = writeln!(
+        out,
+        "# testthat sources setup-*.R with the working directory at tests/,"
     );
     let _ = writeln!(
         out,
@@ -153,10 +156,22 @@ fn render_setup_fixtures() -> String {
     );
     let _ = writeln!(
         out,
+        "# Each `test_that()` block has its working directory reset back to tests/, so"
+    );
+    let _ = writeln!(
+        out,
+        "# fixture lookups must be performed via this helper rather than relying on `setwd`."
+    );
+    let _ = writeln!(
+        out,
         ".kreuzberg_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
     );
-    let _ = writeln!(out, "if (dir.exists(.kreuzberg_test_documents)) {{");
-    let _ = writeln!(out, "  setwd(.kreuzberg_test_documents)");
+    let _ = writeln!(out, ".resolve_fixture <- function(path) {{");
+    let _ = writeln!(out, "  if (dir.exists(.kreuzberg_test_documents)) {{");
+    let _ = writeln!(out, "    file.path(.kreuzberg_test_documents, path)");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    path");
+    let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "}}");
     out
 }
@@ -177,25 +192,17 @@ fn render_test_runner(pkg_path: &str, dep_mode: crate::config::DependencyMode) -
         }
     }
     let _ = writeln!(out);
-    // Resolve directories relative to this script before changing the working
-    // directory: tests live alongside run_tests.R in e2e/r/, and fixture files
-    // referenced in tests (e.g. "pdf/fake_memo.pdf") resolve relative to the
-    // repository's test_documents/ directory at the repo root.
+    // Surface every failure rather than aborting at the default max_fails=10 —
+    // partial pass counts are essential for triage during e2e bring-up.
+    let _ = writeln!(out, "testthat::set_max_fails(Inf)");
+    // Resolve the tests/ directory relative to this script. testthat reads
+    // setup-*.R from there before each file runs, where path resolution
+    // against test_documents/ is handled by the `.resolve_fixture` helper.
     let _ = writeln!(
         out,
         ".script_dir <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) getwd())"
     );
-    let _ = writeln!(out, ".tests_dir <- file.path(.script_dir, \"tests\")");
-    let _ = writeln!(
-        out,
-        ".test_documents <- normalizePath(file.path(.script_dir, \"..\", \"..\", \"test_documents\"), mustWork = FALSE)"
-    );
-    let _ = writeln!(out, "if (dir.exists(.test_documents)) setwd(.test_documents)");
-    let _ = writeln!(out);
-    // Surface every failure rather than aborting at the default max_fails=10 —
-    // partial pass counts are essential for triage during e2e bring-up.
-    let _ = writeln!(out, "testthat::set_max_fails(Inf)");
-    let _ = writeln!(out, "test_dir(.tests_dir)");
+    let _ = writeln!(out, "test_dir(file.path(.script_dir, \"tests\"))");
     out
 }
 
@@ -244,7 +251,13 @@ fn render_test_case(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, &call_config.args);
+    // Allow per-call R overrides to remap fixture argument names. Many calls
+    // (e.g. `extract_bytes`, `batch_extract_files`) use language-neutral
+    // fixture field names (`data`, `paths`) that the R extendr binding
+    // exposes under different identifiers (`content`, `items`).
+    let r_override = call_config.overrides.get("r");
+    let arg_name_map = r_override.map(|o| &o.arg_name_map);
+    let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map);
 
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
@@ -273,7 +286,18 @@ fn render_test_case(
     for line in &setup_lines {
         let _ = writeln!(out, "  {line}");
     }
-    let _ = writeln!(out, "  {result_var} <- {function_name}({final_args})");
+    // The extendr extraction wrappers return JSON strings carrying the
+    // serialized core result; parse into an R list so tests can use `$`
+    // accessors. `result_is_simple` calls (e.g. `convert_html_to_markdown`)
+    // already return scalar values and must be passed through verbatim.
+    if result_is_simple {
+        let _ = writeln!(out, "  {result_var} <- {function_name}({final_args})");
+    } else {
+        let _ = writeln!(
+            out,
+            "  {result_var} <- jsonlite::fromJSON({function_name}({final_args}), simplifyVector = FALSE)"
+        );
+    }
 
     for assertion in &fixture.assertions {
         render_assertion(out, assertion, result_var, field_resolver, result_is_simple, e2e_config);
@@ -282,7 +306,11 @@ fn render_test_case(
     let _ = writeln!(out, "}})");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    arg_name_map: Option<&std::collections::HashMap<String, String>>,
+) -> String {
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters; emitting
         // `list()` here would trigger an `unused argument (list())` error in R.
@@ -296,11 +324,31 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     let parts: Vec<String> = args
         .iter()
         .filter_map(|arg| {
+            // Apply per-language argument renames before emitting the call.
+            let arg_name: &str = arg_name_map
+                .and_then(|m| m.get(&arg.name).map(String::as_str))
+                .unwrap_or(&arg.name);
+
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field)?;
-            if val.is_null() && arg.optional {
-                return None;
-            }
+            let val = input.get(field);
+            // R extendr-generated wrappers do not preserve Option<T> defaults from
+            // the Rust signature — every parameter is positional and required at
+            // the R level. To keep generated calls valid we must pass a placeholder
+            // (`NULL` for `Option<T>`, `ExtractionConfig$default()` for typed
+            // configs) whenever the fixture omits an optional value.
+            let val = match val {
+                Some(v) if !(v.is_null() && arg.optional) => v,
+                _ => {
+                    if !arg.optional {
+                        return None;
+                    }
+                    if arg.arg_type == "json_object" {
+                        let r_value = r_default_for_config_arg(arg_name);
+                        return Some(format!("{arg_name} = {r_value}"));
+                    }
+                    return Some(format!("{arg_name} = NULL"));
+                }
+            };
             // The extendr bindings expect owned PORs (ExternalPtr) for typed
             // config arguments — passing an R `list()` raises
             // `Expected ExternalPtr got List`. The fixtures don't carry the
@@ -310,8 +358,8 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             // also fall back to `default()` because the R API surface only
             // exposes a `default()` constructor for ExtractionConfig at present.
             if arg.arg_type == "json_object" && (val.is_null() || val.is_object()) {
-                let r_value = r_default_for_config_arg(&arg.name);
-                return Some(format!("{} = {}", arg.name, r_value));
+                let r_value = r_default_for_config_arg(arg_name);
+                return Some(format!("{arg_name} = {r_value}"));
             }
             // `bytes` arg type: convert string fixture values into runtime
             // `readBin(...)` calls so the wrapper receives raw bytes instead
@@ -320,10 +368,22 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             if arg.arg_type == "bytes" {
                 if let Some(raw) = val.as_str() {
                     let r_value = render_bytes_value(raw);
-                    return Some(format!("{} = {}", arg.name, r_value));
+                    return Some(format!("{arg_name} = {r_value}"));
                 }
             }
-            Some(format!("{} = {}", arg.name, json_to_r(val, true)))
+            // `file_path` arg type: fixtures encode relative paths that resolve
+            // against the repo's `test_documents/` directory. Using a runtime
+            // helper that anchors paths to that directory avoids fragility from
+            // testthat resetting the working directory between files.
+            if arg.arg_type == "file_path" {
+                if let Some(raw) = val.as_str() {
+                    if !raw.starts_with('/') && !raw.is_empty() {
+                        let escaped = escape_r(raw);
+                        return Some(format!("{arg_name} = .resolve_fixture(\"{escaped}\")"));
+                    }
+                }
+            }
+            Some(format!("{arg_name} = {}", json_to_r(val, true)))
         })
         .collect();
 
@@ -334,7 +394,7 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
 /// vector at test time. Mirrors python's `emit_bytes_arg` classifier so we can
 /// support both file-path style fixtures (`"pdf/fake_memo.pdf"`) and inline
 /// text payloads (`"<html>..."`). The resulting expression is dropped directly
-/// into the call site, e.g. `content = readBin("pdf/fake_memo.pdf", ...)`.
+/// into the call site, e.g. `content = readBin(.resolve_fixture("pdf/fake_memo.pdf"), ...)`.
 fn render_bytes_value(raw: &str) -> String {
     if raw.starts_with('<') || raw.starts_with('{') || raw.starts_with('[') || raw.contains(' ') {
         // Inline text payload — encode to raw via charToRaw.
@@ -348,7 +408,9 @@ fn render_bytes_value(raw: &str) -> String {
                 let after = &raw[slash + 1..];
                 if after.contains('.') && !after.is_empty() {
                     let escaped = escape_r(raw);
-                    return format!("readBin(\"{escaped}\", what = \"raw\", n = file.info(\"{escaped}\")$size)");
+                    return format!(
+                        "readBin(.resolve_fixture(\"{escaped}\"), what = \"raw\", n = file.info(.resolve_fixture(\"{escaped}\"))$size)"
+                    );
                 }
             }
         }
