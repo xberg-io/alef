@@ -111,9 +111,13 @@ impl E2eCodegen for CSharpCodegen {
 
         // Resolve enum_fields and nested_types from C# override config.
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
-        static EMPTY_NESTED_TYPES: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
-        let nested_types = overrides.map(|o| &o.nested_types).unwrap_or(&EMPTY_NESTED_TYPES);
+
+        // Build effective nested_types by merging defaults with configured overrides.
+        let mut effective_nested_types = default_csharp_nested_types();
+        if let Some(overrides_map) = overrides.map(|o| &o.nested_types) {
+            effective_nested_types.extend(overrides_map.clone());
+        }
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -143,7 +147,7 @@ impl E2eCodegen for CSharpCodegen {
                 is_async,
                 e2e_config,
                 enum_fields,
-                nested_types,
+                &effective_nested_types,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -1583,6 +1587,36 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_csharp(&json_str))
         }
     }
+}
+
+/// Build default nested type mappings for C# extraction config types.
+///
+/// Maps known Kreuzberg/Kreuzcrawl config field names (in snake_case) to their
+/// C# record type names (in PascalCase). These defaults allow e2e codegen to
+/// automatically deserialize nested config objects without requiring explicit
+/// configuration in alef.toml. User-provided overrides take precedence.
+fn default_csharp_nested_types() -> HashMap<String, String> {
+    [
+        ("chunking", "ChunkingConfig"),
+        ("ocr", "OcrConfig"),
+        ("images", "ImageExtractionConfig"),
+        ("html_output", "HtmlOutputConfig"),
+        ("language_detection", "LanguageDetectionConfig"),
+        ("postprocessor", "PostProcessorConfig"),
+        ("acceleration", "AccelerationConfig"),
+        ("email", "EmailConfig"),
+        ("pages", "PageConfig"),
+        ("pdf_options", "PdfConfig"),
+        ("layout", "LayoutDetectionConfig"),
+        ("tree_sitter", "TreeSitterConfig"),
+        ("structured_extraction", "StructuredExtractionConfig"),
+        ("content_filter", "ContentFilterConfig"),
+        ("token_reduction", "TokenReductionOptions"),
+        ("security_limits", "SecurityLimits"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
 }
 
 /// Emit a C# object initializer for a JSON options object.
