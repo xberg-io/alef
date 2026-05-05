@@ -139,6 +139,29 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "import java.lang.foreign.ValueLayout;").ok();
     writeln!(out, "import java.lang.invoke.MethodHandles;").ok();
     writeln!(out, "import java.lang.invoke.MethodType;").ok();
+    // Conditionally import java.util.{List,Map} when any trait method signature uses them
+    // (the upcall-stub bodies materialise these types via JSON read/write helpers).
+    let bridge_signatures: String = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            let ret = java_type(&m.return_type);
+            let params = m
+                .params
+                .iter()
+                .map(|p| java_type(&p.ty))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{ret}({params})")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    if bridge_signatures.contains("List<") {
+        writeln!(out, "import java.util.List;").ok();
+    }
+    if bridge_signatures.contains("Map<") {
+        writeln!(out, "import java.util.Map;").ok();
+    }
     writeln!(out, "import java.util.concurrent.ConcurrentHashMap;").ok();
     writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;").ok();
     writeln!(out).ok();
