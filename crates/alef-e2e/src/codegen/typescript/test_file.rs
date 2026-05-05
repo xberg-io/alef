@@ -338,8 +338,13 @@ fn render_test_case(
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
-    let is_async = call_config.r#async;
+    let mut is_async = call_config.r#async;
     let args = &call_config.args;
+
+    // Force async if we need to read files for bytes args
+    if !is_async && has_bytes_file_reads(&fixture.input, args) {
+        is_async = true;
+    }
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -461,7 +466,22 @@ fn has_later_arg_value(args: &[ArgMapping], from_idx: usize, input: &serde_json:
     })
 }
 
-/// Build setup lines (e.g. handle creation) and the argument list for the function call.
+/// Check if any arg with bytes type has a string path value that needs file reading.
+fn has_bytes_file_reads(input: &serde_json::Value, args: &[ArgMapping]) -> bool {
+    args.iter().any(|arg| {
+        if arg.arg_type != "bytes" {
+            return false;
+        }
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = if field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
+        matches!(val, Some(serde_json::Value::String(_)))
+    })
+}
+
 /// Emit TypeScript batch item constructors for BatchBytesItem or BatchFileItem arrays.
 fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
     if let Some(items) = arr.as_array() {
@@ -566,7 +586,20 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                if arg.arg_type == "json_object" {
+                if arg.arg_type == "bytes" {
+                    // For bytes type, if value is a string path, read the file
+                    if let Some(path) = v.as_str() {
+                        let var_name = format!("_{}_content", sanitize_ident(&arg.name));
+                        setup_lines.push(format!(
+                            "const {var_name} = await (await import('node:fs/promises')).readFile('{}');",
+                            escape_js(path)
+                        ));
+                        parts.push(var_name);
+                    } else {
+                        // Binary array fallback
+                        parts.push(format!("Buffer.from({})", json_to_js(v)));
+                    }
+                } else if arg.arg_type == "json_object" {
                     if v.is_array() {
                         // Array args (e.g. batch items) may need element_type wrapping.
                         if let Some(elem_type) = &arg.element_type {
@@ -591,8 +624,9 @@ fn build_args_and_setup(
                         parts.push(json_to_js_camel(v));
                     }
                     continue;
+                } else {
+                    parts.push(json_to_js(v));
                 }
-                parts.push(json_to_js(v));
             }
         }
     }

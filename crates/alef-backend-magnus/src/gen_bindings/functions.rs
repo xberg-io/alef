@@ -254,15 +254,15 @@ pub(super) fn gen_function(
                     let binding_ty = &p.name;
                     if p.optional {
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
+                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(binding_val) }}, _ => None }};"
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }}, _ => Default::default() }};"
+                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))? }}, _ => Default::default() }};"
                         ));
                     } else {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                            "let {binding_ty}: {name} = {{ {name}::try_convert({binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))? }};"
                         ));
                     }
                 }
@@ -434,17 +434,17 @@ fn magnus_serde_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
                     out.push(format!(
-                        "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}), _ => None }};",
+                        "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{  <{core_import}::{name} as magnus::TryConvert>::try_convert(_v).map_err(|e| {err})? }}), _ => None }};",
                         n = p.name,
                     ));
                 } else if promoted || is_last_config {
                     out.push(format!(
-                        "let {n}_core: {core_import}::{name} = match {n} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}, _ => Default::default() }};",
+                        "let {n}_core: {core_import}::{name} = match {n} {{ Some(_v) if !_v.is_nil() => {{ <{core_import}::{name} as magnus::TryConvert>::try_convert(_v).map_err(|e| {err})? }}, _ => Default::default() }};",
                         n = p.name,
                     ));
                 } else {
                     out.push(format!(
-                        "let {n}_core: {core_import}::{name} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
+                        "let {n}_core: {core_import}::{name} = {{ <{core_import}::{name} as magnus::TryConvert>::try_convert({n}).map_err(|e| {err})? }};",
                         n = p.name,
                     ));
                 }
@@ -554,15 +554,15 @@ pub(super) fn gen_async_function(
                     let binding_ty = &p.name;
                     if p.optional {
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
+                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(binding_val) }}, _ => None }};"
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }}, _ => Default::default() }};"
+                            "let {binding_ty}: {name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))? }}, _ => Default::default() }};"
                         ));
                     } else {
                         deser_lines.push(format!(
-                            "let {binding_ty}: {name} = {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                            "let {binding_ty}: {name} = {{ {name}::try_convert({binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))? }};"
                         ));
                     }
                 }
