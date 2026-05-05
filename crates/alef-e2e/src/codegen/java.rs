@@ -390,11 +390,16 @@ fn render_test_file(
         }
     }
 
-    // Import nested options types (e.g., PreprocessingOptions) when used in fixtures.
-    if let Some(overrides) = e2e_config.call.overrides.get("java") {
-        if !overrides.nested_types.is_empty() && !import_path.is_empty() {
-            let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-            for (_field_name, type_name) in &overrides.nested_types {
+    // Import nested options types (e.g. SecurityLimits, ChunkingConfig) emitted by
+    // builder expressions. Pulls from the merged `nested_types` map that combines
+    // the per-language defaults (`default_java_nested_types`) with the configured
+    // overrides — earlier this only consulted `overrides.nested_types`, which missed
+    // the defaults like SecurityLimits → causing javac `cannot find symbol` errors.
+    if !nested_types.is_empty() && !import_path.is_empty() {
+        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+        let mut imported: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        for type_name in nested_types.values() {
+            if imported.insert(type_name.as_str()) {
                 let _ = writeln!(out, "import {binding_pkg}.{type_name};");
             }
         }
