@@ -487,23 +487,47 @@ impl Backend for PhpBackend {
         let mut content = builder.build();
 
         // Post-process generated code to fix bridge type builder methods.
-        // Builder methods with bridge parameters will attempt to access .inner on VisitorHandle,
-        // but that field is private. Since the parameter type is currently &VisitorHandle (generated
-        // from the IR parameter type), we can't properly wrap it. The correct fix would be to change
-        // the parameter type to &mut ZendObject, but that requires changes to parameter type mapping.
-        // For now, we skip visitor setting by replacing with None.
+        // The generated code attempts to pass VisitorHandle parameters to builder methods,
+        // but the parameter type should be ZendObject (PHP-side representation) instead.
+        // Replace the entire builder method signature and body to properly wrap the visitor.
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
                 let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
-                // Look for pattern: .visitor(visitor.as_ref().map(|v| &v.inner))
-                // The inner field is private so this fails to compile.
-                // Replace the entire call with .visitor(None)
-                let pattern = format!(
-                    ".{}({}.as_ref().map(|v| &v.inner))",
-                    field_name, param_name
+                let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
+                let options_type = bridge.options_type.as_deref().unwrap_or("ConversionOptions");
+                let builder_type = format!("{}Builder", options_type);
+                let bridge_struct = format!("Php{}", bridge.trait_name);
+
+                // Replace the old method signature and body with the corrected version.
+                // Old pattern: pub fn visitor(&self, visitor: Option<&VisitorHandle>) -> ConversionOptionsBuilder { ... }
+                let old_signature = format!(
+                    "pub fn {}(&self, {}: Option<&{}>) -> {} {{",
+                    field_name, param_name, type_alias, builder_type
                 );
-                let replacement = format!(".{}(None)", field_name);
-                content = content.replace(&pattern, &replacement);
+                let new_method = format!(
+                    "pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\
+                        \n        let bridge = {bridge_struct}::new({param_name});\
+                        \n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(bridge);\
+                        \n        Self {{\
+                        \n            inner: Arc::new((*self.inner).clone().{field_name}(Some(&handle))),\
+                        \n        }}\
+                        \n    }}"
+                );
+
+                // Find the method and replace it. We need to match from the old signature through
+                // the closing brace of the method. Look for the old closing pattern.
+                let old_closing = format!(
+                    "        Self {{\
+                        \n            inner: Arc::new((*self.inner).clone().{}(None)),\
+                        \n        }}\
+                        \n    }}",
+                    field_name
+                );
+
+                if content.contains(&old_signature) && content.contains(&old_closing) {
+                    let full_old_method = format!("{}\n        {}", old_signature, old_closing);
+                    content = content.replace(&full_old_method, &new_method);
+                }
             }
         }
 

@@ -1820,7 +1820,36 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_php(template);
-            setup_lines.push(format!("        return ['custom' => \"{escaped}\"];"));
+            // Replace {key} placeholders with {$key} for PHP variable interpolation in double-quoted strings.
+            let mut interpolated = String::new();
+            let mut chars = escaped.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '{' {
+                    // Check if next char is a letter or underscore (start of identifier)
+                    if let Some(&next_ch) = chars.peek() {
+                        if next_ch.is_ascii_alphabetic() || next_ch == '_' {
+                            // Consume identifier and find closing brace
+                            interpolated.push('{');
+                            interpolated.push('$');
+                            while let Some(&c) = chars.peek() {
+                                if c.is_ascii_alphanumeric() || c == '_' {
+                                    interpolated.push(chars.next().unwrap());
+                                } else if c == '}' {
+                                    interpolated.push(chars.next().unwrap());
+                                    break;
+                                } else {
+                                    // Not a valid identifier continuation; emit literally and stop
+                                    interpolated.push('{');
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
+                interpolated.push(ch);
+            }
+            setup_lines.push(format!("        return ['custom' => \"{interpolated}\"];"));
         }
     }
     setup_lines.push("    }".to_string());
