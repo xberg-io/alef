@@ -546,11 +546,12 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
                 out.push('.');
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
-                // Unwrap intermediate Optional fields with .get() so downstream accessors work.
-                // Only unwrap non-leaf fields (intermediate steps in the path) that are Optional.
-                if !is_leaf && optional_fields.contains(&path_so_far) {
-                    out.push_str(".get()");
-                }
+                // Java records in this project expose nullable fields as `@Nullable T` (not
+                // `Optional<T>`) — calling `.get()` on the accessor would not compile. Tests
+                // that traverse a nullable intermediate field rely on it being non-null at
+                // runtime; no unwrap is needed.
+                let _ = is_leaf;
+                let _ = optional_fields;
             }
             PathSegment::ArrayField(f) => {
                 if !path_so_far.is_empty() {
