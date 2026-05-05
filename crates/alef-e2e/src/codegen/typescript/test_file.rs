@@ -581,14 +581,13 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // For json_object args (like config), always pass a default empty object
-                // so all function arguments are present. For other types, omit if no later args.
+                // For optional json_object args, pass `undefined` so we keep argument
+                // positions intact without needing a placeholder value. The previous
+                // `{} as OptionsType` pattern broke wasm-bindgen, where the runtime
+                // `instanceof` check rejected plain object literals — wasm exposes
+                // options as opaque classes, not interfaces.
                 if arg.arg_type == "json_object" {
-                    if let Some(opts_type) = options_type {
-                        parts.push(format!("{{}} as {}", opts_type));
-                    } else {
-                        parts.push("{}".to_string());
-                    }
+                    parts.push("undefined".to_string());
                 } else if has_later_arg_value(args, idx + 1, input)
                     || has_later_json_object_default(args, idx + 1, input)
                 {
@@ -635,8 +634,10 @@ fn build_args_and_setup(
                     } else if let Some(opts_type) = options_type {
                         // Object value with known options type — cast to the interface type.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
-                            // Options types in TypeScript are interfaces, not classes — use object literal cast.
-                            parts.push(format!("{{}} as {}", opts_type));
+                            // Empty options: pass undefined so wasm-bindgen's instanceof
+                            // guard accepts the call (a `{}` cast produces a plain literal
+                            // that fails the runtime class check).
+                            parts.push("undefined".to_string());
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
                         }
