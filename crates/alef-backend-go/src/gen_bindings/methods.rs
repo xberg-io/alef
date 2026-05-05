@@ -154,6 +154,9 @@ pub(super) fn gen_method_wrapper(
             // method_can_return_error is always true here (receiver_requires_marshal is true for
             // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
+            let from_json_err_action = format!(
+                "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.kreuzberg_last_error_context()))"
+            );
             writeln!(
                 out,
                 "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
@@ -163,9 +166,13 @@ pub(super) fn gen_method_wrapper(
                  tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
                  cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n\t\
                  C.free(unsafe.Pointer(tmpStrRecv))\n\t\
+                 if cRecv == nil {{\n\t\t\
+                 {from_json_err_action}\n\t\
+                 }}\n\t\
                  defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
                 recv = receiver_name,
                 err_action = err_action,
+                from_json_err_action = from_json_err_action,
                 ffi_prefix = ffi_prefix,
                 type_snake = type_snake,
             )
@@ -385,6 +392,17 @@ pub(super) fn gen_param_to_c(
                 } else {
                     "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
                 };
+                let from_json_err_action = if can_return_error {
+                    format!(
+                        "return {err_return_prefix}fmt.Errorf(\"failed to create {}: %s\", C.GoString(C.kreuzberg_last_error_context()))",
+                        type_snake
+                    )
+                } else {
+                    format!(
+                        "panic(\"failed to create {}: \" + C.GoString(C.kreuzberg_last_error_context()))",
+                        type_snake
+                    )
+                };
                 writeln!(
                     out,
                     "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
@@ -394,10 +412,14 @@ pub(super) fn gen_param_to_c(
                      tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
                      {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n\t\
                      C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
+                     if {c_name} == nil {{\n\t\t\
+                     {from_json_err_action}\n\t\
+                     }}\n\t\
                      defer C.{ffi_prefix}_{type_snake}_free({c_name})",
                     c_name = c_name,
                     param = go_param,
                     err_action = err_action,
+                    from_json_err_action = from_json_err_action,
                     ffi_prefix = ffi_prefix,
                     type_snake = type_snake,
                 )

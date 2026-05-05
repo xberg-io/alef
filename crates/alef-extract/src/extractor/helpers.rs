@@ -6,7 +6,7 @@ use syn;
 
 use crate::type_resolver;
 
-/// Check if a visibility is `pub`.
+/// Check if a visibility is bare `pub` (not `pub(crate)` or other restricted variants).
 pub(crate) fn is_pub(vis: &syn::Visibility) -> bool {
     matches!(vis, syn::Visibility::Public(_))
 }
