@@ -391,6 +391,17 @@ fn render_test_file(
             let _ = writeln!(out, "import {binding_pkg}.{enum_type};");
         }
     }
+
+    // Import nested options types (e.g., PreprocessingOptions) when used in fixtures.
+    if let Some(overrides) = e2e_config.call.overrides.get("java") {
+        if !overrides.nested_types.is_empty() && !import_path.is_empty() {
+            let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+            for (_field_name, type_name) in &overrides.nested_types {
+                let _ = writeln!(out, "import {binding_pkg}.{type_name};");
+            }
+        }
+    }
+
     // Import CrawlConfig when handle args need JSON deserialization.
     if needs_object_mapper_for_handle && !import_path.is_empty() {
         let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
@@ -1795,6 +1806,36 @@ fn java_builder_expression(
     }
     expr.push_str(".build()");
     expr
+}
+
+/// Build default nested type mappings for Java extraction config types.
+///
+/// Maps known Kreuzberg/Kreuzcrawl config field names (in snake_case) to their
+/// Java record type names (in PascalCase). These defaults allow e2e codegen to
+/// automatically deserialize nested config objects without requiring explicit
+/// configuration in alef.toml. User-provided overrides take precedence.
+fn default_java_nested_types() -> std::collections::HashMap<String, String> {
+    [
+        ("chunking", "ChunkingConfig"),
+        ("ocr", "OcrConfig"),
+        ("images", "ImageExtractionConfig"),
+        ("html_output", "HtmlOutputConfig"),
+        ("language_detection", "LanguageDetectionConfig"),
+        ("postprocessor", "PostProcessorConfig"),
+        ("acceleration", "AccelerationConfig"),
+        ("email", "EmailConfig"),
+        ("pages", "PageConfig"),
+        ("pdf_options", "PdfConfig"),
+        ("layout", "LayoutDetectionConfig"),
+        ("tree_sitter", "TreeSitterConfig"),
+        ("structured_extraction", "StructuredExtractionConfig"),
+        ("content_filter", "ContentFilterConfig"),
+        ("token_reduction", "TokenReductionOptions"),
+        ("security_limits", "SecurityLimits"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
 }
 
 // ---------------------------------------------------------------------------
