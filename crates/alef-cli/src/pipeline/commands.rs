@@ -687,6 +687,14 @@ fn build_command_for(
             format!("wasm-pack build {crate_dir} {profile} --target web")
         }
         "cargo" => {
+            // When the language has no explicit `output` path (e.g. Dart in FRB style,
+            // whose generated Dart sources live at packages/dart/lib/src/ but whose
+            // Rust crate lives at packages/<lang>/rust/), `output_path_for` returns
+            // None and `crate_dir` is empty. In that case rely on the registered
+            // `crate_suffix` to invoke the workspace member directly.
+            if crate_dir.is_empty() && !bc.crate_suffix.is_empty() {
+                return format!("cargo build -p {}{}{}", config.name, bc.crate_suffix, release_flag);
+            }
             // Check for a standalone crate directory (e.g., Ruby's native/ subdir,
             // or R's extendr crate at packages/r/src/rust/) that is excluded from
             // the workspace and must be built via cd + cargo build.
