@@ -769,8 +769,21 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         }
 
         let field_go_name = to_go_name(&field.name);
+
+        // Match the struct's special-cased visitor field (typed as the user-facing
+        // `Visitor` interface, not the opaque `VisitorHandle`). The With option must
+        // accept Visitor too — passing a VisitorHandle and assigning &v yielded a
+        // *VisitorHandle, which doesn't satisfy the Visitor interface and broke the
+        // Go build whenever the visitor pattern was active.
+        let is_visitor_field = field.name == "visitor"
+            && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+
         // For the function parameter, always accept the direct type (not wrapped in optional)
-        let param_type = go_type(&field.ty);
+        let param_type = if is_visitor_field {
+            std::borrow::Cow::Borrowed("Visitor")
+        } else {
+            go_type(&field.ty)
+        };
 
         writeln!(
             out,
@@ -789,7 +802,9 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         // Exception: slice (Vec) and map types are reference types in Go — go_optional_type
         // returns []T and map[K]V (not *[]T / *map[K]V), so no address-of is needed.
         let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let use_ptr = (field.optional || needs_omitempty_pointer(field)) && !is_slice_or_map;
+        let use_ptr = !is_visitor_field
+            && (field.optional || needs_omitempty_pointer(field))
+            && !is_slice_or_map;
         let assign_val = if use_ptr { "&v" } else { "v" };
         writeln!(
             out,
