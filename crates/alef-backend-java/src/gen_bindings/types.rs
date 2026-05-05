@@ -193,7 +193,24 @@ pub(crate) fn gen_record_type(
                     writeln!(record_block, "    {}", anno).ok();
                 }
                 // Emit the type and field name on the final line
-                writeln!(record_block, "    {}{}", rest_of_decl.trim(), comma).ok();
+                // Check if rest_of_decl.trim() + comma still exceeds 120 chars
+                let rest_trimmed = rest_of_decl.trim();
+                let final_line = format!("    {}{}", rest_trimmed, comma);
+                if final_line.len() > 120 && rest_trimmed.contains(' ') {
+                    // Split type and field name further if still too long
+                    // Find the last space (which separates type from field name)
+                    if let Some(space_idx) = rest_trimmed.rfind(' ') {
+                        let field_type = &rest_trimmed[..space_idx];
+                        let field_name = &rest_trimmed[space_idx + 1..];
+                        writeln!(record_block, "    {}", field_type).ok();
+                        writeln!(record_block, "            {}{}", field_name, comma).ok();
+                    } else {
+                        // Unlikely case: no space to split on, emit as-is
+                        writeln!(record_block, "    {}{}", rest_trimmed, comma).ok();
+                    }
+                } else {
+                    writeln!(record_block, "    {}{}", rest_trimmed, comma).ok();
+                }
             } else {
                 writeln!(record_block, "    {}{}", entry.decl, comma).ok();
             }
@@ -266,7 +283,10 @@ pub(crate) fn gen_record_type(
     let needs_json_deserialize = record_block.contains("@JsonDeserialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     let needs_nullable = fields_joined.contains("@Nullable");
-    let needs_transient = fields_joined.contains("@Transient");
+    // Note: @Transient is not used in record classes — records have no bean-style getters,
+    // and field-level @Transient is not valid on record components. Keeping the detection
+    // for reference in case of future pattern changes.
+    let _needs_transient = fields_joined.contains("@Transient");
     // Optional is needed if fields have Optional<T> in declaration
     let needs_optional = fields_joined.contains("Optional<");
     let mut out = String::with_capacity(record_block.len() + 512);

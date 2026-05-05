@@ -139,11 +139,9 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         "    /** Live registry — keeps Arenas and upcall stubs alive past the register call. */"
     )
     .ok();
-    writeln!(
-        out,
-        "    private static final ConcurrentHashMap<String, {bridge_class}> {registry_field} = new ConcurrentHashMap<>();"
-    )
-    .ok();
+    // ConcurrentHashMap declaration can exceed 120 chars, so format it on multiple lines
+    writeln!(out, "    private static final ConcurrentHashMap<String, {bridge_class}>").ok();
+    writeln!(out, "            {registry_field} = new ConcurrentHashMap<>();").ok();
     writeln!(out).ok();
 
     let num_methods = trait_def.methods.len();
