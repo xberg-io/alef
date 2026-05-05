@@ -1015,7 +1015,21 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
-    for arg in args {
+    // True when any arg after `from_idx` has a fixture value (or has no fixture
+    // value but is required — i.e. would emit *something*). Used to decide
+    // whether a missing optional middle arg must emit `null` to preserve the
+    // positional argument layout, or can be safely dropped.
+    let arg_has_emission = |arg: &crate::config::ArgMapping| -> bool {
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = input.get(field);
+        match val {
+            None | Some(serde_json::Value::Null) => !arg.optional,
+            Some(_) => true,
+        }
+    };
+    let any_later_has_emission = |from_idx: usize| -> bool { args[from_idx..].iter().any(arg_has_emission) };
+
+    for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
                 "${} = getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';",
@@ -1058,7 +1072,13 @@ fn build_args_and_setup(
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
+                // Optional arg with no fixture value. If a later arg WILL emit
+                // something, we must keep this slot in place by passing `null`
+                // so the positional argument layout matches the PHP signature.
+                // Otherwise drop the trailing optional argument entirely.
+                if any_later_has_emission(idx + 1) {
+                    parts.push("null".to_string());
+                }
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
