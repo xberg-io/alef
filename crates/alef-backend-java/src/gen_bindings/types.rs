@@ -704,7 +704,18 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
                 default.clone()
             } else {
                 match &field.ty {
-                    TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                        // Use typed_default (from Rust's impl Default) if available.
+                        // This ensures char fields (e.g. strong_em_symbol: '*') default
+                        // to a valid single-character string rather than "" which serde
+                        // cannot deserialize as char.
+                        match &field.typed_default {
+                            Some(DefaultValue::StringLiteral(s)) => {
+                                format!("\"{}\"", s.replace('"', "\\\""))
+                            }
+                            _ => "\"\"".to_string(),
+                        }
+                    }
                     TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "new byte[0]".to_string(),
                     TypeRef::Primitive(p) => match p {

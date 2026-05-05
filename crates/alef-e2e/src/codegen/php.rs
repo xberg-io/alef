@@ -446,6 +446,7 @@ fn render_test_file(
                 .args
                 .iter()
                 .filter_map(|a| a.element_type.as_ref().map(|t| t.to_string()))
+                .filter(|t| !is_php_reserved_type(t))
                 .collect();
             opt_type
                 .map(|t| t.to_string())
@@ -1767,4 +1768,14 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         }
     }
     setup_lines.push("    }".to_string());
+}
+
+/// Returns true if the type name is a PHP reserved/primitive type that cannot be imported.
+fn is_php_reserved_type(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "string" | "int" | "integer" | "float" | "double" | "bool" | "boolean" | "array"
+            | "object" | "null" | "void" | "callable" | "iterable" | "never" | "self"
+            | "parent" | "static" | "true" | "false" | "mixed"
+    )
 }

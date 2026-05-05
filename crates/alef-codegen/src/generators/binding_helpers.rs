@@ -784,11 +784,13 @@ fn gen_named_let_bindings_inner(
                         .ok();
                     }
                 } else if promoted {
-                    // Promoted-optional: unwrap then convert. Add explicit type annotation to help type inference.
+                    // Promoted-optional Named: caller may pass null/undefined when the binding
+                    // signature has Option<T>. Use `unwrap_or_default()` so JS/Python `undefined`
+                    // becomes a default-constructed instance (binding types always derive Default).
                     write!(
                         bindings,
-                        "let {}_core: {core_type_path} = {}.expect(\"'{}' is required\").into();\n    ",
-                        p.name, p.name, p.name
+                        "let {}_core: {core_type_path} = {}.unwrap_or_default().into();\n    ",
+                        p.name, p.name
                     )
                     .ok();
                 } else {
