@@ -322,128 +322,163 @@ pub(super) fn gen_api_py(
         out.push_str(&format!(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
+
+        // Helper fn: extract the leaf Named type name from Named(n) or Optional(Named(n)).
+        fn get_inner_name(ty: &TypeRef) -> Option<&str> {
+            match ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                }
+                _ => None,
+            }
+        }
+
+        // Collect the three categories of dict-coercible fields.
+        let struct_coercible: Vec<_> = typ
+            .fields
+            .iter()
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| default_types.contains_key(n)))
+            .collect();
+        let simple_enum_coercible: Vec<_> = typ
+            .fields
+            .iter()
+            .filter(|f| {
+                get_inner_name(&f.ty)
+                    .is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
+            })
+            .collect();
+        let data_enum_coercible: Vec<_> = typ
+            .fields
+            .iter()
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| data_enum_names.contains(n)))
+            .collect();
+        let total_coercible =
+            struct_coercible.len() + simple_enum_coercible.len() + data_enum_coercible.len();
+
+        // When total coercible fields exceed the threshold, extract coercion into a dedicated
+        // `_coerce_dict_{snake}` helper to keep `_to_rust_{snake}` under ruff's C901/PLR0912
+        // complexity limit (15 branches).
+        const DICT_HELPER_THRESHOLD: usize = 5;
+        let use_dict_helper = total_coercible > DICT_HELPER_THRESHOLD;
+
+        if use_dict_helper {
+            // Emit `_coerce_dict_{snake}` BEFORE `_to_rust_{snake}`.
+            // Insert the helper function text before the current function's docstring by
+            // prepending it to a temporary buffer and then inserting into `out` just before
+            // the function header we already emitted.  Because we are mid-emit, it is simpler
+            // to build the helper in a separate string and splice it in before the `def` line.
+            //
+            // Strategy: find the last occurrence of `def _to_rust_{snake}` in `out` and
+            // insert the helper immediately before it.
+            let helper_marker = format!("def _to_rust_{snake}(");
+            let insert_pos = out.rfind(&helper_marker).unwrap_or(out.len());
+
+            let mut helper = String::new();
+            helper.push_str(&format!("def _coerce_dict_{snake}(value: dict) -> {type_name}:\n"));
+            helper.push_str(&format!(
+                "    \"\"\"Coerce a dict into {type_name}, converting nested types in-place.\"\"\"\n"
+            ));
+
+            if !struct_coercible.is_empty() {
+                helper.push_str("    _struct_coercions = {\n");
+                for field in &struct_coercible {
+                    let nested_name = get_inner_name(&field.ty).unwrap();
+                    let nested_snake = nested_name.to_snake_case();
+                    helper.push_str(&format!(
+                        "        \"{}\": _to_rust_{nested_snake},\n",
+                        field.name
+                    ));
+                }
+                helper.push_str("    }\n");
+                helper.push_str("    for _k, _fn in _struct_coercions.items():\n");
+                helper.push_str(
+                    "        if _k in value and value[_k] is not None:\n            value[_k] = _fn(value[_k])\n",
+                );
+            }
+
+            if !simple_enum_coercible.is_empty() {
+                helper.push_str("    _enum_coercions = {\n");
+                for field in &simple_enum_coercible {
+                    let enum_name = get_inner_name(&field.ty).unwrap();
+                    helper.push_str(&format!(
+                        "        \"{}\": _rust.{enum_name},\n",
+                        field.name
+                    ));
+                }
+                helper.push_str("    }\n");
+                helper.push_str("    for _k, _cls in _enum_coercions.items():\n");
+                helper.push_str(
+                    "        if _k in value and value[_k] is not None:\n            value[_k] = _coerce_enum(_cls, value[_k])\n",
+                );
+            }
+
+            if !data_enum_coercible.is_empty() {
+                helper.push_str("    _data_enum_coercions = {\n");
+                for field in &data_enum_coercible {
+                    let enum_name = get_inner_name(&field.ty).unwrap();
+                    helper.push_str(&format!(
+                        "        \"{}\": _rust.{enum_name},\n",
+                        field.name
+                    ));
+                }
+                helper.push_str("    }\n");
+                helper.push_str("    for _k, _cls in _data_enum_coercions.items():\n");
+                helper.push_str(
+                    "        if _k in value and value[_k] is not None and not isinstance(value[_k], _cls):\n            value[_k] = _cls(value[_k])\n",
+                );
+            }
+
+            helper.push_str(&format!("    return {type_name}(**value)\n\n\n"));
+            out.insert_str(insert_pos, &helper);
+        }
+
         // Allow dict input as a convenience (callers may pass a literal `{...}` instead
         // of constructing the dataclass). Coerce enum fields in the dict before constructing.
         out.push_str("    if isinstance(value, dict):\n");
-        let has_enum_field = typ.fields.iter().any(|f| {
-            let inner_name = match &f.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            inner_name.is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
-        });
-        if has_enum_field {
-            for field in &typ.fields {
-                let inner_name = match &field.ty {
-                    TypeRef::Named(n) => Some(n.as_str()),
-                    TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() {
-                            Some(n.as_str())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(enum_name) = inner_name {
-                    if enum_names.contains(enum_name) && !data_enum_names.contains(enum_name) {
-                        out.push_str(&format!(
-                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
-                            field_name = field.name,
-                        ));
-                    }
+
+        if use_dict_helper {
+            // Delegate all dict coercion to the extracted helper.
+            out.push_str(&format!("        value = _coerce_dict_{snake}(value)\n"));
+        } else {
+            // Inline coercions for types with few coercible fields (stays within ruff C901 limit).
+            let has_enum_field = !simple_enum_coercible.is_empty();
+            if has_enum_field {
+                for field in &simple_enum_coercible {
+                    let enum_name = get_inner_name(&field.ty).unwrap();
+                    out.push_str(&format!(
+                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
+                        field_name = field.name,
+                    ));
                 }
             }
-        }
-        // Also coerce nested has_default struct types in the dict before constructing the dataclass
-        let has_nested_struct = typ.fields.iter().any(|f| {
-            let inner_name = match &f.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            inner_name.is_some_and(|n| default_types.contains_key(n))
-        });
-        if has_nested_struct {
-            for field in &typ.fields {
-                let inner_name = match &field.ty {
-                    TypeRef::Named(n) => Some(n.as_str()),
-                    TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() {
-                            Some(n.as_str())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(nested_name) = inner_name {
-                    if default_types.contains_key(nested_name) {
-                        let nested_snake = nested_name.to_snake_case();
-                        out.push_str(&format!(
-                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _to_rust_{nested_snake}(value[\"{field_name}\"])\n",
-                            field_name = field.name,
-                        ));
-                    }
+            // Also coerce nested has_default struct types in the dict before constructing the dataclass.
+            if !struct_coercible.is_empty() {
+                for field in &struct_coercible {
+                    let nested_name = get_inner_name(&field.ty).unwrap();
+                    let nested_snake = nested_name.to_snake_case();
+                    out.push_str(&format!(
+                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _to_rust_{nested_snake}(value[\"{field_name}\"])\n",
+                        field_name = field.name,
+                    ));
                 }
             }
-        }
-        // Coerce data-enum fields: when a field's type is a data enum (e.g. `OutputFormat`)
-        // the PyO3 #[pyclass] reconstruction at `{type_name}(**value)` requires the field
-        // value to be an instance of that class, not a raw string/dict. Wrap any non-None,
-        // non-instance value in a constructor call so `output_format="markdown"` becomes
-        // `_rust.OutputFormat("markdown")`.
-        let has_data_enum_field = typ.fields.iter().any(|f| {
-            let inner_name = match &f.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            inner_name.is_some_and(|n| data_enum_names.contains(n))
-        });
-        if has_data_enum_field {
-            for field in &typ.fields {
-                let inner_name = match &field.ty {
-                    TypeRef::Named(n) => Some(n.as_str()),
-                    TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() {
-                            Some(n.as_str())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(enum_name) = inner_name {
-                    if data_enum_names.contains(enum_name) {
-                        out.push_str(&format!(
-                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None and not isinstance(value[\"{field_name}\"], _rust.{enum_name}):\n            value[\"{field_name}\"] = _rust.{enum_name}(value[\"{field_name}\"])\n",
-                            field_name = field.name,
-                        ));
-                    }
+            // Coerce data-enum fields: when a field's type is a data enum (e.g. `OutputFormat`)
+            // the PyO3 #[pyclass] reconstruction at `{type_name}(**value)` requires the field
+            // value to be an instance of that class, not a raw string/dict. Wrap any non-None,
+            // non-instance value in a constructor call so `output_format="markdown"` becomes
+            // `_rust.OutputFormat("markdown")`.
+            if !data_enum_coercible.is_empty() {
+                for field in &data_enum_coercible {
+                    let enum_name = get_inner_name(&field.ty).unwrap();
+                    out.push_str(&format!(
+                        "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None and not isinstance(value[\"{field_name}\"], _rust.{enum_name}):\n            value[\"{field_name}\"] = _rust.{enum_name}(value[\"{field_name}\"])\n",
+                        field_name = field.name,
+                    ));
                 }
             }
+            out.push_str(&format!("        value = {type_name}(**value)\n"));
         }
-        out.push_str(&format!("        value = {type_name}(**value)\n"));
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             // When value is None but visitor override is provided, construct a default instance.
