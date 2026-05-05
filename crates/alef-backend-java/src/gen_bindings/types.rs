@@ -727,8 +727,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         let field_name = safe_java_field_name(&field.name);
         let field_name_pascal = to_class_name(&field.name);
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        // Builders store the visitor as Optional<Visitor> for null-safe chaining, but
+        // expose `withVisitor(Visitor)` to keep the user-facing API ergonomic — callers
+        // should not have to write `Optional.of(visitor)` themselves.
         let field_type = if is_visitor_field {
-            "Optional<Visitor>".to_string()
+            "Visitor".to_string()
         } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
@@ -744,7 +747,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             typ.name, field_name_pascal, field_type
         )
         .ok();
-        writeln!(body, "        this.{} = value;", field_name).ok();
+        if is_visitor_field {
+            writeln!(body, "        this.{} = Optional.ofNullable(value);", field_name).ok();
+        } else {
+            writeln!(body, "        this.{} = value;", field_name).ok();
+        }
         writeln!(body, "        return this;").ok();
         writeln!(body, "    }}").ok();
         writeln!(body).ok();
