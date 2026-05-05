@@ -47,7 +47,7 @@ pub(super) fn gen_wrapper_class(
     out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault\n");
+    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull\n");
     out.push_str("    };\n\n");
 
     // Enum names: used to distinguish opaque struct handles from enum return types.
