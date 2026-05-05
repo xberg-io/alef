@@ -24,15 +24,23 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     if typ.has_stripped_cfg_fields {
         writeln!(out, "#[allow(clippy::needless_update)]").ok();
     }
-    // Suppress clippy when we use the builder pattern (Default + field reassignment)
-    let uses_builder_pattern = config.option_duration_on_defaults
+    // Suppress clippy when we use the builder pattern (Default + field reassignment).
+    // Two paths use this pattern:
+    //   1. option_duration_on_defaults: non-optional Duration fields stored as Option<u64>
+    //   2. optionalize_defaults: all fields of has_default types wrapped in Option<T>
+    let uses_builder_pattern = (config.option_duration_on_defaults
         && typ.has_default
         && typ
             .fields
             .iter()
-            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration));
+            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration)))
+        || (config.optionalize_defaults && typ.has_default);
     if uses_builder_pattern {
-        writeln!(out, "#[allow(clippy::field_reassign_with_default)]").ok();
+        writeln!(
+            out,
+            "#[allow(clippy::field_reassign_with_default, clippy::let_and_return)]"
+        )
+        .ok();
     }
     writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();

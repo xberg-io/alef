@@ -176,6 +176,7 @@ impl Clone for JsVisitorRef {
     }
 }
 
+#[allow(clippy::arc_with_non_send_sync)]
 impl From<napi::bindgen_prelude::Object<'static>> for JsVisitorRef {
     fn from(visitor: napi::bindgen_prelude::Object<'static>) -> Self {
         JsVisitorRef {
@@ -186,11 +187,8 @@ impl From<napi::bindgen_prelude::Object<'static>> for JsVisitorRef {
 
 impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
     fn from(visitor_ref: JsVisitorRef) -> Self {
-        // SAFETY: Arc::clone does not actually clone the Object — it just increments
-        // the refcount. When we deref via * and clone, we get a new arc-ed reference
-        // to the same Object data. This is safe because Object<'static> is a reference
-        // type (internally just holding an env + handle pair).
-        (*visitor_ref.inner).clone()
+        // Object<'static> is Copy (it just holds an env+handle pair), so deref directly.
+        *visitor_ref.inner
     }
 }
 "#;
