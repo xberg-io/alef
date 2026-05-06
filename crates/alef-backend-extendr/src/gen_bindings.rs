@@ -1115,13 +1115,13 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
         match ty {
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if is_struct_like(n) => true,
-                TypeRef::Vec(_) => true,  // Vec<Vec<_>> not supported
+                TypeRef::Vec(_) => true, // Vec<Vec<_>> not supported
                 _ => false,
             },
             TypeRef::Optional(inner) => match inner.as_ref() {
                 TypeRef::Vec(inner2) => match inner2.as_ref() {
                     TypeRef::Named(n) if is_struct_like(n) => true,
-                    TypeRef::Vec(_) => true,  // Option<Vec<Vec<_>>> not supported
+                    TypeRef::Vec(_) => true, // Option<Vec<Vec<_>>> not supported
                     _ => false,
                 },
                 _ => false,

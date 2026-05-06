@@ -565,6 +565,27 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
+    // Helper: apply {param_name} template substitution to Custom visit results.
+    // Use push_str to avoid writeln! format-string interpretation of braces.
+    out.push_str(&format!(
+        "fn php_visit_result_with_template(val: &ext_php_rs::types::Zval, tmpl_vars: &[(&str, &str)]) -> {core_crate}::VisitResult {{\n"
+    ));
+    out.push_str("    let base = php_zval_to_visit_result(val);\n");
+    out.push_str(&format!(
+        "    if let {core_crate}::VisitResult::Custom(tmpl) = base {{\n"
+    ));
+    out.push_str("        let mut s = tmpl;\n");
+    out.push_str("        for (k, v) in tmpl_vars {\n");
+    // Generates: s = s.replace(&format!("{{{}}}", k), v);
+    // where "{{{}}}" is a format literal: {{ → {, {} → k, }} → } giving "{k}"
+    out.push_str("            s = s.replace(&format!(\"{{{}}}\", k), v);\n");
+    out.push_str("        }\n");
+    out.push_str(&format!("        {core_crate}::VisitResult::Custom(s)\n"));
+    out.push_str("    } else {\n");
+    out.push_str("        base\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
     // Bridge struct — stores a reference to the PHP object.
     // The reference is valid for the duration of the PHP function call that
     // created the bridge, which spans the entire Rust trait method dispatch.
@@ -752,10 +773,50 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     )
     .unwrap();
 
+    // Build template vars for {param_name} → value substitution in Custom results.
+    // Each non-ctx param gets an owned String so we can take &str references.
+    let mut tmpl_var_names: Vec<String> = Vec::new();
+    for p in &method.params {
+        if let TypeRef::Named(n) = &p.ty {
+            if n == "NodeContext" {
+                continue;
+            }
+        }
+        // Skip Vec/slice params — no Display impl; not useful in templates.
+        if matches!(&p.ty, TypeRef::Vec(_)) {
+            continue;
+        }
+        // Strip leading underscore from param name for the template key (e.g. _src → src)
+        let key = p.name.strip_prefix('_').unwrap_or(&p.name);
+        let owned_var = format!("_{key}_s");
+        let expr: String = if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+            format!("{}.map(|s| s.to_string()).unwrap_or_default()", p.name)
+        } else if matches!(&p.ty, TypeRef::String) && p.is_ref {
+            format!("{}.to_string()", p.name)
+        } else if matches!(&p.ty, TypeRef::String) {
+            format!("{}.clone()", p.name)
+        } else if matches!(&p.ty, TypeRef::Optional(_)) {
+            format!("{}.map(|v| v.to_string()).unwrap_or_default()", p.name)
+        } else {
+            format!("{}.to_string()", p.name)
+        };
+        writeln!(out, "        let {owned_var}: String = {expr};").unwrap();
+        tmpl_var_names.push(format!("(\"{key}\", {owned_var}.as_str())"));
+    }
+    let tmpl_vars_expr = if tmpl_var_names.is_empty() {
+        "&[]".to_string()
+    } else {
+        format!("&[{}]", tmpl_var_names.join(", "))
+    };
+
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(val) => php_zval_to_visit_result(&val),").unwrap();
+    writeln!(
+        out,
+        "            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),"
+    )
+    .unwrap();
     writeln!(out, "        }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out).unwrap();
