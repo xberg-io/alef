@@ -502,10 +502,8 @@ impl Backend for PhpBackend {
 
                 // Match the verbatim output from codegen (4-space method indent,
                 // 8-space body indent — same as every other builder method).
-                // The PHP backend emits `None` for opaque types (like VisitorHandle) that
-                // cannot be converted directly; match that pattern here.
                 let old_method = format!(
-                    "    pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{\n            inner: Arc::new((*self.inner).clone().{field_name}(None)),\n        }}\n    }}"
+                    "    pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{\n            inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))),\n        }}\n    }}"
                 );
                 let new_method = format!(
                     "    pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(bridge);\n        Self {{\n            inner: Arc::new((*self.inner).clone().{field_name}(Some(&handle))),\n        }}\n    }}"
@@ -547,6 +545,15 @@ impl Backend for PhpBackend {
             .trait_bridges
             .iter()
             .filter_map(|b| b.param_name.as_deref())
+            .collect();
+
+        // Config types whose constructors can be called with zero arguments (all fields optional).
+        // Only these types are safe to null-coalesce at call sites: `$x ?? new T()`.
+        let no_arg_constructor_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.fields.iter().all(|f| f.optional))
+            .map(|t| t.name.clone())
             .collect();
 
         // Generate wrapper methods for functions
@@ -599,14 +606,20 @@ impl Backend for PhpBackend {
             // This ensures e2e generated test code (which uses Rust param order) will work.
             // Additionally, config-like parameters (Named types ending in "Config") should
             // be treated as optional for PHP even if not explicitly marked as such in the IR.
-            let mut first_optional_idx = None;
-            for (idx, p) in visible_params.iter().enumerate() {
-                let is_config_param = if let TypeRef::Named(name) = &p.ty {
-                    name.ends_with("Config") || name == "config"
+            // Helper: a config param is only treated as optional when its type can be
+            // constructed with zero arguments (all fields are optional in the IR).
+            let is_optional_config_param = |p: &alef_core::ir::Param| -> bool {
+                if let TypeRef::Named(name) = &p.ty {
+                    (name.ends_with("Config") || name.as_str() == "config")
+                        && no_arg_constructor_types.contains(name.as_str())
                 } else {
                     false
-                };
-                if p.optional || is_config_param {
+                }
+            };
+
+            let mut first_optional_idx = None;
+            for (idx, p) in visible_params.iter().enumerate() {
+                if p.optional || is_optional_config_param(p) {
                     first_optional_idx = Some(idx);
                     break;
                 }
@@ -621,15 +634,10 @@ impl Backend for PhpBackend {
                     let ptype = php_type(&p.ty);
                     // Make param optional if:
                     // 1. It's explicitly optional OR
-                    // 2. It's a config parameter OR
+                    // 2. It's a config parameter with a no-arg constructor OR
                     // 3. It comes after the first optional/config param
-                    let is_config_param = if let TypeRef::Named(name) = &p.ty {
-                        name.ends_with("Config") || name == "config"
-                    } else {
-                        false
-                    };
                     let should_be_optional =
-                        p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
+                        p.optional || is_optional_config_param(p) || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
@@ -661,14 +669,9 @@ impl Backend for PhpBackend {
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {
-                    let is_config_param = if let TypeRef::Named(name) = &p.ty {
-                        name.ends_with("Config")
-                    } else {
-                        false
-                    };
                     let should_be_optional =
-                        p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
-                    if should_be_optional && is_config_param {
+                        p.optional || is_optional_config_param(p) || first_optional_idx.is_some_and(|first| idx >= first);
+                    if should_be_optional && is_optional_config_param(p) {
                         if let TypeRef::Named(type_name) = &p.ty {
                             return format!("${} ?? new {}()", p.name, type_name);
                         }
