@@ -553,7 +553,13 @@ mod tests {
     use crate::fixture::Assertion;
 
     fn empty_resolver() -> FieldResolver {
-        FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
+        FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
     }
 
     fn resolver_with_array_field(field: &str) -> FieldResolver {
@@ -562,6 +568,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::from([field.to_string()]),
+            &HashSet::new(),
         )
     }
 

@@ -1,7 +1,7 @@
 use crate::builder::StructBuilder;
 use crate::generators::RustBindingConfig;
 use crate::type_mapper::TypeMapper;
-use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, DefaultValue, TypeDef, TypeRef};
 use std::fmt::Write;
 
 /// Check if a type's fields can all be safely defaulted.
@@ -303,8 +303,11 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
         if field.cfg.is_some() {
             continue;
         }
-        let default_val = match &field.ty {
-            TypeRef::Optional(_) => "None".to_string(),
+        let default_val = match (&field.ty, &field.typed_default) {
+            (_, Some(DefaultValue::BoolLiteral(b))) => b.to_string(),
+            (_, Some(DefaultValue::IntLiteral(n))) => n.to_string(),
+            (_, Some(DefaultValue::StringLiteral(s))) => format!("String::from(\"{}\")", s),
+            (_, Some(DefaultValue::None)) | (TypeRef::Optional(_), _) => "None".to_string(),
             _ => "Default::default()".to_string(),
         };
         writeln!(out, "            {}: {},", field.name, default_val).ok();

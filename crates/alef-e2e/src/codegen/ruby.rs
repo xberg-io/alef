@@ -120,6 +120,7 @@ impl E2eCodegen for RubyCodegen {
                 &e2e_config.fields_optional,
                 &e2e_config.result_fields,
                 &e2e_config.fields_array,
+                &std::collections::HashSet::new(),
             );
             // Skip the entire file if no fixture in this category produces output.
             let has_any_output = active.iter().any(|f| {
@@ -141,6 +142,7 @@ impl E2eCodegen for RubyCodegen {
                 &e2e_config.fields_optional,
                 &e2e_config.result_fields,
                 &e2e_config.fields_array,
+                &std::collections::HashSet::new(),
             );
             let content = render_spec_file(
                 &group.category,

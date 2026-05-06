@@ -148,7 +148,10 @@ pub(crate) fn gen_php_struct(
         // which is wrong for fields like PreprocessingOptions.enabled.
         if cfg.has_serde
             && typ.has_default
-            && matches!(field.typed_default, Some(alef_core::ir::DefaultValue::BoolLiteral(true)))
+            && matches!(
+                field.typed_default,
+                Some(alef_core::ir::DefaultValue::BoolLiteral(true))
+            )
         {
             attrs.push("serde(default = \"crate::serde_defaults::bool_true\")".to_string());
         }

@@ -148,11 +148,10 @@ pub(super) fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallba
 /// Generate a Go enum type definition.
 ///
 /// For unit enums (all variants have no fields): generates `type X string` with constants.
-/// For newtype-tuple enums (all data variant fields are positional tuple fields that would
-/// be skipped in Go): generates `type X string` with constants for named variants plus
-/// custom `MarshalJSON`/`UnmarshalJSON` that round-trips the string value unchanged — this
-/// handles Rust enums like `enum Foo { A, B, Custom(String) }` where `Custom` carries an
-/// arbitrary string payload.
+/// For newtype-tuple enums (all data variant fields are positional tuple fields with primitive types):
+/// generates `type X string` with constants for named variants plus custom `MarshalJSON`/`UnmarshalJSON`.
+/// For tuple-tagged-union enums (tuple fields with Named struct types): generates a struct with
+/// one pointer field per variant, discriminated by a tag field, plus custom JSON marshaling.
 /// For structural data enums (any variant has named fields): generates a flattened Go
 /// struct with all variant fields collected and deduplicated, using pointer types for
 /// fields not present in every variant.
@@ -165,20 +164,25 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
 
     // Detect "newtype-tuple" pattern: a data enum whose data variants contain only
     // positional tuple fields (all of which `is_tuple_field` returns true for).
-    // These are Rust enums like `enum Foo { A, B, Custom(String) }` where the
-    // `Custom` variant wraps a single scalar.  Go cannot represent tuple fields in
-    // a struct, so we fall back to the simpler `type Foo string` representation:
-    // - Named (non-data) variants become string constants (e.g. `FooA`).
-    // - The Custom/tuple variant becomes the "fallthrough": arbitrary string values
-    //   that don't match a constant are accepted as-is (no extra UnmarshalJSON needed
-    //   because the underlying type IS string).
     let all_data_fields_are_tuple = enum_def
         .variants
         .iter()
         .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field));
 
     if all_data_fields_are_tuple {
-        gen_newtype_tuple_enum_type(enum_def)
+        // Check if any tuple field has a Named (struct) type.
+        // If so, use tagged union; otherwise use newtype tuple enum.
+        let any_tuple_field_is_named_struct = enum_def.variants.iter().any(|v| {
+            v.fields
+                .iter()
+                .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Named(_)))
+        });
+
+        if any_tuple_field_is_named_struct {
+            gen_tuple_tagged_union_type(enum_def)
+        } else {
+            gen_newtype_tuple_enum_type(enum_def)
+        }
     } else {
         gen_data_enum_type(enum_def)
     }
@@ -250,6 +254,176 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
         writeln!(out, "\t{} {} = \"{}\"", const_name, go_enum_name, wire_value).ok();
     }
     writeln!(out, ")").ok();
+    out
+}
+
+/// Generate a Go tagged union enum with Named struct fields.
+///
+/// Emits a struct with one pointer field per variant (containing the struct payload),
+/// plus a discriminator tag field. For example, `FormatMetadata` with variants
+/// `Pdf(PdfMetadata)`, `Excel(ExcelMetadata)` becomes:
+///
+/// ```go
+/// type FormatMetadata struct {
+///     FormatType string `json:"format_type"`
+///     Pdf *PdfMetadata `json:"pdf_data,omitempty"`
+///     Excel *ExcelMetadata `json:"excel_data,omitempty"`
+///     ...
+/// }
+/// ```
+///
+/// Includes custom `UnmarshalJSON` that reads the tag first, then unmarshals
+/// the payload into the correct pointer field.
+fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
+    let mut out = String::with_capacity(2048);
+    let go_enum_name = go_type_name(&enum_def.name);
+
+    // Collect variant names for the doc comment
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+    emit_type_doc(
+        &mut out,
+        &go_enum_name,
+        &enum_def.doc,
+        "is a tagged union type (discriminated by format_type).",
+    );
+    writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
+    writeln!(out, "type {} struct {{", go_enum_name).ok();
+
+    // Emit the serde tag discriminator field first (e.g. `FormatType string \`json:"format_type"\``).
+    if let Some(tag_name) = &enum_def.serde_tag {
+        writeln!(out, "\t{} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
+    }
+
+    // Emit one pointer field per variant
+    for variant in &enum_def.variants {
+        if variant.fields.is_empty() {
+            continue;
+        }
+
+        // Find the first (and typically only) tuple field
+        if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
+            if let TypeRef::Named(struct_type_name) = &field.ty {
+                let go_struct_type = go_type_name(struct_type_name);
+                let field_name = to_go_name(&variant.name);
+                let json_field_name =
+                    apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref());
+
+                if !variant.doc.is_empty() {
+                    for line in variant.doc.lines() {
+                        writeln!(out, "\t// {}", line.trim()).ok();
+                    }
+                }
+                writeln!(
+                    out,
+                    "\t{} *{} `json:\"{},omitempty\"`",
+                    field_name, go_struct_type, json_field_name
+                )
+                .ok();
+            }
+        }
+    }
+
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // Generate MarshalJSON
+    let tag_field_name = if let Some(tn) = &enum_def.serde_tag {
+        to_go_name(tn)
+    } else {
+        "Type".to_string()
+    };
+    let tag_name = if let Some(tn) = &enum_def.serde_tag {
+        tn.as_str()
+    } else {
+        "type"
+    };
+
+    writeln!(
+        out,
+        "// MarshalJSON encodes the tagged union with the discriminator tag."
+    )
+    .ok();
+    writeln!(out, "func (t {go_enum_name}) MarshalJSON() ([]byte, error) {{").ok();
+    writeln!(out, "\tswitch t.{} {{", tag_field_name).ok();
+
+    for variant in &enum_def.variants {
+        if variant.fields.is_empty() {
+            continue;
+        }
+
+        if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
+            if let TypeRef::Named(_) = &field.ty {
+                let variant_go_name = to_go_name(&variant.name);
+                let wire_value = enum_variant_wire_value(variant, enum_def);
+
+                writeln!(out, "\tcase \"{}\":", wire_value).ok();
+                writeln!(out, "\t\tif t.{} != nil {{", variant_go_name).ok();
+                writeln!(out, "\t\t\tdata, err := json.Marshal(t.{})", variant_go_name).ok();
+                writeln!(out, "\t\t\tif err != nil {{ return nil, err }}").ok();
+                writeln!(out, "\t\t\tvar m map[string]json.RawMessage").ok();
+                writeln!(
+                    out,
+                    "\t\t\tif err := json.Unmarshal(data, &m); err != nil {{ return nil, err }}"
+                )
+                .ok();
+                writeln!(out, "\t\t\tm[\"{}\"] = []byte(`\"{}\"`)", tag_name, wire_value).ok();
+                writeln!(out, "\t\t\treturn json.Marshal(m)").ok();
+                writeln!(out, "\t\t}}").ok();
+            }
+        }
+    }
+
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\t// Fallback: return just the tag").ok();
+    writeln!(
+        out,
+        "\treturn json.Marshal(map[string]string{{\"{}\": t.{}}})",
+        tag_name, tag_field_name
+    )
+    .ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // Generate UnmarshalJSON
+    writeln!(out, "// UnmarshalJSON decodes a tagged union by reading the tag first.").ok();
+    writeln!(out, "func (t *{go_enum_name}) UnmarshalJSON(data []byte) error {{").ok();
+    writeln!(out, "\t// Probe for the tag first").ok();
+    writeln!(out, "\tvar probe struct {{").ok();
+    if let Some(tn) = &enum_def.serde_tag {
+        writeln!(out, "\t\t{} string `json:\"{}\"`", to_go_name(tn), tn).ok();
+    }
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\tif err := json.Unmarshal(data, &probe); err != nil {{").ok();
+    writeln!(out, "\t\treturn err").ok();
+    writeln!(out, "\t}}").ok();
+
+    writeln!(out, "\tt.{} = probe.{}", tag_field_name, tag_field_name).ok();
+
+    writeln!(out, "\tswitch probe.{} {{", tag_field_name).ok();
+
+    for variant in &enum_def.variants {
+        if variant.fields.is_empty() {
+            continue;
+        }
+
+        if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
+            if let TypeRef::Named(struct_type_name) = &field.ty {
+                let go_struct_type = go_type_name(struct_type_name);
+                let variant_go_name = to_go_name(&variant.name);
+                let wire_value = enum_variant_wire_value(variant, enum_def);
+
+                writeln!(out, "\tcase \"{}\":", wire_value).ok();
+                writeln!(out, "\t\tt.{} = &{}{{}}", variant_go_name, go_struct_type).ok();
+                writeln!(out, "\t\treturn json.Unmarshal(data, t.{})", variant_go_name).ok();
+            }
+        }
+    }
+
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn nil").ok();
+    writeln!(out, "}}").ok();
+
     out
 }
 

@@ -77,6 +77,7 @@ impl E2eCodegen for ZigE2eCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &HashSet::new(),
         );
 
         // Generate test files per category and collect their names.

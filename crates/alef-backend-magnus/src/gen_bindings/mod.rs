@@ -15,9 +15,9 @@ use std::path::PathBuf;
 use crate::type_map::MagnusMapper;
 
 /// Names that conflict with magnus imports or generated code.
-/// `Error` conflicts with `magnus::Error`, `init` conflicts with `#[magnus::init]`.
+/// `Error` conflicts with `magnus::Error`.
 const MAGNUS_RESERVED_ENUM_NAMES: &[&str] = &["Error"];
-const MAGNUS_RESERVED_FN_NAMES: &[&str] = &["init"];
+const MAGNUS_RESERVED_FN_NAMES: &[&str] = &[];
 
 pub(super) fn is_reserved_enum(name: &str) -> bool {
     MAGNUS_RESERVED_ENUM_NAMES.contains(&name)

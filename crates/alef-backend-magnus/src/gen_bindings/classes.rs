@@ -253,14 +253,56 @@ pub(super) fn gen_struct(
     writeln!(out, "\nunsafe impl IntoValueFromNative for {name} {{}}").ok();
     // Magnus only provides TryConvert for &T (references) on TypedData types.
     // We need TryConvert for owned T so wrapped types can be used as function parameters.
+    // Also accept Ruby Hash/String via JSON fallback so callers can pass plain hashes.
     writeln!(out, "\nimpl magnus::TryConvert for {name} {{").ok();
     writeln!(
         out,
         "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
     )
     .ok();
-    writeln!(out, "        let r: &{name} = magnus::TryConvert::try_convert(val)?;").ok();
-    writeln!(out, "        Ok(r.clone())").ok();
+    writeln!(
+        out,
+        "        if let Ok(r) = <&{name} as magnus::TryConvert>::try_convert(val) {{"
+    )
+    .ok();
+    writeln!(out, "            return Ok(r.clone());").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(
+        out,
+        "        let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{"
+    )
+    .ok();
+    writeln!(out, "            s").ok();
+    writeln!(out, "        }} else {{").ok();
+    writeln!(
+        out,
+        "            val.funcall::<_, _, String>(\"to_json\", ()).map_err(|e| {{"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(),"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                    format!(\"no implicit conversion into {name}: {{}}\", e))"
+    )
+    .ok();
+    writeln!(out, "            }})?").ok();
+    writeln!(out, "        }};").ok();
+    writeln!(out, "        serde_json::from_str::<{name}>(&json_str).map_err(|e| {{").ok();
+    writeln!(
+        out,
+        "            magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(),"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                format!(\"failed to deserialize {name}: {{}}\", e))"
+    )
+    .ok();
+    writeln!(out, "        }})").ok();
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
     // SAFETY: TryConvert produces an owned value via Clone, satisfying owned conversion.

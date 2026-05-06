@@ -98,6 +98,7 @@ impl E2eCodegen for KotlinE2eCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &HashSet::new(),
         );
 
         for group in groups {

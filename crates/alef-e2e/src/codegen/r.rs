@@ -104,6 +104,7 @@ impl E2eCodegen for RCodegen {
                 &e2e_config.fields_optional,
                 &e2e_config.result_fields,
                 &e2e_config.fields_array,
+                &std::collections::HashSet::new(),
             );
             let content = render_test_file(
                 &group.category,

@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
-use heck::ToSnakeCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::fmt::Write;
 
 use super::helpers::{
@@ -426,6 +426,13 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         .iter()
         .any(|v| v.fields.iter().any(|f| !is_tuple_field_name(&f.name)));
 
+    // Check if any data variants exist (non-unit variants with tuple/newtype fields)
+    // to determine if we need the @Nullable import for accessor methods
+    let has_data_variants = enum_def
+        .variants
+        .iter()
+        .any(|v| !v.fields.is_empty() && is_tuple_field_name(&v.fields[0].name));
+
     let mut out = String::with_capacity(2048);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     writeln!(out, "package {};", package).ok();
@@ -466,6 +473,9 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     }
     if needs_unwrapped {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonUnwrapped;").ok();
+    }
+    if has_data_variants {
+        writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
     }
     writeln!(out).ok();
 
@@ -579,7 +589,32 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         }
     }
 
-    writeln!(out).ok();
+    // Add default accessor methods for each newtype/tuple data variant
+    if has_data_variants {
+        writeln!(out).ok();
+        for variant in &enum_def.variants {
+            if variant.fields.is_empty() || !is_tuple_field_name(&variant.fields[0].name) {
+                continue;
+            }
+            let method_name = variant.name.to_lower_camel_case();
+            let return_type = java_boxed_type(&variant.fields[0].ty);
+            let variant_name = &variant.name;
+            writeln!(
+                out,
+                "    /** Returns the {variant_name} data if this is a {variant_name} variant, otherwise null. */"
+            )
+            .ok();
+            writeln!(out, "    default @Nullable {return_type} {method_name}() {{").ok();
+            writeln!(
+                out,
+                "        return this instanceof {variant_name} e ? e.value() : null;"
+            )
+            .ok();
+            writeln!(out, "    }}").ok();
+            writeln!(out).ok();
+        }
+    }
+
     writeln!(out, "}}").ok();
     out
 }

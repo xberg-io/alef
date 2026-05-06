@@ -56,6 +56,7 @@ pub fn render_test_file(
         &e2e_config.fields_optional,
         &e2e_config.result_fields,
         &e2e_config.fields_array,
+        &e2e_config.fields_method_calls,
     );
 
     // Check if this file has http-fixture tests (separate from call-based tests).

@@ -144,17 +144,100 @@ fn field_type_for_rustler_inner(ty: &TypeRef) -> String {
     }
 }
 
+/// Helper to check if all tuple fields in a variant are Named types (not primitives or collections).
+fn all_tuple_fields_are_named_types(variant: &alef_core::ir::EnumVariant) -> bool {
+    if !variant.is_tuple || variant.fields.is_empty() {
+        return false;
+    }
+    variant.fields.iter().all(|f| matches!(f.ty, TypeRef::Named(_)))
+}
+
+/// Generate a Rustler flat struct enum for data enums with tuple fields containing Named types.
+///
+/// Instead of NifTaggedEnum with `{:Variant, inner_data}` tuples, this generates:
+/// - A flat NifStruct with all variant inner types as optional fields
+/// - A discriminator string field for the variant type
+/// - From impls that populate the appropriate field and set the discriminator
+///
+/// Example: FormatMetadata enum with Excel(ExcelMetadata) → struct with
+/// `format_type: String` and `excel: Option<ExcelMetadata>`, with other optional fields.
+fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
+    use std::fmt::Write;
+    let name = &enum_def.name;
+    let mut out = String::with_capacity(1024);
+
+    // Derive line for the struct
+    writeln!(
+        out,
+        "#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifStruct)]"
+    )
+    .ok();
+    writeln!(out, "#[module = \"{}.{}\"]", module_prefix, name).ok();
+    writeln!(out, "pub struct {} {{", name).ok();
+
+    // Add discriminator field (use serde tag name if available, else "type")
+    let discriminator_field = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    writeln!(out, "    pub {}: String,", discriminator_field).ok();
+
+    // For each variant with tuple data, add an Optional field with that type.
+    // Use snake_case field names based on variant names.
+    for variant in &enum_def.variants {
+        if !variant.fields.is_empty() && variant.is_tuple {
+            // Tuple variant: field is the first (and typically only) inner type
+            if let Some(first_field) = variant.fields.first() {
+                let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+                let field_type = field_type_for_rustler(first_field);
+                writeln!(out, "    pub {}: Option<{}>,", field_name, field_type).ok();
+            }
+        }
+    }
+
+    writeln!(out, "}}").ok();
+
+    // Add Default impl
+    write!(
+        out,
+        "\n#[allow(clippy::derivable_impls)]\nimpl Default for {name} {{\n    fn default() -> Self {{\n        Self {{\n            {}: String::new(),\n",
+        discriminator_field
+    )
+    .ok();
+
+    for variant in &enum_def.variants {
+        if !variant.fields.is_empty() && variant.is_tuple {
+            let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+            writeln!(out, "            {}: None,", field_name).ok();
+        }
+    }
+
+    writeln!(out, "        }}\n    }}\n}}").ok();
+
+    out
+}
+
 /// Generate a Rustler NIF enum definition.
 ///
 /// Unit enums (all variants have no fields) use `NifUnitEnum` — they encode as atoms.
-/// Data enums (one or more variants have fields) use `NifTaggedEnum` — they encode as
-/// `{:VariantName, field_map}` tagged tuples, preserving all inner fields faithfully.
-pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
+/// Data enums where all tuple variants contain Named types (structs) use flat NifStruct
+/// with optional fields. Other data enums use `NifTaggedEnum`.
+pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
     use std::fmt::Write;
     let name = &enum_def.name;
     let mut out = String::with_capacity(512);
 
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    // Check if all data variants are tuple variants with only Named types.
+    let use_flat_struct = has_data
+        && enum_def
+            .variants
+            .iter()
+            .filter(|v| !v.fields.is_empty())
+            .all(all_tuple_fields_are_named_types);
+
+    if use_flat_struct {
+        // Use flat struct approach for better Elixir field access
+        return gen_rustler_flat_data_enum(enum_def, module_prefix);
+    }
 
     if has_data {
         // NifTaggedEnum: supports unit variants (atoms) and struct variants (tagged tuples).
@@ -438,7 +521,7 @@ mod tests {
     /// Unit enums must still lower to NifUnitEnum (atoms on the Elixir side).
     #[test]
     fn test_gen_enum_unit_uses_nif_unit_enum() {
-        let result = gen_enum(&unit_enum());
+        let result = gen_enum(&unit_enum(), "Kreuzberg");
         assert!(
             result.contains("NifUnitEnum"),
             "unit enum should use NifUnitEnum; got:\n{result}"
@@ -454,7 +537,7 @@ mod tests {
     /// Data enums must lower to NifTaggedEnum and preserve all variant fields.
     #[test]
     fn test_gen_enum_data_uses_nif_tagged_enum() {
-        let result = gen_enum(&data_enum());
+        let result = gen_enum(&data_enum(), "Kreuzberg");
         assert!(
             result.contains("NifTaggedEnum"),
             "data enum should use NifTaggedEnum; got:\n{result}"
@@ -480,6 +563,94 @@ mod tests {
         assert!(
             result.contains("name"),
             "ApiKey variant must preserve `name` field; got:\n{result}"
+        );
+    }
+
+    /// Data enums with tuple variants containing Named types should use flat NifStruct.
+    #[test]
+    fn test_gen_enum_tuple_named_uses_nif_struct() {
+        // Create a data enum with tuple variants containing Named types (like FormatMetadata)
+        let format_enum = EnumDef {
+            name: "FormatMetadata".to_string(),
+            rust_path: "my_crate::FormatMetadata".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Excel".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("ExcelMetadata".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Pdf".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("String".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: Some("format_type".into()),
+            serde_rename_all: None,
+        };
+
+        let result = gen_enum(&format_enum, "Kreuzberg");
+        // Should use NifStruct, not NifTaggedEnum
+        assert!(
+            result.contains("NifStruct"),
+            "tuple data enum with named types should use NifStruct; got:\n{result}"
+        );
+        assert!(
+            !result.contains("NifTaggedEnum"),
+            "tuple data enum with named types must not use NifTaggedEnum; got:\n{result}"
+        );
+        // Should have format_type discriminator field
+        assert!(
+            result.contains("format_type: String"),
+            "should have format_type discriminator; got:\n{result}"
+        );
+        // Should have optional fields for each variant
+        assert!(
+            result.contains("excel: Option<ExcelMetadata>"),
+            "should have optional excel field; got:\n{result}"
+        );
+        assert!(
+            result.contains("pdf: Option<String>"),
+            "should have optional pdf field; got:\n{result}"
         );
     }
 

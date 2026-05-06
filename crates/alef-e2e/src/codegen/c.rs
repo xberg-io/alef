@@ -165,6 +165,7 @@ impl E2eCodegen for CCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         // Generate per-category test files.
@@ -204,6 +205,9 @@ struct ResolvedCallInfo {
     options_type_name: String,
     client_factory: Option<String>,
     args: Vec<crate::config::ArgMapping>,
+    raw_c_result_type: Option<String>,
+    c_free_fn: Option<String>,
+    result_is_option: bool,
 }
 
 fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
@@ -225,12 +229,20 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         .unwrap_or("ConversionOptions")
         .to_string();
     let client_factory = overrides.and_then(|o| o.client_factory.as_ref()).cloned();
+    let raw_c_result_type = overrides.and_then(|o| o.raw_c_result_type.clone());
+    let c_free_fn = overrides.and_then(|o| o.c_free_fn.clone());
+    let result_is_option = overrides
+        .and_then(|o| if o.result_is_option { Some(true) } else { None })
+        .unwrap_or(call.result_is_option);
     ResolvedCallInfo {
         function_name,
         result_type_name,
         options_type_name,
         client_factory,
         args: call.args.clone(),
+        raw_c_result_type,
+        c_free_fn,
+        result_is_option,
     }
 }
 
@@ -566,6 +578,9 @@ fn render_test_file(
             &call_info.result_type_name,
             &call_info.options_type_name,
             call_info.client_factory.as_deref(),
+            call_info.raw_c_result_type.as_deref(),
+            call_info.c_free_fn.as_deref(),
+            call_info.result_is_option,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -588,6 +603,9 @@ fn render_test_function(
     result_type_name: &str,
     options_type_name: &str,
     client_factory: Option<&str>,
+    raw_c_result_type: Option<&str>,
+    c_free_fn: Option<&str>,
+    result_is_option: bool,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -733,6 +751,194 @@ fn render_test_function(
             let _ = writeln!(out, "    {prefix}_{req_snake}_free({var_name});");
         }
         let _ = writeln!(out, "    {prefix}_default_client_free(client);");
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
+    // Raw C result type path: functions returning a primitive C type (char*, int32_t,
+    // uintptr_t) rather than an opaque handle pointer.
+    if let Some(raw_type) = raw_c_result_type {
+        // Build argument string. Void-arg functions pass nothing.
+        let args_str = if args.is_empty() {
+            String::new()
+        } else {
+            let parts: Vec<String> = args
+                .iter()
+                .filter_map(|arg| {
+                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                    let val = fixture.input.get(field);
+                    match val {
+                        None if arg.optional => Some("NULL".to_string()),
+                        None => None,
+                        Some(v) if v.is_null() && arg.optional => Some("NULL".to_string()),
+                        Some(v) => Some(json_to_c(v)),
+                    }
+                })
+                .collect();
+            parts.join(", ")
+        };
+
+        // Declare result variable.
+        let _ = writeln!(out, "    {raw_type} {result_var} = {function_name}({args_str});");
+
+        // not_error assertion.
+        let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
+        if has_not_error {
+            match raw_type {
+                "char*" if !result_is_option => {
+                    let _ = writeln!(out, "    assert({result_var} != NULL && \"expected call to succeed\");");
+                }
+                "int32_t" => {
+                    let _ = writeln!(out, "    assert({result_var} >= 0 && \"expected call to succeed\");");
+                }
+                "uintptr_t" => {
+                    let _ = writeln!(
+                        out,
+                        "    assert({prefix}_last_error_code() == 0 && \"expected call to succeed\");"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // Other assertions.
+        for assertion in &fixture.assertions {
+            match assertion.assertion_type.as_str() {
+                "not_error" | "error" => {} // handled above / not applicable
+                "not_empty" => {
+                    let _ = writeln!(
+                        out,
+                        "    assert(strlen({result_var}) > 0 && \"expected non-empty value\");"
+                    );
+                }
+                "is_empty" => {
+                    if result_is_option && raw_type == "char*" {
+                        let _ = writeln!(
+                            out,
+                            "    assert({result_var} == NULL && \"expected empty/null value\");"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert(strlen({result_var}) == 0 && \"expected empty value\");"
+                        );
+                    }
+                }
+                "count_min" => {
+                    if let Some(val) = &assertion.value {
+                        if let Some(n) = val.as_u64() {
+                            match raw_type {
+                                "char*" => {
+                                    let _ = writeln!(out, "    {{");
+                                    let _ = writeln!(
+                                        out,
+                                        "        assert({result_var} != NULL && \"expected non-null JSON array\");"
+                                    );
+                                    let _ =
+                                        writeln!(out, "        int elem_count = alef_json_array_count({result_var});");
+                                    let _ = writeln!(
+                                        out,
+                                        "        assert(elem_count >= {n} && \"expected at least {n} elements\");"
+                                    );
+                                    let _ = writeln!(out, "    }}");
+                                }
+                                _ => {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert((size_t){result_var} >= {n} && \"expected at least {n} elements\");"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                "greater_than_or_equal" => {
+                    if let Some(val) = &assertion.value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "    assert({result_var} >= {c_val} && \"expected greater than or equal\");"
+                        );
+                    }
+                }
+                "contains" => {
+                    if let Some(val) = &assertion.value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "    assert(strstr({result_var}, {c_val}) != NULL && \"expected to contain substring\");"
+                        );
+                    }
+                }
+                "contains_all" => {
+                    if let Some(values) = &assertion.values {
+                        for val in values {
+                            let c_val = json_to_c(val);
+                            let _ = writeln!(
+                                out,
+                                "    assert(strstr({result_var}, {c_val}) != NULL && \"expected to contain substring\");"
+                            );
+                        }
+                    }
+                }
+                "equals" => {
+                    if let Some(val) = &assertion.value {
+                        let c_val = json_to_c(val);
+                        if val.is_string() {
+                            let _ = writeln!(
+                                out,
+                                "    assert({result_var} != NULL && str_trim_eq({result_var}, {c_val}) == 0 && \"equals assertion failed\");"
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "    assert({result_var} == {c_val} && \"equals assertion failed\");"
+                            );
+                        }
+                    }
+                }
+                "not_contains" => {
+                    if let Some(val) = &assertion.value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "    assert(strstr({result_var}, {c_val}) == NULL && \"expected NOT to contain substring\");"
+                        );
+                    }
+                }
+                "starts_with" => {
+                    if let Some(val) = &assertion.value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "    assert(strncmp({result_var}, {c_val}, strlen({c_val})) == 0 && \"expected to start with\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(out, "    assert({result_var});");
+                }
+                "is_false" => {
+                    let _ = writeln!(out, "    assert(!{result_var});");
+                }
+                other => {
+                    panic!("C e2e raw-result generator: unsupported assertion type: {other}");
+                }
+            }
+        }
+
+        // Free char* results.
+        if raw_type == "char*" {
+            let free_fn = c_free_fn
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{prefix}_free_string"));
+            if result_is_option {
+                let _ = writeln!(out, "    if ({result_var} != NULL) {{ {free_fn}({result_var}); }}");
+            } else {
+                let _ = writeln!(out, "    {free_fn}({result_var});");
+            }
+        }
+
         let _ = writeln!(out, "}}");
         return;
     }

@@ -392,7 +392,13 @@ mod tests {
     use crate::fixture::Assertion;
 
     fn empty_resolver() -> FieldResolver {
-        FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
+        FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
     }
 
     fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
