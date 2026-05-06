@@ -1,0 +1,36 @@
+pub struct {{ struct_name }} {
+    php_obj: *mut ext_php_rs::types::ZendObject,
+    cached_name: String,
+}
+
+// SAFETY: PHP objects are single-threaded; the bridge is used
+// only within a single PHP request, never across threads.
+unsafe impl Send for {{ struct_name }} {}
+unsafe impl Sync for {{ struct_name }} {}
+
+impl Clone for {{ struct_name }} {
+    fn clone(&self) -> Self {
+        Self {
+            php_obj: self.php_obj,
+            cached_name: self.cached_name.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for {{ struct_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ struct_name }}")
+    }
+}
+
+impl {{ struct_name }} {
+    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {
+        let cached_name = php_obj
+            .try_call_method("name", vec![])
+            .ok()
+            .and_then(|v| v.string())
+            .unwrap_or("unknown".into())
+            .to_string();
+        Self { php_obj: php_obj as *mut _, cached_name }
+    }
+}

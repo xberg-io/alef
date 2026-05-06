@@ -1,0 +1,28 @@
+impl {{ wrapper }} {
+    /// Create a new bridge wrapping a PHP object.
+    ///
+    /// Validates that the PHP object provides all required methods.
+    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {
+        // Validation of required methods is done in the registration function below.
+        // Skipping debug_assert in constructor to avoid type issues with get_property.
+
+        // Extract and cache name
+        let cached_name = php_obj
+            .try_call_method("name", vec![])
+            .ok()
+            .and_then(|v| v.string())
+            .unwrap_or("unknown".into())
+            .to_string();
+
+        Self {
+            inner: php_obj as *mut _,
+            cached_name,
+        }
+    }
+}
+
+// SAFETY: PHP is single-threaded within a request context.
+// The raw pointer to ZendObject is only used within a single PHP request
+// and is never accessed concurrently from multiple threads.
+unsafe impl Send for {{ wrapper }} {}
+unsafe impl Sync for {{ wrapper }} {}

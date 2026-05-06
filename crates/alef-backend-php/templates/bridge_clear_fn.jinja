@@ -1,0 +1,4 @@
+#[php_function]
+pub fn {{ clear_fn }}() -> ext_php_rs::prelude::PhpResult<()> {
+    {{ host_path }}().map_err(|e| ext_php_rs::exception::PhpException::default(format!("{}", e)))
+}

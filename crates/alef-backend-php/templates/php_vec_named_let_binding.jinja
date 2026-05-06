@@ -1,0 +1,5 @@
+{% if is_optional %}
+let {{ php_name }}_core: Option<Vec<{{ core_import }}::{{ type_name }}>> = {{ php_name }}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());
+{% else %}
+let {{ php_name }}_core: Vec<{{ core_import }}::{{ type_name }}> = {{ php_name }}.iter().map(|x| x.clone().into()).collect();
+{% endif %}

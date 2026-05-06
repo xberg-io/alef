@@ -1,0 +1,21 @@
+fn nodecontext_to_php_array(
+    ctx: &{{ core_crate }}::visitor::NodeContext,
+) -> ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendHashTable> {
+    let mut arr = ext_php_rs::types::ZendHashTable::new();
+    arr.insert("nodeType", ext_php_rs::types::Zval::try_from(format!("{:?}", ctx.node_type)).unwrap_or_default()).ok();
+    arr.insert("tagName", ext_php_rs::types::Zval::try_from(ctx.tag_name.clone()).unwrap_or_default()).ok();
+    arr.insert("depth", ext_php_rs::types::Zval::try_from(ctx.depth as i64).unwrap_or_default()).ok();
+    arr.insert("indexInParent", ext_php_rs::types::Zval::try_from(ctx.index_in_parent as i64).unwrap_or_default()).ok();
+    arr.insert("isInline", ext_php_rs::types::Zval::try_from(ctx.is_inline).unwrap_or_default()).ok();
+    if let Some(ref pt) = ctx.parent_tag {
+        arr.insert("parentTag", ext_php_rs::types::Zval::try_from(pt.clone()).unwrap_or_default()).ok();
+    }
+    let mut attrs = ext_php_rs::types::ZendHashTable::new();
+    for (k, v) in &ctx.attributes {
+        attrs.insert(k.as_str(), ext_php_rs::types::Zval::try_from(v.clone()).unwrap_or_default()).ok();
+    }
+    let mut attrs_zval = ext_php_rs::types::Zval::new();
+    attrs_zval.set_hashtable(attrs);
+    arr.insert("attributes", attrs_zval).ok();
+    arr
+}

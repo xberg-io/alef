@@ -1,0 +1,18 @@
+fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {{ core_crate }}::VisitResult {
+    if let Some(s) = val.string() {
+        return match s.to_lowercase().as_str() {
+            "skip" => {{ core_crate }}::VisitResult::Skip,
+            "continue" => {{ core_crate }}::VisitResult::Continue,
+            "preserve_html" | "preservehtml" => {{ core_crate }}::VisitResult::PreserveHtml,
+            other => {{ core_crate }}::VisitResult::Custom(other.to_string()),
+        };
+    }
+    if let Some(arr) = val.array() {
+        if let Some(custom_val) = arr.get("custom") {
+            if let Some(s) = custom_val.string() {
+                return {{ core_crate }}::VisitResult::Custom(s.to_string());
+            }
+        }
+    }
+    {{ core_crate }}::VisitResult::Continue
+}
