@@ -53,11 +53,6 @@ tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 [features]
 extension-module = []
 
-[lints]
-workspace = true
-
-[lints.rust]
-unsafe_code = "allow"
 "#,
         pkg_header = pkg_header,
         crate_name = &config.name,
