@@ -1,7 +1,7 @@
 //! R e2e test generator using testthat.
 
 use crate::config::E2eConfig;
-use crate::escape::{escape_r, sanitize_filename, sanitize_ident};
+use crate::escape::{escape_r, r_template_to_paste0, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
@@ -870,14 +870,30 @@ fn render_assertion(
 /// # Arguments
 ///
 /// * `value` - The JSON value to convert
-/// * `lowercase_enum_values` - If true, lowercase strings starting with uppercase letter (for enum values).
+/// Convert a PascalCase string to snake_case.
+/// e.g. "DoubleEqual" → "double_equal", "Backticks" → "backticks"
+fn pascal_to_snake_case(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        for lc in ch.to_lowercase() {
+            result.push(lc);
+        }
+    }
+    result
+}
+
+/// * `lowercase_enum_values` - If true, convert PascalCase strings to snake_case (for enum values).
 ///   If false, preserve original case (for assertion expected values).
 fn json_to_r(value: &serde_json::Value, lowercase_enum_values: bool) -> String {
     match value {
         serde_json::Value::String(s) => {
-            // Lowercase enum values (strings starting with uppercase letter) only if requested
+            // Convert PascalCase enum values to snake_case only if requested.
+            // e.g. "Backticks" → "backticks", "DoubleEqual" → "double_equal"
             let normalized = if lowercase_enum_values && s.chars().next().is_some_and(|c| c.is_uppercase()) {
-                s.to_lowercase()
+                pascal_to_snake_case(s)
             } else {
                 s.clone()
             };
@@ -1036,8 +1052,8 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
             let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
         CallbackAction::CustomTemplate { template } => {
-            let escaped = escape_r(template);
-            let _ = writeln!(out, "      list(custom = \"{escaped}\")");
+            let r_expr = r_template_to_paste0(template);
+            let _ = writeln!(out, "      list(custom = {r_expr})");
         }
     }
     let _ = writeln!(out, "    }},");

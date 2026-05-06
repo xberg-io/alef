@@ -227,6 +227,75 @@ pub fn ruby_template_to_interpolation(template: &str) -> String {
     out
 }
 
+/// Convert a `{param}` template string to an R expression using `paste0()`.
+///
+/// `{key}` placeholders are converted to variable references in a `paste0(...)` call.
+/// Literal text segments are R string literals. If the template has no placeholders,
+/// a plain R string literal is returned. If the template is a single bare placeholder
+/// like `{text}`, just the variable name is returned.
+///
+/// Examples:
+/// - `"[BTN:{text}]"` → `paste0("[BTN:", text, "]")`
+/// - `"--- {text} ---"` → `paste0("--- ", text, " ---")`
+/// - `"{text}"` → `text`
+/// - `"static"` → `"static"`
+pub fn r_template_to_paste0(template: &str) -> String {
+    enum Seg {
+        Lit(String),
+        Param(String),
+    }
+    let mut segments: Vec<Seg> = Vec::new();
+    let mut lit = String::new();
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            let is_ident_start = chars.peek().is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
+            if is_ident_start {
+                let mut ident = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        ident.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                    if !lit.is_empty() {
+                        segments.push(Seg::Lit(lit.clone()));
+                        lit.clear();
+                    }
+                    segments.push(Seg::Param(ident));
+                    continue;
+                }
+                lit.push('{');
+                lit.push_str(&ident);
+            } else {
+                lit.push('{');
+            }
+        } else {
+            lit.push(ch);
+        }
+    }
+    if !lit.is_empty() {
+        segments.push(Seg::Lit(lit));
+    }
+    match segments.as_slice() {
+        [] => r#""""#.to_string(),
+        [Seg::Param(p)] => p.clone(),
+        segs => {
+            let args: Vec<String> = segs
+                .iter()
+                .map(|s| match s {
+                    Seg::Lit(l) => format!("\"{}\"", escape_r(l)),
+                    Seg::Param(p) => p.clone(),
+                })
+                .collect();
+            format!("paste0({})", args.join(", "))
+        }
+    }
+}
+
 /// Returns true if the string needs double quotes (contains control characters
 /// that require escape sequences only available in double-quoted strings).
 pub fn ruby_needs_double_quotes(s: &str) -> bool {
