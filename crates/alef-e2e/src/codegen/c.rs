@@ -522,10 +522,7 @@ fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -> String {
         let _ = writeln!(out);
     }
 
-    let _ = writeln!(
-        out,
-        "    printf(\"\\nResults: %d passed, 0 failed\\n\", passed);"
-    );
+    let _ = writeln!(out, "    printf(\"\\nResults: %d passed, 0 failed\\n\", passed);");
     let _ = writeln!(out, "    return 0;");
     let _ = writeln!(out, "}}");
     out

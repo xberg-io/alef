@@ -63,9 +63,9 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
-        /// Skip post-generation formatters (formatters run by default).
+        /// Run post-generation formatters on emitted files (off by default).
         #[arg(long)]
-        no_format: bool,
+        format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -456,7 +456,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::Generate { lang, clean, no_format } => {
+        Commands::Generate { lang, clean, format } => {
             let (workspace, resolved) = load_config(config_path)?;
             version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
@@ -620,7 +620,7 @@ fn main() -> Result<()> {
                     }
                 }
 
-                if any_written && !no_format && !changed_languages.is_empty() {
+                if any_written && format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
                     // stubs changed (no bindings written) still trigger their

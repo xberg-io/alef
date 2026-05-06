@@ -144,12 +144,19 @@ fn field_type_for_rustler_inner(ty: &TypeRef) -> String {
     }
 }
 
-/// Helper to check if all tuple fields in a variant are Named types (not primitives or collections).
-fn all_tuple_fields_are_named_types(variant: &alef_core::ir::EnumVariant) -> bool {
-    if !variant.is_tuple || variant.fields.is_empty() {
-        return false;
+/// Return the serde wire name for a variant, applying serde_rename_all if set.
+fn variant_wire_name(variant: &alef_core::ir::EnumVariant, enum_def: &EnumDef) -> String {
+    if let Some(rename) = &variant.serde_rename {
+        return rename.clone();
     }
-    variant.fields.iter().all(|f| matches!(f.ty, TypeRef::Named(_)))
+    match enum_def.serde_rename_all.as_deref() {
+        Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
+        Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
+        Some("PascalCase") | Some("UpperCamelCase") => variant.name.clone(),
+        Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
+        Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
+        _ => variant.name.clone(),
+    }
 }
 
 /// Generate a Rustler flat struct enum for data enums with tuple fields containing Named types.
@@ -214,6 +221,82 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
     out
 }
 
+/// Generate a `From<core::EnumName> for FlatStruct` impl for flat data enums.
+///
+/// The generic `gen_enum_from_core_to_binding_cfg` generates enum→enum arm matching, which
+/// does not apply to flat structs. This function generates the correct struct-init form:
+///
+/// ```text
+/// impl From<core::FormatMetadata> for FormatMetadata {
+///     fn from(val: core::FormatMetadata) -> Self {
+///         match val {
+///             core::FormatMetadata::Excel(_0) => Self {
+///                 format_type: "Excel".to_string(), excel: Some(_0.into()), ..Default::default()
+///             },
+///             ...
+///         }
+///     }
+/// }
+/// ```
+pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_import: &str) -> String {
+    use std::fmt::Write;
+    let name = &enum_def.name;
+    let core_path = format!("{core_import}::{name}");
+    let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let mut out = String::with_capacity(512);
+
+    writeln!(out, "impl From<{core_path}> for {name} {{").ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        match val {{").ok();
+
+    for variant in &enum_def.variants {
+        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let wire_name = variant_wire_name(variant, enum_def);
+
+        if variant.fields.is_empty() {
+            writeln!(
+                out,
+                "            {core_path}::{vname} => Self {{ {disc}: \"{wire}\".to_string(), ..Default::default() }},",
+                vname = variant.name,
+                disc = discriminator,
+                wire = wire_name,
+            )
+            .ok();
+        } else if variant.is_tuple {
+            let first_field = variant.fields.first().unwrap();
+            let is_boxed = first_field.is_boxed;
+            let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
+            let data_expr: String = if is_sanitized_to_string {
+                if is_boxed {
+                    "format!(\"{:?}\", *_0)".to_string()
+                } else {
+                    "format!(\"{:?}\", _0)".to_string()
+                }
+            } else if is_boxed {
+                "(*_0).into()".to_string()
+            } else {
+                "_0.into()".to_string()
+            };
+            writeln!(
+                out,
+                "            {core_path}::{vname}(_0) => Self {{ {disc}: \"{wire}\".to_string(), {fname}: Some({expr}), ..Default::default() }},",
+                vname = variant.name,
+                disc = discriminator,
+                wire = wire_name,
+                fname = field_name,
+                expr = data_expr,
+            )
+            .ok();
+        }
+    }
+
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
+
 /// Generate a Rustler NIF enum definition.
 ///
 /// Unit enums (all variants have no fields) use `NifUnitEnum` — they encode as atoms.
@@ -226,13 +309,15 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
 
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    // Check if all data variants are tuple variants with only Named types.
+    // Use the flat struct approach for any data enum where every data variant is a
+    // tuple variant (single unnamed field). This covers Named-inner types (e.g.
+    // Excel(ExcelMetadata)) as well as primitive-inner types (e.g. Pdf(String)).
     let use_flat_struct = has_data
         && enum_def
             .variants
             .iter()
             .filter(|v| !v.fields.is_empty())
-            .all(all_tuple_fields_are_named_types);
+            .all(|v| v.is_tuple);
 
     if use_flat_struct {
         // Use flat struct approach for better Elixir field access
