@@ -870,6 +870,7 @@ fn render_assertion(
 /// # Arguments
 ///
 /// * `value` - The JSON value to convert
+///
 /// Convert a PascalCase string to snake_case.
 /// e.g. "DoubleEqual" → "double_equal", "Backticks" → "backticks"
 fn pascal_to_snake_case(s: &str) -> String {

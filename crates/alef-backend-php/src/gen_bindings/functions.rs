@@ -81,89 +81,53 @@ fn gen_php_serde_let_bindings(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    use std::fmt::Write;
+    use minijinja::context;
     let mut out = String::new();
     for p in params {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                if p.is_ref {
-                    // Use clone().into() for ref params — binding types always have From impls.
-                    // The old serde round-trip broke camelCase binding types (e.g. ProcessConfig
-                    // with rename_all="camelCase") when deserializing into snake_case core types.
-                    let pname = &p.name;
-                    if p.optional {
-                        writeln!(
-                            out,
-                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref().map(|v| v.clone().into());"
-                        )
-                        .ok();
-                    } else {
-                        writeln!(out, "let {pname}_core: {core_import}::{name} = {pname}.clone().into();").ok();
-                    }
-                } else {
-                    // Non-ref Named: use the standard .clone().into() path.
-                    if p.optional {
-                        writeln!(
-                            out,
-                            "let {}_core: Option<{core_import}::{name}> = {}.map(|v| v.clone().into());",
-                            p.name, p.name
-                        )
-                        .ok();
-                    } else {
-                        writeln!(
-                            out,
-                            "let {}_core: {core_import}::{name} = {}.clone().into();",
-                            p.name, p.name
-                        )
-                        .ok();
-                    }
-                }
+                let php_name = &p.name;
+                out.push_str(&crate::template_env::render(
+                    "php_named_let_binding.jinja",
+                    context! {
+                        php_name => php_name,
+                        is_optional => p.optional,
+                        core_import => core_import,
+                        type_name => name,
+                    },
+                ));
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        if p.optional {
-                            writeln!(
-                                out,
-                                "let {}_core: Option<Vec<{core_import}::{name}>> = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());",
-                                p.name, p.name
-                            )
-                            .ok();
-                        } else {
-                            writeln!(
-                                out,
-                                "let {}_core: Vec<{core_import}::{name}> = {}.iter().map(|x| x.clone().into()).collect();",
-                                p.name, p.name
-                            )
-                            .ok();
-                        }
+                        out.push_str(&crate::template_env::render(
+                            "php_vec_named_let_binding.jinja",
+                            context! {
+                                php_name => &p.name,
+                                is_optional => p.optional,
+                                core_import => core_import,
+                                type_name => name,
+                            },
+                        ));
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (each item JSON-encoded
                     // tuple). Deserialize each element into the original tuple type so the core
                     // function can be called with its native signature.
-                    if p.optional {
-                        writeln!(
-                            out,
-                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()).transpose()?;",
-                            n = p.name,
-                        )
-                        .ok();
-                    } else {
-                        writeln!(
-                            out,
-                            "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()?;",
-                            n = p.name,
-                        )
-                        .ok();
-                    }
+                    out.push_str(&crate::template_env::render(
+                        "php_sanitized_vec_let_binding.jinja",
+                        context! {
+                            php_name => &p.name,
+                            is_optional => p.optional,
+                        },
+                    ));
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                    writeln!(
-                        out,
-                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();",
-                        p.name, p.name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "php_vec_string_refs_let_binding.jinja",
+                        context! {
+                            php_name => &p.name,
+                        },
+                    ));
                 }
             }
             _ => {}

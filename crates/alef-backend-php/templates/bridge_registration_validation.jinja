@@ -1,0 +1,7 @@
+{% for method in required_methods %}
+if backend.try_call_method("{{ method.name }}", vec![]).is_err() {
+    return Err(ext_php_rs::exception::PhpException::default(
+        format!("Backend missing required method: {}", "{{ method.name }}")
+    ));
+}
+{% endfor %}

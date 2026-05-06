@@ -1,0 +1,4 @@
+#[php_function]
+pub fn {{ unregister_fn }}(name: String) -> ext_php_rs::prelude::PhpResult<()> {
+    {{ host_path }}(&name).map_err(|e| ext_php_rs::exception::PhpException::default(format!("{}", e)))
+}

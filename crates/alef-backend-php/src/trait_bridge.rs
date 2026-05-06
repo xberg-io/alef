@@ -3,6 +3,9 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
+use std::fmt::Write;
+use minijinja::context;
+
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
     visitor_param_type,
@@ -10,7 +13,6 @@ use alef_codegen::generators::trait_bridge::{
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Find the first parameter index and bridge config where the parameter's named type
 /// matches a trait bridge's `type_alias`.
@@ -40,14 +42,6 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
-        let mut out = String::with_capacity(512);
-
-        // PHP is single-threaded; just call the method directly.
-        writeln!(
-            out,
-            "// SAFETY: PHP objects are single-threaded; method calls are safe within a request."
-        )
-        .ok();
 
         let has_args = !method.params.is_empty();
         let args_expr = if has_args {
@@ -88,72 +82,27 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]".to_string()
         };
 
-        writeln!(
-            out,
-            "let result = unsafe {{ (*self.inner).try_call_method(\"{name}\", {args_expr}) }};"
-        )
-        .ok();
+        let is_result_type = method.error_type.is_some();
+        let is_unit_return = matches!(method.return_type, TypeRef::Unit);
 
-        // Check if method returns a Result type
-        if method.error_type.is_some() {
-            writeln!(out, "match result {{").ok();
-            // Check if return type is unit ()
-            if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "    Ok(_) => Ok(()),").ok();
-            } else {
-                // For Result-returning methods, the PHP value should be deserialized from JSON
-                writeln!(out, "    Ok(val) => {{").ok();
-                writeln!(out, "        let json_str = val.string().unwrap_or_default();").ok();
-                writeln!(out, "        serde_json::from_str(&json_str).map_err(|e| {}::KreuzbergError::Other(format!(\"Deserialize error: {{}}\", e)))", self.core_import).ok();
-                writeln!(out, "    }}").ok();
-            }
-            // Error conversion: ext-php-rs::error::Error → KreuzbergError
-            // Use string conversion since there's no direct From impl
-            writeln!(
-                out,
-                "    Err(e) => Err({}::KreuzbergError::Other(e.to_string())),",
-                self.core_import
-            )
-            .ok();
-            writeln!(out, "}}").ok();
-        } else {
-            writeln!(out, "match result {{").ok();
-            // Check if return type is unit ()
-            if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "    Ok(_) => (),").ok();
-            } else {
-                // For non-Result methods, try to deserialize from JSON
-                // (safer than trying to parse arbitrary types)
-                writeln!(out, "    Ok(val) => {{").ok();
-                writeln!(out, "        let json_str = val.string().unwrap_or_default();").ok();
-                writeln!(out, "        serde_json::from_str(&json_str).unwrap_or_default()").ok();
-                writeln!(out, "    }}").ok();
-            }
-            writeln!(out, "    Err(_) => Default::default(),").ok();
-            writeln!(out, "}}").ok();
-        }
-
-        out
+        crate::template_env::render("sync_method_body.jinja", context! {
+            method_name => name,
+            args_expr => args_expr,
+            is_result_type => is_result_type,
+            is_unit_return => is_unit_return,
+            core_import => &self.core_import,
+        })
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
-        let mut out = String::with_capacity(1024);
 
-        writeln!(out, "let inner_obj = self.inner;").ok();
-        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
-
-        // Clone params for the blocking closure (String types need explicit clone)
-        for p in &method.params {
-            if matches!(&p.ty, TypeRef::String) {
-                writeln!(out, "let {} = {}.clone();", p.name, p.name).ok();
-            }
-        }
-
-        writeln!(out).ok();
-        writeln!(out, "// SAFETY: PHP objects are single-threaded within a request.").ok();
-        writeln!(out, "// The block_on executes within the async runtime.").ok();
-        writeln!(out, "WORKER_RUNTIME.block_on(async {{").ok();
+        let string_params: Vec<String> = method
+            .params
+            .iter()
+            .filter(|p| matches!(&p.ty, TypeRef::String))
+            .map(|p| p.name.clone())
+            .collect();
 
         let has_args = !method.params.is_empty();
         let args_expr = if has_args {
@@ -194,104 +143,23 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]".to_string()
         };
 
-        // inner_obj is *mut ZendObject, so we need to dereference and call the method.
-        // SAFETY: the raw pointer is valid within the async block.
-        writeln!(
-            out,
-            "    match unsafe {{ (*inner_obj).try_call_method(\"{name}\", {args_expr}) }} {{"
-        )
-        .ok();
+        let is_result_type = method.error_type.is_some();
 
-        // For Result-returning methods, deserialize JSON. For non-Result, parse directly.
-        if method.error_type.is_some() {
-            writeln!(out, "        Ok(val) => {{").ok();
-            writeln!(out, "            let json_str = val.string().unwrap_or_default();").ok();
-            writeln!(
-                out,
-                "            serde_json::from_str(&json_str).map_err(|e| {}::KreuzbergError::Other(format!(\"Deserialize error: {{}}\", e)))",
-                spec.core_import
-            )
-            .ok();
-            writeln!(out, "        }}").ok();
-        } else {
-            writeln!(
-                out,
-                "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
-            )
-            .ok();
-        }
-
-        writeln!(
-            out,
-            "        Err(e) => Err({}::KreuzbergError::Plugin {{",
-            spec.core_import
-        )
-        .ok();
-        writeln!(
-            out,
-            "            message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
-        )
-        .ok();
-        writeln!(out, "            plugin_name: cached_name.clone(),").ok();
-        writeln!(out, "        }}),").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}})",).ok();
-
-        out
+        crate::template_env::render("async_method_body.jinja", context! {
+            method_name => name,
+            args_expr => args_expr,
+            string_params => string_params,
+            is_result_type => is_result_type,
+            core_import => &spec.core_import,
+        })
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
 
-        writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping a PHP object.").ok();
-        writeln!(out, "    ///").ok();
-        writeln!(
-            out,
-            "    /// Validates that the PHP object provides all required methods."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{"
-        )
-        .ok();
-
-        // Validation of required methods is done in the registration function below.
-        // Skipping debug_assert in constructor to avoid type issues with get_property.
-
-        // Extract and cache name
-        writeln!(out, "        let cached_name = php_obj").ok();
-        writeln!(out, "            .try_call_method(\"name\", vec![])").ok();
-        writeln!(out, "            .ok()").ok();
-        writeln!(out, "            .and_then(|v| v.string())").ok();
-        writeln!(out, "            .unwrap_or(\"unknown\".into())").ok();
-        writeln!(out, "            .to_string();").ok();
-
-        writeln!(out).ok();
-        writeln!(out, "        Self {{").ok();
-        writeln!(out, "            inner: php_obj as *mut _,").ok();
-        writeln!(out, "            cached_name,").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-
-        // SAFETY: PHP objects are single-threaded within a request.
-        // The raw pointer is only valid for the duration of the PHP call stack,
-        // and is never accessed concurrently or from multiple threads.
-        writeln!(out).ok();
-        writeln!(out, "// SAFETY: PHP is single-threaded within a request context.").ok();
-        writeln!(
-            out,
-            "// The raw pointer to ZendObject is only used within a single PHP request"
-        )
-        .ok();
-        writeln!(out, "// and is never accessed concurrently from multiple threads.").ok();
-        writeln!(out, "unsafe impl Send for {wrapper} {{}}").ok();
-        writeln!(out, "unsafe impl Sync for {wrapper} {{}}").ok();
-
-        out
+        crate::template_env::render("bridge_constructor.jinja", context! {
+            wrapper => &wrapper,
+        })
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -299,20 +167,11 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[php_function]").ok();
-        writeln!(
-            out,
-            "pub fn {unregister_fn}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    {host_path}(&name).map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"{{}}\", e)))"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        out
+
+        crate::template_env::render("bridge_unregister_fn.jinja", context! {
+            unregister_fn => unregister_fn,
+            host_path => &host_path,
+        })
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -320,16 +179,11 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             return String::new();
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
-        let mut out = String::with_capacity(512);
-        writeln!(out, "#[php_function]").ok();
-        writeln!(out, "pub fn {clear_fn}() -> ext_php_rs::prelude::PhpResult<()> {{").ok();
-        writeln!(
-            out,
-            "    {host_path}().map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"{{}}\", e)))"
-        )
-        .ok();
-        writeln!(out, "}}").ok();
-        out
+
+        crate::template_env::render("bridge_clear_fn.jinja", context! {
+            clear_fn => clear_fn,
+            host_path => &host_path,
+        })
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -342,66 +196,31 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        let mut out = String::with_capacity(1024);
-
-        writeln!(out, "#[php_function]").ok();
-        writeln!(
-            out,
-            "pub fn {register_fn}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{"
-        )
-        .ok();
-
-        // Validate required methods
         let req_methods: Vec<&MethodDef> = spec.required_methods();
-        if !req_methods.is_empty() {
-            for method in &req_methods {
-                // Check if required method exists by attempting to call it with empty args.
-                writeln!(
-                    out,
-                    r#"    if backend.try_call_method("{}", vec![]).is_err() {{"#,
-                    method.name
-                )
-                .ok();
-                writeln!(out, "        return Err(ext_php_rs::exception::PhpException::default(").ok();
-                writeln!(
-                    out,
-                    "            format!(\"Backend missing required method: {{}}\", \"{}\")",
-                    method.name
-                )
-                .ok();
-                writeln!(out, "        ));").ok();
-                writeln!(out, "    }}").ok();
-            }
-        }
+        let required_methods: Vec<minijinja::Value> = req_methods
+            .iter()
+            .map(|m| {
+                minijinja::context! {
+                    name => m.name.as_str(),
+                }
+            })
+            .collect();
 
-        writeln!(out).ok();
-        writeln!(out, "    let wrapper = {wrapper}::new(backend);").ok();
-        writeln!(
-            out,
-            "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(wrapper);"
-        )
-        .ok();
-        writeln!(out).ok();
-
-        let extra = spec
+        let extra_args = spec
             .bridge_config
             .register_extra_args
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
-        writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(
-            out,
-            "    registry.register(arc{extra}).map_err(|e| ext_php_rs::exception::PhpException::default("
-        )
-        .ok();
-        writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
-        writeln!(out, "    ))?;").ok();
-        writeln!(out, "    Ok(())").ok();
-        writeln!(out, "}}").ok();
 
-        out
+        crate::template_env::render("bridge_registration_fn.jinja", context! {
+            register_fn => register_fn,
+            required_methods => required_methods,
+            wrapper => &wrapper,
+            trait_path => &trait_path,
+            registry_getter => registry_getter,
+            extra_args => &extra_args,
+        })
     }
 }
 
@@ -474,96 +293,18 @@ fn gen_visitor_bridge(
         .next()
         .unwrap_or("html_to_markdown_rs")
         .to_string();
+
     // Helper: convert NodeContext to a PHP array (Zval)
-    writeln!(out, "fn nodecontext_to_php_array(").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendHashTable> {{").unwrap();
-    writeln!(out, "    let mut arr = ext_php_rs::types::ZendHashTable::new();").unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"nodeType\", ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", ctx.node_type)).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"tagName\", ext_php_rs::types::Zval::try_from(ctx.tag_name.clone()).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"depth\", ext_php_rs::types::Zval::try_from(ctx.depth as i64).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"indexInParent\", ext_php_rs::types::Zval::try_from(ctx.index_in_parent as i64).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"isInline\", ext_php_rs::types::Zval::try_from(ctx.is_inline).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    if let Some(ref pt) = ctx.parent_tag {{").unwrap();
-    writeln!(
-        out,
-        "        arr.insert(\"parentTag\", ext_php_rs::types::Zval::try_from(pt.clone()).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let mut attrs = ext_php_rs::types::ZendHashTable::new();").unwrap();
-    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(
-        out,
-        "        attrs.insert(k.as_str(), ext_php_rs::types::Zval::try_from(v.clone()).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let mut attrs_zval = ext_php_rs::types::Zval::new();").unwrap();
-    writeln!(out, "    attrs_zval.set_hashtable(attrs);").unwrap();
-    writeln!(out, "    arr.insert(\"attributes\", attrs_zval).ok();").unwrap();
-    writeln!(out, "    arr").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render("visitor_nodecontext_helper.jinja", context! {
+        core_crate => &core_crate,
+    }));
+    out.push_str("\n");
 
     // Helper: map a PHP return Zval to VisitResult.
-    // Handles string returns ('skip', 'continue', 'preserve_html', custom strings)
-    // and PHP array returns like ['custom' => 'replacement text'].
-    writeln!(
-        out,
-        "fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {core_crate}::VisitResult {{"
-    )
-    .unwrap();
-    writeln!(out, "    if let Some(s) = val.string() {{").unwrap();
-    writeln!(out, "        return match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "            \"skip\" => {core_crate}::VisitResult::Skip,").unwrap();
-    writeln!(out, "            \"continue\" => {core_crate}::VisitResult::Continue,").unwrap();
-    writeln!(
-        out,
-        "            \"preserve_html\" | \"preservehtml\" => {core_crate}::VisitResult::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "            other => {core_crate}::VisitResult::Custom(other.to_string()),"
-    )
-    .unwrap();
-    writeln!(out, "        }};").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    if let Some(arr) = val.array() {{").unwrap();
-    writeln!(out, "        if let Some(custom_val) = arr.get(\"custom\") {{").unwrap();
-    writeln!(out, "            if let Some(s) = custom_val.string() {{").unwrap();
-    writeln!(
-        out,
-        "                return {core_crate}::VisitResult::Custom(s.to_string());"
-    )
-    .unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    {core_crate}::VisitResult::Continue").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render("visitor_zval_to_visitresult.jinja", context! {
+        core_crate => &core_crate,
+    }));
+    out.push_str("\n");
 
     // Helper: apply {param_name} template substitution to Custom visit results.
     // Use push_str to avoid writeln! format-string interpretation of braces.
@@ -587,74 +328,21 @@ fn gen_visitor_bridge(
     out.push_str("}\n\n");
 
     // Bridge struct — stores a reference to the PHP object.
-    // The reference is valid for the duration of the PHP function call that
-    // created the bridge, which spans the entire Rust trait method dispatch.
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    php_obj: *mut ext_php_rs::types::ZendObject,").unwrap();
-    writeln!(out, "    cached_name: String,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // SAFETY: The raw pointer is only used while the PHP call stack frame is
-    // alive. The bridge is consumed before the PHP function returns.
-    writeln!(out, "// SAFETY: PHP objects are single-threaded; the bridge is used").unwrap();
-    writeln!(out, "// only within a single PHP request, never across threads.").unwrap();
-    writeln!(out, "unsafe impl Send for {struct_name} {{}}").unwrap();
-    writeln!(out, "unsafe impl Sync for {struct_name} {{}}").unwrap();
-    writeln!(out).unwrap();
-
-    writeln!(out, "impl Clone for {struct_name} {{").unwrap();
-    writeln!(out, "    fn clone(&self) -> Self {{").unwrap();
-    writeln!(out, "        Self {{").unwrap();
-    writeln!(out, "            php_obj: self.php_obj,").unwrap();
-    writeln!(out, "            cached_name: self.cached_name.clone(),").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Manual Debug impl
-    writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-    )
-    .unwrap();
-    writeln!(out, "        write!(f, \"{struct_name}\")").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Constructor takes &mut ZendObject, which is what ext-php-rs exposes via
-    // FromZvalMut. We store the raw pointer; the caller guarantees the object
-    // outlives this bridge.
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{"
-    )
-    .unwrap();
-    writeln!(out, "        let cached_name = php_obj").unwrap();
-    writeln!(out, "            .try_call_method(\"name\", vec![])").unwrap();
-    writeln!(out, "            .ok()").unwrap();
-    writeln!(out, "            .and_then(|v| v.string())").unwrap();
-    writeln!(out, "            .unwrap_or(\"unknown\".into())").unwrap();
-    writeln!(out, "            .to_string();").unwrap();
-    writeln!(out, "        Self {{ php_obj: php_obj as *mut _, cached_name }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render("visitor_bridge_struct.jinja", context! {
+        struct_name => struct_name,
+    }));
+    out.push_str("\n");
 
     // Trait impl
-    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
+    out.push_str(&format!("impl {trait_path} for {struct_name} {{\n"));
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
         gen_visitor_method_php(&mut out, method, type_paths);
     }
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str("}}\n");
+    out.push_str("\n");
 
     out
 }
@@ -662,7 +350,6 @@ fn gen_visitor_bridge(
 /// Generate a single visitor method that checks for a snake_case PHP method and calls it.
 fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
     let name = &method.name;
-    let php_name = name; // PHP conventions use snake_case method names
 
     let mut sig_parts = vec!["&mut self".to_string()];
     for p in &method.params {
@@ -676,83 +363,63 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
+    out.push_str(&format!("    fn {name}({sig}) -> {ret_ty} {{\n"));
 
     // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
-    writeln!(
-        out,
-        "        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call."
-    )
-    .unwrap();
-    writeln!(out, "        let php_obj_ref = unsafe {{ &mut *self.php_obj }};").unwrap();
+    out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
+    out.push_str("        let php_obj_ref = unsafe {{ &mut *self.php_obj }};\n");
 
     // Build args array
     let has_args = !method.params.is_empty();
     if has_args {
-        writeln!(out, "        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").unwrap();
+        out.push_str("        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();\n");
         for p in &method.params {
             if let TypeRef::Named(n) = &p.ty {
                 if n == "NodeContext" {
-                    writeln!(
-                        out,
-                        "        let ctx_arr = nodecontext_to_php_array({}{});",
+                    out.push_str(&format!(
+                        "        let ctx_arr = nodecontext_to_php_array({}{});\n",
                         if p.is_ref { "" } else { "&" },
                         p.name
-                    )
-                    .unwrap();
-                    writeln!(
-                        out,
-                        "        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());"
-                    )
-                    .unwrap();
+                    ));
+                    out.push_str("        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());\n");
                     continue;
                 }
             }
             // Check optional string ref BEFORE non-optional string, since visitor_param_type
             // returns Option<&str> for optional string ref params.
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-                writeln!(
-                    out,
-                    "        args.push(match {0} {{ Some(s) => ext_php_rs::types::Zval::try_from(s.to_string()).unwrap_or_default(), None => ext_php_rs::types::Zval::new() }});",
+                out.push_str(&format!(
+                    "        args.push(match {0} {{ Some(s) => ext_php_rs::types::Zval::try_from(s.to_string()).unwrap_or_default(), None => ext_php_rs::types::Zval::new() }});\n",
                     p.name
-                )
-                .unwrap();
+                ));
                 continue;
             }
             if matches!(&p.ty, TypeRef::String) {
                 if p.is_ref {
-                    writeln!(
-                        out,
-                        "        args.push(ext_php_rs::types::Zval::try_from({}.to_string()).unwrap_or_default());",
+                    out.push_str(&format!(
+                        "        args.push(ext_php_rs::types::Zval::try_from({}.to_string()).unwrap_or_default());\n",
                         p.name
-                    )
-                    .unwrap();
+                    ));
                 } else {
-                    writeln!(
-                        out,
-                        "        args.push(ext_php_rs::types::Zval::try_from({}.clone()).unwrap_or_default());",
+                    out.push_str(&format!(
+                        "        args.push(ext_php_rs::types::Zval::try_from({}.clone()).unwrap_or_default());\n",
                         p.name
-                    )
-                    .unwrap();
+                    ));
                 }
                 continue;
             }
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-                writeln!(
-                    out,
-                    "        {{ let mut _zv = ext_php_rs::types::Zval::new(); _zv.set_bool({}); args.push(_zv); }}",
+                out.push_str(&format!(
+                    "        {{ let mut _zv = ext_php_rs::types::Zval::new(); _zv.set_bool({}); args.push(_zv); }}\n",
                     p.name
-                )
-                .unwrap();
+                ));
                 continue;
             }
             // Default: format as string
-            writeln!(
-                out,
-                "        args.push(ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default());",
+            out.push_str(&format!(
+                "        args.push(ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default());\n",
                 p.name
-            )
-            .unwrap();
+            ));
         }
     }
 
@@ -760,18 +427,10 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     // If the method does not exist, try_call_method returns Err(Error::Callable),
     // which we treat as a "no-op, return Continue" (same as the default impl).
     if has_args {
-        writeln!(
-            out,
-            "        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();"
-        )
-        .unwrap();
+        out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
     }
     let args_expr = if has_args { "dyn_args" } else { "vec![]" };
-    writeln!(
-        out,
-        "        let result = php_obj_ref.try_call_method(\"{php_name}\", {args_expr});"
-    )
-    .unwrap();
+    out.push_str(&format!("        let result = php_obj_ref.try_call_method(\"{name}\", {args_expr});\n"));
 
     // Build template vars for {param_name} → value substitution in Custom results.
     // Each non-ctx param gets an owned String so we can take &str references.
@@ -810,16 +469,12 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     };
 
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
-    writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(
-        out,
-        "            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),"
-    )
-    .unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str("        match result {{\n");
+    out.push_str(&format!("            Err(_) => {ret_ty}::Continue,\n"));
+    out.push_str(&format!("            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),\n"));
+    out.push_str("        }}\n");
+    out.push_str("    }}\n");
+    out.push('\n');
 }
 
 /// Generate a PHP static method that has one parameter replaced by
@@ -1044,11 +699,11 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+        out.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
-    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&format!("pub fn {func_name}({params_str}) -> {ret} {{\n"));
+    out.push_str(&format!("    {body}\n"));
+    out.push_str("}}\n");
 
     out
 }

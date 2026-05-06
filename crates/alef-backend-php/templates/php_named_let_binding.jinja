@@ -1,0 +1,5 @@
+{% if is_optional %}
+let {{ php_name }}_core: Option<{{ core_import }}::{{ type_name }}> = {{ php_name }}.map(|v| v.clone().into());
+{% else %}
+let {{ php_name }}_core: {{ core_import }}::{{ type_name }} = {{ php_name }}.clone().into();
+{% endif %}
