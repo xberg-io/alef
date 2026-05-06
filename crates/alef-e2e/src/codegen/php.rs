@@ -1819,7 +1819,7 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         "visit_table_row" => "$ctx, $cells, $isHeader",
         "visit_custom_element" => "$ctx, $tagName, $html",
         "visit_form" => "$ctx, $actionUrl, $method",
-        "visit_input" => "$ctx, $inputType, $name, $value",
+        "visit_input" => "$ctx, $input_type, $name, $value",
         "visit_audio" | "visit_video" | "visit_iframe" => "$ctx, $src",
         "visit_details" => "$ctx, $isOpen",
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "$ctx, $output",
