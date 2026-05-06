@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php-backend): config params are now null-coalesced at call sites (`$config ?? new ConfigType()`) only when the config type can be constructed with zero arguments (all fields are optional in the IR). Previously any param whose type name ended with `Config` triggered null-coalescing unconditionally, which caused `new ProcessConfig()` calls in generated PHP facades — invalid because `ProcessConfig` has 8 required constructor fields. The codegen now pre-computes the set of all-optional-field types and restricts the null-coalesce rewrite to members of that set.
+- fix(java-backend, csharp-backend): suppress `clippy::too_many_arguments` on `gen_sync_function_method` and `gen_wrapper_function`; both functions require all their parameters to drive code generation and cannot reasonably be refactored below the 7-argument limit without losing clarity.
+- fix(extendr-backend): fix overindented doc list items in `gen_extendr_wrappers_r` doc comment.
+- fix(e2e-typescript): collapse duplicate `if`/`else if` branches that both pushed `"undefined"` into a single `if` with an `||` condition.
 - fix(e2e-typescript): revert vitest `singleFork` config — running all tests in one worker amplifies visitor teardown crashes across unrelated test files; default pool isolation is safer.
 - fix(e2e-node): options are now constructed as a plain object literal with a type assertion (`{ key: val } as ConversionOptions`) and imported type-only. The previous `ConversionOptions.fromUpdate(new ConversionOptionsUpdate({...}))` pattern failed at runtime because `ConversionOptions` is a TypeScript interface, not a class.
 - fix(e2e-wasm): options are now constructed via empty constructor + setter assignments wrapped in an IIFE (`(() => { const _u = new WasmConversionOptionsUpdate(); _u.key = val; return WasmConversionOptions.fromUpdate(_u); })()`). The previous pattern passed an object literal to a positional constructor (40+ args), silently landing it as `heading_style` and ignoring all intended values.

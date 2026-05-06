@@ -48,12 +48,8 @@ pub fn render_test_file(
 
     // Extract nested_types and enum_fields from the call override if available.
     let override_config = e2e_config.call.overrides.get(lang);
-    let nested_types = override_config
-        .map(|o| o.nested_types.clone())
-        .unwrap_or_default();
-    let enum_fields = override_config
-        .map(|o| o.enum_fields.clone())
-        .unwrap_or_default();
+    let nested_types = override_config.map(|o| o.nested_types.clone()).unwrap_or_default();
+    let enum_fields = override_config.map(|o| o.enum_fields.clone()).unwrap_or_default();
 
     let needs_options_import = options_type.is_some()
         && fixtures.iter().any(|f| {
@@ -400,8 +396,15 @@ fn render_test_case(
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, options_type, &fixture.id, nested_types, lang, enum_fields);
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        options_type,
+        &fixture.id,
+        nested_types,
+        lang,
+        enum_fields,
+    );
 
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
@@ -624,7 +627,8 @@ fn ts_builder_expression_inner(
         if let serde_json::Value::Object(nested_obj) = val {
             if let Some(nested_type) = nested_types.get(key.as_str()) {
                 // Nested objects in setters should return Update type, not call fromUpdate
-                let nested_expr = ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields, false);
+                let nested_expr =
+                    ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields, false);
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
@@ -646,7 +650,7 @@ fn ts_builder_expression_inner(
     if call_from_update {
         stmts.push(format!("return {type_name}.fromUpdate(_u);"));
     } else {
-        stmts.push(format!("return _u;"));
+        stmts.push("return _u;".to_string());
     }
     let body = stmts.join(" ");
     format!("(() => {{ {body} }})()")
@@ -724,9 +728,8 @@ fn build_args_and_setup(
                 // `{} as OptionsType` pattern broke wasm-bindgen, where the runtime
                 // `instanceof` check rejected plain object literals — wasm exposes
                 // options as opaque classes, not interfaces.
-                if arg.arg_type == "json_object" {
-                    parts.push("undefined".to_string());
-                } else if has_later_arg_value(args, idx + 1, input)
+                if arg.arg_type == "json_object"
+                    || has_later_arg_value(args, idx + 1, input)
                     || has_later_json_object_default(args, idx + 1, input)
                 {
                     parts.push("undefined".to_string());

@@ -608,7 +608,7 @@ impl Backend for PhpBackend {
             // be treated as optional for PHP even if not explicitly marked as such in the IR.
             // Helper: a config param is only treated as optional when its type can be
             // constructed with zero arguments (all fields are optional in the IR).
-            let is_optional_config_param = |p: &alef_core::ir::Param| -> bool {
+            let is_optional_config_param = |p: &alef_core::ir::ParamDef| -> bool {
                 if let TypeRef::Named(name) = &p.ty {
                     (name.ends_with("Config") || name.as_str() == "config")
                         && no_arg_constructor_types.contains(name.as_str())
@@ -636,8 +636,9 @@ impl Backend for PhpBackend {
                     // 1. It's explicitly optional OR
                     // 2. It's a config parameter with a no-arg constructor OR
                     // 3. It comes after the first optional/config param
-                    let should_be_optional =
-                        p.optional || is_optional_config_param(p) || first_optional_idx.is_some_and(|first| idx >= first);
+                    let should_be_optional = p.optional
+                        || is_optional_config_param(p)
+                        || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
@@ -669,8 +670,9 @@ impl Backend for PhpBackend {
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {
-                    let should_be_optional =
-                        p.optional || is_optional_config_param(p) || first_optional_idx.is_some_and(|first| idx >= first);
+                    let should_be_optional = p.optional
+                        || is_optional_config_param(p)
+                        || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional && is_optional_config_param(p) {
                         if let TypeRef::Named(type_name) = &p.ty {
                             return format!("${} ?? new {}()", p.name, type_name);

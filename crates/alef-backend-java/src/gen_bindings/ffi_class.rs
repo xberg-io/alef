@@ -127,6 +127,7 @@ pub(crate) fn gen_main_class(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_sync_function_method(
     out: &mut String,
     func: &FunctionDef,
