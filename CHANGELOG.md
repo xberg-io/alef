@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- fix(e2e-typescript): configure vitest with `pool: 'forks'`, `singleFork: true`, and `isolate: false` to reduce NAPI environment teardown crashes when visitor bridges hold references to `napi_env`. Running all tests in a single forked worker instead of creating multiple isolated processes greatly reduces (but does not fully eliminate) the frequency of "Worker exited unexpectedly" errors during test cleanup.
+- fix(e2e-typescript): revert vitest `singleFork` config — running all tests in one worker amplifies visitor teardown crashes across unrelated test files; default pool isolation is safer.
+- fix(e2e-node): options are now constructed as a plain object literal with a type assertion (`{ key: val } as ConversionOptions`) and imported type-only. The previous `ConversionOptions.fromUpdate(new ConversionOptionsUpdate({...}))` pattern failed at runtime because `ConversionOptions` is a TypeScript interface, not a class.
+- fix(e2e-wasm): options are now constructed via empty constructor + setter assignments wrapped in an IIFE (`(() => { const _u = new WasmConversionOptionsUpdate(); _u.key = val; return WasmConversionOptions.fromUpdate(_u); })()`). The previous pattern passed an object literal to a positional constructor (40+ args), silently landing it as `heading_style` and ignoring all intended values.
 
 ### Fixed
 

@@ -127,15 +127,19 @@ pub fn render_test_file(
 
         let _ = module_path; // retained in signature for potential future use
         if let (true, Some(opts_type)) = (needs_options_import, options_type) {
-            // Import options type as a value (not just a type) since we use .fromUpdate() at runtime.
-            // We also need the Update class (e.g., WasmConversionOptionsUpdate) for the constructor.
-            imports.push(opts_type.to_string());
-            imports.push(format!("{opts_type}Update"));
-            // Also import any nested types and their Update classes (e.g., WasmPreprocessingOptions)
-            for nested_type in nested_types.values() {
-                if !imports.contains(nested_type) {
-                    imports.push(nested_type.clone());
-                    imports.push(format!("{nested_type}Update"));
+            if lang == "node" {
+                // ConversionOptions is a TypeScript interface — type-only import.
+                // No Update class exists; options are constructed as plain object literals.
+                imports.push(format!("type {opts_type}"));
+            } else {
+                // WASM: value import needed for .fromUpdate() runtime calls.
+                imports.push(opts_type.to_string());
+                imports.push(format!("{opts_type}Update"));
+                for nested_type in nested_types.values() {
+                    if !imports.contains(nested_type) {
+                        imports.push(nested_type.clone());
+                        imports.push(format!("{nested_type}Update"));
+                    }
                 }
             }
             let imports_str = imports.join(", ");
@@ -387,7 +391,8 @@ fn render_test_case(
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
-    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, options_type, &fixture.id, nested_types);
+    let (mut setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, options_type, &fixture.id, nested_types, lang);
 
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
@@ -561,49 +566,54 @@ fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) ->
     }
 }
 
-/// Build a TypeScript expression to construct an options object with proper handling
-/// of nested types. For nested objects, uses the static `fromUpdate()` factory method
-/// with the Update class constructor (e.g., `WasmConversionOptionsUpdate`).
+/// Build a TypeScript expression to construct an options object.
+///
+/// Node: ConversionOptions is a TypeScript interface — returns a plain object literal
+/// with a type assertion (`{ key: val } as TypeName`). No Update class or fromUpdate().
+///
+/// WASM: WasmConversionOptionsUpdate has a positional constructor (40+ args). Passing
+/// an object literal as the first positional arg silently lands as `heading_style`.
+/// Instead, use an empty constructor + setter assignments wrapped in an IIFE so the
+/// expression can be inlined as a function argument.
 fn ts_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
     nested_types: &std::collections::HashMap<String, String>,
+    lang: &str,
 ) -> String {
-    let mut fields = Vec::new();
-
-    for (key, val) in obj {
-        let camel_key = snake_to_camel(key);
-        let field_expr = match val {
-            serde_json::Value::String(_s) => json_to_js(val),
-            serde_json::Value::Bool(b) => b.to_string(),
-            serde_json::Value::Null => "null".to_string(),
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::Array(arr) => {
-                let items: Vec<String> = arr.iter().map(json_to_js).collect();
-                format!("[{}]", items.join(", "))
-            }
-            serde_json::Value::Object(_nested) => {
-                // Check if this field has a mapped nested type (e.g., "preprocessing" → "WasmPreprocessingOptions")
-                if let Some(nested_type) = nested_types.get(key.as_str()) {
-                    // Use the static fromUpdate() method to construct the nested object.
-                    // Need to wrap the object in the Update class constructor.
-                    let update_type = format!("{nested_type}Update");
-                    let nested_json = json_to_js_camel(val);
-                    format!("{nested_type}.fromUpdate(new {update_type}({nested_json}))")
-                } else {
-                    json_to_js_camel(val)
-                }
-            }
-        };
-        fields.push(format!("{camel_key}: {field_expr}"));
+    if lang == "node" {
+        let mut fields = Vec::new();
+        for (key, val) in obj {
+            let camel_key = snake_to_camel(key);
+            let field_expr = match val {
+                serde_json::Value::Object(_) => json_to_js_camel(val),
+                _ => json_to_js(val),
+            };
+            fields.push(format!("{camel_key}: {field_expr}"));
+        }
+        let obj_literal = format!("{{ {} }}", fields.join(", "));
+        return format!("{obj_literal} as {type_name}");
     }
 
-    let obj_literal = format!("{{ {} }}", fields.join(", "));
-
-    // For wasm-bindgen classes, wrap the plain object in the Update class constructor,
-    // then use the static .fromUpdate() factory method.
+    // WASM path: empty constructor + setter assignments, wrapped in an IIFE.
     let update_type = format!("{type_name}Update");
-    format!("{type_name}.fromUpdate(new {update_type}({obj_literal}))")
+    let mut stmts: Vec<String> = vec![format!("const _u = new {update_type}();")];
+    for (key, val) in obj {
+        let camel_key = snake_to_camel(key);
+        if let serde_json::Value::Object(nested_obj) = val {
+            if let Some(nested_type) = nested_types.get(key.as_str()) {
+                let nested_expr = ts_builder_expression(nested_obj, nested_type, nested_types, lang);
+                stmts.push(format!("_u.{camel_key} = {nested_expr};"));
+            } else {
+                stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
+            }
+        } else {
+            stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
+        }
+    }
+    stmts.push(format!("return {type_name}.fromUpdate(_u);"));
+    let body = stmts.join(" ");
+    format!("(() => {{ {body} }})()")
 }
 
 fn build_args_and_setup(
@@ -612,6 +622,7 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     fixture_id: &str,
     nested_types: &std::collections::HashMap<String, String>,
+    lang: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), json_to_js(input));
@@ -731,7 +742,7 @@ fn build_args_and_setup(
                         } else if let Some(obj) = v.as_object() {
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
-                            let ts_code = ts_builder_expression(obj, opts_type, nested_types);
+                            let ts_code = ts_builder_expression(obj, opts_type, nested_types, lang);
                             parts.push(ts_code);
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
