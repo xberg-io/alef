@@ -189,9 +189,7 @@ pub fn ruby_template_to_interpolation(template: &str) -> String {
         match ch {
             '{' => {
                 // Check if this is a {identifier} placeholder
-                let is_ident_start = chars
-                    .peek()
-                    .is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
+                let is_ident_start = chars.peek().is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
                 if is_ident_start {
                     // Collect the identifier
                     let mut ident = String::new();

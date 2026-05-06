@@ -258,9 +258,17 @@ fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path:
                     writeln!(out, "    #[getter]").ok();
                     writeln!(out, "    fn {fn_name}(&self) -> Option<{inner_type_name}> {{").ok();
                     writeln!(out, "        match &self.inner {{").ok();
+                    // Use `.into()` to avoid ambiguity when the binding type has an inherent
+                    // `from()` method that would shadow the `From` trait impl.
+                    // For boxed variants, double-deref: &Box<T> → Box<T> → T, then clone.
+                    let clone_expr = if field.is_boxed {
+                        "(**data).clone().into()".to_string()
+                    } else {
+                        "data.clone().into()".to_string()
+                    };
                     writeln!(
                         out,
-                        "            {core_path}::{variant_pascal}(data) => Some({inner_type_name}::from(data.clone())),"
+                        "            {core_path}::{variant_pascal}(data) => Some({clone_expr}),"
                     )
                     .ok();
                     writeln!(out, "            _ => None,").ok();

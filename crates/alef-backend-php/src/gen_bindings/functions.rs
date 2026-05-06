@@ -72,10 +72,10 @@ fn has_sanitized_recoverable(params: &[alef_core::ir::ParamDef]) -> bool {
     })
 }
 
-/// Generate serde-based let bindings for Named (non-opaque) params that have `is_ref=true`.
-/// These replace the `.clone().into()` bindings when no `From` impl is available.
-/// The round-trip works because PHP binding types derive `Serialize` and core types derive
-/// `Deserialize`.
+/// Generate let bindings for Named (non-opaque) params, including `is_ref=true` params.
+/// Uses `clone().into()` for all cases since binding types always have `From` impls.
+/// The previous serde round-trip approach caused camelCase/snake_case key mismatches when
+/// the binding type has `rename_all = "camelCase"` but the core type uses snake_case.
 fn gen_php_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -87,48 +87,18 @@ fn gen_php_serde_let_bindings(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.is_ref {
-                    // Serde round-trip: binding type -> JSON -> core type.
-                    // Build code lines directly to avoid format-string escaping issues.
+                    // Use clone().into() for ref params — binding types always have From impls.
+                    // The old serde round-trip broke camelCase binding types (e.g. ProcessConfig
+                    // with rename_all="camelCase") when deserializing into snake_case core types.
                     let pname = &p.name;
                     if p.optional {
-                        // Generated code pattern:
-                        //   let {pname}_core: Option<{core}::{name}> = {pname}.as_ref()
-                        //       .map(|v| {
-                        //           let _json = serde_json::to_string(v).map_err(|e| format!("{e}"))?;
-                        //           serde_json::from_str::<{core}::{name}>(&_json).map_err(|e| format!("{e}"))
-                        //       }).transpose()?;
-                        let mut line = String::new();
-                        write!(
-                            line,
-                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()"
+                        writeln!(
+                            out,
+                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref().map(|v| v.clone().into());"
                         )
                         .ok();
-                        write!(line, "\n        .map(|v| {{").ok();
-                        write!(line, "\n            let _json = serde_json::to_string(v)").ok();
-                        write!(line, ".map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        write!(
-                            line,
-                            "\n            serde_json::from_str::<{core_import}::{name}>(&_json)"
-                        )
-                        .ok();
-                        write!(line, ".map_err(|e| format!(\"{{e}}\"))").ok();
-                        write!(line, "\n        }}).transpose()?;").ok();
-                        writeln!(out, "{line}").ok();
                     } else {
-                        // Generated code pattern:
-                        //   let {pname}_json = serde_json::to_string(&{pname}).map_err(|e| format!("{e}"))?;
-                        //   let {pname}_core: {core}::{name} = serde_json::from_str(&{pname}_json)
-                        //       .map_err(|e| format!("{e}"))?;
-                        let mut line = String::new();
-                        write!(line, "let {pname}_json = serde_json::to_string(&{pname})").ok();
-                        write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        write!(
-                            line,
-                            "\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)"
-                        )
-                        .ok();
-                        write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        writeln!(out, "{line}").ok();
+                        writeln!(out, "let {pname}_core: {core_import}::{name} = {pname}.clone().into();").ok();
                     }
                 } else {
                     // Non-ref Named: use the standard .clone().into() path.

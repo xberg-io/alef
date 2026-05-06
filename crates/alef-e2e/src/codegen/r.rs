@@ -408,8 +408,10 @@ fn build_args_string(
                 return Some(format!("{arg_name} = {r_value}"));
             }
             // Non-empty json_object for `options`-style args: emit as R list.
+            // Use lowercase_enum_values = true so PascalCase enum strings like
+            // "Backticks" are lowercased to match R binding's parse_* functions.
             if arg.arg_type == "json_object" && val.is_object() {
-                let r_value = json_to_r(val, false);
+                let r_value = json_to_r(val, true);
                 return Some(format!("{arg_name} = {r_value}"));
             }
             // `json_object` arrays are passed to extendr functions whose Rust
