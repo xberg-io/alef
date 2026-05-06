@@ -58,6 +58,7 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         cast_uints_to_i32: false,
         cast_large_ints_to_f64: false,
         named_non_opaque_params_by_ref: false,
+        lossy_skip_types: &[],
     }
 }
 
@@ -1413,6 +1414,7 @@ fn test_gen_lossy_binding_to_core_fields_sanitized() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(result.contains("let core_self"));
@@ -1431,6 +1433,7 @@ fn test_gen_lossy_binding_to_core_fields_non_sanitized() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(result.contains("let core_self"));
@@ -1466,6 +1469,7 @@ fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -1503,6 +1507,7 @@ fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_in
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -1539,6 +1544,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(result.contains("timeout: std::time::Duration::from_millis(self.timeout),"));
@@ -1570,6 +1576,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration_optional_flag() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -1604,6 +1611,7 @@ fn test_gen_lossy_binding_to_core_fields_with_optional_duration_type() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6018,6 +6026,7 @@ fn test_gen_lossy_binding_to_core_fields_string_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6042,6 +6051,7 @@ fn test_gen_lossy_binding_to_core_fields_cow_string_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6076,6 +6086,7 @@ fn test_gen_lossy_binding_to_core_fields_named_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6110,6 +6121,7 @@ fn test_gen_lossy_binding_to_core_fields_path_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6144,6 +6156,7 @@ fn test_gen_lossy_binding_to_core_fields_path_optional() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6178,6 +6191,7 @@ fn test_gen_lossy_binding_to_core_fields_json_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6212,6 +6226,7 @@ fn test_gen_lossy_binding_to_core_fields_json_optional() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6246,6 +6261,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6280,6 +6296,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6299,6 +6316,7 @@ fn test_gen_lossy_binding_to_core_fields_mut_declares_mutable() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6319,6 +6337,7 @@ fn test_gen_lossy_binding_to_core_fields_has_stripped_cfg_fields() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6357,6 +6376,7 @@ fn test_gen_lossy_binding_to_core_fields_char_field() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6391,6 +6411,7 @@ fn test_gen_lossy_binding_to_core_fields_char_optional() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(
@@ -6428,6 +6449,7 @@ fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
         &ahash::AHashSet::new(),
         false,
         false,
+        &[],
     );
 
     assert!(

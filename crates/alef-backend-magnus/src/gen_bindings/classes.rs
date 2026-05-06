@@ -435,9 +435,9 @@ fn gen_instance_method(
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         let field_conversions = if needs_mut_receiver {
-            generators::gen_lossy_binding_to_core_fields_mut(typ, core_import, false, opaque_types, false, false)
+            generators::gen_lossy_binding_to_core_fields_mut(typ, core_import, false, opaque_types, false, false, &[])
         } else {
-            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false)
+            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[])
         };
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
@@ -504,7 +504,7 @@ fn gen_async_instance_method(
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         let field_conversions =
-            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false);
+            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[]);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
             // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since

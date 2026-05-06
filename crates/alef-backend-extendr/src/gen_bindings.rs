@@ -13,7 +13,7 @@ use std::path::PathBuf;
 pub struct ExtendrBackend;
 
 impl ExtendrBackend {
-    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
+    fn binding_config<'a>(core_import: &'a str, lossy_skip_types: &'a [String]) -> RustBindingConfig<'a> {
         RustBindingConfig {
             struct_attrs: &[],
             field_attrs: &[],
@@ -50,6 +50,11 @@ impl ExtendrBackend {
             // (owned). Free function parameters that are Named non-opaque structs must therefore
             // be declared as &T in the binding signature so extendr can extract them from Robj.
             named_non_opaque_params_by_ref: true,
+            // Flat data enums are output-only: no From<BindingType> impl exists for them.
+            // Skip these types in gen_lossy_binding_to_core_fields so method bodies that
+            // construct core structs emit Default::default() for those fields instead of
+            // attempting .clone().into() which would fail to compile.
+            lossy_skip_types,
         }
     }
 }
@@ -104,7 +109,14 @@ impl Backend for ExtendrBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let core_import = config.core_import_name();
-        let cfg = Self::binding_config(&core_import);
+        // Compute flat data enum names first so binding_config and conversion config can use them.
+        let flat_data_enum_names_vec: Vec<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_flat_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+        let cfg = Self::binding_config(&core_import, &flat_data_enum_names_vec);
 
         // Build adapter body map for method body substitution.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::R)?;
@@ -386,19 +398,44 @@ impl Backend for ExtendrBackend {
                     // assignments. Constructor generation is suppressed via skip_impl_constructor
                     // in the binding config — the kwargs free-function constructor handles R
                     // object creation instead.
+                    // Build from_json method body when the type has serde + has_default.
+                    // from_json lets R callers construct typed ExternalPtrs from JSON strings
+                    // (e.g. ExtractionConfig$from_json(jsonlite::toJSON(list(...)))).
+                    let from_json_method = if struct_typ.has_default && !struct_typ.fields.is_empty() {
+                        let type_name = &struct_typ.name;
+                        format!(
+                            "    pub fn from_json(json: String) -> extendr_api::Result<{type_name}> {{\n        \
+                             serde_json::from_str(&json).map_err(|e| extendr_api::Error::Other(e.to_string()))\n    \
+                             }}\n"
+                        )
+                    } else {
+                        String::new()
+                    };
+
                     let impl_block =
                         generators::gen_impl_block(&struct_typ, self, &cfg, &adapter_bodies, &opaque_types);
                     if !impl_block.is_empty() {
-                        builder.add_item(&impl_block);
+                        // Inject from_json (if any) into the existing #[extendr] impl block
+                        // before the closing `}`. extendr only allows one #[extendr] impl per type.
+                        let final_impl = if from_json_method.is_empty() {
+                            impl_block
+                        } else if let Some(pos) = impl_block.rfind('}') {
+                            format!("{}{}{}", &impl_block[..pos], &from_json_method, &impl_block[pos..])
+                        } else {
+                            impl_block
+                        };
+                        builder.add_item(&final_impl);
                     } else {
                         // extendr requires a #[extendr] impl block for every type listed in
                         // extendr_module! — without it, the module macro cannot register the type.
-                        // Emit an empty annotated impl block for pure data structs (e.g.
-                        // DocumentMetadata, NodeContext) that have no methods.
-                        builder.add_item(&format!("#[extendr]\nimpl {} {{}}", struct_typ.name));
+                        let empty_or_from_json = if from_json_method.is_empty() {
+                            format!("#[extendr]\nimpl {} {{}}", struct_typ.name)
+                        } else {
+                            format!("#[extendr]\nimpl {} {{\n{}}}", struct_typ.name, from_json_method)
+                        };
+                        builder.add_item(&empty_or_from_json);
                     }
-                    // Generate config constructor if type has Default.
-                    // Use the filtered struct so arc-incompatible fields (e.g. visitor) are excluded.
+                    // Generate kwargs config constructor if type has Default.
                     if struct_typ.has_default && !struct_typ.fields.is_empty() {
                         let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
                         let config_fn =
@@ -430,45 +467,17 @@ impl Backend for ExtendrBackend {
         // builder methods fail with E0277 unsatisfied trait bound errors.
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
-        // Flat data enums are output-only — types whose fields reference them (e.g. Metadata
-        // which contains `format: Option<FormatMetadata>`) need no binding→core From impl.
-        // Filter them out of input_types so the generator doesn't emit a From impl that tries
-        // `val.format.map(Into::into)` when no `FormatMetadata: Into<core::FormatMetadata>` exists.
-        let flat_data_enum_names_vec: Vec<String> = api
-            .enums
-            .iter()
-            .filter(|e| is_flat_data_enum(e))
-            .map(|e| e.name.clone())
-            .collect();
-        let input_types: ahash::AHashSet<String> = {
-            let raw = alef_codegen::conversions::input_type_names(api);
-            if flat_data_enum_names_vec.is_empty() {
-                raw
-            } else {
-                raw.into_iter()
-                    .filter(|name| {
-                        api.types
-                            .iter()
-                            .find(|t| &t.name == name)
-                            .map(|t| {
-                                !t.fields.iter().any(|f| {
-                                    alef_codegen::conversions::field_references_excluded_type(
-                                        &f.ty,
-                                        &flat_data_enum_names_vec,
-                                    )
-                                })
-                            })
-                            .unwrap_or(true)
-                    })
-                    .collect()
-            }
-        };
+        let input_types = alef_codegen::conversions::input_type_names(api);
         let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig {
             cast_uints_to_i32: true,
             cast_large_ints_to_f64: true,
             // Exclude arc-incompatible opaque types (e.g. VisitorHandle) from conversion
             // generation so that struct fields referencing them are skipped in From impls.
             exclude_types: &arc_incompatible_opaque_vec,
+            // Flat data enums are output-only: skip them in binding→core From impls so that
+            // types containing them (e.g. Metadata.format: Option<FormatMetadata>) don't try
+            // to convert a field that has no From<BindingType> impl.
+            from_binding_skip_types: &flat_data_enum_names_vec,
             ..alef_codegen::conversions::ConversionConfig::default()
         };
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {

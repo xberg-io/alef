@@ -511,13 +511,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // {prefix}_options_set_visitor_handle), so there is no symbol collision with the
         // OptionsField convert generated above.
         if visitor_callbacks_enabled {
-            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
+            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, true));
         }
     } else if visitor_callbacks_enabled {
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_options_set_visitor_handle.
         builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
-        builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
+        builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, false));
     }
 
     // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.

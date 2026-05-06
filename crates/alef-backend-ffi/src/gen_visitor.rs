@@ -462,12 +462,30 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
 ///
 /// - `prefix`: the FFI function prefix (e.g. `"htm"`).
 /// - `core_import`: the Rust `use` path for the core crate (e.g. `"html_to_markdown_rs"`).
-pub fn gen_visitor_bindings(prefix: &str, core_import: &str) -> String {
+/// - `embed_visitor_in_options`: when `true`, the generated `{prefix}_convert_with_visitor`
+///   embeds the visitor in `options.visitor` before calling the 2-argument `convert(html,
+///   options)`.  Set `true` for the OptionsField bridge pattern; `false` for the legacy
+///   FunctionParam pattern where `convert` takes a third visitor argument directly.
+pub fn gen_visitor_bindings(prefix: &str, core_import: &str, embed_visitor_in_options: bool) -> String {
     let pascal_prefix = prefix.to_pascal_case();
 
     let struct_fields = gen_struct_fields(&pascal_prefix);
     let impl_methods = gen_impl_methods(&pascal_prefix, core_import);
     let visitor_ref_methods = gen_visitor_ref_methods(core_import);
+
+    // Build the convert expression for {prefix}_convert_with_visitor.
+    let convert_call = if embed_visitor_in_options {
+        format!(
+            "    let mut options_with_visitor: Option<{core_import}::ConversionOptions> = options_rs;\n\
+             if visitor_handle.is_some() {{\n\
+             let opts = options_with_visitor.get_or_insert_with({core_import}::ConversionOptions::default);\n\
+             opts.visitor = visitor_handle;\n\
+             }}\n\
+             match {core_import}::convert(&html_str, options_with_visitor) {{"
+        )
+    } else {
+        format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
+    };
 
     format!(
         r#"// ---------------------------------------------------------------------------
@@ -745,6 +763,77 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         struct_fields = struct_fields,
         impl_methods = impl_methods,
         visitor_ref_methods = visitor_ref_methods,
+    ) + &format!(
+        r#"
+/// Convert HTML to Markdown using a callback-based visitor.
+///
+/// Returns a heap-allocated `ConversionResult` on success, or null on failure.
+/// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
+/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+///
+/// # Safety
+///
+/// `html` must be a valid, non-null, null-terminated UTF-8 string.
+/// `options` must be a valid pointer or null.
+/// `visitor` must have been created with `{prefix}_visitor_create`, or be null.
+/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {prefix}_convert_with_visitor(
+    html: *const std::ffi::c_char,
+    options: *const {core_import}::ConversionOptions,
+    visitor: *mut {pascal_prefix}Visitor,
+) -> *mut {core_import}::ConversionResult {{
+    clear_last_error();
+
+    if html.is_null() {{
+        set_last_error(1, "Null pointer passed for html");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: null check above guarantees html is a valid pointer.
+    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in html parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
+        None
+    }} else {{
+        // SAFETY: options is a valid pointer guaranteed by the caller.
+        Some(unsafe {{ &*options }}.clone())
+    }};
+
+    struct VisitorRef(*mut {pascal_prefix}Visitor);
+    impl std::fmt::Debug for VisitorRef {{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+            f.debug_struct("VisitorRef").finish_non_exhaustive()
+        }}
+    }}
+    impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
+{visitor_ref_methods}    }}
+    let visitor_handle: Option<std::rc::Rc<std::cell::RefCell<dyn {core_import}::visitor::HtmlVisitor>>> = if visitor.is_null() {{
+        None
+    }} else {{
+        Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))))
+    }};
+
+{convert_call}
+        Ok(result) => Box::into_raw(Box::new(result)),
+        Err(e) => {{
+            set_last_error(2, &e.to_string());
+            std::ptr::null_mut()
+        }}
+    }}
+}}
+"#,
+        prefix = prefix,
+        pascal_prefix = pascal_prefix,
+        core_import = core_import,
+        visitor_ref_methods = visitor_ref_methods,
+        convert_call = convert_call,
     )
 }
 
