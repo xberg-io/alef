@@ -1212,19 +1212,29 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
-    // Generate visitor extraction and bridge creation
-    let visitor_extract = "let visitor_handle = visitor.filter(|v| !v.is_nil()).map(|v| {\n    \
-         let bridge = {struct_name}::new(v);\n    \
-         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-         });"
-    .replace("{struct_name}", &struct_name)
-    .replace("{handle_path}", &handle_path);
-
-    // Generate options creation with visitor wired in
+    // Generate dispatch: if second arg is a Hash → deserialize as ConversionOptions;
+    // otherwise treat as visitor object and wire into options.
     let options_name = &func.params[options_param_idx].name;
-    let options_convert = format!(
-        "let mut {options_name}_core = {core_import}::ConversionOptions::default();\n    \
-         {options_name}_core.visitor = visitor_handle;",
+    let visitor_extract = format!(
+        "let {options_name}_core = match visitor {{\n    \
+         Some(v) if !v.is_nil() => {{\n        \
+         if magnus::RHash::from_value(v).is_some() {{\n            \
+         let json = v.funcall::<_, _, String>(\"to_json\", ()).unwrap_or_default();\n            \
+         serde_json::from_str::<{core_import}::ConversionOptions>(&json).unwrap_or_default()\n        \
+         }} else {{\n            \
+         let bridge = {struct_name}::new(v);\n            \
+         let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n            \
+         let mut opts = {core_import}::ConversionOptions::default();\n            \
+         opts.visitor = Some(handle);\n            \
+         opts\n        \
+         }}\n    \
+         }},\n    \
+         _ => {core_import}::ConversionOptions::default(),\n    \
+         }};",
+        struct_name = struct_name,
+        handle_path = handle_path,
+        core_import = core_import,
+        options_name = options_name,
     );
 
     // Build call args: non-options params + the _core options (wrapped in Some)
@@ -1285,12 +1295,12 @@ pub fn gen_options_field_bridge_function(
 
     let body = if func.error_type.is_some() {
         if return_wrap == "val" {
-            format!("{visitor_extract}\n    {options_convert}\n    {core_call}{err_conv}")
+            format!("{visitor_extract}\n    {core_call}{err_conv}")
         } else {
-            format!("{visitor_extract}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
+            format!("{visitor_extract}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
         }
     } else {
-        format!("{visitor_extract}\n    {options_convert}\n    {core_call}")
+        format!("{visitor_extract}\n    {core_call}")
     };
 
     let func_name = &func.name;
