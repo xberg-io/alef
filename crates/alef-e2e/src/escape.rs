@@ -178,6 +178,57 @@ pub fn escape_ruby_single(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
+/// Convert a `{param}` template string to a Ruby double-quoted string with `#{param}` interpolation.
+///
+/// `{key}` placeholders are converted to `#{key}`. All other characters are escaped for
+/// Ruby double-quoted strings. The returned value does NOT include the surrounding `"` quotes.
+pub fn ruby_template_to_interpolation(template: &str) -> String {
+    let mut out = String::with_capacity(template.len() + 8);
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' => {
+                // Check if this is a {identifier} placeholder
+                let is_ident_start = chars
+                    .peek()
+                    .is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
+                if is_ident_start {
+                    // Collect the identifier
+                    let mut ident = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_alphanumeric() || c == '_' {
+                            ident.push(chars.next().unwrap());
+                        } else {
+                            break;
+                        }
+                    }
+                    if chars.peek() == Some(&'}') {
+                        chars.next(); // consume '}'
+                        out.push('#');
+                        out.push('{');
+                        out.push_str(&ident);
+                        out.push('}');
+                    } else {
+                        // Not a valid {ident} placeholder — emit literally
+                        out.push('{');
+                        out.push_str(&ident);
+                    }
+                } else {
+                    out.push('{');
+                }
+            }
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '#' => out.push_str("\\#"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Returns true if the string needs double quotes (contains control characters
 /// that require escape sequences only available in double-quoted strings).
 pub fn ruby_needs_double_quotes(s: &str) -> bool {

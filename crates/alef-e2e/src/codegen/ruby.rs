@@ -5,7 +5,7 @@
 
 use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
-use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
+use crate::escape::{ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
@@ -1604,8 +1604,8 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
             setup_lines.push(format!("    {{ custom: {escaped} }}"));
         }
         CallbackAction::CustomTemplate { template } => {
-            let escaped = ruby_string_literal(template);
-            setup_lines.push(format!("    {{ custom: {escaped} }}"));
+            let interpolated = ruby_template_to_interpolation(template);
+            setup_lines.push(format!("    {{ custom: \"{interpolated}\" }}"));
         }
     }
     setup_lines.push("  end".to_string());
