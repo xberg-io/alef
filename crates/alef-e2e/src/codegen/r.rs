@@ -400,17 +400,24 @@ fn build_args_string(
             // `Expected ExternalPtr got List`. The fixtures don't carry the
             // option fields needed to round-trip through ExtractionConfig$new,
             // so emit `ExtractionConfig$default()` whenever a `json_object` arg
-            // resolves to an empty / object-shaped JSON value. For named args
-            // like `options` whose R binding accepts a plain `list()`, emit
-            // the list representation when the fixture provides a non-empty object.
+            // resolves to an empty / object-shaped JSON value.
             if arg.arg_type == "json_object" && (val.is_null() || val.as_object().is_some_and(|m| m.is_empty())) {
                 let r_value = r_default_for_config_arg(arg_name);
                 return Some(format!("{arg_name} = {r_value}"));
             }
-            // Non-empty json_object for `options`-style args: emit as R list.
-            // Use lowercase_enum_values = true so PascalCase enum strings like
-            // "Backticks" are lowercased to match R binding's parse_* functions.
+            // Non-empty json_object for typed config args (those whose default is a
+            // `$default()` constructor): use `TypeName$from_json(jsonlite::toJSON(...))`
+            // so the Rust function receives a proper ExternalPtr, not a list.
+            // For `options`-style args (default = NULL) emit as a plain R list.
             if arg.arg_type == "json_object" && val.is_object() {
+                let default_expr = r_default_for_config_arg(arg_name);
+                if default_expr.ends_with("$default()") {
+                    // Extract the type name from "TypeName$default()"
+                    let type_name = default_expr.trim_end_matches("$default()");
+                    let r_list = json_to_r(val, true);
+                    let r_value = format!("{type_name}$from_json(jsonlite::toJSON({r_list}, auto_unbox = TRUE))");
+                    return Some(format!("{arg_name} = {r_value}"));
+                }
                 let r_value = json_to_r(val, true);
                 return Some(format!("{arg_name} = {r_value}"));
             }

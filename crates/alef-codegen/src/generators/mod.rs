@@ -89,6 +89,10 @@ pub struct RustBindingConfig<'a> {
     /// `#[extendr]` only generates `TryFrom<&Robj> for &T`, not `for T`, so owned struct
     /// params cannot be passed through the FFI layer.
     pub named_non_opaque_params_by_ref: bool,
+    /// Types that have no `From<BindingType>` impl (e.g. output-only flat data enums).
+    /// When `gen_lossy_binding_to_core_fields` encounters a field whose `TypeRef::Named` type
+    /// is in this slice, it emits `Default::default()` instead of `.clone().into()`.
+    pub lossy_skip_types: &'a [String],
 }
 
 /// Method names that conflict with standard trait methods.

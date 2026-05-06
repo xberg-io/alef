@@ -1071,6 +1071,7 @@ pub fn gen_lossy_binding_to_core_fields(
     opaque_types: &AHashSet<String>,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    skip_types: &[String],
 ) -> String {
     gen_lossy_binding_to_core_fields_inner(
         typ,
@@ -1080,6 +1081,7 @@ pub fn gen_lossy_binding_to_core_fields(
         opaque_types,
         cast_uints_to_i32,
         cast_large_ints_to_f64,
+        skip_types,
     )
 }
 
@@ -1091,6 +1093,7 @@ pub fn gen_lossy_binding_to_core_fields_mut(
     opaque_types: &AHashSet<String>,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    skip_types: &[String],
 ) -> String {
     gen_lossy_binding_to_core_fields_inner(
         typ,
@@ -1100,6 +1103,7 @@ pub fn gen_lossy_binding_to_core_fields_mut(
         opaque_types,
         cast_uints_to_i32,
         cast_large_ints_to_f64,
+        skip_types,
     )
 }
 
@@ -1111,6 +1115,7 @@ fn gen_lossy_binding_to_core_fields_inner(
     opaque_types: &AHashSet<String>,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    skip_types: &[String],
 ) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
     let mut_kw = if needs_mut { "mut " } else { "" };
@@ -1142,6 +1147,19 @@ fn gen_lossy_binding_to_core_fields_inner(
             _ => false,
         };
         if is_opaque_named {
+            writeln!(out, "            {name}: Default::default(),").ok();
+            continue;
+        }
+        // Skip types: output-only types (e.g. flat data enums) that have no From impl
+        // from the binding layer. Emit Default::default() so method body compiles.
+        let is_skip_named = match &field.ty {
+            TypeRef::Named(n) => skip_types.contains(n),
+            TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(n) if skip_types.contains(n))
+            }
+            _ => false,
+        };
+        if is_skip_named {
             writeln!(out, "            {name}: Default::default(),").ok();
             continue;
         }

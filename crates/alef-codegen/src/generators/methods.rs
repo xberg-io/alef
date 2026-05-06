@@ -292,6 +292,7 @@ pub fn gen_method(
                 opaque_types,
                 cfg.cast_uints_to_i32,
                 cfg.cast_large_ints_to_f64,
+                cfg.lossy_skip_types,
             );
             let core_call = format!("core_self.{}({call_args})", method.name);
             if method.error_type.is_some() {
@@ -329,6 +330,7 @@ pub fn gen_method(
                     opaque_types,
                     cfg.cast_uints_to_i32,
                     cfg.cast_large_ints_to_f64,
+                    cfg.lossy_skip_types,
                 )
             } else {
                 gen_lossy_binding_to_core_fields(
@@ -338,6 +340,7 @@ pub fn gen_method(
                     opaque_types,
                     cfg.cast_uints_to_i32,
                     cfg.cast_large_ints_to_f64,
+                    cfg.lossy_skip_types,
                 )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
@@ -488,6 +491,7 @@ pub fn gen_method(
                     opaque_types,
                     cfg.cast_uints_to_i32,
                     cfg.cast_large_ints_to_f64,
+                    cfg.lossy_skip_types,
                 )
             } else {
                 gen_lossy_binding_to_core_fields(
@@ -497,6 +501,7 @@ pub fn gen_method(
                     opaque_types,
                     cfg.cast_uints_to_i32,
                     cfg.cast_large_ints_to_f64,
+                    cfg.lossy_skip_types,
                 )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
