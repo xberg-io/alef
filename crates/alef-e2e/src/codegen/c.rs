@@ -807,7 +807,7 @@ fn render_test_function(
                 "not_empty" => {
                     let _ = writeln!(
                         out,
-                        "    assert(strlen({result_var}) > 0 && \"expected non-empty value\");"
+                        "    assert({result_var} != NULL && strlen({result_var}) > 0 && \"expected non-empty value\");"
                     );
                 }
                 "is_empty" => {
