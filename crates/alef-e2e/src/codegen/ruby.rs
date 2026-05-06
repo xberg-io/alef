@@ -1214,13 +1214,14 @@ fn render_assertion(
         }
     }
 
-    let field_expr = if result_is_simple {
-        result_var.to_string()
-    } else {
-        match &assertion.field {
-            Some(f) if !f.is_empty() => field_resolver.accessor(f, "ruby", result_var),
-            _ => result_var.to_string(),
+    // result_is_simple: treat the result itself as the content string, but only
+    // when there is no explicit field (or the field is "content"). Count/length
+    // assertions on named fields (e.g. "warnings") must still walk the field path.
+    let field_expr = match &assertion.field {
+        Some(f) if !f.is_empty() && (!result_is_simple || !f.eq_ignore_ascii_case("content")) => {
+            field_resolver.accessor(f, "ruby", result_var)
         }
+        _ => result_var.to_string(),
     };
 
     // For string equality, strip trailing whitespace to handle trailing newlines

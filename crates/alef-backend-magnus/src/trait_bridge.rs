@@ -284,6 +284,13 @@ fn gen_visitor_method_magnus(
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
+    // Hash with :custom key — e.g. { custom: '--- {text} ---' }
+    writeln!(out, "                if let Some(hash) = magnus::RHash::from_value(val) {{").unwrap();
+    writeln!(out, "                    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").unwrap();
+    writeln!(out, "                    if let Some(custom_val) = hash.get(ruby.to_symbol(\"custom\")) {{").unwrap();
+    writeln!(out, "                        return {ret_ty}::Custom(custom_val.to_string());").unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(out, "                }}").unwrap();
     writeln!(out, "                let s: String = val.to_string();").unwrap();
     writeln!(out, "                match s.to_lowercase().as_str() {{").unwrap();
     writeln!(out, "                    \"continue\" => {ret_ty}::Continue,").unwrap();
