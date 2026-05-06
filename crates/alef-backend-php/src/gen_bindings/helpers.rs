@@ -826,34 +826,26 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let name = &field.name;
-        // Trace all ConversionOptions fields
-        if typ.name.contains("ConversionOptions") {
-            eprintln!("[TRACE] type={} field={} sanitized={} ty={:?}", typ.name, name, field.sanitized, field.ty);
-        }
-        if field.sanitized {
-            // Bridge type aliases (e.g. VisitorHandle) are stored in opaque PHP structs
-            // whose `inner` field wraps the core handle. Extract the core value via deref.
-            eprintln!("[DEBUG] type={} field={} ty={:?} aliases={:?}", typ.name, name, field.ty, bridge_type_aliases);
-            let bridge_inner_type = match &field.ty {
-                alef_core::ir::TypeRef::Named(n) if bridge_type_aliases.contains(n.as_str()) => Some(n.as_str()),
-                alef_core::ir::TypeRef::Optional(inner) => {
-                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                        if bridge_type_aliases.contains(n.as_str()) { Some(n.as_str()) } else { None }
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            if bridge_inner_type.is_some() {
-                if field.optional || matches!(&field.ty, alef_core::ir::TypeRef::Optional(_)) {
-                    writeln!(out, "            {name}: val.{name}.map(|v| (*v.inner).clone()),").ok();
-                } else {
-                    writeln!(out, "            {name}: (*val.{name}.inner).clone(),").ok();
-                }
-            } else {
-                writeln!(out, "            {name}: Default::default(),").ok();
+        // Bridge type alias fields (e.g. VisitorHandle) are NOT sanitized but are in
+        // from_binding_skip_types, so field_conversion_to_core_cfg would emit Default::default().
+        // Handle them here first: the PHP struct wraps opaque Named types in Option<T> even
+        // when field.optional=false, so always use the map(|v| (*v.inner).clone()) form.
+        let is_bridge_named = match &field.ty {
+            alef_core::ir::TypeRef::Named(n) => bridge_type_aliases.contains(n.as_str()),
+            alef_core::ir::TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), alef_core::ir::TypeRef::Named(n) if bridge_type_aliases.contains(n.as_str()))
             }
+            _ => false,
+        };
+        if is_bridge_named {
+            // PHP opaque structs wrap the core handle in Arc<VisitorHandle>; extract via deref.
+            // The PHP binding struct stores the field as Option<T> (opaque naming convention),
+            // so map over the option rather than direct deref.
+            writeln!(out, "            {name}: val.{name}.map(|v| (*v.inner).clone()),").ok();
+        } else if field.sanitized {
+            // Sanitized fields (e.g. Duration→u64, Vec<T>→Vec<String>) use Default::default()
+            // since they can't be round-tripped from the PHP binding representation.
+            writeln!(out, "            {name}: Default::default(),").ok();
         } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
             // Direct enum-Named field: generate string->enum match
             let conversion =
