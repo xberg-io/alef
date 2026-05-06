@@ -68,6 +68,9 @@ extension-module = ["pyo3/extension-module"]
 
 [lints]
 workspace = true
+
+[lints.rust]
+unsafe_code = "allow"
 "#,
         pkg_header = pkg_header,
         module_name = module_name,

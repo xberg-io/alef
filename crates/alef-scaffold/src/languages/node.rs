@@ -61,6 +61,9 @@ napi-build = "{napi_build}"
 
 [lints]
 workspace = true
+
+[lints.rust]
+unsafe_code = "allow"
 "#,
         pkg_header = pkg_header,
         crate_name = &config.name,
