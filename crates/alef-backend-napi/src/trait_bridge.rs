@@ -642,21 +642,13 @@ fn gen_visitor_bridge(
         "        // SAFETY: Object<'_> is 3 pointer-sized words; first word is napi_env."
     )
     .unwrap();
-    writeln!(
-        out,
-        "        let env = unsafe {{"
-    )
-    .unwrap();
+    writeln!(out, "        let env = unsafe {{").unwrap();
     writeln!(
         out,
         "            let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);"
     )
     .unwrap();
-    writeln!(
-        out,
-        "            napi::Env::from_raw(raw[0] as napi::sys::napi_env)"
-    )
-    .unwrap();
+    writeln!(out, "            napi::Env::from_raw(raw[0] as napi::sys::napi_env)").unwrap();
     writeln!(out, "        }};").unwrap();
     writeln!(
         out,

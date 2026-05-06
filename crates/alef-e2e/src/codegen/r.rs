@@ -105,8 +105,14 @@ impl E2eCodegen for RCodegen {
                 &e2e_config.result_fields,
                 &e2e_config.fields_array,
             );
-            let content =
-                render_test_file(&group.category, &active, &field_resolver, result_is_simple, result_is_r_list, e2e_config);
+            let content = render_test_file(
+                &group.category,
+                &active,
+                &field_resolver,
+                result_is_simple,
+                result_is_r_list,
+                e2e_config,
+            );
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,
@@ -222,7 +228,14 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, e2e_config, field_resolver, result_is_simple, result_is_r_list);
+        render_test_case(
+            &mut out,
+            fixture,
+            e2e_config,
+            field_resolver,
+            result_is_simple,
+            result_is_r_list,
+        );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }

@@ -46,12 +46,13 @@ pub fn render_test_file(
 
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
-    // Extract nested_types from the call override if available (needed for import collection).
-    let nested_types = e2e_config
-        .call
-        .overrides
-        .get(lang)
+    // Extract nested_types and enum_fields from the call override if available.
+    let override_config = e2e_config.call.overrides.get(lang);
+    let nested_types = override_config
         .map(|o| o.nested_types.clone())
+        .unwrap_or_default();
+    let enum_fields = override_config
+        .map(|o| o.enum_fields.clone())
         .unwrap_or_default();
 
     let needs_options_import = options_type.is_some()
@@ -141,6 +142,12 @@ pub fn render_test_file(
                         imports.push(format!("{nested_type}Update"));
                     }
                 }
+                // Also import enum types referenced in this test file
+                for enum_type in enum_fields.values() {
+                    if !imports.contains(enum_type) {
+                        imports.push(enum_type.clone());
+                    }
+                }
             }
             let imports_str = imports.join(", ");
             let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
@@ -198,6 +205,7 @@ pub fn render_test_file(
                 e2e_config,
                 lang,
                 &nested_types,
+                &enum_fields,
             );
         }
         if i + 1 < fixtures.len() {
@@ -376,6 +384,7 @@ fn render_test_case(
     e2e_config: &E2eConfig,
     lang: &str,
     nested_types: &std::collections::HashMap<String, String>,
+    enum_fields: &std::collections::HashMap<String, String>,
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
@@ -392,7 +401,7 @@ fn render_test_case(
     let await_kw = if call_is_async { "await " } else { "" };
 
     let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, options_type, &fixture.id, nested_types, lang);
+        build_args_and_setup(&fixture.input, args, options_type, &fixture.id, nested_types, lang, enum_fields);
 
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
@@ -580,6 +589,18 @@ fn ts_builder_expression(
     type_name: &str,
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
+) -> String {
+    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields, true)
+}
+
+fn ts_builder_expression_inner(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    type_name: &str,
+    nested_types: &std::collections::HashMap<String, String>,
+    lang: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
+    call_from_update: bool,
 ) -> String {
     if lang == "node" {
         let mut fields = Vec::new();
@@ -602,16 +623,31 @@ fn ts_builder_expression(
         let camel_key = snake_to_camel(key);
         if let serde_json::Value::Object(nested_obj) = val {
             if let Some(nested_type) = nested_types.get(key.as_str()) {
-                let nested_expr = ts_builder_expression(nested_obj, nested_type, nested_types, lang);
+                // Nested objects in setters should return Update type, not call fromUpdate
+                let nested_expr = ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields, false);
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
+            }
+        } else if let Some(enum_type) = enum_fields.get(key.as_str()) {
+            // This is an enum field — generate EnumType.EnumValue
+            if let serde_json::Value::String(s) = val {
+                stmts.push(format!("_u.{camel_key} = {enum_type}.{};", s));
+            } else {
+                // Non-string enum value, just use json_to_js
+                stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
             }
         } else {
             stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
         }
     }
-    stmts.push(format!("return {type_name}.fromUpdate(_u);"));
+
+    // Only call fromUpdate at the top level; nested expressions return the Update type
+    if call_from_update {
+        stmts.push(format!("return {type_name}.fromUpdate(_u);"));
+    } else {
+        stmts.push(format!("return _u;"));
+    }
     let body = stmts.join(" ");
     format!("(() => {{ {body} }})()")
 }
@@ -623,6 +659,7 @@ fn build_args_and_setup(
     fixture_id: &str,
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), json_to_js(input));
@@ -742,7 +779,7 @@ fn build_args_and_setup(
                         } else if let Some(obj) = v.as_object() {
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
-                            let ts_code = ts_builder_expression(obj, opts_type, nested_types, lang);
+                            let ts_code = ts_builder_expression(obj, opts_type, nested_types, lang, enum_fields);
                             parts.push(ts_code);
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));

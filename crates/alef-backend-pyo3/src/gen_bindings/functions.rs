@@ -262,7 +262,7 @@ pub(super) fn gen_api_py(
     if !options_imports.is_empty() {
         out.push_str(&format!("\nfrom .options import {}\n", options_imports.join(", ")));
     }
-    out.push_str("\nfrom typing import TypeVar\n");
+    out.push_str("\nfrom typing import Any, TypeVar\n");
     out.push('\n');
 
     // Emit a helper that coerces strings or PyO3 enum aliases into the
@@ -302,7 +302,7 @@ pub(super) fn gen_api_py(
         // When there's a visitor override param, always use multi-line form.
         if bridge_visitor_field.is_some() {
             out.push_str(&format!(
-                "def _to_rust_{snake}(\n    value: {type_name} | None,\n    _visitor_override: {bridge_visitor_type} | None = None,\n) -> _rust.{type_name} | None:\n"
+                "def _to_rust_{snake}(\n    value: {type_name} | dict[str, Any] | None,\n    _visitor_override: {bridge_visitor_type} | None = None,\n) -> _rust.{type_name} | None:\n"
             ));
         } else {
             // Single-line: "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:"
@@ -311,11 +311,11 @@ pub(super) fn gen_api_py(
             let sig_len = 47 + snake.len() + 2 * type_name.len();
             if sig_len > 100 {
                 out.push_str(&format!(
-                    "def _to_rust_{snake}(\n    value: {type_name} | None,\n) -> _rust.{type_name} | None:\n"
+                    "def _to_rust_{snake}(\n    value: {type_name} | dict[str, Any] | None,\n) -> _rust.{type_name} | None:\n"
                 ));
             } else {
                 out.push_str(&format!(
-                    "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:\n"
+                    "def _to_rust_{snake}(value: {type_name} | dict[str, Any] | None) -> _rust.{type_name} | None:\n"
                 ));
             }
         }
@@ -328,7 +328,11 @@ pub(super) fn gen_api_py(
             match ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }
@@ -343,18 +347,14 @@ pub(super) fn gen_api_py(
         let simple_enum_coercible: Vec<_> = typ
             .fields
             .iter()
-            .filter(|f| {
-                get_inner_name(&f.ty)
-                    .is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
-            })
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n)))
             .collect();
         let data_enum_coercible: Vec<_> = typ
             .fields
             .iter()
             .filter(|f| get_inner_name(&f.ty).is_some_and(|n| data_enum_names.contains(n)))
             .collect();
-        let total_coercible =
-            struct_coercible.len() + simple_enum_coercible.len() + data_enum_coercible.len();
+        let total_coercible = struct_coercible.len() + simple_enum_coercible.len() + data_enum_coercible.len();
 
         // When total coercible fields exceed the threshold, extract coercion into a dedicated
         // `_coerce_dict_{snake}` helper to keep `_to_rust_{snake}` under ruff's C901/PLR0912
@@ -385,10 +385,7 @@ pub(super) fn gen_api_py(
                 for field in &struct_coercible {
                     let nested_name = get_inner_name(&field.ty).unwrap();
                     let nested_snake = nested_name.to_snake_case();
-                    helper.push_str(&format!(
-                        "        \"{}\": _to_rust_{nested_snake},\n",
-                        field.name
-                    ));
+                    helper.push_str(&format!("        \"{}\": _to_rust_{nested_snake},\n", field.name));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _fn in _struct_coercions.items():\n");
@@ -401,10 +398,7 @@ pub(super) fn gen_api_py(
                 helper.push_str("    _enum_coercions = {\n");
                 for field in &simple_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    helper.push_str(&format!(
-                        "        \"{}\": _rust.{enum_name},\n",
-                        field.name
-                    ));
+                    helper.push_str(&format!("        \"{}\": _rust.{enum_name},\n", field.name));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _cls in _enum_coercions.items():\n");
@@ -417,10 +411,7 @@ pub(super) fn gen_api_py(
                 helper.push_str("    _data_enum_coercions = {\n");
                 for field in &data_enum_coercible {
                     let enum_name = get_inner_name(&field.ty).unwrap();
-                    helper.push_str(&format!(
-                        "        \"{}\": _rust.{enum_name},\n",
-                        field.name
-                    ));
+                    helper.push_str(&format!("        \"{}\": _rust.{enum_name},\n", field.name));
                 }
                 helper.push_str("    }\n");
                 helper.push_str("    for _k, _cls in _data_enum_coercions.items():\n");

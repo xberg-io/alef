@@ -652,9 +652,27 @@ impl Backend for PhpBackend {
             // The native extension expects parameters in the order defined in the Rust function.
             // The PHP facade reorders them only in its own signature for PHP syntax compliance,
             // but must pass them in the original order when calling the native method.
+            // Config-type params that were made optional (nullable) in the facade must be
+            // coerced to their default constructor when null, since the native ext requires
+            // non-nullable objects.
             let call_params = visible_params
                 .iter()
-                .map(|p| format!("${}", p.name))
+                .enumerate()
+                .map(|(idx, p)| {
+                    let is_config_param = if let TypeRef::Named(name) = &p.ty {
+                        name.ends_with("Config")
+                    } else {
+                        false
+                    };
+                    let should_be_optional =
+                        p.optional || is_config_param || first_optional_idx.is_some_and(|first| idx >= first);
+                    if should_be_optional && is_config_param {
+                        if let TypeRef::Named(type_name) = &p.ty {
+                            return format!("${} ?? new {}()", p.name, type_name);
+                        }
+                    }
+                    format!("${}", p.name)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let call_expr = format!(

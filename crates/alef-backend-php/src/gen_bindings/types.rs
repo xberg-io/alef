@@ -208,7 +208,7 @@ pub(crate) fn gen_struct_methods(
         opaque_types,
         enum_names,
         enums,
-        &[], // exclude_functions: empty by default
+        &[],              // exclude_functions: empty by default
         &AHashSet::new(), // bridge_type_aliases: empty by default
     )
 }
