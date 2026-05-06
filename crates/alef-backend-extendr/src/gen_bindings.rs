@@ -229,12 +229,24 @@ impl Backend for ExtendrBackend {
             match ty {
                 // Vec<StructType> — cannot convert from R list automatically.
                 alef_core::ir::TypeRef::Vec(inner) => {
-                    matches!(inner.as_ref(), alef_core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n))
+                    match inner.as_ref() {
+                        // Vec<StructType> — incompatible
+                        alef_core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n) => true,
+                        // Vec<Vec<_>> — nested vectors not supported by extendr
+                        alef_core::ir::TypeRef::Vec(_) => true,
+                        _ => false,
+                    }
                 }
                 // Option<Vec<StructType>> — same.
                 alef_core::ir::TypeRef::Optional(inner) => {
                     if let alef_core::ir::TypeRef::Vec(inner2) = inner.as_ref() {
-                        matches!(inner2.as_ref(), alef_core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n))
+                        match inner2.as_ref() {
+                            // Option<Vec<StructType>> — incompatible
+                            alef_core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n) => true,
+                            // Option<Vec<Vec<_>>> — nested vectors not supported by extendr
+                            alef_core::ir::TypeRef::Vec(_) => true,
+                            _ => false,
+                        }
                     } else {
                         false
                     }
@@ -1101,9 +1113,17 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
         |n: &str| -> bool { !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n) };
     let is_native_incompatible = |ty: &TypeRef| -> bool {
         match ty {
-            TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if is_struct_like(n)),
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) if is_struct_like(n) => true,
+                TypeRef::Vec(_) => true,  // Vec<Vec<_>> not supported
+                _ => false,
+            },
             TypeRef::Optional(inner) => match inner.as_ref() {
-                TypeRef::Vec(inner2) => matches!(inner2.as_ref(), TypeRef::Named(n) if is_struct_like(n)),
+                TypeRef::Vec(inner2) => match inner2.as_ref() {
+                    TypeRef::Named(n) if is_struct_like(n) => true,
+                    TypeRef::Vec(_) => true,  // Option<Vec<Vec<_>>> not supported
+                    _ => false,
+                },
                 _ => false,
             },
             _ => false,

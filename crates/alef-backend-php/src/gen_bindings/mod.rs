@@ -424,6 +424,7 @@ impl Backend for PhpBackend {
                     &enum_tainted,
                     &php_conv_config,
                     &api.enums,
+                    &bridge_type_aliases_set,
                 ));
             }
             // core->binding: always (enum->String via format, sanitized fields via format)
@@ -509,7 +510,7 @@ impl Backend for PhpBackend {
                     "        pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))) }}\n    }}"
                 );
                 let new_method = format!(
-                    "        pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(bridge);\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}(Some(&handle))) }}\n    }}"
+                    "        pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::rc::Rc::new(std::cell::RefCell::new(bridge));\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}(Some(handle))) }}\n    }}"
                 );
 
                 content = content.replace(&old_method, &new_method);
@@ -550,12 +551,13 @@ impl Backend for PhpBackend {
             .filter_map(|b| b.param_name.as_deref())
             .collect();
 
-        // Config types whose constructors can be called with zero arguments (all fields optional).
+        // Config types whose constructors can be called with zero arguments.
+        // A type qualifies if all fields are optional OR if it derives Default (has_default).
         // Only these types are safe to null-coalesce at call sites: `$x ?? new T()`.
         let no_arg_constructor_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.fields.iter().all(|f| f.optional))
+            .filter(|t| t.has_default || t.fields.iter().all(|f| f.optional))
             .map(|t| t.name.clone())
             .collect();
 

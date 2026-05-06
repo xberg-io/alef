@@ -816,6 +816,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     _enum_tainted: &AHashSet<String>,
     config: &ConversionConfig,
     enums: &[EnumDef],
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
     let mut out = String::with_capacity(512);
@@ -825,8 +826,34 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let name = &field.name;
+        // Trace all ConversionOptions fields
+        if typ.name.contains("ConversionOptions") {
+            eprintln!("[TRACE] type={} field={} sanitized={} ty={:?}", typ.name, name, field.sanitized, field.ty);
+        }
         if field.sanitized {
-            writeln!(out, "            {name}: Default::default(),").ok();
+            // Bridge type aliases (e.g. VisitorHandle) are stored in opaque PHP structs
+            // whose `inner` field wraps the core handle. Extract the core value via deref.
+            eprintln!("[DEBUG] type={} field={} ty={:?} aliases={:?}", typ.name, name, field.ty, bridge_type_aliases);
+            let bridge_inner_type = match &field.ty {
+                alef_core::ir::TypeRef::Named(n) if bridge_type_aliases.contains(n.as_str()) => Some(n.as_str()),
+                alef_core::ir::TypeRef::Optional(inner) => {
+                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                        if bridge_type_aliases.contains(n.as_str()) { Some(n.as_str()) } else { None }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if bridge_inner_type.is_some() {
+                if field.optional || matches!(&field.ty, alef_core::ir::TypeRef::Optional(_)) {
+                    writeln!(out, "            {name}: val.{name}.map(|v| (*v.inner).clone()),").ok();
+                } else {
+                    writeln!(out, "            {name}: (*val.{name}.inner).clone(),").ok();
+                }
+            } else {
+                writeln!(out, "            {name}: Default::default(),").ok();
+            }
         } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
             // Direct enum-Named field: generate string->enum match
             let conversion =
