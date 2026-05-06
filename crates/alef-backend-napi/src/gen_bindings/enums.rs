@@ -131,51 +131,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     ));
     lines.push("}".to_string());
 
-    // Generate variant accessor methods as getters
-    lines.push(String::new());
-    lines.push(format!("impl {prefix}{} {{", enum_def.name));
-
-    for variant in &enum_def.variants {
-        let variant_name_lower = alef_codegen::naming::to_node_name(&variant.name);
-        lines.push(String::new());
-        lines.push("    #[napi(getter)]".to_string());
-        lines.push(format!(
-            "    pub fn {variant_name_lower}(&self) -> Option<napi::bindgen_prelude::Object> {{"
-        ));
-        lines.push(format!(
-            "        if self.{tag_field}_tag != \"{}\" {{",
-            variant_name_lower
-        ));
-        lines.push("            return None;".to_string());
-        lines.push("        }".to_string());
-        // For unit variants, return an empty object; for data variants, return object with fields
-        if variant.fields.is_empty() {
-            lines.push("        napi::bindgen_prelude::Object::new().ok()".to_string());
-        } else {
-            lines.push("        let obj = napi::bindgen_prelude::Object::new().ok()?;".to_string());
-            for field in &variant.fields {
-                let js_name = alef_codegen::naming::to_node_name(&field.name);
-                lines.push(format!("        if let Some(ref value) = self.{} {{", field.name));
-                if js_name != field.name {
-                    lines.push(format!(
-                        "            obj.set_named_property(\"{}\", value.clone()).ok()?;",
-                        js_name
-                    ));
-                } else {
-                    lines.push(format!(
-                        "            obj.set_named_property(\"{}\", value.clone()).ok()?;",
-                        field.name
-                    ));
-                }
-                lines.push("        }".to_string());
-            }
-            lines.push("        Some(obj)".to_string());
-        }
-        lines.push("    }".to_string());
-    }
-
-    lines.push("}".to_string());
-
     lines.join("\n")
 }
 
