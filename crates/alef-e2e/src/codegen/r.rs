@@ -400,11 +400,16 @@ fn build_args_string(
             // `Expected ExternalPtr got List`. The fixtures don't carry the
             // option fields needed to round-trip through ExtractionConfig$new,
             // so emit `ExtractionConfig$default()` whenever a `json_object` arg
-            // resolves to an empty / object-shaped JSON value. Non-empty objects
-            // also fall back to `default()` because the R API surface only
-            // exposes a `default()` constructor for ExtractionConfig at present.
-            if arg.arg_type == "json_object" && (val.is_null() || val.is_object()) {
+            // resolves to an empty / object-shaped JSON value. For named args
+            // like `options` whose R binding accepts a plain `list()`, emit
+            // the list representation when the fixture provides a non-empty object.
+            if arg.arg_type == "json_object" && (val.is_null() || val.as_object().is_some_and(|m| m.is_empty())) {
                 let r_value = r_default_for_config_arg(arg_name);
+                return Some(format!("{arg_name} = {r_value}"));
+            }
+            // Non-empty json_object for `options`-style args: emit as R list.
+            if arg.arg_type == "json_object" && val.is_object() {
+                let r_value = json_to_r(val, false);
                 return Some(format!("{arg_name} = {r_value}"));
             }
             // `json_object` arrays are passed to extendr functions whose Rust
