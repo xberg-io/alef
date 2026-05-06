@@ -54,6 +54,9 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         // non-representable variant fields). Omit the #[new] constructor — the type
         // is still useful as a return value from Rust passed back via From impls.
         write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
+        if let Some(tag_field) = &enum_def.serde_tag {
+            write_pyo3_serde_tag_getter(&mut out, tag_field);
+        }
         writeln!(out, "}}").ok();
     } else {
         writeln!(out, "    #[new]").ok();
@@ -104,6 +107,9 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         writeln!(out, "        Ok(Self {{ inner }})").ok();
         writeln!(out, "    }}").ok();
         write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
+        if let Some(tag_field) = &enum_def.serde_tag {
+            write_pyo3_serde_tag_getter(&mut out, tag_field);
+        }
         writeln!(out, "}}").ok();
     }
     writeln!(out).ok();
@@ -210,6 +216,43 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     }
 
     out
+}
+
+/// Rust keywords that cannot be used as bare identifiers in function names.
+const RUST_KEYWORDS: &[&str] = &[
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate",
+    "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "if", "impl", "in",
+    "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref",
+    "return", "self", "Self", "static", "struct", "super", "trait", "true", "try", "type",
+    "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
+    // Use raw identifier syntax if tag_field is a Rust keyword (e.g. "type" → r#type).
+    // pyo3 exposes the getter without the r# prefix, so the Python attribute name stays correct.
+    let fn_name = if RUST_KEYWORDS.contains(&tag_field) {
+        format!("r#{tag_field}")
+    } else {
+        tag_field.to_string()
+    };
+    writeln!(out).ok();
+    writeln!(out, "    #[getter]").ok();
+    writeln!(out, "    fn {fn_name}(&self) -> pyo3::PyResult<String> {{").ok();
+    writeln!(out, "        let json = serde_json::to_value(&self.inner)").ok();
+    writeln!(
+        out,
+        "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;"
+    )
+    .ok();
+    writeln!(out, "        json.get(\"{tag_field}\")").ok();
+    writeln!(out, "            .and_then(|v| v.as_str())").ok();
+    writeln!(out, "            .map(String::from)").ok();
+    writeln!(
+        out,
+        "            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(\"{tag_field} not found in serialized enum\"))"
+    )
+    .ok();
+    writeln!(out, "    }}").ok();
 }
 
 fn write_pyo3_enum_string_methods(out: &mut String, name: &str, value_expr: &str) {

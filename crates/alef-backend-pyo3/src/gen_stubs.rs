@@ -488,21 +488,13 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
         lines.push("".to_string());
     }
 
-    // Emit the Union type alias
-    if variant_class_names.len() <= 3 {
-        lines.push(format!("{} = {}", enum_def.name, variant_class_names.join(" | ")));
-    } else {
-        // Multi-line for readability
-        lines.push(format!("{} = (", enum_def.name));
-        for (i, name) in variant_class_names.iter().enumerate() {
-            if i < variant_class_names.len() - 1 {
-                lines.push(format!("    {} |", name));
-            } else {
-                lines.push(format!("    {}", name));
-            }
-        }
-        lines.push(")".to_string());
-    }
+    // Emit a class stub for the opaque pyo3 wrapper.
+    // The wrapper exposes the serde tag as a readable attribute and delegates __str__
+    // to the inner serde serialization. Variant TypedDicts above are kept for documentation.
+    lines.push(format!("class {}:", enum_def.name));
+    lines.push(format!("    {}: str", tag_field));
+    lines.push("    def __str__(self) -> str: ...".to_string());
+    lines.push("    def __repr__(self) -> str: ...".to_string());
 }
 
 /// Apply serde rename_all strategy to a variant name.

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(pyo3-backend): data enums with a `serde_tag` field (e.g. `FormatMetadata`) now emit a `#[getter]` for the tag field on the opaque `#[pyclass(frozen)]` wrapper. The getter serializes `self.inner` to JSON and extracts the tag string (e.g. `format.format_type`). If the tag field name is a Rust keyword (e.g. `type`), the function is emitted with an `r#` prefix (`fn r#type`) — PyO3 exposes it to Python without the `r#`. The companion pyi stub is now a `class` with the tag attribute declared, rather than a `TypeAlias`, so type checkers see the attribute.
 - feat(r-e2e-codegen): add `result_is_r_list` flag to `CallOverride`. When `true`, the R generator emits the call result directly without wrapping in `jsonlite::fromJSON()`, fixing test failures for bindings (like html-to-markdown's extendr R binding) that already return a native `Robj` list instead of a JSON string. Field-path assertions (`result$content`, etc.) are unaffected — the flag only suppresses the JSON parse wrapper.
 
 ### Fixed
