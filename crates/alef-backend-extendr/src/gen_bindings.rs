@@ -411,7 +411,17 @@ impl Backend for ExtendrBackend {
 
         // Generate enum bindings.
         for e in &api.enums {
-            builder.add_item(&generators::gen_enum(e, &cfg));
+            if is_flat_data_enum(e) {
+                // Data enums with all-tuple variants become flat structs so bindings can
+                // access variant data with dot notation (e.g. result$format$excel$sheet_count).
+                // The #[extendr] attribute registers it as a class; the impl block satisfies
+                // extendr_module! even though the struct has no methods.
+                let flat_struct = gen_extendr_flat_data_enum_struct(e, self, &cfg);
+                builder.add_item(&format!("#[extendr]\n{flat_struct}"));
+                builder.add_item(&format!("#[extendr]\nimpl {} {{}}", e.name));
+            } else {
+                builder.add_item(&generators::gen_enum(e, &cfg));
+            }
         }
 
         // Emit binding↔core From impls so generated bodies can use `.into()` /
@@ -420,7 +430,39 @@ impl Backend for ExtendrBackend {
         // builder methods fail with E0277 unsatisfied trait bound errors.
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
-        let input_types = alef_codegen::conversions::input_type_names(api);
+        // Flat data enums are output-only — types whose fields reference them (e.g. Metadata
+        // which contains `format: Option<FormatMetadata>`) need no binding→core From impl.
+        // Filter them out of input_types so the generator doesn't emit a From impl that tries
+        // `val.format.map(Into::into)` when no `FormatMetadata: Into<core::FormatMetadata>` exists.
+        let flat_data_enum_names_vec: Vec<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_flat_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+        let input_types: ahash::AHashSet<String> = {
+            let raw = alef_codegen::conversions::input_type_names(api);
+            if flat_data_enum_names_vec.is_empty() {
+                raw
+            } else {
+                raw.into_iter()
+                    .filter(|name| {
+                        api.types
+                            .iter()
+                            .find(|t| &t.name == name)
+                            .map(|t| {
+                                !t.fields.iter().any(|f| {
+                                    alef_codegen::conversions::field_references_excluded_type(
+                                        &f.ty,
+                                        &flat_data_enum_names_vec,
+                                    )
+                                })
+                            })
+                            .unwrap_or(true)
+                    })
+                    .collect()
+            }
+        };
         let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig {
             cast_uints_to_i32: true,
             cast_large_ints_to_f64: true,
@@ -453,21 +495,29 @@ impl Backend for ExtendrBackend {
             }
         }
         for e in &api.enums {
-            // Extendr emits enums as flat (unit-only) variants regardless of whether the
-            // core enum has data — emit lossy From impls so containing structs can call
-            // `.into()`.  Data is discarded across the boundary; the binding enum keeps
-            // only the variant tag.
-            if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
-                    e,
-                    &core_import,
-                ));
-            }
-            if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding(
-                    e,
-                    &core_import,
-                ));
+            if is_flat_data_enum(e) {
+                // Flat struct: generate dedicated From<core::Enum> impl that populates variant fields.
+                if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                    builder.add_item(&gen_extendr_flat_data_enum_from_core(e, &core_import));
+                }
+                // No binding→core conversion for flat structs (output-only data).
+            } else {
+                // Extendr emits enums as flat (unit-only) variants regardless of whether the
+                // core enum has data — emit lossy From impls so containing structs can call
+                // `.into()`.  Data is discarded across the boundary; the binding enum keeps
+                // only the variant tag.
+                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                    builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
+                        e,
+                        &core_import,
+                    ));
+                }
+                if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                    builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding(
+                        e,
+                        &core_import,
+                    ));
+                }
             }
         }
 
@@ -530,6 +580,7 @@ impl Backend for ExtendrBackend {
                         &core_import,
                         &opaque_types,
                         &cfg,
+                        &extendr_incompatible_types,
                     ));
                 } else {
                     builder.add_item(&generators::gen_function(
@@ -570,7 +621,7 @@ impl Backend for ExtendrBackend {
         // must be omitted from the module so the linker/R doesn't expect them.
         let module_name = config.r_package_name().replace('-', "_");
         let module_items = format!(
-            "extendr_module! {{\n    mod {module};\n{types}{funcs}}}\n",
+            "extendr_module! {{\n    mod {module};\n{types}{flat_enums}{funcs}}}\n",
             module = module_name,
             types = api
                 .types
@@ -581,6 +632,10 @@ impl Backend for ExtendrBackend {
                         && !extendr_incompatible_types.contains(&t.name)
                 })
                 .map(|t| format!("    impl {};\n", t.name))
+                .collect::<String>(),
+            flat_enums = flat_data_enum_names_vec
+                .iter()
+                .map(|n| format!("    impl {n};\n"))
                 .collect::<String>(),
             funcs = api
                 .functions
@@ -788,6 +843,135 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 ///   - Vec<Vec<_>> (no Robj impl for nested vectors)
 ///   - Option<Enum> (enums don't implement ToVectorValue, so Option<Enum> fails)
 ///   - Option<non-opaque struct> (Option<ExternalPtr<T>> doesn't implement ToVectorValue)
+/// Returns true if `e` is a data enum where every data-carrying variant is a single-field
+/// tuple variant. Such enums are represented as flat structs in the R binding so that
+/// callers can access variant data with dot notation (e.g. `result$format$excel$sheet_count`).
+fn is_flat_data_enum(e: &alef_core::ir::EnumDef) -> bool {
+    let has_data = e.variants.iter().any(|v| !v.fields.is_empty());
+    has_data && e.variants.iter().filter(|v| !v.fields.is_empty()).all(|v| v.is_tuple)
+}
+
+/// Generate a flat Rust struct for a data enum with all-tuple variants.
+///
+/// The struct has a discriminator field (from `serde_tag`, defaulting to `"format_type"`)
+/// plus one `Option<T>` field per data-carrying variant. The variant field name is the
+/// snake_case form of the variant name (e.g. `Excel` → `excel`).
+///
+/// `#[derive(Default)]` is required so `From` impls can use `..Default::default()`.
+/// `serde::Serialize`/`Deserialize` are required so the JSON bridge produces and consumes
+/// the nested representation.
+fn gen_extendr_flat_data_enum_struct(
+    enum_def: &alef_core::ir::EnumDef,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    cfg: &alef_codegen::generators::RustBindingConfig,
+) -> String {
+    use std::fmt::Write;
+
+    let name = &enum_def.name;
+    let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let mut out = String::with_capacity(1024);
+
+    // Build derives: start with the binding config derives (e.g. ["Clone"]), then add
+    // Default (for ..Default::default() in From impls) and serde derives for JSON bridge.
+    let mut derives: Vec<&str> = cfg.struct_derives.to_vec();
+    derives.push("Default");
+    derives.push("serde::Serialize");
+    derives.push("serde::Deserialize");
+    writeln!(out, "#[derive({})]", derives.join(", ")).ok();
+
+    writeln!(out, "pub struct {name} {{").ok();
+    writeln!(out, "    pub {discriminator}: String,").ok();
+
+    for variant in &enum_def.variants {
+        if !variant.fields.is_empty() && variant.is_tuple {
+            if let Some(first_field) = variant.fields.first() {
+                let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+                let inner_ty = mapper.map_type(&first_field.ty);
+                writeln!(out, "    pub {field_name}: Option<{inner_ty}>,").ok();
+            }
+        }
+    }
+
+    writeln!(out, "}}").ok();
+    out
+}
+
+/// Generate a `From<core::EnumName> for FlatStruct` impl for flat data enums.
+///
+/// The generic `gen_enum_from_core_to_binding` generates enum→enum arm matching which does
+/// not apply to flat structs. This function generates the correct struct-init form.
+fn gen_extendr_flat_data_enum_from_core(enum_def: &alef_core::ir::EnumDef, core_import: &str) -> String {
+    use std::fmt::Write;
+
+    let name = &enum_def.name;
+    let core_path = format!("{core_import}::{name}");
+    let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let mut out = String::with_capacity(512);
+
+    let variant_wire_name = |variant: &alef_core::ir::EnumVariant| -> String {
+        if let Some(r) = &variant.serde_rename {
+            return r.clone();
+        }
+        match enum_def.serde_rename_all.as_deref() {
+            Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
+            Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
+            Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
+            Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
+            _ => variant.name.clone(),
+        }
+    };
+
+    writeln!(out, "impl From<{core_path}> for {name} {{").ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        match val {{").ok();
+
+    for variant in &enum_def.variants {
+        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let wire_name = variant_wire_name(variant);
+        if variant.fields.is_empty() {
+            writeln!(
+                out,
+                "            {core_path}::{vname} => Self {{ {disc}: \"{wire}\".to_string(), ..Default::default() }},",
+                vname = variant.name,
+                disc = discriminator,
+                wire = wire_name,
+            )
+            .ok();
+        } else if variant.is_tuple {
+            let first_field = variant.fields.first().unwrap();
+            let is_boxed = first_field.is_boxed;
+            let is_sanitized_to_string =
+                first_field.sanitized && matches!(first_field.ty, alef_core::ir::TypeRef::String);
+            let data_expr: String = if is_sanitized_to_string {
+                if is_boxed {
+                    "format!(\"{:?}\", *_0)".to_string()
+                } else {
+                    "format!(\"{:?}\", _0)".to_string()
+                }
+            } else if is_boxed {
+                "(*_0).into()".to_string()
+            } else {
+                "_0.into()".to_string()
+            };
+            writeln!(
+                out,
+                "            {core_path}::{vname}(_0) => Self {{ {disc}: \"{wire}\".to_string(), {fname}: Some({expr}), ..Default::default() }},",
+                vname = variant.name,
+                disc = discriminator,
+                wire = wire_name,
+                fname = field_name,
+                expr = data_expr,
+            )
+            .ok();
+        }
+    }
+
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    out
+}
+
 fn return_type_needs_json(
     ret: &TypeRef,
     extendr_incompatible_types: &AHashSet<String>,
@@ -828,6 +1012,7 @@ fn gen_extendr_json_bridged_function(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     cfg: &RustBindingConfig,
+    extendr_incompatible_types: &AHashSet<String>,
 ) -> String {
     use alef_codegen::generators::binding_helpers::gen_call_args_cfg;
 
@@ -1021,6 +1206,24 @@ fn gen_extendr_json_bridged_function(
         }
     };
 
+    // Determine if the core result must be converted to a binding type before serialization.
+    // Named types in extendr_incompatible_types have full core→binding From impls (e.g.
+    // ExtractionResult). Serializing the binding type instead of the core type ensures the
+    // JSON uses the flat-struct representation for data enums (e.g. FormatMetadata).
+    let binding_conversion: Option<String> = match &func.return_type {
+        TypeRef::Named(n) if extendr_incompatible_types.contains(n.as_str()) => {
+            Some(format!("let result: {n} = result.into();"))
+        }
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if extendr_incompatible_types.contains(n.as_str()) => Some(format!(
+                "let result: Vec<{n}> = result.into_iter().map(Into::into).collect();"
+            )),
+            _ => None,
+        },
+        _ => None,
+    };
+    let convert = binding_conversion.as_deref().unwrap_or("");
+
     // Build the function body.
     let core_call = format!("{core_fn_path}({final_call_args_str})");
 
@@ -1031,6 +1234,7 @@ fn gen_extendr_json_bridged_function(
                 "{body_preamble}{named_let_bindings}\
                  let rt = {rt_new};\n    \
                  let result = rt.block_on(async {{ {core_call}.await{err_map} }})?;\n    \
+                 {convert}\n    \
                  {result_convert}",
                 err_map = err_map,
                 result_convert = result_convert,
@@ -1040,6 +1244,7 @@ fn gen_extendr_json_bridged_function(
                 "{body_preamble}{named_let_bindings}\
                  let rt = {rt_new};\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
+                 {convert}\n    \
                  {result_convert}"
             )
         }
@@ -1051,6 +1256,7 @@ fn gen_extendr_json_bridged_function(
                 format!(
                     "{body_preamble}{named_let_bindings}\
                      let result = {core_call}{err_map}?;\n    \
+                     {convert}\n    \
                      {result_convert}"
                 )
             }
@@ -1058,6 +1264,7 @@ fn gen_extendr_json_bridged_function(
                 format!(
                     "{body_preamble}{named_let_bindings}\
                      let result = {core_call}{err_map}?;\n    \
+                     {convert}\n    \
                      {result_convert}"
                 )
             }
@@ -1067,6 +1274,7 @@ fn gen_extendr_json_bridged_function(
         format!(
             "{body_preamble}{named_let_bindings}\
              let result = {core_call};\n    \
+             {convert}\n    \
              {result_convert}"
         )
     };
@@ -1312,6 +1520,23 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str) -> String {
         ));
     }
 
+    // Flat data enum class env blocks — data enums are registered as structs in
+    // extendr_module! and therefore need the same dispatch operator setup so R can
+    // access fields via `instance$field_name`.
+    for e in &api.enums {
+        if !is_flat_data_enum(e) {
+            continue;
+        }
+        let type_name = &e.name;
+        out.push_str(&format!("{type_name} <- new.env(parent = emptyenv())\n\n"));
+        out.push_str("#' @export\n");
+        out.push_str(&format!(
+            "`$.{type_name}` <- function(self, name) {{\n  func <- {type_name}[[name]]\n  environment(func) <- environment()\n  func\n}}\n\n"
+        ));
+        out.push_str("#' @export\n");
+        out.push_str(&format!("`[[.{type_name}` <- `$.{type_name}`\n\n"));
+    }
+
     out
 }
 
@@ -1338,6 +1563,16 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
         out.push_str(&format!("export({})\n", typ.name));
         out.push_str(&format!("S3method(\"$\", {})\n", typ.name));
         out.push_str(&format!("S3method(\"[[\", {})\n", typ.name));
+    }
+
+    // Flat data enums are registered as classes in extendr_module! and need exports too.
+    for e in &api.enums {
+        if !is_flat_data_enum(e) {
+            continue;
+        }
+        out.push_str(&format!("export({})\n", e.name));
+        out.push_str(&format!("S3method(\"$\", {})\n", e.name));
+        out.push_str(&format!("S3method(\"[[\", {})\n", e.name));
     }
 
     out
