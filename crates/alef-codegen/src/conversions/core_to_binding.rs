@@ -442,10 +442,10 @@ pub fn field_conversion_from_core_cfg(
                 if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) {
                     if optional {
                         return format!(
-                            "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())"
+                            "{name}: val.{name}.as_ref().and_then(|v| serde::Serialize::serialize(v, &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true)).ok())"
                         );
                     }
-                    return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
+                    return format!("{name}: serde::Serialize::serialize(&val.{name}, &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true)).unwrap_or(JsValue::NULL)");
                 }
             }
             // Vec<Json> sanitized → JsValue (Vec<Json> maps to JsValue in WASM via nested-vec path)
@@ -497,17 +497,26 @@ pub fn field_conversion_from_core_cfg(
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
         let is_map = matches!(ty, TypeRef::Map(_, _));
-        if is_nested_vec || is_map {
+        if is_nested_vec {
             if optional {
                 return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
             }
             return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
         }
+        if is_map {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().and_then(|v| serde::Serialize::serialize(v, &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true)).ok())");
+            }
+            return format!("{name}: serde::Serialize::serialize(&val.{name}, &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true)).unwrap_or(JsValue::NULL)");
+        }
         if let TypeRef::Optional(inner) = ty {
             let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
             let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
-            if is_inner_nested || is_inner_map {
+            if is_inner_nested {
                 return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
+            }
+            if is_inner_map {
+                return format!("{name}: val.{name}.as_ref().and_then(|v| serde::Serialize::serialize(v, &serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true)).ok())");
             }
         }
     }
