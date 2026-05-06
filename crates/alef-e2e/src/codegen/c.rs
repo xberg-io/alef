@@ -1280,7 +1280,7 @@ fn render_assertion(
         "not_empty" => {
             let _ = writeln!(
                 out,
-                "    assert(strlen({field_expr}) > 0 && \"expected non-empty value\");"
+                "    assert({field_expr} != NULL && strlen({field_expr}) > 0 && \"expected non-empty value\");"
             );
         }
         "is_empty" => {
