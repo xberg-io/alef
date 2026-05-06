@@ -43,7 +43,14 @@ def _hooks_dir() -> Path:
 
 
 def _version() -> str:
-    return (_hooks_dir() / "VERSION").read_text().strip()
+    alef_toml = _hooks_dir().parent / "alef.toml"
+    for line in alef_toml.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("version"):
+            _, _, val = stripped.partition("=")
+            return val.strip().strip('"').strip("'")
+    msg = "Could not find version in alef.toml"
+    raise SystemExit(msg)
 
 
 def _expected_checksum(asset_name: str) -> str | None:
