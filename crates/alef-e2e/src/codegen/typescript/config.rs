@@ -65,14 +65,7 @@ export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
     globalSetup: './globalSetup.ts',
-{setup_files_line}    pool: 'forks',
-    poolOptions: {{
-      forks: {{
-        singleFork: true,
-        isolate: false,
-      }},
-    }},
-  }},
+{setup_files_line}  }},
 }});
 "#
         )
@@ -83,14 +76,7 @@ export default defineConfig({{
 export default defineConfig({{
   test: {{
     include: ['tests/**/*.test.ts'],
-{setup_files_line}    pool: 'forks',
-    poolOptions: {{
-      forks: {{
-        singleFork: true,
-        isolate: false,
-      }},
-    }},
-  }},
+{setup_files_line}  }},
 }});
 "#
         )
