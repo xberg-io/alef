@@ -679,7 +679,7 @@ pub(super) fn gen_module_init(
 ) -> String {
     let mut lines = vec![
         "#[magnus::init]".to_string(),
-        "fn init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
+        "fn ruby_init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
         format!(r#"    let module = ruby.define_module("{}")?;"#, module_name),
         "".to_string(),
     ];
@@ -949,7 +949,7 @@ gem_name = "test_lib"
         };
         let code = gen_module_init("TestLib", &api, &config, &Default::default(), &Default::default());
         assert!(code.contains("#[magnus::init]"), "must emit #[magnus::init]");
-        assert!(code.contains("fn init(ruby: &Ruby)"), "must emit init fn");
+        assert!(code.contains("fn ruby_init(ruby: &Ruby)"), "must emit init fn");
         assert!(code.contains("define_module(\"TestLib\")"), "must define the module");
     }
 

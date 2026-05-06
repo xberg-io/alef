@@ -172,7 +172,7 @@ impl Backend for RustlerBackend {
         }
 
         for enum_def in &api.enums {
-            builder.add_item(&gen_enum(enum_def));
+            builder.add_item(&gen_enum(enum_def, &module_prefix));
         }
 
         // Types with has_default=true accept JSON strings at the NIF boundary so

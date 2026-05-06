@@ -74,6 +74,7 @@ impl E2eCodegen for GoCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         // Generate go.mod. In registry mode, omit the `replace` directive so the
@@ -3098,6 +3099,7 @@ mod tests {
         let fixture = make_fixture("basic_text");
         let resolver = FieldResolver::new(
             &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),

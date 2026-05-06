@@ -93,6 +93,12 @@ pub struct E2eConfig {
     /// accessor adds `[0]` (or language equivalent) to index into the first element.
     #[serde(default)]
     pub fields_array: HashSet<String>,
+    /// Fields where the accessor is a method call (appends `()`) rather than a field access.
+    /// Rust-specific: Java always uses `()`, Python/PHP use field access.
+    /// Listed as the full resolved field path (after alias resolution).
+    /// E.g., `"metadata.format.excel"` means `.excel` should be emitted as `.excel()`.
+    #[serde(default)]
+    pub fields_method_calls: HashSet<String>,
     /// Known top-level fields on the result type.
     ///
     /// When non-empty, assertions whose resolved field path starts with a
@@ -611,6 +617,25 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub trait_imports: Vec<String>,
+    /// Raw C return type, used verbatim instead of `{PREFIX}Type*` (C only).
+    ///
+    /// Valid values: `"char*"`, `"int32_t"`, `"uintptr_t"`.
+    /// When set, the C generator skips options handle construction and uses the
+    /// raw type directly. Free logic is adjusted accordingly.
+    #[serde(default)]
+    pub raw_c_result_type: Option<String>,
+    /// Free function for raw `char*` C results (C only).
+    ///
+    /// Defaults to `{prefix}_free_string` when unset and `raw_c_result_type == "char*"`.
+    #[serde(default)]
+    pub c_free_fn: Option<String>,
+    /// Fields in a `json_object` arg that must be wrapped in `java.nio.file.Path.of()`
+    /// (Java generator only).
+    ///
+    /// E.g., `["cache_dir"]` wraps the string value of `cache_dir` so the builder
+    /// receives `java.nio.file.Path.of("/tmp/dir")` instead of a plain string.
+    #[serde(default)]
+    pub path_fields: Vec<String>,
 }
 
 fn default_true() -> bool {

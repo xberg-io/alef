@@ -84,6 +84,7 @@ impl E2eCodegen for BrewCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         let mut files = Vec::new();

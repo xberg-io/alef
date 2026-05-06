@@ -196,6 +196,7 @@ impl E2eCodegen for WasmCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         // Generate test files per category. We delegate the per-fixture rendering

@@ -5,6 +5,7 @@ use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::ir::EnumDef;
 use heck::ToPascalCase;
+use std::fmt::Write;
 
 /// Apply a serde `rename_all` strategy to a variant name.
 pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
@@ -270,6 +271,28 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 out.push_str(&format!("    ) : {enum_pascal};\n\n"));
             }
         }
+    }
+
+    // Add accessor properties for data variants
+    for variant in &enum_def.variants {
+        // Only generate accessors for variants with exactly one tuple field
+        if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
+            continue;
+        }
+        let pascal = variant.name.to_pascal_case();
+        let return_type = csharp_type(&variant.fields[0].ty);
+        let return_type_nullable = format!("{return_type}?");
+        writeln!(
+            out,
+            "    /// <summary>Returns the {pascal} data if this is a {pascal} variant, otherwise null.</summary>"
+        )
+        .ok();
+        writeln!(
+            out,
+            "    public {return_type_nullable} {pascal} => this is {pascal} e ? e.Value : null;"
+        )
+        .ok();
+        writeln!(out).ok();
     }
 
     out.push_str("}\n\n");

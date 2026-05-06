@@ -68,6 +68,10 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
 ///     pub token: Option<String>,
 /// }
 /// ```
+///
+/// For tagged enums where every non-empty variant is a single-tuple field with a Named type
+/// (e.g. `FormatMetadata`), a `#[napi]` impl block is additionally emitted with per-variant
+/// getter methods, enabling `result.metadata.format.excel.sheetCount`-style access.
 pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     use alef_codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
@@ -130,6 +134,71 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             .join(", ")
     ));
     lines.push("}".to_string());
+
+    // For tagged enums where every non-empty variant is a single-tuple Named field, emit a
+    // #[napi] impl block with per-variant getters so callers can do `.excel.sheetCount` etc.
+    let tuple_named_variants: Vec<(&alef_core::ir::EnumVariant, &str)> = enum_def
+        .variants
+        .iter()
+        .filter_map(|v| {
+            if v.fields.len() != 1 {
+                return None;
+            }
+            let field = &v.fields[0];
+            let is_tuple = field
+                .name
+                .strip_prefix('_')
+                .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+            if !is_tuple {
+                return None;
+            }
+            if let TypeRef::Named(inner_type_name) = &field.ty {
+                Some((v, inner_type_name.as_str()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    if has_data_variants && !tuple_named_variants.is_empty() {
+        lines.push(String::new());
+        lines.push("#[napi]".to_string());
+        lines.push(format!("impl {prefix}{} {{", enum_def.name));
+
+        for (variant, inner_type_name) in &tuple_named_variants {
+            // Snake_case for the Rust method name; lowercase for the serde tag discriminator.
+            let variant_name_snake = alef_codegen::naming::to_python_name(&variant.name);
+            let variant_name_lower = variant.name.to_lowercase();
+            // Discriminator: explicit serde_rename, or lowercased variant name (mirrors methods.rs)
+            let discriminator = variant
+                .serde_rename
+                .as_deref()
+                .unwrap_or(&variant_name_lower)
+                .to_string();
+            let js_method_name = alef_codegen::naming::to_node_name(&variant.name);
+            let binding_type = format!("{prefix}{inner_type_name}");
+
+            lines.push(String::new());
+            if js_method_name != variant_name_snake {
+                lines.push(format!("    #[napi(getter, js_name = \"{js_method_name}\")]"));
+            } else {
+                lines.push("    #[napi(getter)]".to_string());
+            }
+            lines.push(format!(
+                "    pub fn {variant_name_snake}(&self) -> Option<{binding_type}> {{"
+            ));
+            lines.push(format!(
+                "        if self.{tag_field}_tag != \"{discriminator}\" {{ return None; }}"
+            ));
+            lines.push(format!(
+                "        self._0.as_ref().and_then(|s| serde_json::from_str::<{binding_type}>(s).ok())"
+            ));
+            lines.push("    }".to_string());
+        }
+
+        lines.push("}".to_string());
+    }
 
     lines.join("\n")
 }

@@ -54,7 +54,7 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         // non-representable variant fields). Omit the #[new] constructor — the type
         // is still useful as a return value from Rust passed back via From impls.
         write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
-        write_pyo3_variant_accessors(&mut out, enum_def);
+        write_pyo3_variant_accessors(&mut out, enum_def, &core_path);
         if let Some(tag_field) = &enum_def.serde_tag {
             write_pyo3_serde_tag_getter(&mut out, tag_field);
         }
@@ -108,7 +108,7 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         writeln!(out, "        Ok(Self {{ inner }})").ok();
         writeln!(out, "    }}").ok();
         write_pyo3_enum_string_methods(&mut out, name, "&self.inner");
-        write_pyo3_variant_accessors(&mut out, enum_def);
+        write_pyo3_variant_accessors(&mut out, enum_def, &core_path);
         if let Some(tag_field) = &enum_def.serde_tag {
             write_pyo3_serde_tag_getter(&mut out, tag_field);
         }
@@ -229,25 +229,54 @@ const RUST_KEYWORDS: &[&str] = &[
 ];
 
 /// Generate variant accessor properties for a data enum.
-/// For each variant, generates a `#[getter]` that returns the variant data as a dict,
-/// or None if this variant is not currently active.
-fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef) {
+/// For single-tuple variants with a Named inner type, returns the typed binding struct directly.
+/// For all other variants, returns the variant data as a Python dict, or None if not active.
+fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str) {
+    use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
 
     for variant in &enum_def.variants {
         let variant_name_lower = variant.name.to_snake_case();
         // Use raw identifier syntax if variant name is a Rust keyword
-        let fn_name = if RUST_KEYWORDS.contains(&variant.name.as_str()) {
+        let fn_name = if RUST_KEYWORDS.contains(&variant_name_lower.as_str()) {
             format!("r#{}", variant_name_lower)
         } else {
             variant_name_lower.clone()
         };
 
+        // For single-tuple variants with a Named inner type, return the typed binding struct.
+        if variant.fields.len() == 1 {
+            let field = &variant.fields[0];
+            let is_tuple_field = field
+                .name
+                .strip_prefix('_')
+                .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+            if is_tuple_field {
+                if let TypeRef::Named(inner_type_name) = &field.ty {
+                    let variant_pascal = &variant.name;
+                    writeln!(out).ok();
+                    writeln!(out, "    #[getter]").ok();
+                    writeln!(out, "    fn {fn_name}(&self) -> Option<{inner_type_name}> {{").ok();
+                    writeln!(out, "        match &self.inner {{").ok();
+                    writeln!(
+                        out,
+                        "            {core_path}::{variant_pascal}(data) => Some({inner_type_name}::from(data.clone())),"
+                    )
+                    .ok();
+                    writeln!(out, "            _ => None,").ok();
+                    writeln!(out, "        }}").ok();
+                    writeln!(out, "    }}").ok();
+                    continue;
+                }
+            }
+        }
+
+        // Fall back to dict-based approach for multi-field or non-Named variants.
         writeln!(out).ok();
         writeln!(out, "    #[getter]").ok();
         writeln!(
             out,
-            "    fn {fn_name}(&self, py: Python<'_>) -> PyResult<Option<pyo3::Py<pyo3::PyDict>>> {{"
+            "    fn {fn_name}(&self, py: Python<'_>) -> PyResult<Option<pyo3::Py<pyo3::types::PyDict>>> {{"
         )
         .ok();
         writeln!(out, "        // Serialize to JSON first").ok();
@@ -275,10 +304,10 @@ fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef) {
         writeln!(out, "        let json_mod = py.import(\"json\")?;").ok();
         writeln!(
             out,
-            "        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.downcast::<pyo3::types::PyDict>()?;"
+            "        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.downcast_into::<pyo3::types::PyDict>()?;"
         )
         .ok();
-        writeln!(out, "        Ok(Some(py_dict.into()))").ok();
+        writeln!(out, "        Ok(Some(py_dict.unbind()))").ok();
         writeln!(out, "    }}").ok();
     }
 }

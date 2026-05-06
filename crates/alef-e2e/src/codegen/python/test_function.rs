@@ -639,7 +639,13 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     fn empty_resolver() -> FieldResolver {
-        FieldResolver::new(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new())
+        FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
     }
 
     #[test]

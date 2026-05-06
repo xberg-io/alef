@@ -101,6 +101,7 @@ impl E2eCodegen for JavaCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         for group in groups {
@@ -810,12 +811,15 @@ fn render_test_method(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
+                            let empty_path_fields: Vec<String> = Vec::new();
+                            let path_fields = call_overrides.map(|o| &o.path_fields).unwrap_or(&empty_path_fields);
                             let builder_expr = java_builder_expression(
                                 obj,
                                 opts_type,
                                 enum_fields,
                                 nested_types,
                                 nested_types_optional,
+                                path_fields,
                             );
                             let var_name = &arg.name;
                             let _ = writeln!(out, "        var {var_name} = {builder_expr};");
@@ -1767,6 +1771,7 @@ fn java_builder_expression(
     enum_fields: &std::collections::HashMap<String, String>,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
+    path_fields: &[String],
 ) -> String {
     let mut expr = format!("{}.builder()", type_name);
     for (key, val) in obj {
@@ -1786,6 +1791,9 @@ fn java_builder_expression(
                     // Special case: preset field in PreprocessingOptions maps to PreprocessingPreset
                     let variant_name = s.to_upper_camel_case();
                     format!("PreprocessingPreset.{}", variant_name)
+                } else if path_fields.contains(key) {
+                    // Path field: wrap in Optional.of(java.nio.file.Path.of(...))
+                    format!("Optional.of(java.nio.file.Path.of(\"{}\"))", escape_java(s))
                 } else {
                     // String field: emit as a quoted literal
                     format!("\"{}\"", escape_java(s))
@@ -1833,8 +1841,14 @@ fn java_builder_expression(
                     .get(key.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{}Options", key.to_upper_camel_case()));
-                let inner =
-                    java_builder_expression(nested, &nested_type, enum_fields, nested_types, nested_types_optional);
+                let inner = java_builder_expression(
+                    nested,
+                    &nested_type,
+                    enum_fields,
+                    nested_types,
+                    nested_types_optional,
+                    &[],
+                );
                 // Top-level config builders (e.g. ExtractionConfigBuilder) declare nested
                 // record fields as `Optional<T>` (since they are nullable). Primitive-fields
                 // builders (SecurityLimitsBuilder etc.) take the bare type directly.
