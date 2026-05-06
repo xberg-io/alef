@@ -375,7 +375,7 @@ pub(super) fn gen_api_py(
             let insert_pos = out.rfind(&helper_marker).unwrap_or(out.len());
 
             let mut helper = String::new();
-            helper.push_str(&format!("def _coerce_dict_{snake}(value: dict) -> {type_name}:\n"));
+            helper.push_str(&format!("def _coerce_dict_{snake}(value: dict[str, Any]) -> {type_name}:\n"));
             helper.push_str(&format!(
                 "    \"\"\"Coerce a dict into {type_name}, converting nested types in-place.\"\"\"\n"
             ));

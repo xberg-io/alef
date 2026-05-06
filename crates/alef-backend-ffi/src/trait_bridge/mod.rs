@@ -320,7 +320,7 @@ pub unsafe extern "C" fn {fn_new}(
         return std::ptr::null_mut();
     }}
     // SAFETY: vtable is non-null (checked above); caller guarantees it is valid for this call.
-    let bridge = unsafe {{ {bridge_name}::new(String::new(), (*vtable).clone(), user_data) }};
+    let bridge = unsafe {{ {bridge_name}::new(String::new(), *vtable, user_data) }};
     Box::into_raw(Box::new(bridge))
 }}
 
