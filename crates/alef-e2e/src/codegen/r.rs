@@ -1029,7 +1029,7 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
         "visit_form" => "ctx, action_url, method",
         "visit_input" => "ctx, input_type, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
-        "visit_details" => "ctx, is_open",
+        "visit_details" => "ctx, open",
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
         "visit_list_start" => "ctx, ordered",
         "visit_list_end" => "ctx, ordered, output",
