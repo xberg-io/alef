@@ -197,8 +197,9 @@ fn test_basic_rbs_stubs() {
         "Should contain regeneration instruction"
     );
 
-    // Check for module declaration - crate_name "test_lib" converts to "Test_lib"
-    assert!(content.contains("module Test_lib"), "Should declare module Test_lib");
+    // Check for module declaration — crate_name "test_lib" converts to "TestLib"
+    // (PascalCase via heck::ToUpperCamelCase, valid Ruby module name).
+    assert!(content.contains("module TestLib"), "Should declare module TestLib");
 
     // Check for type stub (Config)
     assert!(content.contains("class Config"), "Should contain Config class");
@@ -832,9 +833,9 @@ output = "packages/ruby/sig/"
         .unwrap();
     let content = &rbs_file.content;
 
-    // Check for proper module naming - snake_case gets first letter capitalized only
+    // snake_case → PascalCase: my_awesome_lib → MyAwesomeLib (valid Ruby module).
     assert!(
-        content.contains("module My_awesome_lib"),
-        "Should capitalize first letter of crate name"
+        content.contains("module MyAwesomeLib"),
+        "snake_case crate name should produce PascalCase module"
     );
 }

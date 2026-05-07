@@ -41,18 +41,11 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str) -> String {
     lines.join("\n")
 }
 
-/// Convert crate name to PascalCase module name.
+/// Convert crate name to PascalCase module name. Handles both kebab- and
+/// snake_case (matches `gen_bindings::get_module_name`).
 fn get_module_name(crate_name: &str) -> String {
-    crate_name
-        .split('-')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
+    use heck::ToUpperCamelCase;
+    crate_name.to_upper_camel_case()
 }
 
 /// Generate a Ruby type stub for an opaque type (no fields, only methods).

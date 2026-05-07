@@ -33,7 +33,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _config: &ResolvedCrateConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
         let output_base = PathBuf::from(e2e_config.effective_output()).join("python");
@@ -66,13 +66,23 @@ impl super::E2eCodegen for PythonE2eCodegen {
             .as_ref()
             .and_then(|p| p.path.as_deref())
             .unwrap_or("../../packages/python");
-        let pkg_version = python_pkg
+        // Resolve registry pin: explicit per-package override → workspace
+        // version → 0.1.0 fallback. The render_pyproject template builds the
+        // dep string as `"{pkg_name}{pkg_version}"`, so the version must
+        // include a comparator (`==1.2.3`, `>=1.2.0`, etc.) — bare `1.2.3`
+        // produces an invalid PEP 508 specifier like `pkg1.2.3` that pip and
+        // uv both reject. Default to `==<resolved>` for registry mode so
+        // generated test_apps pin exactly to the just-published version.
+        let resolved = config.resolved_version();
+        let owned_version: String = python_pkg
             .as_ref()
             .and_then(|p| p.version.as_deref())
-            .unwrap_or("0.1.0");
+            .map(str::to_owned)
+            .or_else(|| resolved.as_ref().map(|v| format!("=={v}")))
+            .unwrap_or_else(|| "==0.1.0".to_string());
         files.push(GeneratedFile {
             path: output_base.join("pyproject.toml"),
-            content: render_pyproject(pkg_name, pkg_path, pkg_version, e2e_config.dep_mode),
+            content: render_pyproject(pkg_name, pkg_path, &owned_version, e2e_config.dep_mode),
             generated_header: true,
         });
 

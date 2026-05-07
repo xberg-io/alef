@@ -142,7 +142,9 @@ repository = "{repository}"
 [tool.maturin]
 module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
-features = ["pyo3/extension-module"]
+# abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
+# avoiding a per-Python-version build matrix.
+features = ["pyo3/extension-module", "pyo3/abi3-py310"]
 python-packages = ["{python_package}"]
 
 [dependency-groups]

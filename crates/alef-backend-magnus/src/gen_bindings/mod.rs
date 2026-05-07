@@ -30,17 +30,15 @@ pub(super) fn is_reserved_fn(name: &str) -> bool {
 pub struct MagnusBackend;
 
 /// Convert crate name to PascalCase module name.
+///
+/// Handles both kebab-case (`tree-sitter-language-pack`) and snake_case
+/// (`tree_sitter_language_pack`) inputs, since both are valid Cargo crate
+/// name styles. The previous implementation split only on `-`, producing
+/// `Tree_sitter_language_pack` for snake_case crates — which Rubocop
+/// rejects as `Naming/ClassAndModuleCamelCase`.
 fn get_module_name(crate_name: &str) -> String {
-    crate_name
-        .split('-')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
+    use heck::ToUpperCamelCase;
+    crate_name.to_upper_camel_case()
 }
 
 impl Backend for MagnusBackend {
