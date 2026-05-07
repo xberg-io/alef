@@ -140,6 +140,9 @@ jobs:
           - label: macos-arm64
             runner: macos-latest
             target: aarch64-apple-darwin
+          - label: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - label: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-gnu
