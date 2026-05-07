@@ -93,6 +93,18 @@ pub(super) fn gen_struct(
         if is_bytes && has_serde {
             attrs.push("serde(skip)".to_string());
         }
+        // Opaque NAPI types (e.g. JsVisitorHandle) are stored as Object<'static>, which also
+        // does NOT impl Serialize/Deserialize. Skip them too so serde derives still compile.
+        let is_opaque_field = match &field.ty {
+            TypeRef::Named(name) if opaque_types.contains(name) => true,
+            TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(name) if opaque_types.contains(name))
+            }
+            _ => false,
+        };
+        if is_opaque_field && has_serde {
+            attrs.push("serde(skip)".to_string());
+        }
         struct_builder.add_field(&field.name, &field_type, attrs);
     }
 
