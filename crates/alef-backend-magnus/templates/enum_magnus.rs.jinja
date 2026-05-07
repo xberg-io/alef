@@ -31,6 +31,23 @@ impl magnus::TryConvert for {{ enum_name }} {
 
 unsafe impl IntoValueFromNative for {{ enum_name }} {}
 unsafe impl TryConvertOwned for {{ enum_name }} {}
+
+{%- if has_data %}
+{# Variant accessor methods for data enums #}
+impl {{ enum_name }} {
+{%- for variant in variants %}
+{%- if variant.fields | length == 1 %}
+    fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
+        match self {
+            Self::{{ variant.name }} { {{ variant.fields[0].name }} } => Some({{ variant.fields[0].name }}.clone()),
+            _ => None,
+        }
+    }
+{%- endif %}
+{%- endfor %}
+}
+{%- endif %}
+
 {# Unit enum definition with Symbol-based conversion #}
 {% else %}
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]

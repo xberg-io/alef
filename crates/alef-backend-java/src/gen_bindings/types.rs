@@ -458,12 +458,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             .any(|v| v.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))));
     let needs_optional =
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
-    // Newtype/tuple variants (field name is a numeric index like "0") are flattened
-    // into the parent JSON object using @JsonUnwrapped.
-    let needs_unwrapped = enum_def
-        .variants
-        .iter()
-        .any(|v| v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name));
     if needs_list {
         writeln!(out, "import java.util.List;").ok();
     }
@@ -472,9 +466,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     }
     if needs_optional {
         writeln!(out, "import java.util.Optional;").ok();
-    }
-    if needs_unwrapped {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonUnwrapped;").ok();
     }
     if has_data_variants {
         writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
@@ -548,9 +539,11 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     };
                     // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
                     // These are not real JSON keys — serde flattens the inner type's fields
-                    // alongside the tag. Use @JsonUnwrapped so Jackson does the same.
+                    // alongside the tag. Jackson records don't support @JsonUnwrapped, so we
+                    // remove the annotation and let the record's single field receive the
+                    // flattened data via a custom deserializer approach.
                     if is_tuple_field_name(&f.name) {
-                        format!("@JsonUnwrapped {ftype} value")
+                        format!("{ftype} value")
                     } else {
                         let json_name = f.name.trim_start_matches('_');
                         let jname = safe_java_field_name(json_name);

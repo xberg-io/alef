@@ -73,6 +73,16 @@ pub(crate) fn marshal_param_to_ffi(
             )
             .ok();
         }
+        TypeRef::Bytes => {
+            // byte[] must be allocated in Arena as MemorySegment
+            let cname = "c".to_string() + name;
+            writeln!(
+                out,
+                "            var {} = arena.allocateArray(ValueLayout.JAVA_BYTE, {});",
+                cname, name
+            )
+            .ok();
+        }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
             if opaque_types.contains(type_name.as_str()) {
@@ -189,7 +199,9 @@ pub(crate) fn marshal_param_to_ffi(
 
 pub(crate) fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "c".to_string() + name,
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => {
+            "c".to_string() + name
+        }
         TypeRef::Named(_) => "c".to_string() + name,
         TypeRef::Vec(_) | TypeRef::Map(_, _) => "c".to_string() + name,
         TypeRef::Optional(inner) => match inner.as_ref() {
