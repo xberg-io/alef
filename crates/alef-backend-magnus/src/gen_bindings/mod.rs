@@ -437,24 +437,13 @@ impl Backend for MagnusBackend {
         content.push_str("  # Re-export all types and functions from native extension\n");
         content.push_str("end\n");
 
-        // Generate the native.rb file that requires the extension and re-exports its symbols
-        let native_module_name = get_module_name(&api.crate_name);
+        // Generate the native.rb file that requires the extension.
+        // The native extension automatically defines all module functions and constants
+        // when it is loaded, so we only need to require it.
         let mut native_content = hash::header(CommentStyle::Hash);
         native_content.push_str("# frozen_string_literal: true\n\n");
         native_content.push_str("require 'json'\n");
-        native_content.push_str(&format!("require '{ext_name}'\n\n"));
-        native_content.push_str(&format!("module {module_name}\n"));
-        native_content.push_str("  # Re-export all public module functions from the native extension\n");
-        native_content.push_str(&format!("  {native_module_name}.methods(false).each do |m|\n"));
-        native_content.push_str(&format!("    define_singleton_method(m) {{ |*args, **kwargs, &blk| {native_module_name}.public_send(m, *args, **kwargs, &blk) }}\n"));
-        native_content.push_str("  end\n\n");
-        native_content.push_str("  # Re-export all constants (classes, structs, etc.) from the native extension\n");
-        native_content.push_str(&format!("  {native_module_name}.constants.each do |c|\n"));
-        native_content.push_str(&format!(
-            "    const_set(c, {native_module_name}.const_get(c)) unless const_defined?(c)\n"
-        ));
-        native_content.push_str("  end\n");
-        native_content.push_str("end\n");
+        native_content.push_str(&format!("require '{ext_name}'\n"));
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
         // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the

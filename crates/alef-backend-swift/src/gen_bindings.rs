@@ -57,22 +57,12 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Collect all named types referenced in enum variants (for typealias emission).
-        let mut referenced_types: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        for en in &api.enums {
-            for variant in &en.variants {
-                for field in &variant.fields {
-                    if let alef_core::ir::TypeRef::Named(name) = &field.ty {
-                        referenced_types.insert(name.as_str());
-                    }
-                }
-            }
-        }
-
-        // Emit typealiases for struct types that are referenced in enum variants.
-        // This allows enums with associated data to compile when they reference struct types.
+        // Emit typealiases for all struct types exposed by swift-bridge.
+        // swift-bridge exposes types that are declared in the extern "Rust" block,
+        // so we generate typealiases for all non-excluded types to provide a
+        // stable Swift API that references RustBridge types.
         for ty in api.types.iter().filter(|t| {
-            !t.is_trait && !exclude_types.contains(t.name.as_str()) && referenced_types.contains(t.name.as_str())
+            !t.is_trait && !exclude_types.contains(t.name.as_str())
         }) {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
