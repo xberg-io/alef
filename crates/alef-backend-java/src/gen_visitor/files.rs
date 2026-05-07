@@ -7,117 +7,38 @@ use super::callbacks::CALLBACKS;
 use super::helpers::{callback_descriptor, callback_method_type, gen_handle_method, iface_param_str, stub_var_name};
 
 pub(super) fn gen_node_context(package: &str) -> String {
-    let mut out = String::with_capacity(1024);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(out, "/** Context passed to every visitor callback. */").ok();
-    writeln!(out, "public record NodeContext(").ok();
-    writeln!(out, "        /** Coarse-grained node type tag. */").ok();
-    writeln!(out, "        int nodeType,").ok();
-    writeln!(out, "        /** HTML element tag name (e.g. \"div\"). */").ok();
-    writeln!(out, "        String tagName,").ok();
-    writeln!(out, "        /** DOM depth (0 = root). */").ok();
-    writeln!(out, "        long depth,").ok();
-    writeln!(out, "        /** 0-based sibling index. */").ok();
-    writeln!(out, "        long indexInParent,").ok();
-    writeln!(out, "        /** Parent element tag name, or null at the root. */").ok();
-    writeln!(out, "        String parentTag,").ok();
-    writeln!(out, "        /** True when this element is treated as inline. */").ok();
-    writeln!(out, "        boolean isInline").ok();
-    writeln!(out, ") {{}}").ok();
-    out
+    let header = hash::header(CommentStyle::DoubleSlash);
+    crate::template_env::render("node_context.jinja", minijinja::context! {
+        header => header,
+        package => package,
+    })
 }
 
 pub(super) fn gen_visit_result(package: &str) -> String {
-    let mut out = String::with_capacity(2048);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(out, "/** Controls how the visitor affects the conversion pipeline. */").ok();
-    writeln!(out, "public sealed interface VisitResult").ok();
-    writeln!(
-        out,
-        "        permits VisitResult.Continue, VisitResult.Skip, VisitResult.PreserveHtml,"
-    )
-    .ok();
-    writeln!(out, "                VisitResult.Custom, VisitResult.Error {{").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Proceed with default conversion. */").ok();
-    writeln!(out, "    record Continue() implements VisitResult {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Omit this element from output entirely. */").ok();
-    writeln!(out, "    record Skip() implements VisitResult {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Keep original HTML verbatim. */").ok();
-    writeln!(out, "    record PreserveHtml() implements VisitResult {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Replace with custom Markdown. */").ok();
-    writeln!(out, "    record Custom(String markdown) implements VisitResult {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Abort conversion with an error message. */").ok();
-    writeln!(out, "    record Error(String message) implements VisitResult {{}}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Convenience: continue with default conversion. */").ok();
-    writeln!(
-        out,
-        "    static VisitResult continueDefault() {{ return new Continue(); }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Convenience: skip this element. */").ok();
-    writeln!(out, "    static VisitResult skip() {{ return new Skip(); }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Convenience: preserve original HTML. */").ok();
-    writeln!(
-        out,
-        "    static VisitResult preserveHtml() {{ return new PreserveHtml(); }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Convenience: emit custom Markdown. */").ok();
-    writeln!(
-        out,
-        "    static VisitResult custom(String markdown) {{ return new Custom(markdown); }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Convenience: abort with error. */").ok();
-    writeln!(
-        out,
-        "    static VisitResult error(String message) {{ return new Error(message); }}"
-    )
-    .ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Alias for {{@link #continueDefault()}}. */").ok();
-    writeln!(out, "    static VisitResult continue_() {{ return new Continue(); }}").ok();
-    writeln!(out, "}}").ok();
-    out
+    let header = hash::header(CommentStyle::DoubleSlash);
+    crate::template_env::render("visit_result.jinja", minijinja::context! {
+        header => header,
+        package => package,
+    })
 }
 
 pub(super) fn gen_visitor_interface(package: &str, _class_name: &str) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "/** Visitor interface for the HTML-to-Markdown conversion pipeline. */"
-    )
-    .ok();
-    writeln!(out, "public interface Visitor {{").ok();
-    for spec in CALLBACKS {
-        let params = iface_param_str(spec);
-        writeln!(out, "    /** {} */", spec.doc).ok();
-        writeln!(
-            out,
-            "    default VisitResult {}({}) {{ return VisitResult.continueDefault(); }}",
-            spec.java_method, params
-        )
-        .ok();
-    }
-    writeln!(out, "}}").ok();
-    out
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let callbacks: Vec<_> = CALLBACKS
+        .iter()
+        .map(|spec| {
+            minijinja::context! {
+                doc => spec.doc,
+                java_method => spec.java_method,
+                params => iface_param_str(spec),
+            }
+        })
+        .collect();
+    crate::template_env::render("visitor_interface.jinja", minijinja::context! {
+        header => header,
+        package => package,
+        callbacks => callbacks,
+    })
 }
 
 /// Generate `VisitorBridge.java` — builds Panama upcall stubs for all 40 callbacks
