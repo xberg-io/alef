@@ -428,21 +428,22 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 return content.to_string();
             }
 
-            // For Node.js test environments (vitest), use initSync to initialize the WASM
-            // module with the bundled binary. This avoids async/await and URL resolution issues.
+            // For Node.js test environments (vitest), use initSync with the bundled WASM
+            // binary. Use import.meta.resolve to locate the bundled WASM file reliably.
             let init_code = format!(
                 "import {{ initSync }} from '{pkg_name}';\n",
                 pkg_name = pkg_name
             );
             let setup_code = format!(
                 "import {{ fileURLToPath }} from \"url\";\n\
-                import {{ dirname, join, resolve }} from \"path\";\n\
+                import {{ dirname, join }} from \"path\";\n\
                 import {{ readFileSync }} from \"fs\";\n\
                 const __filename = fileURLToPath(import.meta.url);\n\
                 const __dirname = dirname(__filename);\n\
                 const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n\
                 globalThis.process.chdir(testDocumentsDir);\n\
-                const wasmPath = resolve(__dirname, \"..\", \"node_modules\", \"{pkg_name}\", \"{pkg_name}_bg.wasm\");\n\
+                const wasmUrl = await import.meta.resolve('{pkg_name}/kreuzberg_wasm_bg.wasm');\n\
+                const wasmPath = fileURLToPath(wasmUrl);\n\
                 const wasmBuffer = readFileSync(wasmPath);\n\
                 initSync(wasmBuffer);\n",
                 pkg_name = pkg_name
