@@ -21,8 +21,6 @@ mod callbacks;
 mod files;
 mod helpers;
 
-use std::fmt::Write;
-
 pub use callbacks::{CALLBACKS, CallbackSpec, ExtraParam};
 
 // ---------------------------------------------------------------------------
@@ -51,51 +49,11 @@ pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String
 ///
 /// These lines are injected into the `NativeLib` class body after the normal handles.
 pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
-    let mut out = String::with_capacity(512);
     let pu = prefix.to_uppercase();
-
-    writeln!(out).ok();
-    writeln!(out, "    // Visitor FFI handles").ok();
-    writeln!(
-        out,
-        "    static final MethodHandle {pu}_VISITOR_CREATE = LINKER.downcallHandle("
-    )
-    .ok();
-    writeln!(out, "        LIB.find(\"{prefix}_visitor_create\").orElseThrow(),").ok();
-    writeln!(
-        out,
-        "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-    )
-    .ok();
-    writeln!(out, "    );").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    static final MethodHandle {pu}_VISITOR_FREE = LINKER.downcallHandle("
-    )
-    .ok();
-    writeln!(out, "        LIB.find(\"{prefix}_visitor_free\").orElseThrow(),").ok();
-    writeln!(out, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-    writeln!(out, "    );").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    static final MethodHandle {pu}_OPTIONS_SET_VISITOR_HANDLE = LINKER.downcallHandle("
-    )
-    .ok();
-    writeln!(
-        out,
-        "        LIB.find(\"{prefix}_options_set_visitor_handle\").orElseThrow(),"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-    )
-    .ok();
-    writeln!(out, "    );").ok();
-
-    out
+    crate::template_env::render("native_lib_visitor_handles.jinja", minijinja::context! {
+        prefix => prefix,
+        prefix_upper => pu,
+    })
 }
 
 /// Generate the `convertWithVisitor` method body to inject into the main wrapper class.
