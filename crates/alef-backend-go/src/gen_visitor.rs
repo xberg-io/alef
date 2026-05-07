@@ -729,8 +729,6 @@ const CALLBACKS: &[CallbackSpec] = &[
 /// - `pkg_name`: Go package name (e.g. `"htmltomarkdown"`).
 /// - `ffi_prefix`: C function prefix (e.g. `"htm"`).
 /// - `ffi_header`: C header filename (e.g. `"html_to_markdown.h"`).
-/// - `ffi_crate_dir`: path from go output dir to the FFI crate dir.
-/// - `to_root`: relative path from go output dir to the repo root.
 /// - `vtable_trait_name`: Rust trait name used to derive the VTable struct name
 ///   (e.g. `"HtmlVisitor"` → `"HtmHtmlVisitorVTable"`).
 /// - `options_field`: field name on `ConversionOptions` that holds the bridge
@@ -739,8 +737,6 @@ pub fn gen_visitor_file(
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
-    ffi_crate_dir: &str,
-    to_root: &str,
     vtable_trait_name: &str,
     options_field: &str,
 ) -> String {
@@ -788,7 +784,7 @@ pub fn gen_visitor_file(
     // warns about incompatible function pointer types. Suppress it here.
     writeln!(
         out,
-        "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include -Wno-incompatible-function-pointer-types"
+        "#cgo CFLAGS: -I${{SRCDIR}}/include -Wno-incompatible-function-pointer-types"
     )
     .ok();
     writeln!(out, "#include \"{ffi_header}\"").ok();

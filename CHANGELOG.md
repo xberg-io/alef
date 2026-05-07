@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.33] - 2026-05-07
+
+### Fixed
+
+- **Go module**: emit `#cgo CFLAGS: -I${SRCDIR}/include` (instead of monorepo-relative `-I${SRCDIR}/.../crates/<ffi-crate>/include`), and have the FFI backend's generated `build.rs` copy the cbindgen header into the Go module's `include/` directory at build time. This unblocks downstream consumers that install the Go module via `go get` (where everything outside `packages/go/` is absent). Thanks to @structuredmerge for the report.
+- **Note**: 0.14.31 was a tag-only release whose changes never reached crates.io because Cargo.toml wasn't bumped. 0.14.33 carries forward the intended fix.
+
 ## [0.14.32] - 2026-05-07
 
 ### Added

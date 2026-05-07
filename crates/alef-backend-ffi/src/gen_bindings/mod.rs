@@ -58,6 +58,12 @@ impl Backend for FfiBackend {
             .unwrap_or_else(|| std::path::Path::new("."))
             .to_path_buf();
 
+        let go_output_dir = if config.targets(Language::Go) {
+            config.output_paths.get("go").map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+
         let files = vec![
             GeneratedFile {
                 path: PathBuf::from(&output_dir).join("lib.rs"),
@@ -71,7 +77,7 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("build.rs"),
-                content: gen_build_rs(&header_name),
+                content: gen_build_rs(&header_name, go_output_dir.as_deref()),
                 generated_header: false,
             },
         ];
