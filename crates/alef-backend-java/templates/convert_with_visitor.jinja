@@ -1,0 +1,40 @@
+    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor) throws {{ exception_class }} {
+        try (var arena = Arena.ofConfined();
+             var bridge = new VisitorBridge(visitor)) {
+            var cHtml = arena.allocateFrom(html);
+
+            MemorySegment optionsPtr = MemorySegment.NULL;
+            if (options != null) {
+                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));
+                optionsPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FROM_JSON.invoke(optJson);
+            }
+
+            var visitorHandle = (MemorySegment) NativeLib.{{ prefix_upper }}_VISITOR_CREATE.invoke(bridge.callbacksStruct());
+            if (visitorHandle.equals(MemorySegment.NULL)) {
+                throw new {{ exception_class }}("Failed to create visitor handle", null);
+            }
+
+            try {
+                var resultPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);
+                if (!optionsPtr.equals(MemorySegment.NULL)) {
+                    NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);
+                }
+                if (resultPtr.equals(MemorySegment.NULL)) {
+                    checkLastError();
+                    return null;
+                }
+                var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);
+                NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
+                return new ConversionResult(markdown, null, null, null, null, null);
+            } catch (Throwable e) {
+                throw new {{ exception_class }}("FFI call failed", e);
+            } finally {
+                NativeLib.{{ prefix_upper }}_VISITOR_FREE.invoke(visitorHandle);
+                bridge.rethrowVisitorError();
+            }
+        } catch ({{ exception_class }} e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new {{ exception_class }}("FFI call failed", e);
+        }
+    }

@@ -1,0 +1,8 @@
+    private static byte[] readBytes(MemorySegment ptr, long len) {
+        if (ptr == null || ptr.address() == 0) {
+            return new byte[0];
+        }
+        byte[] bytes = new byte[(int) len];
+        MemorySegment.copy(ptr, ValueLayout.JAVA_BYTE.byteSize() * 0, bytes, 0, (int) len);
+        return bytes;
+    }

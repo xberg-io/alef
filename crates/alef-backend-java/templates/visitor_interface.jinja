@@ -1,0 +1,9 @@
+{{ header }}package {{ package }};
+
+/** Visitor interface for the HTML-to-Markdown conversion pipeline. */
+public interface Visitor {
+{% for callback in callbacks %}
+    /** {{ callback.doc }} */
+    default VisitResult {{ callback.java_method }}({{ callback.params }}) { return VisitResult.continueDefault(); }
+{% endfor %}
+}

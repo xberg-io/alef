@@ -1,0 +1,16 @@
+
+    // Visitor FFI handles
+    static final MethodHandle {{ prefix_upper }}_VISITOR_CREATE = LINKER.downcallHandle(
+        LIB.find("{{ prefix }}_visitor_create").orElseThrow(),
+        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+    );
+
+    static final MethodHandle {{ prefix_upper }}_VISITOR_FREE = LINKER.downcallHandle(
+        LIB.find("{{ prefix }}_visitor_free").orElseThrow(),
+        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
+    );
+
+    static final MethodHandle {{ prefix_upper }}_OPTIONS_SET_VISITOR_HANDLE = LINKER.downcallHandle(
+        LIB.find("{{ prefix }}_options_set_visitor_handle").orElseThrow(),
+        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+    );

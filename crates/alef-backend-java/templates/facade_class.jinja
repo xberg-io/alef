@@ -1,0 +1,30 @@
+public final class {{ class_name }} {
+    private {{ class_name }}() { }
+{% for func in functions %}
+
+{{ func.javadoc }}    public static {{ func.return_type }} {{ func.java_name }}({{ func.params | join(', ') }}) throws {{ raw_class }}Exception {
+{% for null_check in func.null_checks %}
+        {{ null_check }}
+{% endfor %}
+{% if func.return_type == 'Unit' %}
+        {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }});
+{% elif func.is_optional %}
+        return {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }}).orElse(null);
+{% else %}
+        return {{ raw_class }}.{{ func.java_name }}({{ func.call_args | join(', ') }});
+{% endif %}
+    }
+{% if func.has_optional_overload %}
+
+    public static {{ func.return_type }} {{ func.java_name }}({{ func.required_params | join(', ') }}) throws {{ raw_class }}Exception {
+{% if func.return_type == 'Unit' %}
+        {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }});
+{% elif func.is_optional %}
+        return {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }}).orElse(null);
+{% else %}
+        return {{ raw_class }}.{{ func.java_name }}({{ func.full_args | join(', ') }});
+{% endif %}
+    }
+{% endif %}
+{% endfor %}
+}

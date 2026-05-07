@@ -1,0 +1,32 @@
+package {{ package }};
+{% if imports %}
+
+{% for import in imports %}import {{ import }};
+{% endfor %}{% endif %}
+
+/**
+ * Bridge interface for the {{ trait_pascal }} plugin system.
+ *
+ * Implementations are wrapped by {{ trait_pascal }}Bridge and exposed to the native
+ * runtime through Panama FFM upcall stubs.
+ */
+public interface I{{ trait_pascal }} {
+{% if has_super_trait %}
+
+    /** Plugin name (used for registry keying). */
+    String name();
+
+    /** Plugin version. */
+    String version();
+
+    /** Initialize the plugin. */
+    default void initialize() throws Exception {}
+
+    /** Shut down the plugin. */
+    default void shutdown() throws Exception {}
+{% endif %}
+{% for method in methods %}
+
+{{ method.javadoc }}    {{ method.signature }};
+{% endfor %}
+}
