@@ -1113,7 +1113,7 @@ fn render_discriminated_union_assertion(
     assertion: &Assertion,
     variant_var: &str,
     inner_field: &str,
-    result_is_vec: bool,
+    _result_is_vec: bool,
 ) {
     if inner_field.is_empty() {
         return; // No field to assert on

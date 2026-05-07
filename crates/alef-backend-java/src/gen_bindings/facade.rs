@@ -235,6 +235,7 @@ pub(crate) fn gen_facade_class(
     }
 
     writeln!(out).ok();
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     out.push_str(&body);
 
     out

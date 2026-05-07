@@ -121,7 +121,7 @@ pub(crate) fn gen_main_class(
         writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;").ok();
     }
     writeln!(out).ok();
-
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     out.push_str(&body);
 
     out
