@@ -58,20 +58,16 @@ impl Backend for SwiftBackend {
         let mut body = String::new();
 
         // Compute the set of non-trait types that should be emitted as typealiases to RustBridge.X.
-        // This includes ALL non-trait enums and structs (both Codable and non-Codable).
-        // swift-bridge generates opaque Swift classes for these, not enums or structs.
-        // Emitting typealiases makes them pass through without conversion, avoiding:
-        //   1. Invalid enum pattern matching on opaque classes
-        //   2. Type mismatches between Codable wrappers and RustBridge opaque types
-        //   3. Need for bidirectional JSON serialization
-        // Tradeoff: users interact with RustBridge opaque types directly rather than
-        // idiomatic Swift wrappers. This is acceptable for the current phase where
-        // swift-bridge handling is incomplete.
+        // Structs (both Codable and non-Codable) become typealiases to RustBridge opaque classes.
+        // Enums, however, are emitted as native Swift enums with unit variants from the
+        // Rust-side bridge enum. This avoids relying on swift-bridge's automatic generation,
+        // which doesn't expose all enum types reliably. Native enums support pattern matching
+        // and are idiomatic Swift.
         let non_codable_types: std::collections::HashSet<&str> = api
-            .enums
+            .types
             .iter()
-            .map(|e| e.name.as_str())
-            .chain(api.types.iter().filter(|t| !t.is_trait).map(|t| t.name.as_str()))
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.as_str())
             .collect();
 
         for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
@@ -170,20 +166,13 @@ fn emit_struct(
 }
 
 /// Emits a Swift `public enum` for the given `EnumDef`.
-/// All non-trait enums are emitted as typealiases to RustBridge.X.
+/// All enums are emitted as native Swift enums with unit variants only.
 fn emit_enum(
     en: &EnumDef,
     out: &mut String,
     mapper: &SwiftMapper,
-    non_codable_types: &std::collections::HashSet<&str>,
+    _non_codable_types: &std::collections::HashSet<&str>,
 ) {
-    // All enums become typealiases to the RustBridge opaque class
-    if non_codable_types.contains(en.name.as_str()) {
-        emit_doc_comment(&en.doc, "", out);
-        out.push_str(&format!("public typealias {} = RustBridge.{}\n", en.name, en.name));
-        return;
-    }
-
     emit_doc_comment(&en.doc, "", out);
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());

@@ -428,24 +428,26 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 return content.to_string();
             }
 
-            // For Node.js test environments (vitest), we must import and await the
-            // async init() function exported by wasm-pack before any WASM exports
-            // are called. The wasm-pack output exports init as the default export.
+            // For Node.js test environments (vitest), use initSync to initialize the WASM
+            // module with the bundled binary. This avoids async/await and URL resolution issues.
             let init_code = format!(
-                "import init from '{pkg_name}';\n",
+                "import {{ initSync }} from '{pkg_name}';\n",
                 pkg_name = pkg_name
             );
             let setup_code = concat!(
-                "import { fileURLToPath } from \"url\";\n",
-                "import { dirname, join } from \"path\";\n",
+                "import {{ fileURLToPath }} from \"url\";\n",
+                "import {{ dirname, join, resolve }} from \"path\";\n",
+                "import {{ readFileSync }} from \"fs\";\n",
                 "const __filename = fileURLToPath(import.meta.url);\n",
                 "const __dirname = dirname(__filename);\n",
                 "const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n",
                 "globalThis.process.chdir(testDocumentsDir);\n",
-                "await init();\n",
+                "const wasmPath = resolve(__dirname, \"..\", \"node_modules\", \"{pkg_name}\", \"{pkg_name}_bg.wasm\");\n",
+                "const wasmBuffer = readFileSync(wasmPath);\n",
+                "initSync(wasmBuffer);\n",
             );
 
-            return init_code + &content[..full_from_pos].to_string() + "\n" + setup_code + &content[full_from_pos..];
+            return init_code + &content[..full_from_pos].to_string() + "\n" + setup_code.replace("{pkg_name}", pkg_name) + &content[full_from_pos..];
         }
     }
 
