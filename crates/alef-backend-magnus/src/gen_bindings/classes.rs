@@ -23,34 +23,16 @@ fn is_thread_unsafe_field(field: &FieldDef) -> bool {
 /// Generate an opaque Magnus-wrapped struct with inner Arc.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
-
-    let mut out = String::with_capacity(256);
-    writeln!(out, "#[derive(Clone)]").ok();
-    writeln!(out, r#"#[magnus::wrap(class = "{}")]"#, class_path).ok();
-    writeln!(out, "pub struct {} {{", typ.name).ok();
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    writeln!(out, "    inner: Arc<{}>,", core_path).ok();
-    writeln!(out, "}}").ok();
-    let name = &typ.name;
-    writeln!(out).ok();
-    // SAFETY: #[magnus::wrap] already provides IntoValue. This marker trait
-    // enables use in Vec<T> returns from Magnus function!/method! macros.
-    writeln!(out, "unsafe impl IntoValueFromNative for {name} {{}}").ok();
-    // Magnus only provides TryConvert for &T (references) on TypedData types.
-    // We need TryConvert for owned T so wrapped types can be used as function parameters.
-    writeln!(out, "\nimpl magnus::TryConvert for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
+
+    crate::template_env::render(
+        "opaque_struct.rs.jinja",
+        minijinja::context! {
+            struct_name => &typ.name,
+            class_path => &class_path,
+            core_path => &core_path,
+        },
     )
-    .ok();
-    writeln!(out, "        let r: &{name} = magnus::TryConvert::try_convert(val)?;").ok();
-    writeln!(out, "        Ok(r.clone())").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    // SAFETY: TryConvert produces an owned value via Clone, satisfying owned conversion.
-    write!(out, "unsafe impl TryConvertOwned for {name} {{}}").ok();
-    out
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).

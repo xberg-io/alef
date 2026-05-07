@@ -1,0 +1,21 @@
+pub struct {{ struct_name }} {
+    rb_obj: magnus::Value,
+}
+
+impl std::fmt::Debug for {{ struct_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ struct_name }}")
+    }
+}
+
+impl {{ struct_name }} {
+    pub fn new(rb_obj: magnus::Value) -> Self {
+        Self { rb_obj }
+    }
+}
+
+impl {{ trait_path }} for {{ struct_name }} {
+{% for method_code in methods %}
+{{ method_code }}
+{% endfor %}
+}

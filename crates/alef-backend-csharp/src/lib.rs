@@ -2,6 +2,7 @@
 
 mod gen_bindings;
 pub mod gen_visitor;
+mod template_env;
 pub mod trait_bridge;
 mod type_map;
 
