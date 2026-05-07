@@ -26,8 +26,10 @@ use tracing::warn;
 ///   unstable cargo-fmt-only flag in nightly), so running cargo fmt from the
 ///   e2e crate's own directory is the portable way to format a
 ///   non-workspace-member crate.
-/// * `python` — `ruff format {dir}` normalises whitespace/newlines in the
-///   generated test files so prek's ruff hook is a no-op.
+/// * `python` — `ruff check --fix {dir} && ruff format {dir}` runs lint
+///   autofixes (unused imports, import sorting, TypeAlias annotations) then
+///   whitespace normalisation so both prek's `ruff check` and `ruff format`
+///   hooks are no-ops after generation.
 /// * `node` — `npx oxfmt {dir}` normalises TypeScript test files so prek's
 ///   oxfmt hook is a no-op. Without this, hashes are computed over raw codegen
 ///   output and reformatted by prek, causing `alef verify` to report stale files.
@@ -36,7 +38,7 @@ use tracing::warn;
 fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
         "rust" => Some("(cd {dir} && cargo fmt --all && cargo sort .)"),
-        "python" => Some("ruff format {dir}"),
+        "python" => Some("ruff check --fix {dir} && ruff format {dir}"),
         "node" | "wasm" => Some("pnpm dlx oxfmt {dir}"),
         _ => None,
     }
@@ -120,10 +122,16 @@ mod tests {
     }
 
     #[test]
-    fn test_default_formatter_python_uses_ruff_format() {
+    fn test_default_formatter_python_uses_ruff_check_and_format() {
         let cmd = default_formatter("python").expect("python must have a default formatter");
-        assert!(cmd.contains("ruff"), "python formatter must use ruff: {cmd}");
-        assert!(cmd.contains("format"), "python formatter must run ruff format: {cmd}");
+        assert!(
+            cmd.contains("ruff check --fix"),
+            "python formatter must run ruff check --fix before ruff format: {cmd}"
+        );
+        assert!(
+            cmd.contains("ruff format"),
+            "python formatter must run ruff format: {cmd}"
+        );
         assert!(
             cmd.contains("{dir}"),
             "python formatter must include {{dir}} placeholder: {cmd}"
