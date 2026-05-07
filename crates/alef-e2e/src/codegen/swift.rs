@@ -245,6 +245,7 @@ fn render_test_file(
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import {module_name}");
+    let _ = writeln!(out, "import RustBridge");
     let _ = writeln!(out);
     let _ = writeln!(out, "/// E2e tests for category: {category}.");
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
