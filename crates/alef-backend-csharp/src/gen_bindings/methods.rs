@@ -40,10 +40,14 @@ pub(super) fn gen_wrapper_class(
     }
     out.push('\n');
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    out.push_str(&crate::template_env::render("namespace_decl.jinja", minijinja::context! {
+        namespace => namespace
+    }));
+    out.push('\n');
 
-    out.push_str(&format!("public static class {}\n", class_name));
-    out.push_str("{\n");
+    out.push_str(&crate::template_env::render("class_header.jinja", minijinja::context! {
+        class_name => class_name
+    }));
     out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
@@ -117,7 +121,9 @@ pub(super) fn gen_wrapper_class(
         if has_invalid_input {
             out.push_str("        if (code == 1) return new InvalidInputException(message);\n");
         }
-        out.push_str(&format!("        if (code == 2) return new {base_ex}(message);\n"));
+        out.push_str(&crate::template_env::render("error_dispatch.jinja", minijinja::context! {
+            exception_name => base_ex
+        }));
     }
     out.push_str(&format!("        return new {}(code, message);\n", exception_name));
     out.push_str("    }\n");
@@ -167,7 +173,9 @@ fn gen_wrapper_function(
         if func.return_type == TypeRef::Unit {
             out.push_str("async Task");
         } else {
-            out.push_str(&format!("async Task<{}>", csharp_type(&func.return_type)));
+            out.push_str(&crate::template_env::render("async_task_return_type.jinja", minijinja::context! {
+                return_type => csharp_type(&func.return_type)
+            }));
         }
     } else if func.return_type == TypeRef::Unit {
         out.push_str("void");
@@ -175,7 +183,8 @@ fn gen_wrapper_function(
         out.push_str(&csharp_type(&func.return_type));
     }
 
-    out.push_str(&format!(" {}", to_csharp_name(&func.name)));
+    out.push_str(" ");
+    out.push_str(&to_csharp_name(&func.name));
     out.push('(');
 
     // Parameters (bridge params stripped from public signature)

@@ -1,0 +1,71 @@
+{# Data enum definition with IntoValue/TryConvert via JSON #}
+{% if has_data %}
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+{% if serde_tag %}#[serde(tag = "{{ serde_tag }}")]
+{% endif %}pub enum {{ enum_name }} {
+{% for variant in variants %}
+{% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
+{% endif %}{% if variant.fields %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
+{% else %}    {{ variant.name }},
+{% endif %}{% endfor %}}
+
+impl Default for {{ enum_name }} {
+    fn default() -> Self { Self::{{ first_variant }}{{ first_variant_default }} }
+}
+
+impl magnus::IntoValue for {{ enum_name }} {
+    fn into_value_with(self, handle: &Ruby) -> magnus::Value {
+        match serde_json::to_value(&self) {
+            Ok(v) => json_to_ruby(handle, v),
+            Err(_) => handle.qnil().into_value_with(handle),
+        }
+    }
+}
+
+impl magnus::TryConvert for {{ enum_name }} {
+    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
+        let s: String = magnus::TryConvert::try_convert(val)?;
+        serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))
+    }
+}
+
+unsafe impl IntoValueFromNative for {{ enum_name }} {}
+unsafe impl TryConvertOwned for {{ enum_name }} {}
+{# Unit enum definition with Symbol-based conversion #}
+{% else %}
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum {{ enum_name }} {
+{% for variant in variants %}
+{% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
+{% endif %}    {{ variant.name }},
+{% endfor %}}
+
+impl Default for {{ enum_name }} {
+    fn default() -> Self { Self::{{ first_variant }} }
+}
+
+impl magnus::IntoValue for {{ enum_name }} {
+    fn into_value_with(self, handle: &Ruby) -> magnus::Value {
+        let sym = match self {
+{% for variant in variants %}            {{ enum_name }}::{{ variant.name }} => "{{ variant.snake_name }}",
+{% endfor %}        };
+        handle.to_symbol(sym).into_value_with(handle)
+    }
+}
+
+impl magnus::TryConvert for {{ enum_name }} {
+    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
+        let s: String = magnus::TryConvert::try_convert(val)?;
+        match s.as_str() {
+{% for variant in variants %}            "{{ variant.snake_name }}" => Ok({{ enum_name }}::{{ variant.name }}),
+{% endfor %}            other => Err(magnus::Error::new(
+                unsafe { Ruby::get_unchecked() }.exception_arg_error(),
+                format!("invalid {{ enum_name }} value: {other}"),
+            )),
+        }
+    }
+}
+
+unsafe impl IntoValueFromNative for {{ enum_name }} {}
+unsafe impl TryConvertOwned for {{ enum_name }} {}
+{% endif %}
