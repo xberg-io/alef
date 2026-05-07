@@ -1107,6 +1107,7 @@ pub fn gen_lossy_binding_to_core_fields_mut(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gen_lossy_binding_to_core_fields_inner(
     typ: &TypeDef,
     core_import: &str,
