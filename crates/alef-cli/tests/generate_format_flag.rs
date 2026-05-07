@@ -1,10 +1,11 @@
-/// Integration tests verifying that `alef generate` runs formatters by default
-/// and skips them when `--no-format` is passed.
+/// Integration tests verifying the format flag plumbing for `alef generate` and `alef all`.
+///
+/// `alef generate` uses `--format` (opt-in: formatters are off by default).
+/// `alef all`     uses `--no-format` (opt-out: formatters run by default).
 ///
 /// These tests exercise only the CLI flag plumbing: they confirm the binary
-/// accepts `--no-format`, rejects the old `--format`, and that the help text
-/// reflects the new default-on behaviour.  Full formatting behaviour is
-/// covered by e2e tests that run against a real alef project.
+/// exposes the right flags and that the help text is consistent.  Full
+/// formatting behaviour is covered by e2e tests that run against a real alef project.
 use std::process::Command;
 
 fn alef_binary() -> std::path::PathBuf {
@@ -27,10 +28,9 @@ fn alef_binary() -> std::path::PathBuf {
     dir.join("alef")
 }
 
-/// Running `alef generate --help` must mention `--no-format` and must NOT
-/// mention `--format` as a standalone flag (it was removed as a breaking change).
+/// `alef generate --help` must list `--format` (opt-in) and must NOT list `--no-format`.
 #[test]
-fn generate_help_shows_no_format_flag() {
+fn generate_help_shows_format_flag() {
     let output = Command::new(alef_binary())
         .args(["generate", "--help"])
         .output()
@@ -40,20 +40,18 @@ fn generate_help_shows_no_format_flag() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");
 
+    // We check for the standalone flag line "  --format" (leading spaces that clap uses).
     assert!(
-        combined.contains("--no-format"),
-        "`alef generate --help` must list --no-format flag; got:\n{combined}"
+        combined.contains("  --format"),
+        "`alef generate --help` must list --format flag; got:\n{combined}"
     );
-    // The old --format flag must not appear (it was the opt-in flag before inversion).
-    // We check for the standalone word "  --format" (with leading spaces that clap uses
-    // for option lines) so we don't accidentally match "--no-format".
     assert!(
-        !combined.contains("  --format"),
-        "`alef generate --help` must not list the old --format flag; got:\n{combined}"
+        !combined.contains("--no-format"),
+        "`alef generate --help` must not list --no-format; got:\n{combined}"
     );
 }
 
-/// Running `alef all --help` must expose `--no-format` and not the old `--format`.
+/// `alef all --help` must list `--no-format` (opt-out: formatters run by default).
 #[test]
 fn all_help_shows_no_format_flag() {
     let output = Command::new(alef_binary())
@@ -69,33 +67,37 @@ fn all_help_shows_no_format_flag() {
         combined.contains("--no-format"),
         "`alef all --help` must list --no-format flag; got:\n{combined}"
     );
+    // `all` must not expose the opt-in `--format` flag (it uses the inverted default).
+    // Check for the standalone flag line to avoid matching "--no-format" substrings.
     assert!(
         !combined.contains("  --format"),
-        "`alef all --help` must not list the old --format flag; got:\n{combined}"
+        "`alef all --help` must not list --format (opt-in); got:\n{combined}"
     );
 }
 
-/// Passing the old `--format` flag to `alef generate` must be rejected by clap
-/// (unknown argument error, non-zero exit).
+/// `alef generate --format` must be accepted by clap (it is the opt-in formatter flag).
 #[test]
-fn generate_rejects_old_format_flag() {
-    // We need a config to get past the config-load check, but clap parses flags
-    // before we hit any logic — an unknown flag exits immediately.  We can point
-    // at a non-existent config; clap will reject `--format` first.
+fn generate_accepts_format_flag() {
+    // clap parses flags before any config loading — `--format` should be accepted even
+    // without a valid alef.toml.  The process may exit non-zero due to missing config,
+    // but the exit code must not be the "unknown argument" error (2).
     let output = Command::new(alef_binary())
         .args(["generate", "--format"])
         .output()
         .expect("failed to spawn alef");
 
-    assert!(
-        !output.status.success(),
-        "alef generate --format (old flag) must exit non-zero; it was accepted unexpectedly"
+    // Exit code 2 is clap's "unknown argument" error.  Any other exit code means clap
+    // accepted the flag and the failure (if any) is from config loading, not flag parsing.
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "alef generate --format must be accepted by clap (not an unknown argument); got exit code 2"
     );
 }
 
-/// Passing the old `--format` flag to `alef all` must also be rejected.
+/// `alef all --format` must be rejected by clap (unknown argument, exit code 2).
 #[test]
-fn all_rejects_old_format_flag() {
+fn all_rejects_format_flag() {
     let output = Command::new(alef_binary())
         .args(["all", "--format"])
         .output()
@@ -103,6 +105,6 @@ fn all_rejects_old_format_flag() {
 
     assert!(
         !output.status.success(),
-        "alef all --format (old flag) must exit non-zero; it was accepted unexpectedly"
+        "alef all --format must exit non-zero; it was accepted unexpectedly"
     );
 }
