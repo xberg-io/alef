@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e-swift): emit RustBridge-qualified function calls in generated tests. Since wrapper functions were disabled in Phase 2D (commit 6bdbd0e9), e2e tests must call `RustBridge.extractFileSync(...)` instead of bare `extractFileSync(...)`. The codegen now qualifies all function calls with the RustBridge module prefix.
 - fix(java-backend): suppress checkstyle LineLength on all generated classes. Extended the suppression added for e2e test classes to cover all alef-generated Java classes (records, enums, tagged unions, opaque handles, builders, facades, FFI classes, exception classes, and trait bridges). All classes now emit `@SuppressWarnings("checkstyle:LineLength")` to acknowledge that generated code may exceed the 140-character limit.
 - fix(elixir-backend): use rustler::Binary for NIF binary parameters. Rustler 0.37 cannot marshal `Vec<u8>` from Erlang binaries, causing ArgumentError on every NIF call. NIF functions now accept `rustler::Binary` parameters and convert to `Vec<u8>` with `.as_slice()` or `.as_slice().to_vec()` when calling core functions.
 - fix(e2e-dart): add missing kreuzberg package import in test files. Generated Dart e2e tests were emitting `KreuzbergBridge.extractBytesSync(...)` calls without importing the kreuzberg package, causing "Undefined name 'KreuzbergBridge'" errors. Test files now include `import 'package:kreuzberg/kreuzberg.dart'` to make the API accessible.
