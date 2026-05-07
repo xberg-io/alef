@@ -430,10 +430,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
 
             // For Node.js test environments (vitest), use initSync with the bundled WASM
             // binary. Use import.meta.resolve to locate the bundled WASM file reliably.
-            let init_code = format!(
-                "import {{ initSync }} from '{pkg_name}';\n",
-                pkg_name = pkg_name
-            );
+            let init_code = format!("import {{ initSync }} from '{pkg_name}';\n", pkg_name = pkg_name);
             let setup_code = format!(
                 "import {{ fileURLToPath }} from \"url\";\n\
                 import {{ dirname, join }} from \"path\";\n\
@@ -449,7 +446,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 pkg_name = pkg_name
             );
 
-            return init_code + &content[..full_from_pos].to_string() + "\n" + &setup_code + &content[full_from_pos..];
+            return init_code + &content[..full_from_pos] + "\n" + &setup_code + &content[full_from_pos..];
         }
     }
 

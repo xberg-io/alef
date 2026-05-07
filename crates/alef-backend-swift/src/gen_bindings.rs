@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, TypeDef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -57,26 +57,34 @@ impl Backend for SwiftBackend {
 
         let mut body = String::new();
 
-        // Compute the set of non-trait types that should be emitted as typealiases to RustBridge.X.
-        // Structs (both Codable and non-Codable) become typealiases to RustBridge opaque classes.
-        // Enums, however, are emitted as native Swift enums with unit variants from the
-        // Rust-side bridge enum. This avoids relying on swift-bridge's automatic generation,
-        // which doesn't expose all enum types reliably. Native enums support pattern matching
-        // and are idiomatic Swift.
-        let non_codable_types: std::collections::HashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| !t.is_trait)
-            .map(|t| t.name.as_str())
-            .collect();
+        // Collect all named types referenced in enum variants (for typealias emission).
+        let mut referenced_types: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for en in &api.enums {
+            for variant in &en.variants {
+                for field in &variant.fields {
+                    if let alef_core::ir::TypeRef::Named(name) = &field.ty {
+                        referenced_types.insert(name.as_str());
+                    }
+                }
+            }
+        }
 
-        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-            emit_struct(ty, &mut body, &mapper, &non_codable_types);
+        // Emit typealiases for struct types that are referenced in enum variants.
+        // This allows enums with associated data to compile when they reference struct types.
+        for ty in api.types.iter().filter(|t| {
+            !t.is_trait && !exclude_types.contains(t.name.as_str()) && referenced_types.contains(t.name.as_str())
+        }) {
+            emit_doc_comment(&ty.doc, "", &mut body);
+            body.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
             body.push('\n');
         }
 
+        // Enums are emitted as native Swift enums with unit variants only.
+        // They are NOT typealiased to RustBridge since swift-bridge's automatic generation
+        // is unreliable (not all enum types are exposed). Instead, we emit them directly
+        // as Swift enums that mirror the unit variants from the Rust bridge enum wrapper.
         for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            emit_enum(en, &mut body, &mapper, &non_codable_types);
+            emit_enum(en, &mut body, &mapper);
             body.push('\n');
         }
 
@@ -144,35 +152,9 @@ impl Backend for SwiftBackend {
     }
 }
 
-/// Emits a Swift `public struct` for the given `TypeDef`.
-/// All non-trait structs are emitted as typealiases to RustBridge.X.
-fn emit_struct(
-    ty: &TypeDef,
-    out: &mut String,
-    _mapper: &SwiftMapper,
-    non_codable_types: &std::collections::HashSet<&str>,
-) {
-    // All structs become typealiases to the RustBridge opaque class
-    if non_codable_types.contains(ty.name.as_str()) {
-        emit_doc_comment(&ty.doc, "", out);
-        out.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
-        return;
-    }
-
-    // Trait types fall through but shouldn't happen in practice
-    emit_doc_comment(&ty.doc, "", out);
-    out.push_str(&format!("public struct {} {{\n", ty.name));
-    out.push_str("}\n");
-}
-
 /// Emits a Swift `public enum` for the given `EnumDef`.
 /// All enums are emitted as native Swift enums with unit variants only.
-fn emit_enum(
-    en: &EnumDef,
-    out: &mut String,
-    mapper: &SwiftMapper,
-    _non_codable_types: &std::collections::HashSet<&str>,
-) {
+fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&en.doc, "", out);
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());

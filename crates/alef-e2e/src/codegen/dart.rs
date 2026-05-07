@@ -237,9 +237,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
-    let is_async = call_overrides
-        .and_then(|o| o.r#async)
-        .unwrap_or(call_config.r#async);
+    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     if is_async {
         let _ = writeln!(out, "  test('{description}', () async {{");
@@ -573,7 +571,6 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     let is_redirect = http.expected_response.status_code / 100 == 3;
     client::http_call::render_http_test(out, &DartTestClientRenderer::new(is_redirect), fixture);
 }
-
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
 fn escape_dart(s: &str) -> String {

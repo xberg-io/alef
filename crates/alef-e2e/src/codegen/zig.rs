@@ -484,9 +484,7 @@ fn render_test_fn(
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     let args = &call_config.args;
-    let is_async = call_overrides
-        .and_then(|o| o.r#async)
-        .unwrap_or(call_config.r#async);
+    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
@@ -518,7 +516,10 @@ fn render_test_fn(
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(out, "    const result = {module_name}.{function_name}({args_str}) catch |err| {{");
+        let _ = writeln!(
+            out,
+            "    const result = {module_name}.{function_name}({args_str}) catch |err| {{"
+        );
         let _ = writeln!(out, "        try testing.expect(true); // Error occurred as expected");
         let _ = writeln!(out, "        return;");
         let _ = writeln!(out, "    }};");
@@ -536,10 +537,7 @@ fn render_test_fn(
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(
-            out,
-            "    const _ = {module_name}.{function_name}({args_str});"
-        );
+        let _ = writeln!(out, "    const _ = {module_name}.{function_name}({args_str});");
     } else {
         // Happy path: call and assert.
         if is_async {
