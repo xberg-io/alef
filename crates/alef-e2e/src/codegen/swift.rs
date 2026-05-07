@@ -525,6 +525,9 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
 
+    // Qualify function name with RustBridge module (Phase 2D: wrappers disabled).
+    let qualified_function_name = format!("RustBridge.{function_name}");
+
     if is_async {
         let _ = writeln!(out, "    func test{method_name}() async throws {{");
     } else {
@@ -543,22 +546,22 @@ fn render_test_method(
             // the throw actually happens. `await XCTAssertThrowsError(...)` is
             // not valid Swift — it evaluates `await` against a non-async expr.
             let _ = writeln!(out, "        do {{");
-            let _ = writeln!(out, "            _ = try await {function_name}({args_str})");
+            let _ = writeln!(out, "            _ = try await {qualified_function_name}({args_str})");
             let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
             let _ = writeln!(out, "        }} catch {{");
             let _ = writeln!(out, "            // success");
             let _ = writeln!(out, "        }}");
         } else {
-            let _ = writeln!(out, "        XCTAssertThrowsError(try {function_name}({args_str}))");
+            let _ = writeln!(out, "        XCTAssertThrowsError(try {qualified_function_name}({args_str}))");
         }
         let _ = writeln!(out, "    }}");
         return;
     }
 
     if is_async {
-        let _ = writeln!(out, "        let {result_var} = try await {function_name}({args_str})");
+        let _ = writeln!(out, "        let {result_var} = try await {qualified_function_name}({args_str})");
     } else {
-        let _ = writeln!(out, "        let {result_var} = try {function_name}({args_str})");
+        let _ = writeln!(out, "        let {result_var} = try {qualified_function_name}({args_str})");
     }
 
     for assertion in &fixture.assertions {
