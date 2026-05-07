@@ -3439,3 +3439,7 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 - Blake3-based caching for `extract` and `generate` commands
 - CI pipeline: cargo fmt, clippy, deny, machete, sort, taplo
 - GoReleaser-based publish workflow with cross-platform binaries and Homebrew tap
+## [Unreleased]
+
+- fix(magnus): remove problematic re-export loop in native.rb wrapper
+- fix(magnus): handle optional String parameters via magnus::Value conversion
