@@ -9,7 +9,7 @@ use std::path::PathBuf;
 ///
 /// The produced csproj is designed to live at
 /// `packages/csharp/<Namespace>/<Namespace>.csproj`, where:
-/// - `../../LICENSE` reaches the workspace root
+/// - `../../../LICENSE` reaches the workspace root (3 path components deep)
 /// - `runtimes/**` matches `packages/csharp/<Namespace>/runtimes/` — the exact
 ///   directory where `alef-publish` stages the FFI shared libraries
 ///
@@ -77,9 +77,9 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             // Place the csproj under packages/csharp/<Namespace>/<Namespace>.csproj so
             // the `runtimes/**` glob resolves to
             // packages/csharp/<Namespace>/runtimes/ — the exact directory where
-            // alef-publish stages the FFI shared libraries.  `../../LICENSE` from that
-            // subdirectory reaches the workspace root.  alef-publish's find_csproj
-            // also looks here first, so no scanning fallback is needed.
+            // alef-publish stages the FFI shared libraries.  `../../../LICENSE` from that
+            // subdirectory (3 levels deep) reaches the workspace root.
+            // alef-publish's find_csproj also looks here first, so no scanning fallback is needed.
             path: PathBuf::from(format!("packages/csharp/{0}/{0}.csproj", namespace)),
             content,
             // Scaffold-once so consumers can extend metadata (deps, runtime

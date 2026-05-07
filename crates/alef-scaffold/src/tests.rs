@@ -75,19 +75,20 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + src/index.d.ts + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
-    assert_eq!(files.len(), 8);
+    // scaffold_node: pkg package.json + crate package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
+    assert_eq!(files.len(), 9);
     assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert!(files[0].content.contains("oxfmt"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
     assert_eq!(files[3].path, PathBuf::from("packages/node/index.d.ts"));
-    assert_eq!(files[4].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[5].path, PathBuf::from("packages/node/.oxfmtrc.json"));
-    assert_eq!(files[6].path, PathBuf::from("packages/node/.oxlintrc.json"));
-    assert_eq!(files[7].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[7].content.contains("napi-derive"));
+    assert_eq!(files[4].path, PathBuf::from("packages/node/index.js"));
+    assert_eq!(files[5].path, PathBuf::from("packages/node/tsconfig.json"));
+    assert_eq!(files[6].path, PathBuf::from("packages/node/.oxfmtrc.json"));
+    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxlintrc.json"));
+    assert_eq!(files[8].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[8].content.contains("napi-derive"));
 }
 
 #[test]
@@ -96,8 +97,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 8 files (2 package.json + src/index.d.ts + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
-    assert_eq!(files.len(), 11);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 9 files (2 package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
+    assert_eq!(files.len(), 12);
 }
 
 #[test]
@@ -502,7 +503,9 @@ fn test_java_checkstyle_no_cosmetic_checks() {
     assert!(checkstyle.content.contains("UnusedImports"));
     assert!(checkstyle.content.contains("MethodLength"));
     assert!(checkstyle.content.contains("LineLength"));
-    assert!(checkstyle.content.contains("\"120\""));
+    // LineLength max is 140 (not 120) to accommodate Eclipse's record-component
+    // continuation indent that spotless applies before checkstyle runs.
+    assert!(checkstyle.content.contains("\"140\""));
 }
 
 // --- Go golangci v2 format tests ---
@@ -583,9 +586,11 @@ fn test_render_csharp_csproj_runtimes_glob_is_relative() {
         !content.contains(r#"Include="../runtimes"#),
         "runtimes glob must NOT have ../: {content}"
     );
+    // The csproj lives at packages/csharp/<Namespace>/<Namespace>.csproj (3 levels deep),
+    // so ../../../LICENSE correctly reaches the workspace root.
     assert!(
-        content.contains(r#"Include="../../LICENSE""#),
-        "LICENSE path must be ../../LICENSE to reach workspace root: {content}"
+        content.contains(r#"Include="../../../LICENSE""#),
+        "LICENSE path must be ../../../LICENSE to reach workspace root: {content}"
     );
     assert!(
         content.contains("<Version>1.2.3</Version>"),

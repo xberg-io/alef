@@ -87,7 +87,7 @@ mod tests {
     fn emit_python_visitor_method_skip_returns_skip() {
         let mut out = String::new();
         emit_python_visitor_method(&mut out, "visit_text", &CallbackAction::Skip);
-        assert!(out.contains("return {\"type\": \"Skip\"}"), "got: {out}");
+        assert!(out.contains("return \"skip\""), "got: {out}");
     }
 
     #[test]
