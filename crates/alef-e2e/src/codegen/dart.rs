@@ -228,24 +228,18 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         return;
     }
 
-    // Non-HTTP fixtures: check if there is a dart-specific call override.
+    // Non-HTTP fixtures: render a call-based test using the resolved call config.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let call_overrides = call_config.overrides.get(lang);
-
-    if call_overrides.is_none() {
-        // No dart-specific call override — emit a skip stub.
-        render_skip_stub(out, fixture);
-        return;
-    }
-
-    // Has a dart call override — render a call-based test.
     let function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
-    let is_async = call_config.r#async;
+    let is_async = call_overrides
+        .and_then(|o| o.r#async)
+        .unwrap_or(call_config.r#async);
 
     if is_async {
         let _ = writeln!(out, "  test('{description}', () async {{");
