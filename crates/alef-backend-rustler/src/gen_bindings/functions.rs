@@ -523,8 +523,13 @@ pub(super) fn gen_nif_async_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        // Bytes are already converted to Vec<u8> or &[u8] in deser_lines above
-                        p.name.clone()
+                        // After deser_lines, `content` is owned Vec<u8>. Re-borrow
+                        // when the core fn takes &[u8], else move the Vec.
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {
