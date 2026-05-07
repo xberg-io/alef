@@ -434,20 +434,21 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 "import {{ initSync }} from '{pkg_name}';\n",
                 pkg_name = pkg_name
             );
-            let setup_code = concat!(
-                "import {{ fileURLToPath }} from \"url\";\n",
-                "import {{ dirname, join, resolve }} from \"path\";\n",
-                "import {{ readFileSync }} from \"fs\";\n",
-                "const __filename = fileURLToPath(import.meta.url);\n",
-                "const __dirname = dirname(__filename);\n",
-                "const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n",
-                "globalThis.process.chdir(testDocumentsDir);\n",
-                "const wasmPath = resolve(__dirname, \"..\", \"node_modules\", \"{pkg_name}\", \"{pkg_name}_bg.wasm\");\n",
-                "const wasmBuffer = readFileSync(wasmPath);\n",
-                "initSync(wasmBuffer);\n",
+            let setup_code = format!(
+                "import {{ fileURLToPath }} from \"url\";\n\
+                import {{ dirname, join, resolve }} from \"path\";\n\
+                import {{ readFileSync }} from \"fs\";\n\
+                const __filename = fileURLToPath(import.meta.url);\n\
+                const __dirname = dirname(__filename);\n\
+                const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n\
+                globalThis.process.chdir(testDocumentsDir);\n\
+                const wasmPath = resolve(__dirname, \"..\", \"node_modules\", \"{pkg_name}\", \"{pkg_name}_bg.wasm\");\n\
+                const wasmBuffer = readFileSync(wasmPath);\n\
+                initSync(wasmBuffer);\n",
+                pkg_name = pkg_name
             );
 
-            return init_code + &content[..full_from_pos].to_string() + "\n" + setup_code.replace("{pkg_name}", pkg_name) + &content[full_from_pos..];
+            return init_code + &content[..full_from_pos].to_string() + "\n" + &setup_code + &content[full_from_pos..];
         }
     }
 
