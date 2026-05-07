@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e-dart): remove HTTP-only assumption from non-HTTP fixture codegen. Dart e2e tests now render direct-API call tests using `[e2e.call.overrides.dart]` function overrides, eliminating skip-stubs.
+- fix(e2e-gleam): remove call-override check for non-HTTP fixtures. Gleam e2e tests now render all non-HTTP fixtures using the default or overridden call config, eliminating skip-stubs.
+- fix(e2e-kotlin): fix `build.gradle.kts` dependency declaration. Registry mode now uses correct `groupId:artifactId:version` format; local mode references kreuzberg binding JAR from `target/release/`.
+- fix(e2e-swift): document test placement path. Clarified that tests are placed in `packages/swift/Tests/` (not `e2e/swift/`) due to SwiftPM 6.0 limitations, with rationale in comments.
+- fix(e2e-zig): implement proper error union and async function handling. Error-path tests now use `catch` syntax; async functions emit informational notes; all test variants (error/no-assertions/success) now compile and run.
+
 ## [0.14.33] - 2026-05-07
 
 ### Fixed
