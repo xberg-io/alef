@@ -135,13 +135,15 @@ final class VisitorBridge implements AutoCloseable {
             case VisitResult.Custom c -> {
                 var buf = Arena.global().allocateFrom(c.markdown());
                 outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);
-                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+                long customLen = (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, customLen);
                 yield VISIT_RESULT_CUSTOM;
             }
             case VisitResult.Error e -> {
                 var buf = Arena.global().allocateFrom(e.message());
                 outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);
-                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+                long errorLen = (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, errorLen);
                 yield VISIT_RESULT_ERROR;
             }
         };

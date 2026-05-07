@@ -317,11 +317,8 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
     )
     .ok();
-    writeln!(
-        out,
-        "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);"
-    )
-    .ok();
+    writeln!(out, "                long customLen = (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;").ok();
+    writeln!(out, "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, customLen);").ok();
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "            case VisitResult.Error e -> {{").ok();
@@ -335,11 +332,8 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
     )
     .ok();
-    writeln!(
-        out,
-        "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length);"
-    )
-    .ok();
+    writeln!(out, "                long errorLen = (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;").ok();
+    writeln!(out, "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, errorLen);").ok();
     writeln!(out, "                yield VISIT_RESULT_ERROR;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }};").ok();

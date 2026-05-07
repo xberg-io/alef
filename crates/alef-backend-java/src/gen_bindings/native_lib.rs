@@ -509,12 +509,9 @@ pub(crate) fn gen_native_lib(
             // Use orElse(null) for FFI-excluded functions — their native symbol may be absent.
             // Callers must null-check before invoking these handles.
             writeln!(body).ok();
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s, {})).orElse(null);",
-                handle_name, ffi_name, layout_str
-            )
-            .ok();
+            writeln!(body, "    static final MethodHandle {} = LIB.find(\"{}\")", handle_name, ffi_name).ok();
+            writeln!(body, "        .map(s -> LINKER.downcallHandle(s, {}))", layout_str).ok();
+            writeln!(body, "        .orElse(null);").ok();
         } else {
             writeln!(
                 body,
@@ -767,17 +764,11 @@ pub(crate) fn gen_native_lib(
             writeln!(body).ok();
             // Use orElse(null): the register symbol may be absent when the trait bridge
             // is not compiled into the dylib. Callers must null-check before invoking.
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s,",
-                register_handle_name, register_ffi_name
-            )
-            .ok();
-            writeln!(
-                body,
-                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);"
-            )
-            .ok();
+            writeln!(body, "    static final MethodHandle {} = LIB", register_handle_name).ok();
+            writeln!(body, "        .find(\"{}\")", register_ffi_name).ok();
+            writeln!(body, "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.JAVA_INT,").ok();
+            writeln!(body, "            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
+            writeln!(body, "        .orElse(null);").ok();
         }
 
         // Unregister handle
@@ -787,17 +778,11 @@ pub(crate) fn gen_native_lib(
             writeln!(body).ok();
             // Use orElse(null): the unregister symbol may be absent when the trait bridge
             // is not compiled into the dylib. Callers must null-check before invoking.
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s,",
-                unregister_handle_name, unregister_ffi_name
-            )
-            .ok();
-            writeln!(
-                body,
-                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);"
-            )
-            .ok();
+            writeln!(body, "    static final MethodHandle {} = LIB", unregister_handle_name).ok();
+            writeln!(body, "        .find(\"{}\")", unregister_ffi_name).ok();
+            writeln!(body, "        .map(s -> LINKER.downcallHandle(s,").ok();
+            writeln!(body, "            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
+            writeln!(body, "        .orElse(null);").ok();
         }
     }
 
