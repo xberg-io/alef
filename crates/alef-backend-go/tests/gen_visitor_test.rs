@@ -4,15 +4,7 @@ use alef_backend_go::gen_visitor::gen_visitor_file;
 /// The exact C struct name depends on `vtable_trait_name` and `ffi_prefix`.
 #[test]
 fn test_visitor_file_emits_prefixed_struct() {
-    let output = gen_visitor_file(
-        "mypkg",
-        "htm",
-        "my_lib.h",
-        "crates/my-lib-ffi",
-        "../../",
-        "HtmlVisitor",
-        "visitor",
-    );
+    let output = gen_visitor_file("mypkg", "htm", "my_lib.h", "HtmlVisitor", "visitor");
     // The cbindgen-derived C type embeds `{PREFIX}{PascalPrefix}{TraitName}VTable`.
     assert!(
         output.contains("VTable"),

@@ -1,6 +1,25 @@
+use alef_backend_ffi::FfiBackend;
 use alef_backend_ffi::trait_bridge::gen_trait_bridge;
-use alef_core::config::TraitBridgeConfig;
+use alef_core::backend::Backend;
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::ir::*;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+fn make_empty_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -676,5 +695,83 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
     assert!(
         code.contains("vtable.transform.is_none()"),
         "register fn must validate required fn pointers are non-null"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// build.rs Go header copy (regression: downstream go get compatibility)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_rs_contains_go_header_copy_when_go_is_configured() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.go]
+module = "github.com/example/mylib"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+go = "packages/go/"
+"#,
+    );
+    let api = make_empty_api();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let build_rs = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
+
+    assert!(
+        build_rs.content.contains("go_include_dir"),
+        "build.rs must contain go_include_dir when Go is configured"
+    );
+    assert!(
+        build_rs.content.contains("std::fs::copy"),
+        "build.rs must copy the header into the Go include dir"
+    );
+    assert!(
+        build_rs.content.contains("packages/go/include"),
+        "build.rs must target the correct Go include destination"
+    );
+}
+
+#[test]
+fn test_build_rs_has_no_go_copy_when_go_is_not_configured() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+    let api = make_empty_api();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let build_rs = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
+
+    assert!(
+        !build_rs.content.contains("go_include_dir"),
+        "build.rs must not contain Go copy step when Go is not configured"
+    );
+    assert!(
+        !build_rs.content.contains("std::fs::copy"),
+        "build.rs must not copy header when Go is not configured"
     );
 }

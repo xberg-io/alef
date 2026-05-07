@@ -66,20 +66,6 @@ impl Backend for GoBackend {
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();
-        // Derive the FFI crate directory from the output path (e.g., "crates/html-to-markdown-ffi/src/" → "crates/html-to-markdown-ffi")
-        let ffi_crate_dir = config
-            .output_paths
-            .get("ffi")
-            .and_then(|p| {
-                let path = p.as_path();
-                path.ancestors()
-                    .find(|a| {
-                        a.file_name()
-                            .is_some_and(|n| n != "src" && n != "lib" && n != "include")
-                    })
-                    .map(|a| a.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| format!("crates/{ffi_lib_name}"));
         // Collect bridge param names from trait_bridges config so we can strip them
         // from generated function signatures and emit ConvertWithVisitor instead.
         let bridge_param_names: HashSet<String> = config
@@ -131,7 +117,6 @@ impl Backend for GoBackend {
             &pkg_name,
             &ffi_lib_name,
             &ffi_header,
-            &ffi_crate_dir,
             &output_dir,
             &bridge_param_names,
             &bridge_type_aliases,
@@ -142,10 +127,6 @@ impl Backend for GoBackend {
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Go)?;
-
-        // Compute relative path from Go output dir to project root.
-        let depth = output_dir.trim_end_matches('/').matches('/').count() + 1;
-        let to_root = "../".repeat(depth);
 
         let mut files = vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("binding.go"),
@@ -171,8 +152,6 @@ impl Backend for GoBackend {
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
-                &ffi_crate_dir,
-                &to_root,
                 &vtable_trait_name,
                 &options_field,
             ));
@@ -193,8 +172,6 @@ impl Backend for GoBackend {
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
-                &ffi_crate_dir,
-                &to_root,
                 &config.name,
             ));
             if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
@@ -313,7 +290,6 @@ fn gen_go_file(
     pkg_name: &str,
     ffi_lib_name: &str,
     ffi_header: &str,
-    ffi_crate_dir: &str,
     go_output_dir: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
@@ -343,7 +319,7 @@ fn gen_go_file(
     .ok();
     writeln!(out, "package {}\n", pkg_name).ok();
     writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
+    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/include").ok();
     writeln!(
         out,
         "#cgo LDFLAGS: -L${{SRCDIR}}/{to_root}target/release -l{ffi_lib_name}"

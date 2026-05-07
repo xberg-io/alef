@@ -29,18 +29,13 @@ use std::fmt::Write;
 /// `pkg_name`: Go package name (e.g., `"kreuzberg"`).
 /// `ffi_prefix`: C function prefix (e.g., `"kreuzberg"`).
 /// `ffi_header`: C header filename (e.g., `"kreuzberg.h"`).
-/// `ffi_crate_dir`: path from go output dir to the FFI crate dir.
-/// `to_root`: relative path from go output dir to the repo root.
 /// `crate_name`: Rust FFI crate name (e.g., `"kreuzberg"`), used to derive C type names.
-#[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridges_file(
     api: &ApiSurface,
     config: &alef_core::config::ResolvedCrateConfig,
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
-    ffi_crate_dir: &str,
-    to_root: &str,
     crate_name: &str,
 ) -> String {
     let mut out = String::with_capacity(16_384);
@@ -51,7 +46,7 @@ pub fn gen_trait_bridges_file(
 
     // CGo preamble for trait bridges
     writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
+    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/include").ok();
     writeln!(out, "#include \"{ffi_header}\"").ok();
     writeln!(out, "#include <stdlib.h>").ok();
     writeln!(out, "#include <string.h>").ok();
