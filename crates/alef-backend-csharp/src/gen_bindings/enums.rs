@@ -175,6 +175,24 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str("using System.Text.Json.Serialization;\n\n");
     out.push_str(&format!("namespace {};\n\n", namespace));
 
+    // Collect all variant pascal names to check for field-name-to-variant-name clashes
+    let variant_names: std::collections::HashSet<String> =
+        enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
+
+    // Precompute discriminator values for each variant
+    let discriminators: Vec<(String, String)> = enum_def
+        .variants
+        .iter()
+        .map(|v| {
+            let pascal = v.name.to_pascal_case();
+            let disc = v
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+            (pascal, disc)
+        })
+        .collect();
+
     // Doc comment
     if !enum_def.doc.is_empty() {
         out.push_str("/// <summary>\n");
@@ -184,26 +202,27 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    // Use [JsonPolymorphic] with the discriminator property name
+    // [JsonPolymorphic] + [JsonDerivedType] attributes must ALL be on the base type,
+    // not on the nested records — System.Text.Json resolves polymorphism from the base type.
     out.push_str(&format!(
         "[JsonPolymorphic(TypeDiscriminatorPropertyName = \"{tag_field}\")]\n"
     ));
+    for (pascal, discriminator) in &discriminators {
+        out.push_str(&format!(
+            "[JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"
+        ));
+    }
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
 
-    // Collect all variant pascal names to check for field-name-to-variant-name clashes
-    let variant_names: std::collections::HashSet<String> =
-        enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
-
-    // Nested sealed records for each variant with [JsonDerivedType] attributes
+    // Nested sealed records for each variant (no [JsonDerivedType] here — it's on the base)
     for variant in &enum_def.variants {
         let pascal = variant.name.to_pascal_case();
-
-        // Compute the discriminator value for this variant (the wire name)
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        let discriminator = discriminators
+            .iter()
+            .find(|(p, _)| p == &pascal)
+            .map(|(_, d)| d.as_str())
+            .unwrap_or("");
 
         if !variant.doc.is_empty() {
             out.push_str("    /// <summary>\n");
@@ -213,10 +232,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             out.push_str("    /// </summary>\n");
         }
 
-        // Add [JsonDerivedType] attribute with the wire name
-        out.push_str(&format!(
-            "    [JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"
-        ));
+        let _ = discriminator; // discriminator is used in doc/comments; nested records don't need it
 
         if variant.fields.is_empty() {
             // Unit variant → sealed record with no fields
