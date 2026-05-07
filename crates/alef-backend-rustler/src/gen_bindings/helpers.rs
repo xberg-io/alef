@@ -83,7 +83,7 @@ pub(super) fn gen_native_ex(
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
         out,
-        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
+        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu),"
     );
     let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"],");
     let _ = writeln!(out, "    force_build:");

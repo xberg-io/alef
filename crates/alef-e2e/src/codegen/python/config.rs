@@ -194,27 +194,6 @@ _TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "test_documents"
 if _TEST_DOCUMENTS.is_dir():
     os.chdir(_TEST_DOCUMENTS)
 
-# On macOS, Pdfium is a separate dylib not on the default library path in dev builds.
-# Search common locations (Cargo build output, staged target/release) and extend
-# DYLD_LIBRARY_PATH / LD_LIBRARY_PATH so the extension can load the library.
-_REPO_ROOT = Path(__file__).parent.parent.parent
-
-
-def _find_pdfium_dir() -> str | None:
-    """Find the directory containing libpdfium, searching Cargo build outputs."""
-    for _candidate in sorted(_REPO_ROOT.glob("target/*/release/build/*/out/libpdfium*")):
-        return str(_candidate.parent)
-    for _candidate in sorted(_REPO_ROOT.glob("target/release/build/*/out/libpdfium*")):
-        return str(_candidate.parent)
-    return None
-
-
-_pdfium_dir = _find_pdfium_dir()
-if _pdfium_dir is not None:
-    for _var in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"):
-        _existing = os.environ.get(_var, "")
-        if _pdfium_dir not in _existing:
-            os.environ[_var] = f"{{_pdfium_dir}}:{{_existing}}" if _existing else _pdfium_dir
 "#
         )
     } else {
