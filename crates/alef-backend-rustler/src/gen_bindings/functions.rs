@@ -42,9 +42,9 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
             }
             TypeRef::Bytes => {
                 if p.is_ref {
-                    format!("&{}", p.name)
+                    format!("{}.as_slice()", p.name)
                 } else {
-                    p.name.clone()
+                    format!("{}.as_slice().to_vec()", p.name)
                 }
             }
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
@@ -188,7 +188,7 @@ pub(super) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
@@ -306,7 +306,7 @@ pub(super) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
@@ -494,7 +494,7 @@ pub(super) fn gen_nif_async_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {

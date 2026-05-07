@@ -345,6 +345,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     writeln!(out).ok();
 
     emit_javadoc(&mut out, &enum_def.doc, "");
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     writeln!(out, "public enum {} {{", enum_def.name).ok();
 
     for (i, variant) in enum_def.variants.iter().enumerate() {
@@ -481,6 +482,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     writeln!(out).ok();
 
     emit_javadoc(&mut out, &enum_def.doc, "");
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // @JsonTypeInfo and @JsonSubTypes annotations
     writeln!(
         out,
@@ -632,7 +634,7 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     writeln!(out).ok();
 
     emit_javadoc(&mut out, &typ.doc, "");
-
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     writeln!(out, "public class {} implements AutoCloseable {{", class_name).ok();
     writeln!(out, "    private final MemorySegment handle;").ok();
     writeln!(out).ok();
@@ -687,6 +689,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     let mut body = String::with_capacity(2048);
 
     emit_javadoc(&mut body, &typ.doc, "");
+    writeln!(body, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
     writeln!(body, "@JsonPOJOBuilder(withPrefix = \"with\")").ok();

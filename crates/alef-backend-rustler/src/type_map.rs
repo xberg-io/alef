@@ -10,6 +10,10 @@ impl TypeMapper for RustlerMapper {
         Cow::Borrowed("String")
     }
 
+    fn bytes(&self) -> Cow<'static, str> {
+        Cow::Borrowed("rustler::Binary")
+    }
+
     fn error_wrapper(&self) -> &str {
         "Result"
     }
