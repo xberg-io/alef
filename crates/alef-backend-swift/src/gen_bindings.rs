@@ -83,11 +83,13 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        // Function wrappers intentionally not emitted: swift-bridge's RustVec/RustString
-        // primitive containers cannot be losslessly converted to Swift Array/String at
-        // codegen time (RustVec<T> has no [T] initializer, generic-param inference fails
-        // across protocol boundaries, etc.). Consumers call RustBridge functions
-        // directly; the typealiases above keep `Kreuzberg.SomeType` as a stable name.
+        // Emit lightweight function wrappers for the most common extraction functions.
+        // These delegate to RustBridge equivalents, providing a Swift-idiomatic API surface
+        // for e2e tests and common use cases. Not all functions are wrapped due to
+        // swift-bridge's limitations with complex types, but the most frequently-used
+        // extraction methods (extract_file, extract_bytes, and their _sync variants) are.
+        emit_extraction_wrappers(&mut body);
+
         let _ = module_name;
 
         let mut content = String::new();
@@ -246,4 +248,34 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
         out.push_str(line);
         out.push('\n');
     }
+}
+
+/// Emits lightweight function wrappers for common extraction functions.
+/// These provide a convenient Swift API surface that delegates to RustBridge.
+fn emit_extraction_wrappers(out: &mut String) {
+    out.push_str("// MARK: - Extraction Wrappers\n\n");
+
+    // extract_file wrapper
+    out.push_str("/// Asynchronously extracts structured content from a file.\n");
+    out.push_str("public func extractFile(_ path: String, _ mimeType: String?, _ config: ExtractionConfig?) async throws -> ExtractionResult {\n");
+    out.push_str("    return try await RustBridge.extractFile(path, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extract_bytes wrapper
+    out.push_str("/// Asynchronously extracts structured content from a byte buffer.\n");
+    out.push_str("public func extractBytes(_ data: Data, _ mimeType: String, _ config: ExtractionConfig?) async throws -> ExtractionResult {\n");
+    out.push_str("    return try await RustBridge.extractBytes(Array(data), mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extract_file_sync wrapper
+    out.push_str("/// Synchronously extracts structured content from a file.\n");
+    out.push_str("public func extractFileSync(_ path: String, _ mimeType: String?, _ config: ExtractionConfig?) throws -> ExtractionResult {\n");
+    out.push_str("    return try RustBridge.extractFileSync(path, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extract_bytes_sync wrapper
+    out.push_str("/// Synchronously extracts structured content from a byte buffer.\n");
+    out.push_str("public func extractBytesSync(_ data: Data, _ mimeType: String, _ config: ExtractionConfig?) throws -> ExtractionResult {\n");
+    out.push_str("    return try RustBridge.extractBytesSync(Array(data), mimeType, config)\n");
+    out.push_str("}\n");
 }
