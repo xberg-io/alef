@@ -75,6 +75,7 @@ fn param_scan_args_type(
 }
 
 /// Extended version that accepts treat_as_optional for default-struct config params.
+/// For optional String types, use Option<magnus::Value> to handle nil properly via scan_args.
 fn param_scan_args_type_extended(
     p: &alef_core::ir::ParamDef,
     promoted: bool,
@@ -88,6 +89,9 @@ fn param_scan_args_type_extended(
         } else {
             mapper.map_type(&p.ty)
         }
+    } else if matches!(p.ty, TypeRef::String) && (p.optional || promoted || treat_as_optional) {
+        // For optional String, use Option<magnus::Value> and handle nil manually
+        "magnus::Value".to_string()
     } else {
         mapper.map_type(&p.ty)
     };
@@ -193,6 +197,20 @@ fn gen_scan_args_prologue_with_defaults(
             )
         };
         lines.push(format!("let {pat} = args.optional;"));
+    }
+
+    // After destructuring, convert Option<magnus::Value> back to Option<String> for optional strings
+    for (idx, p) in params.iter().enumerate() {
+        let promoted = alef_codegen::shared::is_promoted_optional(params, idx);
+        let is_last = idx == params.len() - 1;
+        let treat_as_optional = (p.optional || promoted) || (is_last && last_is_default_config);
+
+        if treat_as_optional && matches!(p.ty, TypeRef::String) {
+            lines.push(format!(
+                "let {}: Option<String> = {}.and_then(|v| if v.is_nil() {{ None }} else {{ Some(String::try_convert(v).unwrap_or_default()) }});",
+                p.name, p.name
+            ));
+        }
     }
 
     lines.join("\n    ")
