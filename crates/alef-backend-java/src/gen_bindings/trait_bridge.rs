@@ -137,6 +137,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, " * assembles the C vtable in native memory, and provides static").ok();
     writeln!(out, " * register{trait_pascal}/unregister{trait_pascal} helpers.").ok();
     writeln!(out, " */").ok();
+    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     writeln!(out, "public final class {bridge_class} implements AutoCloseable {{").ok();
     writeln!(out).ok();
 

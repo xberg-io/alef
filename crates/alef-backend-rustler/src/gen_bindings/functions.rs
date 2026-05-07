@@ -90,6 +90,15 @@ pub(super) fn gen_nif_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
+            // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
+            // use rustler::Binary for NIF function parameters.
+            if matches!(&p.ty, TypeRef::Bytes) {
+                return if p.optional {
+                    format!("{}: Option<rustler::Binary>", p.name)
+                } else {
+                    format!("{}: rustler::Binary", p.name)
+                };
+            }
             let mapped = mapper.map_type(&p.ty);
             if p.optional {
                 format!("{}: Option<{}>", p.name, mapped)
