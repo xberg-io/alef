@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+// Scaffolding for the C# backend's planned migration to minijinja templates.
+// Items are unused until the first templates are ported in; suppress dead_code
+// rather than scaffold-and-delete-and-re-add as each template lands.
+
 use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
