@@ -253,6 +253,15 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     } else {
                         cs_type.to_string()
                     };
+                    // Qualify collection types that would be shadowed by a same-named variant
+                    // (e.g. NodeContent.List nested record shadows System.Collections.Generic.List<T>).
+                    let cs_type = if variant_names.iter().any(|vn| cs_type.starts_with(&format!("{vn}<"))) {
+                        cs_type
+                            .replace("List<", "global::System.Collections.Generic.List<")
+                            .replace("Dictionary<", "global::System.Collections.Generic.Dictionary<")
+                    } else {
+                        cs_type
+                    };
                     let comma = if i < variant.fields.len() - 1 { "," } else { "" };
                     if is_tuple_field(field) {
                         out.push_str(&format!("        {cs_type} Value{comma}\n"));

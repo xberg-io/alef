@@ -240,17 +240,22 @@ impl Backend for CsharpBackend {
             .map(|e| e.name.to_pascal_case())
             .collect();
 
-        // Collect enums that require a custom JsonConverter (non-standard serialized names or
-        // tagged unions). When a property has this enum as its type, we must emit a property-level
+        // Collect enums that require a custom JsonConverter (non-standard serialized names only).
+        // Tagged unions are generated as abstract records with [JsonPolymorphic] and do NOT need
+        // a custom converter — the attribute on the type itself handles polymorphic deserialization.
+        // When a property has a custom-converter enum as its type, emit a property-level
         // [JsonConverter] attribute so the custom converter wins over the global JsonStringEnumConverter.
         let custom_converter_enums: HashSet<String> = api
             .enums
             .iter()
             .filter(|e| {
-                // Tagged unions always use a custom converter
-                (e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+                // Skip tagged unions — they use [JsonPolymorphic] instead
+                let is_tagged_union = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
+                if is_tagged_union {
+                    return false;
+                }
                 // Enums with non-standard variant names need a custom converter
-                || e.variants.iter().any(|v| {
+                e.variants.iter().any(|v| {
                     if let Some(ref rename) = v.serde_rename {
                         let snake = enums::apply_rename_all(&v.name, e.serde_rename_all.as_deref());
                         rename != &snake
