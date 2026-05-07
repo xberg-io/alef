@@ -1505,7 +1505,7 @@ pub fn gen_async_body(
             // tokio::runtime::Runtime::new() returns io::Result<Runtime>, which cannot be
             // converted to extendr_api::Error via `?`. Use map_err to bridge the error.
             let rt_new = "tokio::runtime::Runtime::new()\
-                          .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
+                          .map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))?";
             if has_error {
                 if is_opaque {
                     format!(

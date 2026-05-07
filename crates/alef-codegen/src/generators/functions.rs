@@ -125,7 +125,7 @@ pub fn gen_function(
         AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
         AsyncPattern::NapiNativeAsync => ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))",
         AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-        AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+        AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))",
         _ => ".map_err(|e| e.to_string())",
     };
 
@@ -427,7 +427,7 @@ pub fn gen_function(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))",
                 _ => ".map_err(|e| e.to_string())",
             };
             let wrapped = wrap_return("val");

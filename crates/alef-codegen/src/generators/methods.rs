@@ -250,7 +250,7 @@ pub fn gen_method(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))",
                 _ => ".map_err(|e| e.to_string())",
             };
             let serde_bindings =
@@ -304,7 +304,7 @@ pub fn gen_method(
                         ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                     }
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                    AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string()))",
+                    AsyncPattern::TokioBlockOn => ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))",
                     _ => ".map_err(|e| e.to_string())",
                 };
                 format!("{field_conversions}{core_call}{err_conv}?;\n        Ok(core_self.into())")
