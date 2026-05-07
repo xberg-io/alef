@@ -1666,15 +1666,20 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
 /// Lock in the contract for `Map<String, NamedStruct>` fields in the WASM backend.
 ///
 /// The WASM backend sets `map_uses_jsvalue = true`, which causes the entire
-/// `HashMap<K, V>` to round-trip through `serde_wasm_bindgen` as a `JsValue`.
-/// This is intentional: wasm-bindgen cannot pass a Rust `HashMap` across the
-/// JS/Wasm boundary directly.  The consequence is that Named types used as map
-/// values MUST have symmetric `Serialize`/`Deserialize` impls; explicit `.into()`
-/// is deliberately skipped because `serde_wasm_bindgen` serialises the whole map
-/// as an opaque `JsValue`.  This test locks in that emission so a future refactor
-/// cannot silently switch to a `.into_iter().map(|(k, v)| (k, v.into())).collect()`
-/// pattern, which would fail to compile (the binding-wrapper type does not
-/// implement `Serialize`/`Deserialize` in the generated code).
+/// `HashMap<K, V>` to be serialised as a `JsValue`.  This is intentional:
+/// wasm-bindgen cannot pass a Rust `HashMap` across the JS/Wasm boundary directly.
+///
+/// Core→binding direction uses `js_sys::JSON::parse` (via a `serde_json::to_string`
+/// round-trip) to produce a plain JS object.  `serde_wasm_bindgen::to_value` is
+/// intentionally NOT used here because it produces ES6 Maps for `serialize_map`
+/// calls, whereas callers expect plain JS objects.
+///
+/// Binding→core direction uses `serde_wasm_bindgen::from_value`.
+///
+/// This test locks in that emission so a future refactor cannot silently switch to
+/// a `.into_iter().map(|(k, v)| (k, v.into())).collect()` pattern, which would fail
+/// to compile (the binding-wrapper type does not implement `Into<CoreType>` for map
+/// values when the field is typed as `JsValue`).
 #[test]
 fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
     let backend = WasmBackend;
@@ -1790,10 +1795,12 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
     let content = &lib_file.content;
 
     // The generated From impl for ParentStruct → WasmParentStruct (core→binding) must use
-    // serde_wasm_bindgen::to_value for the Map fields, NOT an iterator/into pattern.
+    // js_sys::JSON::parse (via a serde_json::to_string round-trip) for Map fields.
+    // serde_wasm_bindgen::to_value is intentionally NOT used here because it always produces
+    // ES6 Maps for serialize_map calls, whereas js_sys::JSON::parse produces plain JS objects.
     assert!(
-        content.contains("serde_wasm_bindgen::to_value"),
-        "Map<String, Named> core→binding conversion must use serde_wasm_bindgen::to_value;\n\
+        content.contains("js_sys::JSON::parse"),
+        "Map<String, Named> core→binding conversion must use js_sys::JSON::parse;\n\
          actual content around 'children':\n{}",
         extract_field_snippet(content, "children")
     );

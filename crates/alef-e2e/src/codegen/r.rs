@@ -21,7 +21,7 @@ impl E2eCodegen for RCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _config: &ResolvedCrateConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -59,6 +59,7 @@ impl E2eCodegen for RCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate DESCRIPTION file.

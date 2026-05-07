@@ -759,7 +759,8 @@ mod tests {
         assert!(body.contains("public final class OcrBackendBridge"));
         assert!(body.contains("public static void registerOcrBackend(final IOcrBackend impl)"));
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
-        assert!(body.contains("ConcurrentHashMap<String, OcrBackendBridge> OCR_BACKEND_BRIDGES"));
+        assert!(body.contains("ConcurrentHashMap<String, OcrBackendBridge>"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES = new ConcurrentHashMap<>()"));
         assert!(body.contains("KRZ_REGISTER_OCR_BACKEND"));
     }
 

@@ -80,6 +80,7 @@ impl E2eCodegen for CSharpCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate the .csproj using a unique name derived from the package name so

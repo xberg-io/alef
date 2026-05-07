@@ -50,6 +50,7 @@ impl E2eCodegen for DartE2eCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate pubspec.yaml with http dependency for HTTP client tests.

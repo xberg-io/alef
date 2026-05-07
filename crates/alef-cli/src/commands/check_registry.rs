@@ -272,20 +272,28 @@ fn check_homebrew(package: &str, version: &str, tap_repo: Option<&str>) -> Resul
         .read_to_string()
         .with_context(|| format!("reading body from {url}"))?;
 
-    // Match `version "1.8.0-rc.31"` (explicit version stanza).
-    let version_stanza = format!("version \"{version}\"");
-    if body.contains(&version_stanza) {
+    // Match `version "X"` or `version 'X'` (explicit version stanza).
+    if body.contains(&format!("version \"{version}\"")) || body.contains(&format!("version '{version}'")) {
         return Ok(true);
     }
-    // Match `version '1.8.0-rc.31'` (single-quoted variant).
-    let version_stanza_sq = format!("version '{version}'");
-    if body.contains(&version_stanza_sq) {
-        return Ok(true);
-    }
-    // Match `url "...vX.Y.Z..."` (e.g. archive URLs of form `/v{version}.tar.gz`).
-    let url_marker = format!("/v{version}");
-    if body.contains(&url_marker) {
-        return Ok(true);
+    // Otherwise scan for a top-level (non-bottle) `url` line that names this
+    // version. We must NOT match `root_url` inside a `bottle do` block — a
+    // freshly bumped formula often updates root_url to the new release while
+    // leaving the source `url` pointing at an older tag, and treating that as
+    // "version exists" causes false positives that skip subsequent bottle
+    // builds.
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("url ") && !trimmed.starts_with("url(") {
+            continue;
+        }
+        if trimmed.contains(&format!("/v{version}.tar.gz"))
+            || trimmed.contains(&format!("/v{version}.zip"))
+            || trimmed.contains(&format!("/{version}.tar.gz"))
+            || trimmed.contains(&format!("/{version}.zip"))
+        {
+            return Ok(true);
+        }
     }
     Ok(false)
 }
