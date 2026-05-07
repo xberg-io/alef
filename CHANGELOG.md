@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(pyo3,wasm,php-backends): add `clippy::arc_with_non_send_sync` to crate-root allow lists. Rust 1.95.0 promoted this lint to default-on; binding crates wrap a non-Send/Sync `ConversionOptionsBuilder` (or similar core type) in `Arc` for ergonomic chaining, which is sound in single-threaded VM contexts. The napi backend already had this allow; the other three now match for consistent behavior on Rust 1.95+.
+
 ### Added
 
 - feat(extendr-backend): flat data enums (e.g. `OutputFormat`) now generate a `From<BindingStruct> for CoreEnum` impl in addition to the existing `From<CoreEnum> for BindingStruct`. Previously the binding→core conversion fell back to `Default::default()` for all flat data enum fields, so setting `output_format = "markdown"` on an `ExtractionConfig` was silently discarded and every extraction ran as `Plain`. The reverse impl is only generated for enums where all tuple-variant data types are `String` or `Option<String>` (primitives); complex output-only enums like `FormatMetadata` are excluded.
