@@ -304,27 +304,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         }
     }
 
-    // Add accessor properties for data variants
-    for variant in &enum_def.variants {
-        // Only generate accessors for variants with exactly one tuple field
-        if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
-            continue;
-        }
-        let pascal = variant.name.to_pascal_case();
-        let return_type = csharp_type(&variant.fields[0].ty);
-        let return_type_nullable = format!("{return_type}?");
-        writeln!(
-            out,
-            "    /// <summary>Returns the {pascal} data if this is a {pascal} variant, otherwise null.</summary>"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    public {return_type_nullable} {pascal} => this is {pascal} e ? e.Value : null;"
-        )
-        .ok();
-        writeln!(out).ok();
-    }
 
     out.push_str("}\n");
 

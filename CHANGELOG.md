@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(csharp-backend): remove duplicate accessor properties from discriminated-union sealed records. The code generator was creating both a sealed record type (e.g., `Pdf`) and a property with the same name (`Pdf => ...`), causing CS0102 "already contains a definition" errors. Sealed records don't need these accessors; pattern matching and property access via the record field itself is idiomatic C#.
 - fix(e2e-zig): wire kreuzberg module into test build.zig. Each Zig test module now imports the kreuzberg module via `addImport`, resolving `@import("kreuzberg")` failures. The build script also declares ffi_path and ffi_include options for linking kreuzberg_ffi.
 - fix(e2e-dart): emit receiver class and arguments in non-HTTP test calls. Dart e2e tests now emit `KreuzbergBridge.extractBytesSync(File(...).readAsBytesSync(), ...)` instead of bare `extractBytesSync()`, with fixture inputs correctly loaded and passed as arguments.
 - fix(e2e-dart): convert snake_case function names to camelCase in generated test code. Dart conventions require camelCase method names; the test code generator now converts function names like `extract_bytes_sync` to `extractBytesSync`, matching idiomatic Dart API surface.
