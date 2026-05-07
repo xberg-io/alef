@@ -679,10 +679,17 @@ fn render_assertion(
             if let Some(expected) = &assertion.value {
                 let swift_val = json_to_swift(expected);
                 if expected.is_string() {
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertEqual({string_expr}.trimmingCharacters(in: .whitespaces), {swift_val})"
-                    );
+                    // For optional strings (String?), use ?? to coalesce before trimming.
+                    let field_is_optional = assertion
+                        .field
+                        .as_deref()
+                        .is_some_and(|f| field_resolver.is_optional(f));
+                    let trim_expr = if field_is_optional {
+                        format!("({field_expr} ?? \"\").trimmingCharacters(in: .whitespaces)")
+                    } else {
+                        format!("{string_expr}.trimmingCharacters(in: .whitespaces)")
+                    };
+                    let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                 } else {
                     let _ = writeln!(out, "        XCTAssertEqual({field_expr}, {swift_val})");
                 }
