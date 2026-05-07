@@ -51,6 +51,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "minijinja",
  "toml",
 ]
 
@@ -156,6 +157,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "minijinja",
  "toml",
 ]
 

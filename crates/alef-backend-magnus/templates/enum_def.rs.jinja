@@ -1,0 +1,11 @@
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "tag", content = "content")]
+pub enum {{ enum_name }} {
+{% for variant in variants %}
+{% if variant.fields %}
+    {{ variant.name }}({{ variant.field_type }}),
+{% else %}
+    {{ variant.name }},
+{% endif %}
+{% endfor %}
+}

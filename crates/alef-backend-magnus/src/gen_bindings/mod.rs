@@ -451,7 +451,9 @@ impl Backend for MagnusBackend {
         native_content.push_str("  end\n\n");
         native_content.push_str("  # Re-export all constants (classes, structs, etc.) from the native extension\n");
         native_content.push_str(&format!("  {native_module_name}.constants.each do |c|\n"));
-        native_content.push_str(&format!("    const_set(c, {native_module_name}.const_get(c)) unless const_defined?(c)\n"));
+        native_content.push_str(&format!(
+            "    const_set(c, {native_module_name}.const_get(c)) unless const_defined?(c)\n"
+        ));
         native_content.push_str("  end\n");
         native_content.push_str("end\n");
 
@@ -620,11 +622,15 @@ gem_name = "test_lib"
         let config = make_config();
         let api = make_api_surface();
         let files = backend.generate_public_api(&api, &config).unwrap();
-        assert_eq!(files.len(), 2, "must generate main rb file + version file");
+        assert_eq!(files.len(), 3, "must generate main rb file + native.rb + version file");
         let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
         assert!(
             paths.iter().any(|p| p.ends_with("test_lib.rb")),
             "must have main gem file"
+        );
+        assert!(
+            paths.iter().any(|p| p.ends_with("native.rb")),
+            "must have native.rb file"
         );
         assert!(
             paths.iter().any(|p| p.ends_with("version.rb")),
