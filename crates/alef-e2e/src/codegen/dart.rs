@@ -231,10 +231,27 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     // Non-HTTP fixtures: render a call-based test using the resolved call config.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let call_overrides = call_config.overrides.get(lang);
-    let function_name = call_overrides
+    let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
+    // Convert snake_case function names to camelCase for Dart conventions.
+    function_name = function_name
+        .split('_')
+        .enumerate()
+        .map(|(i, part)| {
+            if i == 0 {
+                part.to_string()
+            } else {
+                let mut chars = part.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
