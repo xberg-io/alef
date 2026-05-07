@@ -132,7 +132,7 @@ impl Backend for PhpBackend {
         builder.add_inner_attribute("allow(unsafe_code)");
         // PHP parameter names are lowerCamelCase; Rust complains about non-snake_case variables.
         builder.add_inner_attribute("allow(non_snake_case)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy)");
         builder.add_import("ext_php_rs::prelude::*");
 
         // Import serde_json when available (needed for serde-based param conversion)
