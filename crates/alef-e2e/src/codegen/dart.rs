@@ -574,18 +574,6 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     client::http_call::render_http_test(out, &DartTestClientRenderer::new(is_redirect), fixture);
 }
 
-/// Emit a compilable skip stub for non-HTTP fixtures without a dart call override.
-fn render_skip_stub(out: &mut String, fixture: &Fixture) {
-    let description = escape_dart(&fixture.description);
-    let fixture_id = &fixture.id;
-    let _ = writeln!(out, "  test('{description}', () {{");
-    let _ = writeln!(
-        out,
-        "    markTestSkipped('TODO: implement Dart e2e test for fixture \\'{fixture_id}\\'');"
-    );
-    let _ = writeln!(out, "  }});");
-    let _ = writeln!(out);
-}
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
 fn escape_dart(s: &str) -> String {
