@@ -698,7 +698,7 @@ fn render_assertion(
             if let Some(values) = &assertion.values {
                 for val in values {
                     let r_val = json_to_r(val, false);
-                    let _ = writeln!(out, "  expect_true(grepl({r_val}, {field_expr}, fixed = TRUE))");
+                    let _ = writeln!(out, "  expect_true(any(grepl({r_val}, {field_expr}, fixed = TRUE)))");
                 }
             }
         }

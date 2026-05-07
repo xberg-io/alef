@@ -102,92 +102,12 @@ pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
 ///
 /// Returns the method source as a string (without surrounding class braces).
 pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String {
-    let mut out = String::with_capacity(2048);
     let pu = prefix.to_uppercase();
     let exc = format!("{class_name}Exception");
-
-    writeln!(
-        out,
-        "    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor) throws {exc} {{"
-    )
-    .ok();
-    writeln!(out, "        try (var arena = Arena.ofConfined();").ok();
-    writeln!(out, "             var bridge = new VisitorBridge(visitor)) {{").ok();
-    writeln!(out, "            var cHtml = arena.allocateFrom(html);").ok();
-    writeln!(out).ok();
-    writeln!(out, "            MemorySegment optionsPtr = MemorySegment.NULL;").ok();
-    writeln!(out, "            if (options != null) {{").ok();
-    writeln!(
-        out,
-        "                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                optionsPtr = (MemorySegment) NativeLib.{pu}_CONVERSION_OPTIONS_FROM_JSON.invoke(optJson);"
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "            var visitorHandle = (MemorySegment) NativeLib.{pu}_VISITOR_CREATE.invoke(bridge.callbacksStruct());"
-    )
-    .ok();
-    writeln!(out, "            if (visitorHandle.equals(MemorySegment.NULL)) {{").ok();
-    writeln!(
-        out,
-        "                throw new {exc}(\"Failed to create visitor handle\", null);"
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "            try {{").ok();
-    writeln!(
-        out,
-        "                var resultPtr = (MemorySegment) NativeLib.{pu}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);"
-    )
-    .ok();
-    writeln!(out, "                if (!optionsPtr.equals(MemorySegment.NULL)) {{").ok();
-    writeln!(
-        out,
-        "                    NativeLib.{pu}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);"
-    )
-    .ok();
-    writeln!(out, "                }}").ok();
-    writeln!(out, "                if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-    writeln!(out, "                    checkLastError();").ok();
-    writeln!(out, "                    return null;").ok();
-    writeln!(out, "                }}").ok();
-    writeln!(
-        out,
-        "                var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-    )
-    .ok();
-    writeln!(out, "                NativeLib.{pu}_FREE_STRING.invoke(resultPtr);").ok();
-    writeln!(
-        out,
-        "                return new ConversionResult(markdown, null, null, null, null, null);"
-    )
-    .ok();
-    writeln!(out, "            }} catch (Throwable e) {{").ok();
-    writeln!(out, "                throw new {exc}(\"FFI call failed\", e);").ok();
-    writeln!(out, "            }} finally {{").ok();
-    writeln!(
-        out,
-        "                NativeLib.{pu}_VISITOR_FREE.invoke(visitorHandle);"
-    )
-    .ok();
-    writeln!(out, "                bridge.rethrowVisitorError();").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }} catch ({exc} e) {{").ok();
-    writeln!(out, "            throw e;").ok();
-    writeln!(out, "        }} catch (Throwable e) {{").ok();
-    writeln!(out, "            throw new {exc}(\"FFI call failed\", e);").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-
-    out
+    crate::template_env::render("convert_with_visitor.jinja", minijinja::context! {
+        exception_class => exc,
+        prefix_upper => pu,
+    })
 }
 
 #[cfg(test)]
