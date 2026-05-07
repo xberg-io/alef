@@ -368,7 +368,7 @@ fn gen_visitor_bridge(
         }
         gen_visitor_method_php(&mut out, method, type_paths);
     }
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     out
@@ -394,7 +394,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
 
     // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
     out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
-    out.push_str("        let php_obj_ref = unsafe {{ &mut *self.php_obj }};\n");
+    out.push_str("        let php_obj_ref = unsafe { &mut *self.php_obj };\n");
 
     // Build args array
     let has_args = !method.params.is_empty();
@@ -498,13 +498,13 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     };
 
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
-    out.push_str("        match result {{\n");
+    out.push_str("        match result {\n");
     out.push_str(&format!("            Err(_) => {ret_ty}::Continue,\n"));
     out.push_str(&format!(
         "            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),\n"
     ));
-    out.push_str("        }}\n");
-    out.push_str("    }}\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
     out.push('\n');
 }
 
@@ -734,7 +734,7 @@ pub fn gen_bridge_function(
     }
     out.push_str(&format!("pub fn {func_name}({params_str}) -> {ret} {{\n"));
     out.push_str(&format!("    {body}\n"));
-    out.push_str("}}\n");
+    out.push_str("}\n");
 
     out
 }
