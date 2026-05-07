@@ -34,14 +34,9 @@ pub fn gen_trait_bridge_files(trait_def: &TypeDef, prefix: &str, package: &str, 
 /// Generate the standalone managed `I{Trait}` interface compilation unit.
 fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
-    let mut out = String::with_capacity(2048);
 
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-
-    // Conditionally import java.util.{List,Map} only when the trait's method signatures
-    // actually reference them. Earlier always-import emission was flagged as
-    // [UnusedImports] by Checkstyle for traits whose methods don't use those types.
+    // Conditionally include imports only when the trait's method signatures reference them.
+    // Earlier always-import emission was flagged as [UnusedImports] by Checkstyle.
     let signatures_text: String = trait_def
         .methods
         .iter()
@@ -52,66 +47,44 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
         })
         .collect::<Vec<_>>()
         .join(";");
-    let needs_list = signatures_text.contains("List<");
-    let needs_map = signatures_text.contains("Map<");
-    if needs_list {
-        writeln!(out, "import java.util.List;").ok();
+    let mut imports = Vec::new();
+    if signatures_text.contains("List<") {
+        imports.push("java.util.List".to_string());
     }
-    if needs_map {
-        writeln!(out, "import java.util.Map;").ok();
-    }
-    if needs_list || needs_map {
-        writeln!(out).ok();
+    if signatures_text.contains("Map<") {
+        imports.push("java.util.Map".to_string());
     }
 
-    writeln!(out, "/**").ok();
-    writeln!(out, " * Bridge interface for the {trait_pascal} plugin system.").ok();
-    writeln!(out, " *").ok();
-    writeln!(
-        out,
-        " * Implementations are wrapped by {trait_pascal}Bridge and exposed to the native"
+    // Build method list with javadoc and signature fields for template.
+    let methods: Vec<minijinja::Value> = trait_def
+        .methods
+        .iter()
+        .map(|method| {
+            let return_type_str = java_type(&method.return_type);
+            let params_str = method
+                .params
+                .iter()
+                .map(|p| format!("{} {}", java_type(&p.ty), java_param_name(&p.name)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            minijinja::context! {
+                javadoc => format!("/** {}. */", method.name),
+                signature => format!("{} {}({}) throws Exception", return_type_str, method.name, params_str),
+            }
+            .into()
+        })
+        .collect();
+
+    crate::template_env::render(
+        "trait_interface.jinja",
+        minijinja::context! {
+            package,
+            imports,
+            trait_pascal,
+            has_super_trait,
+            methods,
+        },
     )
-    .ok();
-    writeln!(out, " * runtime through Panama FFM upcall stubs.").ok();
-    writeln!(out, " */").ok();
-    writeln!(out, "public interface I{trait_pascal} {{").ok();
-    writeln!(out).ok();
-
-    if has_super_trait {
-        writeln!(out, "    /** Plugin name (used for registry keying). */").ok();
-        writeln!(out, "    String name();").ok();
-        writeln!(out).ok();
-        writeln!(out, "    /** Plugin version. */").ok();
-        writeln!(out, "    String version();").ok();
-        writeln!(out).ok();
-        writeln!(out, "    /** Initialize the plugin. */").ok();
-        writeln!(out, "    default void initialize() throws Exception {{}}").ok();
-        writeln!(out).ok();
-        writeln!(out, "    /** Shut down the plugin. */").ok();
-        writeln!(out, "    default void shutdown() throws Exception {{}}").ok();
-        writeln!(out).ok();
-    }
-
-    for method in &trait_def.methods {
-        let return_type_str = java_type(&method.return_type);
-        let params_str = method
-            .params
-            .iter()
-            .map(|p| format!("{} {}", java_type(&p.ty), java_param_name(&p.name)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        writeln!(out, "    /** {}. */", method.name).ok();
-        writeln!(
-            out,
-            "    {} {}({}) throws Exception;",
-            return_type_str, method.name, params_str
-        )
-        .ok();
-        writeln!(out).ok();
-    }
-
-    writeln!(out, "}}").ok();
-    out
 }
 
 /// Generate the bridge class compilation unit with upcall stubs, registry, and
