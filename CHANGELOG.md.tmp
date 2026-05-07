@@ -1,0 +1,2 @@
+- fix(rustler-backend): always convert rustler::Binary to owned Vec<u8> in NIF deser to avoid escape-into-spawn lifetime errors
+

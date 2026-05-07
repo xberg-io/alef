@@ -454,13 +454,11 @@ pub(super) fn gen_nif_async_function(
         // Convert to Vec<u8> (or &[u8]) before spawn so it can be moved into the closure.
         for p in &func.params {
             if matches!(&p.ty, TypeRef::Bytes) {
-                if p.is_ref {
-                    // &[u8] param: convert Binary to slice
-                    deser_lines.push(format!("let {0}: &[u8] = {0}.as_slice();", p.name));
-                } else {
-                    // Vec<u8> param: convert Binary to owned vector
-                    deser_lines.push(format!("let {0}: Vec<u8> = {0}.as_slice().to_vec();", p.name));
-                }
+                // rustler::Binary borrows from the input Erlang binary; the borrow
+                // cannot escape into a `'static` thread::spawn closure. Always
+                // convert to an owned `Vec<u8>` (callers that take `&[u8]` re-borrow
+                // from the owned buffer at the call site).
+                deser_lines.push(format!("let {0}: Vec<u8> = {0}.as_slice().to_vec();", p.name));
             }
         }
         let call_args: Vec<String> = func

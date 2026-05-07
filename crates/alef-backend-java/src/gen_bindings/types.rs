@@ -539,9 +539,8 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     };
                     // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
                     // These are not real JSON keys — serde flattens the inner type's fields
-                    // alongside the tag. Jackson records don't support @JsonUnwrapped, so we
-                    // remove the annotation and let the record's single field receive the
-                    // flattened data via a custom deserializer approach.
+                    // alongside the tag. Use @JsonDeserialize with a custom deserializer
+                    // since Jackson records don't support @JsonUnwrapped on parameters.
                     if is_tuple_field_name(&f.name) {
                         format!("{ftype} value")
                     } else {
