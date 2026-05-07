@@ -443,6 +443,7 @@ impl Backend for MagnusBackend {
         let native_module_name = get_module_name(&api.crate_name);
         let mut native_content = hash::header(CommentStyle::Hash);
         native_content.push_str("# frozen_string_literal: true\n\n");
+        native_content.push_str("require 'json'\n");
         native_content.push_str(&format!("require '{ext_name}'\n\n"));
         native_content.push_str(&format!("module {module_name}\n"));
         native_content.push_str("  # Re-export all public module functions from the native extension\n");
