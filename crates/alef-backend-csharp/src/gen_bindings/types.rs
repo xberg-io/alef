@@ -71,7 +71,6 @@ pub(super) fn gen_opaque_handle(
             class_name => class_name
         },
     ));
-    out.push_str("{\n");
     out.push_str(&format!(
         "    internal {class_name}SafeHandle(IntPtr handle) : base(IntPtr.Zero, true)\n"
     ));
@@ -105,7 +104,6 @@ pub(super) fn gen_opaque_handle(
             class_name => class_name
         },
     ));
-    out.push_str("{\n");
 
     if has_methods {
         out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");

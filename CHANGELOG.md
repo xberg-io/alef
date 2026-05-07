@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(csharp-backend): remove stray opening brace after class headers in SafeHandle and wrapper classes. The template already included the brace; the code was pushing an extra one, resulting in all C# generated files having `class Foo {` followed by a stray `{` on the next line. All 30+ C# compilation errors now clear.
 - fix(e2e-dart): remove HTTP-only assumption from non-HTTP fixture codegen. Dart e2e tests now render direct-API call tests using `[e2e.call.overrides.dart]` function overrides, eliminating skip-stubs.
 - fix(e2e-gleam): remove call-override check for non-HTTP fixtures. Gleam e2e tests now render all non-HTTP fixtures using the default or overridden call config, eliminating skip-stubs.
 - fix(e2e-kotlin): fix `build.gradle.kts` dependency declaration. Registry mode now uses correct `groupId:artifactId:version` format; local mode references kreuzberg binding JAR from `target/release/`.

@@ -156,6 +156,15 @@ fn gen_visitor_bridge(
         },
     ));
 
+    // Render the `new` constructor so callers can build the bridge from a Ruby Value.
+    out.push_str(&crate::template_env::render(
+        "bridge_struct_impl.rs.jinja",
+        minijinja::context! {
+            struct_name => struct_name,
+        },
+    ));
+    out.push('\n');
+
     // Trait impl with all methods
     writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
     for method in &trait_type.methods {
