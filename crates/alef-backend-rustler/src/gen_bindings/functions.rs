@@ -417,6 +417,15 @@ pub(super) fn gen_nif_async_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
+            // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
+            // use rustler::Binary for NIF function parameters.
+            if matches!(&p.ty, TypeRef::Bytes) {
+                return if p.optional {
+                    format!("{}: Option<rustler::Binary>", p.name)
+                } else {
+                    format!("{}: rustler::Binary", p.name)
+                };
+            }
             let mapped = mapper.map_type(&p.ty);
             if p.optional {
                 format!("{}: Option<{mapped}>", p.name)
@@ -441,6 +450,19 @@ pub(super) fn gen_nif_async_function(
 
     let body = if can_delegate {
         let mut deser_lines: Vec<String> = Vec::new();
+        // For async functions, rustler::Binary cannot be moved to spawn closure (not Send).
+        // Convert to Vec<u8> (or &[u8]) before spawn so it can be moved into the closure.
+        for p in &func.params {
+            if matches!(&p.ty, TypeRef::Bytes) {
+                if p.is_ref {
+                    // &[u8] param: convert Binary to slice
+                    deser_lines.push(format!("let {0}: &[u8] = {0}.as_slice();", p.name));
+                } else {
+                    // Vec<u8> param: convert Binary to owned vector
+                    deser_lines.push(format!("let {0}: Vec<u8> = {0}.as_slice().to_vec();", p.name));
+                }
+            }
+        }
         let call_args: Vec<String> = func
             .params
             .iter()
@@ -503,7 +525,8 @@ pub(super) fn gen_nif_async_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
+                        // Bytes are already converted to Vec<u8> or &[u8] in deser_lines above
+                        p.name.clone()
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {

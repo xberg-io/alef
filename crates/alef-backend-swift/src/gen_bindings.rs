@@ -253,29 +253,8 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
 /// Emits lightweight function wrappers for common extraction functions.
 /// These provide a convenient Swift API surface that delegates to RustBridge.
 fn emit_extraction_wrappers(out: &mut String) {
-    out.push_str("// MARK: - Extraction Wrappers\n\n");
-
-    // extract_file wrapper
-    out.push_str("/// Asynchronously extracts structured content from a file.\n");
-    out.push_str("public func extractFile(_ path: String, _ mimeType: String?, _ config: ExtractionConfig? = nil) async throws -> ExtractionResult {\n");
-    out.push_str("    return try await RustBridge.extractFile(path, mimeType, config ?? ExtractionConfig())\n");
-    out.push_str("}\n\n");
-
-    // extract_bytes wrapper
-    out.push_str("/// Asynchronously extracts structured content from a byte buffer.\n");
-    out.push_str("public func extractBytes(_ data: Data, _ mimeType: String, _ config: ExtractionConfig? = nil) async throws -> ExtractionResult {\n");
-    out.push_str("    return try await RustBridge.extractBytes(RustVec(data), mimeType, config ?? ExtractionConfig())\n");
-    out.push_str("}\n\n");
-
-    // extract_file_sync wrapper
-    out.push_str("/// Synchronously extracts structured content from a file.\n");
-    out.push_str("public func extractFileSync(_ path: String, _ mimeType: String?, _ config: ExtractionConfig? = nil) throws -> ExtractionResult {\n");
-    out.push_str("    return try RustBridge.extractFileSync(path, mimeType, config ?? ExtractionConfig())\n");
-    out.push_str("}\n\n");
-
-    // extract_bytes_sync wrapper
-    out.push_str("/// Synchronously extracts structured content from a byte buffer.\n");
-    out.push_str("public func extractBytesSync(_ data: Data, _ mimeType: String, _ config: ExtractionConfig? = nil) throws -> ExtractionResult {\n");
-    out.push_str("    return try RustBridge.extractBytesSync(RustVec(data), mimeType, config ?? ExtractionConfig())\n");
-    out.push_str("}\n");
+    // Disabled: swift-bridge's auto-generated RustBridge functions already provide
+    // full extraction APIs. Optional config parameters cannot be implemented here
+    // without a Default factory (which requires Rust Default impl on ExtractionConfig).
+    // Tests must use RustBridge functions directly with explicit config values.
 }

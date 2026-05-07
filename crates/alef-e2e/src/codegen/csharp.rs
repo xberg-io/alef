@@ -15,6 +15,7 @@ use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -1369,9 +1370,13 @@ fn render_assertion(
     if is_discriminated_union {
         if let Some((_, variant_name, inner_field)) = assertion.field.as_ref()
             .and_then(|f| parse_discriminated_union_access(f)) {
-            let _ = writeln!(out, "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} variant)", variant_name);
+            // Use a unique variable name based on the field hash to avoid shadowing
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            inner_field.hash(&mut hasher);
+            let var_hash = format!("{:x}", hasher.finish());
+            let variant_var = format!("variant_{}", &var_hash[..8]);
+            let _ = writeln!(out, "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} {})", variant_name, &variant_var);
             let _ = writeln!(out, "        {{");
-            let variant_var = format!("variant");
             render_discriminated_union_assertion(
                 out,
                 assertion,
