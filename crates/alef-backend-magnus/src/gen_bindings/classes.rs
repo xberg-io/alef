@@ -516,7 +516,10 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
     let first_variant = enum_def.variants.first().map(|v| v.name.as_str()).unwrap_or("Default");
 
     let first_variant_default = if has_data && !enum_def.variants.first().unwrap().fields.is_empty() {
-        let field_defaults: Vec<String> = enum_def.variants.first().unwrap()
+        let field_defaults: Vec<String> = enum_def
+            .variants
+            .first()
+            .unwrap()
             .fields
             .iter()
             .map(|f| format!("{}: Default::default()", f.name))
@@ -527,7 +530,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
     };
 
     // Build variant list with snake_case names for unit enums
-    let variants: Vec<minijinja::Value> = enum_def.variants
+    let variants: Vec<minijinja::Value> = enum_def
+        .variants
         .iter()
         .map(|variant| {
             let fields: Vec<minijinja::Value> = variant
