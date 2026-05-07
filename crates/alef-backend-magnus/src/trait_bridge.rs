@@ -147,70 +147,16 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
-    // Helper: convert NodeContext to a Ruby hash (magnus::RHash)
-    writeln!(out, "fn nodecontext_to_rb_hash(").unwrap();
-    writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> magnus::RHash {{").unwrap();
-    writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").unwrap();
-    writeln!(out, "    let h = ruby.hash_new();").unwrap();
-    writeln!(
-        out,
-        "    h.aset(ruby.to_symbol(\"node_type\"), format!(\"{{:?}}\", ctx.node_type)).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    h.aset(ruby.to_symbol(\"tag_name\"), ctx.tag_name.as_str()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    h.aset(ruby.to_symbol(\"depth\"), ctx.depth as i64).ok();").unwrap();
-    writeln!(
-        out,
-        "    h.aset(ruby.to_symbol(\"index_in_parent\"), ctx.index_in_parent as i64).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    h.aset(ruby.to_symbol(\"is_inline\"), ctx.is_inline).ok();").unwrap();
-    writeln!(
-        out,
-        "    h.aset(ruby.to_symbol(\"parent_tag\"), ctx.parent_tag.as_deref().map(|s| ruby.str_new(s).as_value())).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    let attrs = ruby.hash_new();").unwrap();
-    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(out, "        attrs.aset(ruby.str_new(k), ruby.str_new(v)).ok();").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    h.aset(ruby.to_symbol(\"attributes\"), attrs).ok();").unwrap();
-    writeln!(out, "    h").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
+    // Generate visitor bridge struct with nodecontext_to_rb_hash helper
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_struct.rs.jinja",
+        minijinja::context! {
+            struct_name => struct_name,
+            core_crate => core_crate,
+        },
+    ));
 
-    // Bridge struct
-    writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    rb_obj: magnus::Value,").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Manual Debug impl
-    writeln!(out, "impl std::fmt::Debug for {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-    )
-    .unwrap();
-    writeln!(out, "        write!(f, \"{struct_name}\")").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Constructor
-    writeln!(out, "impl {struct_name} {{").unwrap();
-    writeln!(out, "    pub fn new(rb_obj: magnus::Value) -> Self {{").unwrap();
-    writeln!(out, "        Self {{ rb_obj }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "}}").unwrap();
-    writeln!(out).unwrap();
-
-    // Trait impl
+    // Trait impl with all methods
     writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
@@ -236,9 +182,9 @@ fn gen_visitor_method_magnus(
         let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
         sig_parts.push(format!("{}: {}", p.name, ty_str));
     }
-    let sig = sig_parts.join(", ");
+    let signature = sig_parts.join(", ");
 
-    let ret_ty = match &method.return_type {
+    let return_type = match &method.return_type {
         TypeRef::Named(n) => type_paths
             .get(n.as_str())
             .map(|p| p.replace('-', "_"))
@@ -246,82 +192,28 @@ fn gen_visitor_method_magnus(
         other => param_type(other, "", false, type_paths),
     };
 
-    writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
-
-    // Check if the Ruby object responds to this method
-    writeln!(
-        out,
-        "        let responds = self.rb_obj.respond_to(\"{name}\", false).unwrap_or(false);"
-    )
-    .unwrap();
-    writeln!(out, "        if !responds {{").unwrap();
-    writeln!(out, "            return {ret_ty}::Continue;").unwrap();
-    writeln!(out, "        }}").unwrap();
-
-    // Build the funcall args tuple
-    if method.params.is_empty() {
-        writeln!(
-            out,
-            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", ());"
-        )
-        .unwrap();
-    } else {
-        // Build args as a tuple
+    let has_params = !method.params.is_empty();
+    let args_tuple = if has_params {
         let args_exprs: Vec<String> = method.params.iter().map(build_magnus_arg).collect();
-        let args_tuple = if args_exprs.len() == 1 {
+        if args_exprs.len() == 1 {
             format!("({},)", args_exprs[0])
         } else {
             format!("({})", args_exprs.join(", "))
-        };
-        writeln!(
-            out,
-            "        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall(\"{name}\", {args_tuple});"
-        )
-        .unwrap();
-    }
+        }
+    } else {
+        String::new()
+    };
 
-    // Parse result
-    writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(val) => {{").unwrap();
-    // Hash with :custom key — e.g. { custom: '--- {text} ---' }
-    writeln!(
-        out,
-        "                if let Some(hash) = magnus::RHash::from_value(val) {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                    if let Some(custom_val) = hash.get(ruby.to_symbol(\"custom\")) {{"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                        return {ret_ty}::Custom(custom_val.to_string());"
-    )
-    .unwrap();
-    writeln!(out, "                    }}").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "                let s: String = val.to_string();").unwrap();
-    writeln!(out, "                match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                    \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                    \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                    \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(out, "                    other => {ret_ty}::Custom(other.to_string()),").unwrap();
-    writeln!(out, "                }}").unwrap();
-    writeln!(out, "            }}").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out).unwrap();
+    out.push_str(&crate::template_env::render(
+        "visitor_method.rs.jinja",
+        minijinja::context! {
+            method_name => name,
+            signature => &signature,
+            return_type => &return_type,
+            has_params => has_params,
+            args_tuple => &args_tuple,
+        },
+    ));
 }
 
 /// Build a single Magnus funcall arg expression for a visitor method parameter.

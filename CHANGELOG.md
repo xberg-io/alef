@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.32] - 2026-05-07
+
+### Added
+
+- feat(release): x86_64-apple-darwin release binaries to support downstream macOS x86_64 CI runners that cannot rely on Rosetta
+
 ## [0.14.30] - 2026-05-07
 
 ### Fixed
