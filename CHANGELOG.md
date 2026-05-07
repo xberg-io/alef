@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.29] - 2026-05-07
+
+### Changed
+
+- fix(rustler-backend): remove `x86_64-pc-windows-gnu` from default rustler_precompiled `targets:` list. The target was declared in the alef-generated `native.ex` but no canonical CI build job produces a windows-gnu NIF (rustler precompiled binaries normally target windows-msvc, and most Elixir projects don't ship windows-gnu artifacts). Including the missing target broke `mix rustler_precompiled.download --all` during release prep, which in turn blocked Hex publish for downstream packages. New default target list is `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`.
+
 ### Fixed
 
 - fix(pyo3,wasm,php-backends): add `clippy::arc_with_non_send_sync` to crate-root allow lists. Rust 1.95.0 promoted this lint to default-on; binding crates wrap a non-Send/Sync `ConversionOptionsBuilder` (or similar core type) in `Arc` for ergonomic chaining, which is sound in single-threaded VM contexts. The napi backend already had this allow; the other three now match for consistent behavior on Rust 1.95+.
