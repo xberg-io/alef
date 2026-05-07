@@ -134,8 +134,10 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    // Split callbacks into chunks of 10 each; each sub-method returns the updated offset.
-    const CHUNK_SIZE: usize = 10;
+    // Split callbacks into chunks of 5 each; each sub-method returns the updated offset.
+    // Checkstyle enforces a 150-line MethodLength limit; with ~22 lines per callback,
+    // chunks of 5 produce ~114 lines per method, safely under the limit.
+    const CHUNK_SIZE: usize = 5;
     for (chunk_idx, chunk) in CALLBACKS.chunks(CHUNK_SIZE).enumerate() {
         let method_num = chunk_idx + 1;
         writeln!(

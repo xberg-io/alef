@@ -4,6 +4,8 @@
 public interface Visitor {
 {% for callback in callbacks %}
     /** {{ callback.doc }} */
-    default VisitResult {{ callback.java_method }}({{ callback.params }}) { return VisitResult.continueDefault(); }
+    default VisitResult {{ callback.java_method }}({{ callback.params }}) {
+        return VisitResult.continueDefault();
+    }
 {% endfor %}
 }

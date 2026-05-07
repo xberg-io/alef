@@ -506,16 +506,24 @@ impl Backend for ExtendrBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+        // Flat data enums whose tuple variant data types are all primitive/String can round-trip.
+        // Those that have complex output-only types (e.g. FormatMetadata → DocxMetadata) cannot.
+        let non_round_trip_flat_enums: Vec<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_flat_data_enum(e) && !can_flat_data_enum_round_trip(e))
+            .map(|e| e.name.clone())
+            .collect();
         let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig {
             cast_uints_to_i32: true,
             cast_large_ints_to_f64: true,
             // Exclude arc-incompatible opaque types (e.g. VisitorHandle) from conversion
             // generation so that struct fields referencing them are skipped in From impls.
             exclude_types: &arc_incompatible_opaque_vec,
-            // Flat data enums are output-only: skip them in binding→core From impls so that
-            // types containing them (e.g. Metadata.format: Option<FormatMetadata>) don't try
-            // to convert a field that has no From<BindingType> impl.
-            from_binding_skip_types: &flat_data_enum_names_vec,
+            // Only skip flat data enums that are output-only (complex variant data types).
+            // Round-trip-safe ones (e.g. OutputFormat with only String data) have a
+            // From<BindingStruct> for CoreEnum impl generated and don't need skipping.
+            from_binding_skip_types: &non_round_trip_flat_enums,
             ..alef_codegen::conversions::ConversionConfig::default()
         };
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
@@ -546,8 +554,15 @@ impl Backend for ExtendrBackend {
                 // Flat struct: generate dedicated From<core::Enum> impl that populates variant fields.
                 if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
                     builder.add_item(&gen_extendr_flat_data_enum_from_core(e, &core_import));
+                    // Also generate the reverse for flat data enums whose tuple variant fields are
+                    // all primitive/String types (so binding→core round-trip works).
+                    // Output-only enums like FormatMetadata have complex output-only variant types
+                    // (PdfMetadata, DocxMetadata, ...) and are excluded.
+                    if can_flat_data_enum_round_trip(e) {
+                        builder.add_item(&gen_extendr_flat_data_enum_to_core(e, &core_import));
+                    }
                 }
-                // No binding→core conversion for flat structs (output-only data).
+                // binding→core is only generated for round-trip-safe flat data enums above.
             } else {
                 // Extendr emits enums as flat (unit-only) variants regardless of whether the
                 // core enum has data — emit lossy From impls so containing structs can call
@@ -900,6 +915,24 @@ fn is_flat_data_enum(e: &alef_core::ir::EnumDef) -> bool {
     has_data && e.variants.iter().filter(|v| !v.fields.is_empty()).all(|v| v.is_tuple)
 }
 
+/// Returns true if a flat data enum can safely generate a binding→core From impl.
+/// Only enums whose tuple variant data is String or Option<String> are safe — complex
+/// output-only struct types (DocxMetadata, PdfMetadata, etc.) have no reverse conversion.
+fn can_flat_data_enum_round_trip(e: &alef_core::ir::EnumDef) -> bool {
+    e.variants.iter().all(|v| {
+        if v.fields.is_empty() {
+            return true; // unit variants always safe
+        }
+        if v.is_tuple && v.fields.len() == 1 {
+            let ty = &v.fields[0].ty;
+            matches!(ty, alef_core::ir::TypeRef::String)
+                || matches!(ty, alef_core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::String))
+        } else {
+            false
+        }
+    })
+}
+
 /// Generate a flat Rust struct for a data enum with all-tuple variants.
 ///
 /// The struct has a discriminator field (from `serde_tag`, defaulting to `"format_type"`)
@@ -1015,6 +1048,54 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &alef_core::ir::EnumDef, core_
         }
     }
 
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    out
+}
+
+fn gen_extendr_flat_data_enum_to_core(enum_def: &alef_core::ir::EnumDef, core_import: &str) -> String {
+    use std::fmt::Write;
+
+    let name = &enum_def.name;
+    let core_path = format!("{core_import}::{name}");
+    let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let mut out = String::with_capacity(512);
+
+    let variant_wire_name = |variant: &alef_core::ir::EnumVariant| -> String {
+        if let Some(r) = &variant.serde_rename {
+            return r.clone();
+        }
+        match enum_def.serde_rename_all.as_deref() {
+            Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
+            Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
+            Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
+            Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
+            _ => variant.name.clone(),
+        }
+    };
+
+    writeln!(out, "impl From<{name}> for {core_path} {{").ok();
+    writeln!(out, "    fn from(val: {name}) -> Self {{").ok();
+    writeln!(out, "        match val.{discriminator}.as_str() {{").ok();
+
+    for variant in &enum_def.variants {
+        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let wire_name = variant_wire_name(variant);
+        if variant.fields.is_empty() {
+            writeln!(out, "            \"{wire}\" => Self::{vname},", wire = wire_name, vname = variant.name).ok();
+        } else if variant.is_tuple {
+            writeln!(
+                out,
+                "            \"{wire}\" => Self::{vname}(val.{fname}.unwrap_or_default().into()),",
+                wire = wire_name,
+                vname = variant.name,
+                fname = field_name,
+            ).ok();
+        }
+    }
+
+    writeln!(out, "            _ => Self::default(),").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
