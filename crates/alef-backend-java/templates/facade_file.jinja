@@ -1,0 +1,8 @@
+{{ header }}package {{ package }};
+{% if has_list or has_map or has_optional %}
+
+{% if has_list %}import java.util.List;
+{% endif %}{% if has_map %}import java.util.Map;
+{% endif %}{% if has_optional %}import java.util.Optional;
+{% endif %}{% endif %}
+{{ body }}

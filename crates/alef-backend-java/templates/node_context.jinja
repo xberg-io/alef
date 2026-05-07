@@ -1,0 +1,17 @@
+{{ header }}package {{ package }};
+
+/** Context passed to every visitor callback. */
+public record NodeContext(
+        /** Coarse-grained node type tag. */
+        int nodeType,
+        /** HTML element tag name (e.g. "div"). */
+        String tagName,
+        /** DOM depth (0 = root). */
+        long depth,
+        /** 0-based sibling index. */
+        long indexInParent,
+        /** Parent element tag name, or null at the root. */
+        String parentTag,
+        /** True when this element is treated as inline. */
+        boolean isInline
+) {}

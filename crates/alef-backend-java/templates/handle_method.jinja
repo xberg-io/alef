@@ -1,0 +1,25 @@
+{% if single_line_fits %}
+    int {{ method_name }}({{ params | join(', ') }}) {
+{% else %}
+    int {{ method_name }}(
+            {{ params | join(', \n            ') }}) {
+{% endif %}
+        try {
+            var context = decodeNodeContext(ctx);
+{% for decode_line in decode_lines %}
+            {{ decode_line }}
+{% endfor %}
+{% if has_is_header %}
+            var goIsHeader = isHeader != 0;
+{% endif %}
+
+            var result = visitor.{{ java_method }}({{ call_args | join(', ') }});
+            return encodeVisitResult(result, outCustom, outLen);
+        } catch (Throwable t) {
+            // Record the first visitor exception; subsequent errors are suppressed.
+            if (visitorError == null) {
+                visitorError = t;
+            }
+            return VISIT_RESULT_ERROR;
+        }
+    }

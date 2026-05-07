@@ -1,0 +1,7 @@
+{{ header }}package {{ package }};
+{% if imports %}
+
+{% for import in imports %}import {{ import }};
+{% endfor %}{% endif %}
+
+{{ content }}

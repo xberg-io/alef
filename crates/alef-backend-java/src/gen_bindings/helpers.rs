@@ -121,72 +121,24 @@ pub(crate) fn gen_infrastructure_exception_class(
     code: i32,
     doc: &str,
 ) -> String {
-    let base = format!("{}Exception", main_class);
-    let mut out = String::with_capacity(512);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-    writeln!(out, "/** {} */", doc).ok();
-    writeln!(out, "public class {} extends {} {{", class_name, base).ok();
-    writeln!(out, "    /** Creates a new {}. */", class_name).ok();
-    writeln!(out, "    public {}(final String message) {{", class_name).ok();
-    writeln!(out, "        super({}, message);", code).ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Creates a new {} with a cause. */", class_name).ok();
-    writeln!(
-        out,
-        "    public {}(final String message, final Throwable cause) {{",
-        class_name
-    )
-    .ok();
-    writeln!(out, "        super(message, cause);").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    out
+    let header = hash::header(CommentStyle::DoubleSlash);
+    crate::template_env::render("infrastructure_exception.jinja", minijinja::context! {
+        header => header,
+        package => package,
+        class_name => class_name,
+        main_class => main_class,
+        code => code,
+        doc => doc,
+    })
 }
 
 pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
-    let mut out = String::with_capacity(512);
-
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-
-    writeln!(out, "/** Exception thrown by {}. */", class_name).ok();
-    writeln!(out, "public class {}Exception extends Exception {{", class_name).ok();
-    writeln!(out, "    /** The error code. */").ok();
-    writeln!(out, "    private final int code;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Creates a new {}Exception. */", class_name).ok();
-    writeln!(
-        out,
-        "    public {}Exception(final int code, final String message) {{",
-        class_name
-    )
-    .ok();
-    writeln!(out, "        super(message);").ok();
-    writeln!(out, "        this.code = code;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Creates a new {}Exception with a cause. */", class_name).ok();
-    writeln!(
-        out,
-        "    public {}Exception(final String message, final Throwable cause) {{",
-        class_name
-    )
-    .ok();
-    writeln!(out, "        super(message, cause);").ok();
-    writeln!(out, "        this.code = -1;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Returns the error code. */").ok();
-    writeln!(out, "    public int getCode() {{").ok();
-    writeln!(out, "        return code;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    out
+    let header = hash::header(CommentStyle::DoubleSlash);
+    crate::template_env::render("exception_class.jinja", minijinja::context! {
+        header => header,
+        package => package,
+        class_name => class_name,
+    })
 }
 
 // ---------------------------------------------------------------------------

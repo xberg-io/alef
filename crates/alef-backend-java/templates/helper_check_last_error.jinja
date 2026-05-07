@@ -1,0 +1,12 @@
+    private static void checkLastError() throws Throwable {
+        int errCode = (int) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
+        if (errCode != 0) {
+            var ctxPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_LAST_ERROR_CONTEXT.invoke();
+            String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
+            switch (errCode) {
+                case 1 -> throw new InvalidInputException(msg);
+                case 2 -> throw new ConversionErrorException(msg);
+                default -> throw new {{ class_name }}Exception(errCode, msg);
+            }
+        }
+    }

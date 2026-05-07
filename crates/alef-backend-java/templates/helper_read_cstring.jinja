@@ -1,0 +1,6 @@
+    private static String readCString(MemorySegment ptr) {
+        if (ptr == null || ptr.address() == 0) {
+            return null;
+        }
+        return ptr.getUtf8String(0);
+    }

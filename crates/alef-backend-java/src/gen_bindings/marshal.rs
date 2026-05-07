@@ -243,116 +243,22 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     if needs_check_last_error {
         // Reads the last FFI error code and, if non-zero, reads the error message and throws.
         // Called immediately after a null-pointer return from an FFI call.
-        writeln!(out, "    private static void checkLastError() throws Throwable {{").ok();
-        writeln!(
-            out,
-            "        int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(out, "        if (errCode != 0) {{").ok();
-        writeln!(
-            out,
-            "            var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(
-            out,
-            "            String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(out, "            switch (errCode) {{").ok();
-        writeln!(out, "                case 1 -> throw new InvalidInputException(msg);").ok();
-        writeln!(
-            out,
-            "                case 2 -> throw new ConversionErrorException(msg);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                default -> throw new {}Exception(errCode, msg);",
-            class_name
-        )
-        .ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render("helper_check_last_error.jinja", minijinja::context! {
+            prefix_upper => prefix.to_uppercase(),
+            class_name => class_name,
+        }));
     }
 
     if needs_create_object_mapper {
-        // Emit a configured ObjectMapper factory:
-        //   - findAndRegisterModules() to pick up jackson-datatype-jdk8 (Optional support)
-        //   - SNAKE_CASE naming strategy: maps snake_case JSON keys to camelCase builder methods
-        //     so that `total_lines` in Rust JSON deserializes to `withTotalLines()` in the builder.
-        //     Explicit @JsonProperty annotations on record components still take precedence.
-        //   - ACCEPT_CASE_INSENSITIVE_ENUMS so enum names like "json_ld" match JsonLd, etc.
-        writeln!(
-            out,
-            "    private static com.fasterxml.jackson.databind.ObjectMapper createObjectMapper() {{"
-        )
-        .ok();
-        writeln!(out, "        return new com.fasterxml.jackson.databind.ObjectMapper()").ok();
-        writeln!(
-            out,
-            "            .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())"
-        )
-        .ok();
-        writeln!(out, "            .findAndRegisterModules()").ok();
-        writeln!(
-            out,
-            "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
-        )
-        .ok();
-        writeln!(
-            out,
-            "            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)"
-        )
-        .ok();
-        writeln!(
-            out,
-            "            .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = createObjectMapper();"
-        )
-        .ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render("helper_object_mapper.jinja", minijinja::context! {}));
     }
 
     if needs_read_cstring {
-        writeln!(out, "    private static String readCString(MemorySegment ptr) {{").ok();
-        writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
-        writeln!(out, "            return null;").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        return ptr.getUtf8String(0);").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render("helper_read_cstring.jinja", minijinja::context! {}));
     }
 
     if needs_read_bytes {
-        writeln!(
-            out,
-            "    private static byte[] readBytes(MemorySegment ptr, long len) {{"
-        )
-        .ok();
-        writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
-        writeln!(out, "            return new byte[0];").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        byte[] bytes = new byte[(int) len];").ok();
-        writeln!(
-            out,
-            "        MemorySegment.copy(ptr, ValueLayout.JAVA_BYTE.byteSize() * 0, bytes, 0, (int) len);"
-        )
-        .ok();
-        writeln!(out, "        return bytes;").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
+        out.push_str(&crate::template_env::render("helper_read_bytes.jinja", minijinja::context! {}));
     }
 
     if needs_read_json_list {
@@ -362,31 +268,9 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         // CPD correctly flagged as duplication). Returns an empty list on a
         // null pointer to mirror the previous inline behavior.
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
-        writeln!(
-            out,
-            "    private static <T> java.util.List<T> readJsonList(MemorySegment resultPtr, com.fasterxml.jackson.core.type.TypeReference<java.util.List<T>> typeRef) throws {}Exception {{",
-            class_name
-        )
-        .ok();
-        writeln!(out, "        if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        writeln!(out, "            return java.util.List.of();").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        try {{").ok();
-        writeln!(
-            out,
-            "            String json = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            return MAPPER.readValue(json, typeRef);").ok();
-        writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(
-            out,
-            "            throw new {}Exception(\"FFI call failed\", e);",
-            class_name
-        )
-        .ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
+        out.push_str(&crate::template_env::render("helper_read_json_list.jinja", minijinja::context! {
+            class_name => class_name,
+            free_handle => free_handle,
+        }));
     }
 }
