@@ -256,16 +256,42 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let description = escape_dart(&fixture.description);
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
+    // Build argument list from fixture.input and call_config.args
+    let mut args = Vec::new();
+    for arg_def in &call_config.args {
+        let arg_value = fixture.input.get(&arg_def.name);
+        match arg_def.arg_type.as_str() {
+            "file_path" | "bytes" => {
+                if let Some(serde_json::Value::String(file_path)) = arg_value {
+                    args.push(format!("File('{}').readAsBytesSync()", file_path));
+                }
+            }
+            "string" => {
+                if let Some(serde_json::Value::String(s)) = arg_value {
+                    args.push(format!("'{}'", escape_dart(s)));
+                }
+            }
+            _ => {}
+        }
+    }
+
     if is_async {
         let _ = writeln!(out, "  test('{description}', () async {{");
     } else {
         let _ = writeln!(out, "  test('{description}', () {{");
     }
 
+    // Emit the receiver class name and arguments
+    let args_str = args.join(", ");
+    let receiver_class = call_overrides
+        .and_then(|o| o.class.as_ref())
+        .cloned()
+        .unwrap_or_else(|| "KreuzbergBridge".to_string());
+
     if is_async {
-        let _ = writeln!(out, "    final {result_var} = await {function_name}();");
+        let _ = writeln!(out, "    final {result_var} = await {receiver_class}.{function_name}({args_str});");
     } else {
-        let _ = writeln!(out, "    final {result_var} = {function_name}();");
+        let _ = writeln!(out, "    final {result_var} = {receiver_class}.{function_name}({args_str});");
     }
 
     let _ = writeln!(out, "  }});");

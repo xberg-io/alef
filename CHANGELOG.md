@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e-dart): emit receiver class and arguments in non-HTTP test calls. Dart e2e tests now emit `KreuzbergBridge.extractBytesSync(File(...).readAsBytesSync(), ...)` instead of bare `extractBytesSync()`, with fixture inputs correctly loaded and passed as arguments.
 - fix(e2e-dart): convert snake_case function names to camelCase in generated test code. Dart conventions require camelCase method names; the test code generator now converts function names like `extract_bytes_sync` to `extractBytesSync`, matching idiomatic Dart API surface.
 - fix(swift-backend): emit native Swift enums with unit variants only instead of typealiasing to non-existent RustBridge enum types. swift-bridge's automatic code generation doesn't reliably expose all enum types; emitting them directly as Swift enums avoids brittle typealias dependencies and enables pattern matching.
 - fix(e2e-wasm): inject initSync() call in test files for Node.js test environments. vitest running wasm-pack output requires synchronous initialization of the WASM module using initSync with the bundled binary, preventing `TypeError: Cannot read properties of undefined (reading '__wbindgen_add_to_stack_pointer')` and fetch failures in Node.js.
