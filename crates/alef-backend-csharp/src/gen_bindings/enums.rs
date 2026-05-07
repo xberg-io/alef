@@ -162,21 +162,16 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
 /// Generate a C# abstract record hierarchy for internally tagged enums.
 ///
 /// Maps `#[serde(tag = "type_field", rename_all = "snake_case")]` Rust enums to
-/// a custom `JsonConverter<T>` that buffers all JSON properties before resolving
-/// the discriminator. This is more robust than `[JsonPolymorphic]` which requires
-/// the discriminator to be the first property in the JSON object.
+/// a C# polymorphic record hierarchy using .NET 7+ `[JsonPolymorphic]` and `[JsonDerivedType]`
+/// attributes. These attributes are the idiomatic way to handle JSON polymorphism in modern C#.
 fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let enum_pascal = enum_def.name.to_pascal_case();
-    let converter_name = format!("{enum_pascal}JsonConverter");
     // Namespace prefix used to fully-qualify inner types when their short name is shadowed
     // by a nested record of the same name (e.g. ContentPart.ImageUrl shadows ImageUrl).
     let ns = namespace;
 
     let mut out = csharp_file_header();
-    out.push_str("using System;\n");
-    out.push_str("using System.Collections.Generic;\n");
-    out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
     out.push_str(&format!("namespace {};\n\n", namespace));
 
@@ -189,8 +184,10 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    // Use custom converter instead of [JsonPolymorphic] to handle discriminator in any position
-    out.push_str(&format!("[JsonConverter(typeof({converter_name}))]\n"));
+    // Use [JsonPolymorphic] with the discriminator property name
+    out.push_str(&format!(
+        "[JsonPolymorphic(TypeDiscriminatorPropertyName = \"{tag_field}\")]\n"
+    ));
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
 
@@ -198,9 +195,15 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     let variant_names: std::collections::HashSet<String> =
         enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
 
-    // Nested sealed records for each variant
+    // Nested sealed records for each variant with [JsonDerivedType] attributes
     for variant in &enum_def.variants {
         let pascal = variant.name.to_pascal_case();
+
+        // Compute the discriminator value for this variant (the wire name)
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
 
         if !variant.doc.is_empty() {
             out.push_str("    /// <summary>\n");
@@ -209,6 +212,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             }
             out.push_str("    /// </summary>\n");
         }
+
+        // Add [JsonDerivedType] attribute with the wire name
+        out.push_str(&format!(
+            "    [JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"
+        ));
 
         if variant.fields.is_empty() {
             // Unit variant → sealed record with no fields
@@ -295,147 +303,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         writeln!(out).ok();
     }
 
-    out.push_str("}\n\n");
-
-    // Generate custom converter that buffers the JSON document before dispatching
-    out.push_str(&format!(
-        "/// <summary>Custom JSON converter for <see cref=\"{enum_pascal}\"/> that reads the \"{tag_field}\" discriminator from any position.</summary>\n"
-    ));
-    out.push_str(&format!(
-        "internal sealed class {converter_name} : JsonConverter<{enum_pascal}>\n"
-    ));
-    out.push_str("{\n");
-
-    // Read method
-    out.push_str(&format!(
-        "    public override {enum_pascal} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)\n"
-    ));
-    out.push_str("    {\n");
-    out.push_str("        using var doc = JsonDocument.ParseValue(ref reader);\n");
-    out.push_str("        var root = doc.RootElement;\n");
-    out.push_str(&format!(
-        "        if (!root.TryGetProperty(\"{tag_field}\", out var tagEl))\n"
-    ));
-    out.push_str(&format!(
-        "            throw new JsonException(\"{enum_pascal}: missing \\\"{tag_field}\\\" discriminator\");\n"
-    ));
-    out.push_str("        var tag = tagEl.GetString();\n");
-    out.push_str("        var json = root.GetRawText();\n");
-    out.push_str("        return tag switch\n");
-    out.push_str("        {\n");
-
-    for variant in &enum_def.variants {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let pascal = variant.name.to_pascal_case();
-        // Newtype/tuple variants have their inner type's fields inlined alongside the tag in JSON.
-        // Deserialize the inner type from the full JSON object and wrap it in the record constructor.
-        // Also treat single named-field variants whose parameter was renamed to "Value" (clash with
-        // the variant name or the field's own type name) the same way.
-        let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
-        let is_named_clash_newtype = variant.fields.len() == 1 && !is_tuple_field(&variant.fields[0]) && {
-            let f = &variant.fields[0];
-            let cs_type = csharp_type(&f.ty);
-            let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
-            cs_name == pascal || cs_name == cs_type
-        };
-        let is_newtype = is_tuple_newtype || is_named_clash_newtype;
-        if is_newtype {
-            let inner_cs_type = csharp_type(&variant.fields[0].ty);
-            // CS8910: when inner type name equals variant name, use object initializer
-            // (no primary constructor exists — property-based record was emitted)
-            if inner_cs_type == pascal {
-                out.push_str(&format!(
-                    "            \"{discriminator}\" => new {enum_pascal}.{pascal} {{ Value = JsonSerializer.Deserialize<{inner_cs_type}>(json, options)!\n"
-                ));
-                out.push_str(&format!(
-                    "                ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}.Value\") }},\n"
-                ));
-            } else {
-                out.push_str(&format!(
-                    "            \"{discriminator}\" => new {enum_pascal}.{pascal}(\n"
-                ));
-                out.push_str(&format!(
-                    "                JsonSerializer.Deserialize<{inner_cs_type}>(json, options)!\n"
-                ));
-                out.push_str(&format!(
-                    "                    ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}.Value\")),\n"
-                ));
-            }
-        } else {
-            out.push_str(&format!(
-                "            \"{discriminator}\" => JsonSerializer.Deserialize<{enum_pascal}.{pascal}>(json, options)!\n"
-            ));
-            out.push_str(&format!(
-                "                ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}\"),\n"
-            ));
-        }
-    }
-
-    out.push_str(&format!(
-        "            _ => throw new JsonException($\"Unknown {enum_pascal} discriminator: {{tag}}\")\n"
-    ));
-    out.push_str("        };\n");
-    out.push_str("    }\n\n");
-
-    // Write method
-    out.push_str(&format!(
-        "    public override void Write(Utf8JsonWriter writer, {enum_pascal} value, JsonSerializerOptions options)\n"
-    ));
-    out.push_str("    {\n");
-
-    // Build options without this converter to avoid infinite recursion
-    out.push_str("        // Serialize the concrete type, then inject the discriminator\n");
-    out.push_str("        switch (value)\n");
-    out.push_str("        {\n");
-
-    for variant in &enum_def.variants {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let pascal = variant.name.to_pascal_case();
-        // Newtype/tuple variants: serialize the inner Value's fields inline alongside the tag.
-        // Also applies to single named-field variants whose parameter was renamed to "Value" due
-        // to a clash with the variant name or the field's own type name.
-        let is_tuple_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
-        let is_named_clash_newtype = variant.fields.len() == 1 && !is_tuple_field(&variant.fields[0]) && {
-            let f = &variant.fields[0];
-            let cs_type = csharp_type(&f.ty);
-            let cs_name = to_csharp_name(f.name.trim_start_matches('_'));
-            cs_name == pascal || cs_name == cs_type
-        };
-        let is_newtype = is_tuple_newtype || is_named_clash_newtype;
-        // dotnet format expects switch-case block braces indented one level
-        // deeper than the `case` keyword (the body's indent), not aligned to
-        // it — otherwise it reformats every commit and breaks alef-verify.
-        out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
-        out.push_str("                {\n");
-        if is_newtype {
-            out.push_str("                    var doc = JsonSerializer.SerializeToDocument(v.Value, options);\n");
-        } else {
-            out.push_str("                    var doc = JsonSerializer.SerializeToDocument(v, options);\n");
-        }
-        out.push_str("                    writer.WriteStartObject();\n");
-        out.push_str(&format!(
-            "                    writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"
-        ));
-        out.push_str("                    foreach (var prop in doc.RootElement.EnumerateObject())\n");
-        out.push_str(&format!(
-            "                        if (prop.Name != \"{tag_field}\") prop.WriteTo(writer);\n"
-        ));
-        out.push_str("                    writer.WriteEndObject();\n");
-        out.push_str("                    break;\n");
-        out.push_str("                }\n");
-    }
-
-    out.push_str(&format!(
-        "            default: throw new JsonException($\"Unknown {enum_pascal} subtype: {{value.GetType().Name}}\");\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("    }\n");
     out.push_str("}\n");
 
     out

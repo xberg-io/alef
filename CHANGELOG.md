@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(extendr-backend): flat data enums (e.g. `OutputFormat`) now generate a `From<BindingStruct> for CoreEnum` impl in addition to the existing `From<CoreEnum> for BindingStruct`. Previously the binding→core conversion fell back to `Default::default()` for all flat data enum fields, so setting `output_format = "markdown"` on an `ExtractionConfig` was silently discarded and every extraction ran as `Plain`. The reverse impl is only generated for enums where all tuple-variant data types are `String` or `Option<String>` (primitives); complex output-only enums like `FormatMetadata` are excluded.
 - feat(extendr-backend): input types (structs that appear as function/method parameters) now emit a `from_json(json: String) -> Result<Self>` static factory method in their `#[extendr]` impl block. The factory deserializes via the core Rust type (which carries `#[serde(default)]` and string-enum aliases), then converts to the binding type. This allows R callers to construct configs from partial JSON (`ExtractionConfig$from_json('{"output_format":"markdown"}')`). The R-side `.Call` wrapper is emitted in `extendr-wrappers.R` automatically. Only input types receive the factory; output-only types (e.g. `Metadata`, `ExtractionResult`) are excluded.
 
+### Changed
+
+- fix(csharp-backend): replace bespoke `FormatMetadataJsonConverter` with .NET 7+ standard `[JsonPolymorphic]` + `[JsonDerivedType]` attributes. The custom converter was removed entirely; JSON deserialization for tagged unions now uses the idiomatic .NET 7+ approach. Generated C# code is simpler and maintains the same runtime behavior.
+
 ### Fixed
 
 - fix(java-backend): visitor bridge `invokeCallbacks` methods now split into chunks of 5 callbacks instead of 10. Checkstyle enforces a 150-line `MethodLength` limit; at ~22 lines per callback, chunks of 10 produced ~232-line methods that failed checkstyle. Chunks of 5 produce ~114 lines, safely under the limit.

@@ -426,16 +426,34 @@ impl Backend for MagnusBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let gem_name = config.ruby_gem_name();
+        let gem_name_snake = gem_name.replace('-', "_");
         let module_name = get_module_name(&gem_name);
+        let ext_name = format!("{}_rb", config.core_crate_dir().replace('-', "_"));
 
         // Generate the main Ruby wrapper module file
         let mut content = hash::header(CommentStyle::Hash);
         content.push_str("# frozen_string_literal: true\n\n");
-        content.push_str(&format!("require_relative '{gem_name}/version'\n"));
-        content.push_str(&format!("require_relative '{gem_name}/native'\n\n"));
+        content.push_str(&format!("require_relative '{gem_name_snake}/version'\n"));
+        content.push_str(&format!("require_relative '{gem_name_snake}/native'\n\n"));
         content.push_str(&format!("module {module_name}\n"));
         content.push_str("  # Re-export all types and functions from native extension\n");
         content.push_str("end\n");
+
+        // Generate the native.rb file that requires the extension and re-exports its symbols
+        let native_module_name = get_module_name(&api.crate_name);
+        let mut native_content = hash::header(CommentStyle::Hash);
+        native_content.push_str("# frozen_string_literal: true\n\n");
+        native_content.push_str(&format!("require '{ext_name}'\n\n"));
+        native_content.push_str(&format!("module {module_name}\n"));
+        native_content.push_str("  # Re-export all public module functions from the native extension\n");
+        native_content.push_str(&format!("  {native_module_name}.methods(false).each do |m|\n"));
+        native_content.push_str(&format!("    define_singleton_method(m) {{ |*args, **kwargs, &blk| {native_module_name}.public_send(m, *args, **kwargs, &blk) }}\n"));
+        native_content.push_str("  end\n\n");
+        native_content.push_str("  # Re-export all constants (classes, structs, etc.) from the native extension\n");
+        native_content.push_str(&format!("  {native_module_name}.constants.each do |c|\n"));
+        native_content.push_str(&format!("    const_set(c, {native_module_name}.const_get(c)) unless const_defined?(c)\n"));
+        native_content.push_str("  end\n");
+        native_content.push_str("end\n");
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
         // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the
@@ -454,16 +472,21 @@ impl Backend for MagnusBackend {
         version_content.push_str(&format!("  VERSION = \"{version}\"\n"));
         version_content.push_str("end\n");
 
-        let output_dir = resolve_output_dir(config.output_paths.get("ruby"), &config.name, "packages/ruby/lib/");
+        let output_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
 
         Ok(vec![
             GeneratedFile {
-                path: PathBuf::from(&output_dir).join(format!("{gem_name}.rb")),
+                path: PathBuf::from(&output_dir).join(format!("{gem_name_snake}.rb")),
                 content,
                 generated_header: false,
             },
             GeneratedFile {
-                path: PathBuf::from(&output_dir).join(format!("{gem_name}/version.rb")),
+                path: PathBuf::from(&output_dir).join(format!("{gem_name_snake}/native.rb")),
+                content: native_content,
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: PathBuf::from(&output_dir).join(format!("{gem_name_snake}/version.rb")),
                 content: version_content,
                 generated_header: false,
             },
