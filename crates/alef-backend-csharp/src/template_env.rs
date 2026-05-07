@@ -1,12 +1,82 @@
-#![allow(dead_code)]
-// Scaffolding for the C# backend's planned migration to minijinja templates.
-// Items are unused until the first templates are ported in; suppress dead_code
-// rather than scaffold-and-delete-and-re-add as each template lands.
-
 use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
-    // Templates will be added here as migration progresses
+    (
+        "namespace_decl.jinja",
+        include_str!("../templates/namespace_decl.jinja"),
+    ),
+    ("class_header.jinja", include_str!("../templates/class_header.jinja")),
+    (
+        "async_task_return_type.jinja",
+        include_str!("../templates/async_task_return_type.jinja"),
+    ),
+    ("param_doc.jinja", include_str!("../templates/param_doc.jinja")),
+    (
+        "param_decl_optional.jinja",
+        include_str!("../templates/param_decl_optional.jinja"),
+    ),
+    (
+        "param_decl_required.jinja",
+        include_str!("../templates/param_decl_required.jinja"),
+    ),
+    ("null_check.jinja", include_str!("../templates/null_check.jinja")),
+    (
+        "error_dispatch.jinja",
+        include_str!("../templates/error_dispatch.jinja"),
+    ),
+    (
+        "native_call_start.jinja",
+        include_str!("../templates/native_call_start.jinja"),
+    ),
+    (
+        "sealed_class_header.jinja",
+        include_str!("../templates/sealed_class_header.jinja"),
+    ),
+    (
+        "safe_handle_class.jinja",
+        include_str!("../templates/safe_handle_class.jinja"),
+    ),
+    (
+        "safe_handle_ctor.jinja",
+        include_str!("../templates/safe_handle_ctor.jinja"),
+    ),
+    (
+        "release_handle_method.jinja",
+        include_str!("../templates/release_handle_method.jinja"),
+    ),
+    (
+        "safehandle_field.jinja",
+        include_str!("../templates/safehandle_field.jinja"),
+    ),
+    (
+        "opaque_class_ctor.jinja",
+        include_str!("../templates/opaque_class_ctor.jinja"),
+    ),
+    (
+        "indented_arg_async.jinja",
+        include_str!("../templates/indented_arg_async.jinja"),
+    ),
+    (
+        "indented_arg_sync.jinja",
+        include_str!("../templates/indented_arg_sync.jinja"),
+    ),
+    (
+        "exception_return.jinja",
+        include_str!("../templates/exception_return.jinja"),
+    ),
+    ("doc_line.jinja", include_str!("../templates/doc_line.jinja")),
+    (
+        "field_definition.jinja",
+        include_str!("../templates/field_definition.jinja"),
+    ),
+    (
+        "opaque_ctor_call.jinja",
+        include_str!("../templates/opaque_ctor_call.jinja"),
+    ),
+    (
+        "public_method_signature.jinja",
+        include_str!("../templates/public_method_signature.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

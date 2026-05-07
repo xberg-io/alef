@@ -6,7 +6,6 @@ use alef_codegen::generators;
 use alef_codegen::shared::{constructor_parts, function_params};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
-use std::fmt::Write;
 
 use crate::type_map::MagnusMapper;
 
@@ -207,102 +206,42 @@ pub(super) fn gen_struct(
     _api: &alef_core::ir::ApiSurface,
     generates_default: bool,
 ) -> String {
-    use std::fmt::Write as FmtWrite;
-
     let class_path = format!("{}::{}", module_name, typ.name);
-    let name = &typ.name;
 
-    // Build struct definition with private fields (to avoid conflicts with method names)
-    let mut out = String::with_capacity(512);
-    write!(out, "#[derive(Clone, Debug, serde::Serialize, serde::Deserialize").ok();
-    if !generates_default {
-        write!(out, ", Default").ok();
-    }
-    writeln!(out, ")]").ok();
-    if typ.has_default {
-        writeln!(out, "#[serde(default)]").ok();
-    }
-    writeln!(out, r#"#[magnus::wrap(class = "{}")]"#, class_path).ok();
-    writeln!(out, "pub struct {} {{", name).ok();
+    // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap.
+    let filtered_fields: Vec<FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !is_thread_unsafe_field(f))
+        .cloned()
+        .collect();
 
-    for field in &typ.fields {
-        // Skip visitor fields: VisitorHandle is Rc<RefCell<dyn HtmlVisitor>> which is !Send + !Sync.
-        // Magnus's #[magnus::wrap] requires Send + Sync. These fields are handled separately
-        // (e.g., via post-processing in the language layer or direct API calls).
-        if is_thread_unsafe_field(field) {
-            continue;
-        }
-        let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
-            mapper.optional(&mapper.map_type(&field.ty))
-        } else {
-            mapper.map_type(&field.ty)
-        };
-        // Fields are private to avoid conflicts with auto-generated method names
-        writeln!(out, "    {}: {},", field.name, field_type).ok();
-    }
+    // Build field list with mapped types
+    let fields: Vec<minijinja::Value> = filtered_fields
+        .iter()
+        .map(|field| {
+            let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                mapper.optional(&mapper.map_type(&field.ty))
+            } else {
+                mapper.map_type(&field.ty)
+            };
+            minijinja::context! {
+                name => &field.name,
+                field_type => &field_type,
+            }
+        })
+        .collect();
 
-    writeln!(out, "}}").ok();
-
-    // SAFETY: #[magnus::wrap] already provides IntoValue. This marker trait
-    // enables use in Vec<T> returns from Magnus function!/method! macros.
-    writeln!(out, "\nunsafe impl IntoValueFromNative for {name} {{}}").ok();
-    // Magnus only provides TryConvert for &T (references) on TypedData types.
-    // We need TryConvert for owned T so wrapped types can be used as function parameters.
-    // Also accept Ruby Hash/String via JSON fallback so callers can pass plain hashes.
-    writeln!(out, "\nimpl magnus::TryConvert for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
+    crate::template_env::render(
+        "struct_def.rs.jinja",
+        minijinja::context! {
+            struct_name => &typ.name,
+            class_path => &class_path,
+            fields => &fields,
+            has_default => typ.has_default,
+            generates_default => generates_default,
+        },
     )
-    .ok();
-    writeln!(
-        out,
-        "        if let Ok(r) = <&{name} as magnus::TryConvert>::try_convert(val) {{"
-    )
-    .ok();
-    writeln!(out, "            return Ok(r.clone());").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(
-        out,
-        "        let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{"
-    )
-    .ok();
-    writeln!(out, "            s").ok();
-    writeln!(out, "        }} else {{").ok();
-    writeln!(
-        out,
-        "            val.funcall::<_, _, String>(\"to_json\", ()).map_err(|e| {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(),"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                    format!(\"no implicit conversion into {name}: {{}}\", e))"
-    )
-    .ok();
-    writeln!(out, "            }})?").ok();
-    writeln!(out, "        }};").ok();
-    writeln!(out, "        serde_json::from_str::<{name}>(&json_str).map_err(|e| {{").ok();
-    writeln!(
-        out,
-        "            magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(),"
-    )
-    .ok();
-    writeln!(
-        out,
-        "                format!(\"failed to deserialize {name}: {{}}\", e))"
-    )
-    .ok();
-    writeln!(out, "        }})").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    // SAFETY: TryConvert produces an owned value via Clone, satisfying owned conversion.
-    write!(out, "unsafe impl TryConvertOwned for {name} {{}}").ok();
-    out
 }
 
 /// Generate Magnus methods for a struct.
@@ -573,150 +512,59 @@ pub(super) fn pascal_to_snake(name: &str) -> String {
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.
 /// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
 pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
-    let name = &enum_def.name;
-    let mut out = String::with_capacity(512);
-
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let first_variant = enum_def.variants.first().map(|v| v.name.as_str()).unwrap_or("Default");
 
-    // Enum definition
-    if has_data {
-        // Data enum: can't be Copy, include serde tag attribute
-        writeln!(out, "#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]").ok();
-        if let Some(tag) = &enum_def.serde_tag {
-            writeln!(out, r#"#[serde(tag = "{tag}")]"#).ok();
-        }
+    let first_variant_default = if has_data && !enum_def.variants.first().unwrap().fields.is_empty() {
+        let field_defaults: Vec<String> = enum_def
+            .variants
+            .first()
+            .unwrap()
+            .fields
+            .iter()
+            .map(|f| format!("{}: Default::default()", f.name))
+            .collect();
+        format!(" {{ {} }}", field_defaults.join(", "))
     } else {
-        writeln!(
-            out,
-            "#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]"
-        )
-        .ok();
-    }
-    writeln!(out, "pub enum {name} {{").ok();
-    for variant in &enum_def.variants {
-        if let Some(rename) = &variant.serde_rename {
-            writeln!(out, r#"    #[serde(rename = "{rename}")]"#).ok();
-        }
-        if variant.fields.is_empty() {
-            writeln!(out, "    {},", variant.name).ok();
-        } else {
-            // Data variant with named fields
-            let fields: Vec<String> = variant
+        String::new()
+    };
+
+    // Build variant list with snake_case names for unit enums
+    let variants: Vec<minijinja::Value> = enum_def
+        .variants
+        .iter()
+        .map(|variant| {
+            let fields: Vec<minijinja::Value> = variant
                 .fields
                 .iter()
-                .map(|f| format!("{}: {}", f.name, field_type_for_serde(f)))
+                .map(|f| {
+                    minijinja::context! {
+                        name => &f.name,
+                        field_type => field_type_for_serde(f),
+                    }
+                })
                 .collect();
-            writeln!(out, "    {} {{ {} }},", variant.name, fields.join(", ")).ok();
-        }
-    }
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
 
-    // Default impl for config constructor unwrap_or_default()
-    if let Some(first) = enum_def.variants.first() {
-        if has_data && !first.fields.is_empty() {
-            // Data variant default: use Default::default() for each field
-            let field_defaults: Vec<String> = first
-                .fields
-                .iter()
-                .map(|f| format!("{}: Default::default()", f.name))
-                .collect();
-            writeln!(out, "impl Default for {name} {{").ok();
-            writeln!(
-                out,
-                "    fn default() -> Self {{ Self::{} {{ {} }} }}",
-                first.name,
-                field_defaults.join(", ")
-            )
-            .ok();
-            writeln!(out, "}}").ok();
-        } else {
-            writeln!(out, "impl Default for {name} {{").ok();
-            writeln!(out, "    fn default() -> Self {{ Self::{} }}", first.name).ok();
-            writeln!(out, "}}").ok();
-        }
-        writeln!(out).ok();
-    }
+            minijinja::context! {
+                name => &variant.name,
+                serde_rename => &variant.serde_rename,
+                fields => &fields,
+                snake_name => pascal_to_snake(&variant.name),
+            }
+        })
+        .collect();
 
-    // For data enums, implement IntoValue via serde_json serialization
-    // and TryConvert via serde_json deserialization.
-    // Uses a json_to_ruby helper to convert serde_json::Value to Magnus values.
-    if has_data {
-        writeln!(out, "impl magnus::IntoValue for {name} {{").ok();
-        writeln!(out, "    fn into_value_with(self, handle: &Ruby) -> magnus::Value {{").ok();
-        writeln!(out, "        match serde_json::to_value(&self) {{").ok();
-        writeln!(out, "            Ok(v) => json_to_ruby(handle, v),").ok();
-        writeln!(out, "            Err(_) => handle.qnil().into_value_with(handle),").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-        writeln!(out, "impl magnus::TryConvert for {name} {{").ok();
-        writeln!(
-            out,
-            "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
-        )
-        .ok();
-        writeln!(out, "        let s: String = magnus::TryConvert::try_convert(val)?;").ok();
-        writeln!(
-            out,
-            "        serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))"
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-        writeln!(out, "unsafe impl IntoValueFromNative for {name} {{}}").ok();
-        writeln!(out, "unsafe impl TryConvertOwned for {name} {{}}").ok();
-        return out;
-    }
-
-    // IntoValue: convert enum variant to Ruby Symbol
-    writeln!(out, "impl magnus::IntoValue for {name} {{").ok();
-    writeln!(out, "    fn into_value_with(self, handle: &Ruby) -> magnus::Value {{").ok();
-    writeln!(out, "        let sym = match self {{").ok();
-    for variant in &enum_def.variants {
-        let snake = pascal_to_snake(&variant.name);
-        writeln!(out, "            {name}::{} => \"{snake}\",", variant.name).ok();
-    }
-    writeln!(out, "        }};").ok();
-    writeln!(out, "        handle.to_symbol(sym).into_value_with(handle)").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-
-    // TryConvert: convert Ruby Symbol/String to enum variant
-    writeln!(out, "impl magnus::TryConvert for {name} {{").ok();
-    writeln!(
-        out,
-        "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
+    crate::template_env::render(
+        "enum_magnus.rs.jinja",
+        minijinja::context! {
+            enum_name => &enum_def.name,
+            has_data => has_data,
+            serde_tag => &enum_def.serde_tag,
+            variants => &variants,
+            first_variant => first_variant,
+            first_variant_default => &first_variant_default,
+        },
     )
-    .ok();
-    writeln!(out, "        let s: String = magnus::TryConvert::try_convert(val)?;").ok();
-    writeln!(out, "        match s.as_str() {{").ok();
-    for variant in &enum_def.variants {
-        let snake = pascal_to_snake(&variant.name);
-        writeln!(out, "            \"{snake}\" => Ok({name}::{}),", variant.name).ok();
-    }
-    writeln!(out, "            other => Err(magnus::Error::new(").ok();
-    writeln!(
-        out,
-        "                unsafe {{ Ruby::get_unchecked() }}.exception_arg_error(),"
-    )
-    .ok();
-    writeln!(out, "                format!(\"invalid {name} value: {{other}}\"),").ok();
-    writeln!(out, "            )),").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
-    // SAFETY: IntoValue is implemented above. This marker trait enables use
-    // in Vec<T> returns from Magnus function!/method! macros.
-    writeln!(out, "unsafe impl IntoValueFromNative for {name} {{}}").ok();
-    // SAFETY: TryConvert produces an owned value, satisfying owned conversion.
-    write!(out, "unsafe impl TryConvertOwned for {name} {{}}").ok();
-
-    out
 }
 
 /// Map a field type to a Rust type suitable for serde deserialization in data enums.

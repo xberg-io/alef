@@ -1,0 +1,28 @@
+    fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
+        let responds = self.rb_obj.respond_to("{{ method_name }}", false).unwrap_or(false);
+        if !responds {
+            return {{ return_type }}::Continue;
+        }
+
+{% if has_params %}        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall("{{ method_name }}", {{ args_tuple }});
+{% else %}        let result: Result<magnus::Value, magnus::Error> = self.rb_obj.funcall("{{ method_name }}", ());
+{% endif %}
+        match result {
+            Err(_) => {{ return_type }}::Continue,
+            Ok(val) => {
+                if let Some(hash) = magnus::RHash::from_value(val) {
+                    let ruby = unsafe { magnus::Ruby::get_unchecked() };
+                    if let Some(custom_val) = hash.get(ruby.to_symbol("custom")) {
+                        return {{ return_type }}::Custom(custom_val.to_string());
+                    }
+                }
+                let s: String = val.to_string();
+                match s.to_lowercase().as_str() {
+                    "continue" => {{ return_type }}::Continue,
+                    "skip" => {{ return_type }}::Skip,
+                    "preserve_html" | "preservehtml" => {{ return_type }}::PreserveHtml,
+                    other => {{ return_type }}::Custom(other.to_string()),
+                }
+            }
+        }
+    }

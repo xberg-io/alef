@@ -8,8 +8,16 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("struct_def.rs.jinja", include_str!("../templates/struct_def.rs.jinja")),
     ("enum_def.rs.jinja", include_str!("../templates/enum_def.rs.jinja")),
     (
+        "enum_magnus.rs.jinja",
+        include_str!("../templates/enum_magnus.rs.jinja"),
+    ),
+    (
         "visitor_bridge_struct.rs.jinja",
         include_str!("../templates/visitor_bridge_struct.rs.jinja"),
+    ),
+    (
+        "visitor_method.rs.jinja",
+        include_str!("../templates/visitor_method.rs.jinja"),
     ),
     (
         "bridge_struct_impl.rs.jinja",

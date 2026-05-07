@@ -52,14 +52,25 @@ pub(super) fn gen_opaque_handle(
     }
     out.push('\n');
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    out.push_str(&crate::template_env::render(
+        "namespace_decl.jinja",
+        minijinja::context! {
+            namespace => namespace
+        },
+    ));
+    out.push('\n');
 
     let class_name = typ.name.to_pascal_case();
     let free_method = format!("{}Free", class_name);
 
     // Internal SafeHandle subclass — owns the native handle and calls Free on finalization.
     // Bugs 1+9: deterministic cleanup via SafeHandle; no-op Dispose() is eliminated.
-    out.push_str(&format!("internal sealed class {class_name}SafeHandle : SafeHandle\n"));
+    out.push_str(&crate::template_env::render(
+        "safe_handle_class.jinja",
+        minijinja::context! {
+            class_name => class_name
+        },
+    ));
     out.push_str("{\n");
     out.push_str(&format!(
         "    internal {class_name}SafeHandle(IntPtr handle) : base(IntPtr.Zero, true)\n"
@@ -79,11 +90,21 @@ pub(super) fn gen_opaque_handle(
     if !typ.doc.is_empty() {
         out.push_str("/// <summary>\n");
         for line in typ.doc.lines() {
-            out.push_str(&format!("/// {}\n", line));
+            out.push_str(&crate::template_env::render(
+                "doc_line.jinja",
+                minijinja::context! {
+                    line => line
+                },
+            ));
         }
         out.push_str("/// </summary>\n");
     }
-    out.push_str(&format!("public sealed class {class_name} : IDisposable\n"));
+    out.push_str(&crate::template_env::render(
+        "sealed_class_header.jinja",
+        minijinja::context! {
+            class_name => class_name
+        },
+    ));
     out.push_str("{\n");
 
     if has_methods {
@@ -94,10 +115,21 @@ pub(super) fn gen_opaque_handle(
         out.push_str("    };\n\n");
     }
 
-    out.push_str(&format!("    private readonly {class_name}SafeHandle _safeHandle;\n\n"));
-    out.push_str(&format!("    internal {class_name}(IntPtr handle)\n"));
+    out.push_str(&crate::template_env::render(
+        "safehandle_field.jinja",
+        minijinja::context! {
+            class_name => class_name
+        },
+    ));
+    out.push('\n');
+    out.push_str(&format!("    internal {}(IntPtr handle)\n", class_name));
     out.push_str("    {\n");
-    out.push_str(&format!("        _safeHandle = new {class_name}SafeHandle(handle);\n"));
+    out.push_str(&crate::template_env::render(
+        "opaque_ctor_call.jinja",
+        minijinja::context! {
+            class_name => class_name
+        },
+    ));
     out.push_str("    }\n\n");
     out.push_str("    internal IntPtr Handle => _safeHandle.DangerousGetHandle();\n\n");
     out.push_str("    public void Dispose() => _safeHandle.Dispose();\n");
@@ -307,13 +339,24 @@ pub(super) fn gen_record_type(
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    out.push_str(&crate::template_env::render(
+        "namespace_decl.jinja",
+        minijinja::context! {
+            namespace => namespace
+        },
+    ));
+    out.push('\n');
 
     // Generate doc comment if available
     if !typ.doc.is_empty() {
         out.push_str("/// <summary>\n");
         for line in typ.doc.lines() {
-            out.push_str(&format!("/// {}\n", line));
+            out.push_str(&crate::template_env::render(
+                "doc_line.jinja",
+                minijinja::context! {
+                    line => line
+                },
+            ));
         }
         out.push_str("/// </summary>\n");
     }

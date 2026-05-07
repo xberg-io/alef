@@ -40,10 +40,20 @@ pub(super) fn gen_wrapper_class(
     }
     out.push('\n');
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    out.push_str(&crate::template_env::render(
+        "namespace_decl.jinja",
+        minijinja::context! {
+            namespace => namespace
+        },
+    ));
+    out.push('\n');
 
-    out.push_str(&format!("public static class {}\n", class_name));
-    out.push_str("{\n");
+    out.push_str(&crate::template_env::render(
+        "class_header.jinja",
+        minijinja::context! {
+            class_name => class_name
+        },
+    ));
     out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
@@ -117,9 +127,19 @@ pub(super) fn gen_wrapper_class(
         if has_invalid_input {
             out.push_str("        if (code == 1) return new InvalidInputException(message);\n");
         }
-        out.push_str(&format!("        if (code == 2) return new {base_ex}(message);\n"));
+        out.push_str(&crate::template_env::render(
+            "error_dispatch.jinja",
+            minijinja::context! {
+                exception_name => base_ex
+            },
+        ));
     }
-    out.push_str(&format!("        return new {}(code, message);\n", exception_name));
+    out.push_str(&crate::template_env::render(
+        "exception_return.jinja",
+        minijinja::context! {
+            exception_name => exception_name
+        },
+    ));
     out.push_str("    }\n");
 
     out.push_str("}\n");
@@ -152,10 +172,12 @@ fn gen_wrapper_function(
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
     for param in &visible_params {
         if !func.doc.is_empty() {
-            out.push_str(&format!(
-                "    /// <param name=\"{}\">{}</param>\n",
-                param.name.to_lower_camel_case(),
-                if param.optional { "Optional." } else { "" }
+            out.push_str(&crate::template_env::render(
+                "param_doc.jinja",
+                minijinja::context! {
+                    param_name => param.name.to_lower_camel_case(),
+                    optional_text => if param.optional { "Optional." } else { "" }
+                },
             ));
         }
     }
@@ -167,7 +189,12 @@ fn gen_wrapper_function(
         if func.return_type == TypeRef::Unit {
             out.push_str("async Task");
         } else {
-            out.push_str(&format!("async Task<{}>", csharp_type(&func.return_type)));
+            out.push_str(&crate::template_env::render(
+                "async_task_return_type.jinja",
+                minijinja::context! {
+                    return_type => csharp_type(&func.return_type)
+                },
+            ));
         }
     } else if func.return_type == TypeRef::Unit {
         out.push_str("void");
@@ -175,7 +202,8 @@ fn gen_wrapper_function(
         out.push_str(&csharp_type(&func.return_type));
     }
 
-    out.push_str(&format!(" {}", to_csharp_name(&func.name)));
+    out.push(' ');
+    out.push_str(&to_csharp_name(&func.name));
     out.push('(');
 
     // Parameters (bridge params stripped from public signature)
@@ -183,9 +211,21 @@ fn gen_wrapper_function(
         let param_name = param.name.to_lower_camel_case();
         let mapped = csharp_type(&param.ty);
         if param.optional && !mapped.ends_with('?') {
-            out.push_str(&format!("{mapped}? {param_name}"));
+            out.push_str(&crate::template_env::render(
+                "param_decl_optional.jinja",
+                minijinja::context! {
+                    param_type => mapped,
+                    param_name => param_name
+                },
+            ));
         } else {
-            out.push_str(&format!("{mapped} {param_name}"));
+            out.push_str(&crate::template_env::render(
+                "param_decl_required.jinja",
+                minijinja::context! {
+                    param_type => mapped,
+                    param_name => param_name
+                },
+            ));
         }
 
         if i < visible_params.len() - 1 {
@@ -199,7 +239,12 @@ fn gen_wrapper_function(
     for param in &visible_params {
         if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("        ArgumentNullException.ThrowIfNull({param_name});\n"));
+            out.push_str(&crate::template_env::render(
+                "null_check.jinja",
+                minijinja::context! {
+                    param_name => param_name
+                },
+            ));
         }
     }
 
@@ -286,7 +331,12 @@ fn gen_wrapper_function(
             out.push_str("            ");
         }
 
-        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+        out.push_str(&crate::template_env::render(
+            "native_call_start.jinja",
+            minijinja::context! {
+                method_name => cs_native_name
+            },
+        ));
 
         if visible_params.is_empty() {
             out.push_str(");\n");
@@ -295,7 +345,12 @@ fn gen_wrapper_function(
             for (i, param) in visible_params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("                {arg}"));
+                out.push_str(&crate::template_env::render(
+                    "indented_arg_async.jinja",
+                    minijinja::context! {
+                        arg => arg
+                    },
+                ));
                 if i < visible_params.len() - 1 {
                     out.push(',');
                 }
@@ -335,7 +390,12 @@ fn gen_wrapper_function(
             out.push_str("        ");
         }
 
-        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+        out.push_str(&crate::template_env::render(
+            "native_call_start.jinja",
+            minijinja::context! {
+                method_name => cs_native_name
+            },
+        ));
 
         if visible_params.is_empty() {
             out.push_str(");\n");
@@ -344,7 +404,12 @@ fn gen_wrapper_function(
             for (i, param) in visible_params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("            {arg}"));
+                out.push_str(&crate::template_env::render(
+                    "indented_arg_sync.jinja",
+                    minijinja::context! {
+                        arg => arg
+                    },
+                ));
                 if i < visible_params.len() - 1 {
                     out.push(',');
                 }
@@ -404,10 +469,12 @@ fn gen_wrapper_method(
     doc_emission::emit_csharp_doc(&mut out, &method.doc, "    ");
     for param in &visible_params {
         if !method.doc.is_empty() {
-            out.push_str(&format!(
-                "    /// <param name=\"{}\">{}</param>\n",
-                param.name.to_lower_camel_case(),
-                if param.optional { "Optional." } else { "" }
+            out.push_str(&crate::template_env::render(
+                "param_doc.jinja",
+                minijinja::context! {
+                    param_name => param.name.to_lower_camel_case(),
+                    optional_text => if param.optional { "Optional." } else { "" }
+                },
             ));
         }
     }
@@ -420,7 +487,12 @@ fn gen_wrapper_method(
         if method.return_type == TypeRef::Unit {
             out.push_str("async Task");
         } else {
-            out.push_str(&format!("async Task<{}>", csharp_type(&method.return_type)));
+            out.push_str(&crate::template_env::render(
+                "async_task_return_type.jinja",
+                minijinja::context! {
+                    return_type => csharp_type(&method.return_type)
+                },
+            ));
         }
     } else if method.return_type == TypeRef::Unit {
         out.push_str("void");
@@ -430,7 +502,8 @@ fn gen_wrapper_method(
 
     // Prefix method name with type name to avoid collisions (e.g., MetadataConfigDefault)
     let method_cs_name = format!("{}{}", type_name, to_csharp_name(&method.name));
-    out.push_str(&format!(" {method_cs_name}"));
+    out.push(' ');
+    out.push_str(&method_cs_name);
     out.push('(');
 
     // Non-static methods need a `handle` parameter that the wrapper threads to
@@ -449,9 +522,21 @@ fn gen_wrapper_method(
         let param_name = param.name.to_lower_camel_case();
         let mapped = csharp_type(&param.ty);
         if param.optional && !mapped.ends_with('?') {
-            out.push_str(&format!("{mapped}? {param_name}"));
+            out.push_str(&crate::template_env::render(
+                "param_decl_optional.jinja",
+                minijinja::context! {
+                    param_type => mapped,
+                    param_name => param_name
+                },
+            ));
         } else {
-            out.push_str(&format!("{mapped} {param_name}"));
+            out.push_str(&crate::template_env::render(
+                "param_decl_required.jinja",
+                minijinja::context! {
+                    param_type => mapped,
+                    param_name => param_name
+                },
+            ));
         }
 
         if i < visible_params.len() - 1 {
@@ -465,7 +550,12 @@ fn gen_wrapper_method(
     for param in &visible_params {
         if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("        ArgumentNullException.ThrowIfNull({param_name});\n"));
+            out.push_str(&crate::template_env::render(
+                "null_check.jinja",
+                minijinja::context! {
+                    param_name => param_name
+                },
+            ));
         }
     }
 
@@ -493,7 +583,12 @@ fn gen_wrapper_method(
             out.push_str("            ");
         }
 
-        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+        out.push_str(&crate::template_env::render(
+            "native_call_start.jinja",
+            minijinja::context! {
+                method_name => cs_native_name
+            },
+        ));
 
         if !has_receiver && visible_params.is_empty() {
             out.push_str(");\n");
@@ -516,7 +611,12 @@ fn gen_wrapper_method(
             for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("                {arg}"));
+                out.push_str(&crate::template_env::render(
+                    "indented_arg_async.jinja",
+                    minijinja::context! {
+                        arg => arg
+                    },
+                ));
                 if idx < total - 1 {
                     out.push(',');
                 }
@@ -543,7 +643,12 @@ fn gen_wrapper_method(
             out.push_str("        ");
         }
 
-        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+        out.push_str(&crate::template_env::render(
+            "native_call_start.jinja",
+            minijinja::context! {
+                method_name => cs_native_name
+            },
+        ));
 
         if !has_receiver && visible_params.is_empty() {
             out.push_str(");\n");
@@ -566,7 +671,12 @@ fn gen_wrapper_method(
             for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("            {arg}"));
+                out.push_str(&crate::template_env::render(
+                    "indented_arg_sync.jinja",
+                    minijinja::context! {
+                        arg => arg
+                    },
+                ));
                 if idx < total - 1 {
                     out.push(',');
                 }
