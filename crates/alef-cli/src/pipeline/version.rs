@@ -563,6 +563,16 @@ pub fn sync_versions(
                                                 updated.push(path.to_string_lossy().to_string());
                                             }
                                         }
+                                    } else if file_name == "gleam.toml" {
+                                        // gleam.toml: only update the package version field.
+                                        // Never replace dependency version specs (e.g., gleam_stdlib).
+                                        if let Some(new_content) = replace_version_pattern(&content, r#"version = "[^"]*""#, &version) {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
                                     } else {
                                         let new_content = SEMVER_RE.replace_all(&content, version.as_str()).to_string();
                                         if new_content != content {
