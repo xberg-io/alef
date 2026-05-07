@@ -102,15 +102,8 @@ impl E2eCodegen for GleamE2eCodegen {
                         true
                     }
                 })
-                // For non-HTTP fixtures, only include those with a gleam-specific call override.
-                .filter(|f| {
-                    if f.is_http_test() {
-                        true
-                    } else {
-                        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
-                        call_cfg.overrides.contains_key(lang)
-                    }
-                })
+                // For non-HTTP fixtures, include all (will use default or override call config).
+                // Gleam always has a call override or can use the default call config.
                 .collect();
 
             if active.is_empty() {
