@@ -8,18 +8,24 @@ use super::helpers::{callback_descriptor, callback_method_type, gen_handle_metho
 
 pub(super) fn gen_node_context(package: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    crate::template_env::render("node_context.jinja", minijinja::context! {
-        header => header,
-        package => package,
-    })
+    crate::template_env::render(
+        "node_context.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+        },
+    )
 }
 
 pub(super) fn gen_visit_result(package: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    crate::template_env::render("visit_result.jinja", minijinja::context! {
-        header => header,
-        package => package,
-    })
+    crate::template_env::render(
+        "visit_result.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+        },
+    )
 }
 
 pub(super) fn gen_visitor_interface(package: &str, _class_name: &str) -> String {
@@ -34,11 +40,14 @@ pub(super) fn gen_visitor_interface(package: &str, _class_name: &str) -> String 
             }
         })
         .collect();
-    crate::template_env::render("visitor_interface.jinja", minijinja::context! {
-        header => header,
-        package => package,
-        callbacks => callbacks,
-    })
+    crate::template_env::render(
+        "visitor_interface.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+            callbacks => callbacks,
+        },
+    )
 }
 
 /// Generate `VisitorBridge.java` — builds Panama upcall stubs for all 40 callbacks
@@ -317,7 +326,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
     )
     .ok();
-    writeln!(out, "                long customLen = (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;").ok();
+    writeln!(
+        out,
+        "                long customLen = (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;"
+    )
+    .ok();
     writeln!(out, "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, customLen);").ok();
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
@@ -332,8 +345,16 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
     )
     .ok();
-    writeln!(out, "                long errorLen = (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;").ok();
-    writeln!(out, "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, errorLen);").ok();
+    writeln!(
+        out,
+        "                long errorLen = (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, errorLen);"
+    )
+    .ok();
     writeln!(out, "                yield VISIT_RESULT_ERROR;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }};").ok();

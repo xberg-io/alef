@@ -509,7 +509,12 @@ pub(crate) fn gen_native_lib(
             // Use orElse(null) for FFI-excluded functions — their native symbol may be absent.
             // Callers must null-check before invoking these handles.
             writeln!(body).ok();
-            writeln!(body, "    static final MethodHandle {} = LIB.find(\"{}\")", handle_name, ffi_name).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LIB.find(\"{}\")",
+                handle_name, ffi_name
+            )
+            .ok();
             writeln!(body, "        .map(s -> LINKER.downcallHandle(s, {}))", layout_str).ok();
             writeln!(body, "        .orElse(null);").ok();
         } else {
@@ -613,7 +618,12 @@ pub(crate) fn gen_native_lib(
             let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
             if emitted_to_json_handles.insert(to_json_handle.clone()) {
                 writeln!(body).ok();
-                writeln!(body, "    static final MethodHandle {} = LIB.find(\"{}\")", to_json_handle, to_json_ffi).ok();
+                writeln!(
+                    body,
+                    "    static final MethodHandle {} = LIB.find(\"{}\")",
+                    to_json_handle, to_json_ffi
+                )
+                .ok();
                 writeln!(body, "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
                 writeln!(body, "        .orElse(null);").ok();
             }
@@ -763,8 +773,16 @@ pub(crate) fn gen_native_lib(
             // is not compiled into the dylib. Callers must null-check before invoking.
             writeln!(body, "    static final MethodHandle {} = LIB", register_handle_name).ok();
             writeln!(body, "        .find(\"{}\")", register_ffi_name).ok();
-            writeln!(body, "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.JAVA_INT,").ok();
-            writeln!(body, "            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
+            writeln!(
+                body,
+                "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.JAVA_INT,"
+            )
+            .ok();
+            writeln!(
+                body,
+                "            ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))"
+            )
+            .ok();
             writeln!(body, "        .orElse(null);").ok();
         }
 
@@ -778,7 +796,11 @@ pub(crate) fn gen_native_lib(
             writeln!(body, "    static final MethodHandle {} = LIB", unregister_handle_name).ok();
             writeln!(body, "        .find(\"{}\")", unregister_ffi_name).ok();
             writeln!(body, "        .map(s -> LINKER.downcallHandle(s,").ok();
-            writeln!(body, "            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
+            writeln!(
+                body,
+                "            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)))"
+            )
+            .ok();
             writeln!(body, "        .orElse(null);").ok();
         }
     }

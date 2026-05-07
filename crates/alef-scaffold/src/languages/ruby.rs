@@ -209,7 +209,7 @@ RSpec/NestedGroups:
         r#"# frozen_string_literal: true
 
 require 'bundler'
-Bundler::GemHelper.install_tasks name: '{gem_name}'
+Bundler::GemHelper.install_tasks name: '{gem_name_snake}'
 require 'rake/extensiontask'
 require 'rspec/core/rake_task'
 
@@ -234,7 +234,6 @@ RSpec::Core::RakeTask.new(:spec)
 task spec: :compile
 task default: :spec
 "#,
-        gem_name = gem_name,
         gem_name_snake = gem_name_snake,
         ext_name = ext_name,
     );

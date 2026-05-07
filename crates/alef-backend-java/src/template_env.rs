@@ -5,18 +5,9 @@ static TEMPLATES: &[(&str, &str)] = &[
         "java_file_header.jinja",
         include_str!("../templates/java_file_header.jinja"),
     ),
-    (
-        "facade_class.jinja",
-        include_str!("../templates/facade_class.jinja"),
-    ),
-    (
-        "facade_file.jinja",
-        include_str!("../templates/facade_file.jinja"),
-    ),
-    (
-        "native_lib.jinja",
-        include_str!("../templates/native_lib.jinja"),
-    ),
+    ("facade_class.jinja", include_str!("../templates/facade_class.jinja")),
+    ("facade_file.jinja", include_str!("../templates/facade_file.jinja")),
+    ("native_lib.jinja", include_str!("../templates/native_lib.jinja")),
     (
         "visitor_bridge.jinja",
         include_str!("../templates/visitor_bridge.jinja"),
@@ -29,10 +20,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "convert_with_visitor.jinja",
         include_str!("../templates/convert_with_visitor.jinja"),
     ),
-    (
-        "handle_method.jinja",
-        include_str!("../templates/handle_method.jinja"),
-    ),
+    ("handle_method.jinja", include_str!("../templates/handle_method.jinja")),
     (
         "helper_check_last_error.jinja",
         include_str!("../templates/helper_check_last_error.jinja"),
@@ -57,10 +45,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "native_lib_visitor_handles.jinja",
         include_str!("../templates/native_lib_visitor_handles.jinja"),
     ),
-    (
-        "visitor_files.jinja",
-        include_str!("../templates/visitor_files.jinja"),
-    ),
+    ("visitor_files.jinja", include_str!("../templates/visitor_files.jinja")),
     (
         "exception_class.jinja",
         include_str!("../templates/exception_class.jinja"),
@@ -69,14 +54,8 @@ static TEMPLATES: &[(&str, &str)] = &[
         "infrastructure_exception.jinja",
         include_str!("../templates/infrastructure_exception.jinja"),
     ),
-    (
-        "node_context.jinja",
-        include_str!("../templates/node_context.jinja"),
-    ),
-    (
-        "visit_result.jinja",
-        include_str!("../templates/visit_result.jinja"),
-    ),
+    ("node_context.jinja", include_str!("../templates/node_context.jinja")),
+    ("visit_result.jinja", include_str!("../templates/visit_result.jinja")),
     (
         "visitor_interface.jinja",
         include_str!("../templates/visitor_interface.jinja"),

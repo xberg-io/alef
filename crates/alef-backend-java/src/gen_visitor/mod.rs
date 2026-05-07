@@ -50,10 +50,13 @@ pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String
 /// These lines are injected into the `NativeLib` class body after the normal handles.
 pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
     let pu = prefix.to_uppercase();
-    crate::template_env::render("native_lib_visitor_handles.jinja", minijinja::context! {
-        prefix => prefix,
-        prefix_upper => pu,
-    })
+    crate::template_env::render(
+        "native_lib_visitor_handles.jinja",
+        minijinja::context! {
+            prefix => prefix,
+            prefix_upper => pu,
+        },
+    )
 }
 
 /// Generate the `convertWithVisitor` method body to inject into the main wrapper class.
@@ -62,10 +65,13 @@ pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
 pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String {
     let pu = prefix.to_uppercase();
     let exc = format!("{class_name}Exception");
-    crate::template_env::render("convert_with_visitor.jinja", minijinja::context! {
-        exception_class => exc,
-        prefix_upper => pu,
-    })
+    crate::template_env::render(
+        "convert_with_visitor.jinja",
+        minijinja::context! {
+            exception_class => exc,
+            prefix_upper => pu,
+        },
+    )
 }
 
 #[cfg(test)]

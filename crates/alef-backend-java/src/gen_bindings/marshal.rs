@@ -243,22 +243,34 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     if needs_check_last_error {
         // Reads the last FFI error code and, if non-zero, reads the error message and throws.
         // Called immediately after a null-pointer return from an FFI call.
-        out.push_str(&crate::template_env::render("helper_check_last_error.jinja", minijinja::context! {
-            prefix_upper => prefix.to_uppercase(),
-            class_name => class_name,
-        }));
+        out.push_str(&crate::template_env::render(
+            "helper_check_last_error.jinja",
+            minijinja::context! {
+                prefix_upper => prefix.to_uppercase(),
+                class_name => class_name,
+            },
+        ));
     }
 
     if needs_create_object_mapper {
-        out.push_str(&crate::template_env::render("helper_object_mapper.jinja", minijinja::context! {}));
+        out.push_str(&crate::template_env::render(
+            "helper_object_mapper.jinja",
+            minijinja::context! {},
+        ));
     }
 
     if needs_read_cstring {
-        out.push_str(&crate::template_env::render("helper_read_cstring.jinja", minijinja::context! {}));
+        out.push_str(&crate::template_env::render(
+            "helper_read_cstring.jinja",
+            minijinja::context! {},
+        ));
     }
 
     if needs_read_bytes {
-        out.push_str(&crate::template_env::render("helper_read_bytes.jinja", minijinja::context! {}));
+        out.push_str(&crate::template_env::render(
+            "helper_read_bytes.jinja",
+            minijinja::context! {},
+        ));
     }
 
     if needs_read_json_list {
@@ -268,9 +280,12 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         // CPD correctly flagged as duplication). Returns an empty list on a
         // null pointer to mirror the previous inline behavior.
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
-        out.push_str(&crate::template_env::render("helper_read_json_list.jinja", minijinja::context! {
-            class_name => class_name,
-            free_handle => free_handle,
-        }));
+        out.push_str(&crate::template_env::render(
+            "helper_read_json_list.jinja",
+            minijinja::context! {
+                class_name => class_name,
+                free_handle => free_handle,
+            },
+        ));
     }
 }

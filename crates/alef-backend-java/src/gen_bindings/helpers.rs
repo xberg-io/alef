@@ -122,23 +122,29 @@ pub(crate) fn gen_infrastructure_exception_class(
     doc: &str,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    crate::template_env::render("infrastructure_exception.jinja", minijinja::context! {
-        header => header,
-        package => package,
-        class_name => class_name,
-        main_class => main_class,
-        code => code,
-        doc => doc,
-    })
+    crate::template_env::render(
+        "infrastructure_exception.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+            class_name => class_name,
+            main_class => main_class,
+            code => code,
+            doc => doc,
+        },
+    )
 }
 
 pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    crate::template_env::render("exception_class.jinja", minijinja::context! {
-        header => header,
-        package => package,
-        class_name => class_name,
-    })
+    crate::template_env::render(
+        "exception_class.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+            class_name => class_name,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------

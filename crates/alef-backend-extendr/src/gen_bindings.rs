@@ -287,7 +287,9 @@ impl Backend for ExtendrBackend {
         let input_type_names: ahash::AHashSet<String> = {
             fn collect_named(ty: &alef_core::ir::TypeRef, set: &mut ahash::AHashSet<String>) {
                 match ty {
-                    alef_core::ir::TypeRef::Named(n) => { set.insert(n.clone()); }
+                    alef_core::ir::TypeRef::Named(n) => {
+                        set.insert(n.clone());
+                    }
                     alef_core::ir::TypeRef::Optional(inner) => collect_named(inner, set),
                     alef_core::ir::TypeRef::Vec(inner) => collect_named(inner, set),
                     _ => {}
@@ -295,11 +297,15 @@ impl Backend for ExtendrBackend {
             }
             let mut set = ahash::AHashSet::new();
             for func in &api.functions {
-                for p in &func.params { collect_named(&p.ty, &mut set); }
+                for p in &func.params {
+                    collect_named(&p.ty, &mut set);
+                }
             }
             for typ in &api.types {
                 for m in &typ.methods {
-                    for p in &m.params { collect_named(&p.ty, &mut set); }
+                    for p in &m.params {
+                        collect_named(&p.ty, &mut set);
+                    }
                 }
             }
             set
@@ -1083,7 +1089,13 @@ fn gen_extendr_flat_data_enum_to_core(enum_def: &alef_core::ir::EnumDef, core_im
         let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
         let wire_name = variant_wire_name(variant);
         if variant.fields.is_empty() {
-            writeln!(out, "            \"{wire}\" => Self::{vname},", wire = wire_name, vname = variant.name).ok();
+            writeln!(
+                out,
+                "            \"{wire}\" => Self::{vname},",
+                wire = wire_name,
+                vname = variant.name
+            )
+            .ok();
         } else if variant.is_tuple {
             writeln!(
                 out,
@@ -1091,7 +1103,8 @@ fn gen_extendr_flat_data_enum_to_core(enum_def: &alef_core::ir::EnumDef, core_im
                 wire = wire_name,
                 vname = variant.name,
                 fname = field_name,
-            ).ok();
+            )
+            .ok();
         }
     }
 
