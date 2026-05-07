@@ -1,8 +1,15 @@
 //! Swift e2e test generator using XCTest.
 //!
-//! Generates `Tests/<Module>Tests/<FixtureId>Tests.swift` files from JSON
-//! fixtures (one file per fixture group, mirroring the Kotlin per-test-class
-//! style) and a `Package.swift` at the e2e package root.
+//! Generates test files for the swift package in `packages/swift/Tests/<Module>Tests/`.
+//!
+//! IMPORTANT: Due to SwiftPM 6.0 limitations (forbids inter-package `.package(path:)`
+//! references within a monorepo), generated test files are placed directly inside
+//! the `packages/swift` package (not in a separate `e2e/swift` package). This allows
+//! tests to depend on the library target without an explicit package dependency.
+//!
+//! The generated `Package.swift` is placed in `e2e/swift/` for documentation and CI
+//! reference but is NOT used for running tests — tests are run from the
+//! `packages/swift/` directory using `swift test`.
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, sanitize_filename, sanitize_ident};
