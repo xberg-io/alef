@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e-zig): wire kreuzberg module into test build.zig. Each Zig test module now imports the kreuzberg module via `addImport`, resolving `@import("kreuzberg")` failures. The build script also declares ffi_path and ffi_include options for linking kreuzberg_ffi.
 - fix(e2e-dart): emit receiver class and arguments in non-HTTP test calls. Dart e2e tests now emit `KreuzbergBridge.extractBytesSync(File(...).readAsBytesSync(), ...)` instead of bare `extractBytesSync()`, with fixture inputs correctly loaded and passed as arguments.
 - fix(e2e-dart): convert snake_case function names to camelCase in generated test code. Dart conventions require camelCase method names; the test code generator now converts function names like `extract_bytes_sync` to `extractBytesSync`, matching idiomatic Dart API surface.
 - fix(swift-backend): emit native Swift enums with unit variants only instead of typealiasing to non-existent RustBridge enum types. swift-bridge's automatic code generation doesn't reliably expose all enum types; emitting them directly as Swift enums avoids brittle typealias dependencies and enables pattern matching.

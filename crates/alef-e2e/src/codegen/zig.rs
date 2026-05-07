@@ -211,7 +211,17 @@ pub fn build(b: *std.Build) void {
     let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
-    content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n\n");
+    content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
+    content.push_str("    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing libkreuzberg_ffi\") orelse \"../../target/debug\";\n");
+    content.push_str("    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing kreuzberg FFI header\") orelse \"../../crates/kreuzberg-ffi/include\";\n\n");
+    content.push_str("    const kreuzberg_module = b.addModule(\"kreuzberg\", .{\n");
+    content.push_str("        .root_source_file = b.path(\"../../packages/zig/src/kreuzberg.zig\"),\n");
+    content.push_str("        .target = target,\n");
+    content.push_str("        .optimize = optimize,\n");
+    content.push_str("    });\n");
+    content.push_str("    kreuzberg_module.addLibraryPath(.{ .cwd_relative = ffi_path });\n");
+    content.push_str("    kreuzberg_module.addIncludePath(.{ .cwd_relative = ffi_include });\n");
+    content.push_str("    kreuzberg_module.linkSystemLibrary(\"kreuzberg_ffi\", .{});\n\n");
 
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
@@ -221,6 +231,7 @@ pub fn build(b: *std.Build) void {
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
         content.push_str("    });\n");
+        content.push_str(&format!("    {test_name}_module.addImport(\"kreuzberg\", kreuzberg_module);\n"));
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("    });\n");
