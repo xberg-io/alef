@@ -82,7 +82,10 @@ impl E2eCodegen for RubyCodegen {
         });
 
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+        let has_http_fixtures = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
@@ -323,10 +326,17 @@ fn render_spec_file(
                 // Resolve per-fixture call config
                 let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
                 let fixture_call_overrides = fixture_call.overrides.get("ruby");
-                let fixture_function_name = fixture_call_overrides
+                let raw_function_name = fixture_call_overrides
                     .and_then(|o| o.function.as_ref())
                     .cloned()
                     .unwrap_or_else(|| fixture_call.function.clone());
+                // Magnus binds async Rust methods with an `_async` suffix; reflect that in
+                // the test so `client.chat(...)` resolves to the actual `chat_async` method.
+                let fixture_function_name = if fixture_call.r#async && !raw_function_name.ends_with("_async") {
+                    format!("{raw_function_name}_async")
+                } else {
+                    raw_function_name
+                };
                 let fixture_result_var = &fixture_call.result_var;
                 let fixture_args = &fixture_call.args;
                 let fixture_client_factory = fixture_call_overrides
@@ -648,13 +658,28 @@ fn render_example(
         visitor_arg = build_ruby_visitor(&mut setup_lines, visitor_spec);
     }
 
-    let final_args = if visitor_arg.is_empty() {
+    let mut final_args = if visitor_arg.is_empty() {
         args_str
     } else if args_str.is_empty() {
         visitor_arg
     } else {
         format!("{args_str}, {visitor_arg}")
     };
+
+    // Append per-language extra_args (e.g. trailing `nil` for `list_files(purpose)`).
+    let ruby_extra_args: Vec<String> = e2e_config
+        .call
+        .overrides
+        .get("ruby")
+        .map(|o| o.extra_args.iter().cloned().collect())
+        .unwrap_or_default();
+    if !ruby_extra_args.is_empty() {
+        if final_args.is_empty() {
+            final_args = ruby_extra_args.join(", ");
+        } else {
+            final_args = format!("{final_args}, {}", ruby_extra_args.join(", "));
+        }
+    }
 
     // When client_factory is configured, create a client instance and call methods on it.
     let call_expr = if client_factory.is_some() {
@@ -679,6 +704,8 @@ fn render_example(
         );
     }
 
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     crate::template_env::render(
         "ruby/test_function.jinja",
         minijinja::context! {
@@ -693,6 +720,8 @@ fn render_example(
             client_factory => client_factory,
             fixture_id => fixture_id,
             call_receiver => call_receiver,
+            has_mock => has_mock,
+            api_key_var => api_key_var,
         },
     )
 }
@@ -1130,9 +1159,20 @@ fn render_assertion(
     };
 
     // For string equality, strip trailing whitespace to handle trailing newlines
-    // from the converter.
+    // from the converter. Ruby enum fields (Magnus binds Rust enums as Symbols),
+    // are coerced to String via .to_s so `eq("stop")` matches `:stop`.
+    let field_is_enum = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| {
+            let resolved = field_resolver.resolve(f);
+            e2e_config.fields_enum.contains(f) || e2e_config.fields_enum.contains(resolved)
+        });
     let stripped_field_expr = if result_is_simple {
         format!("{field_expr}.to_s.strip")
+    } else if field_is_enum {
+        format!("{field_expr}.to_s")
     } else {
         field_expr.clone()
     };

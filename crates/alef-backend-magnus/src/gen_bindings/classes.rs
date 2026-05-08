@@ -266,22 +266,16 @@ pub(super) fn gen_struct_methods(
             .collect();
 
         if !filtered_fields.is_empty() {
-            // Generate config builder using hash-based constructor ONLY for types with >15 fields.
-            // This matches the registration code which also only uses variadic arity for >15 fields.
-            // Types with has_default but <=15 fields use positional constructors with Option params.
-            // Magnus function! macro only supports arity -2..=15, so types with more than 15
-            // fields must use the hash-based constructor.
-            if filtered_fields.len() > 15 {
-                // Create a temporary type with filtered fields for constructor generation
-                let mut filtered_typ = typ.clone();
-                filtered_typ.fields = filtered_fields.clone();
-                let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
-                impl_builder.add_method(&config_method);
-            } else {
-                let (param_list, _, assignments) = constructor_parts(&filtered_fields, &map_fn);
-                let new_method = format!("fn new({param_list}) -> Self {{\n        Self {{ {assignments} }}\n    }}");
-                impl_builder.add_method(&new_method);
-            }
+            // Always emit a kwargs-based constructor (variadic arity -1) so Ruby callers can
+            // pass `Type.new(field1: ..., field2: ...)` for any has_default type, regardless
+            // of field count. Previously only types with >15 fields used kwargs because the
+            // Magnus `function!` macro caps positional arity at 15 — the small-type branch
+            // produced positional constructors that don't match how e2e tests invoke them
+            // (and how Python/Node JS-side construct equivalents).
+            let mut filtered_typ = typ.clone();
+            filtered_typ.fields = filtered_fields.clone();
+            let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
+            impl_builder.add_method(&config_method);
         }
     }
 

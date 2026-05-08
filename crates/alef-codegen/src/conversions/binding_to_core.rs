@@ -522,6 +522,16 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
                 format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
             }
+            TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
+                let k_expr = if matches!(k.as_ref(), TypeRef::Json) {
+                    "serde_json::from_str(&k).unwrap_or_default()"
+                } else {
+                    "k.into()"
+                };
+                format!(
+                    "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or_default())).collect())"
+                )
+            }
             _ => format!("{name}: val.{name}"),
         },
         // Vec of named or Json types -- map each element
@@ -706,9 +716,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         if let TypeRef::Map(_k, v) = ty {
             if matches!(v.as_ref(), TypeRef::Json) {
                 if optional {
-                    return format!(
-                        "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()"
-                    );
+                    return format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())");
                 }
                 return format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()");
             }

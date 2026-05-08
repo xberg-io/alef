@@ -15,7 +15,15 @@
 #}
   it '{{ test_name }}: {{ description }}' do
 {% if client_factory %}
+{% if has_mock %}
     client = {{ call_receiver }}.{{ client_factory }}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{{ fixture_id }}')
+{% elif api_key_var %}
+    api_key = ENV['{{ api_key_var }}']
+    skip '{{ api_key_var }} not set' unless api_key
+    client = {{ call_receiver }}.{{ client_factory }}(api_key)
+{% else %}
+    client = {{ call_receiver }}.{{ client_factory }}('test-key')
+{% endif %}
 {% endif %}
 {% for line in setup_lines %}
     {{ line }}

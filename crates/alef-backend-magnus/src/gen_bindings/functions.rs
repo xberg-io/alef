@@ -729,21 +729,13 @@ pub(super) fn gen_module_init(
         ));
 
         if !typ.is_opaque && !typ.fields.is_empty() {
-            // Magnus function! macro only supports arity -2..=15.
-            // Only types with >15 fields use hash-based constructors (variadic arity -1).
-            // Types with has_default but <=15 fields use positional constructors (fixed arity).
-            let arg_count = typ.fields.len();
-            let arity = if arg_count > 15 {
-                // Hash-based constructors for large types: variadic arity (-1)
-                -1
-            } else {
-                // Positional constructors (including has_default types with <=15 fields)
-                arg_count as i32
-            };
+            // Always register the constructor as variadic (-1) since the impl now uses a
+            // hash-based kwargs constructor regardless of field count. This keeps Ruby
+            // callers consistent: every `Type.new(field: ...)` works whether the type has
+            // 3 fields or 30.
             lines.push(format!(
-                r#"    class.define_singleton_method("new", function!({name}::new, {count}))?;"#,
+                r#"    class.define_singleton_method("new", function!({name}::new, -1))?;"#,
                 name = typ.name,
-                count = arity
             ));
         }
 

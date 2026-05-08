@@ -569,11 +569,12 @@ const MAGNUS_MAX_ARITY: usize = 15;
 /// For types with >15 fields (exceeding Magnus arity limit), generates a hash-based constructor
 /// using `RHash` that extracts fields by name, applying defaults for missing keys.
 pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    if typ.fields.len() > MAGNUS_MAX_ARITY {
-        gen_magnus_hash_constructor(typ, type_mapper)
-    } else {
-        gen_magnus_positional_constructor(typ, type_mapper)
-    }
+    // Always use the hash-based constructor so Ruby callers can pass keyword args
+    // (`Type.new(field1: ..., field2: ...)`) regardless of field count. Magnus
+    // function! macro caps arity at 15, but the hash form uses variadic arity (-1)
+    // and works for any number of fields.
+    let _ = MAGNUS_MAX_ARITY;
+    gen_magnus_hash_constructor(typ, type_mapper)
 }
 
 /// Wrap a type string for use as a type-path prefix in Rust.
