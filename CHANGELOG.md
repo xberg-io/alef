@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.36] - 2026-05-08
+
+### Changed
+
+- refactor(e2e-codegen): remove all hardcoded `tree-sitter-language-pack` special-cases from production codegen. C, PHP, WASM, and brew backends now derive every project-specific value from config: `ffi_header_name()`, `ffi_lib_name()`, and new `ffi_crate_path()`/`wasm_crate_path()` helpers on `ResolvedCrateConfig` (derived from `[crates.output]` paths). C method-result assertions use generic `{ffi_prefix}_{method}(result_var)` dispatch; PHP uses instance dispatch `$var->method()`; brew converts `method_name` snake_case to kebab-case and calls `{binary_name} {subcommand} "$output"`. A new `return_type = "string"` fixture field opts into heap-allocated `char*` handling in C codegen; the default is primitive value dispatch.
+- refactor(streaming-ffi): generalise FFI streaming body generation. `gen_ffi_body` now receives `&ResolvedCrateConfig` and uses `ffi_prefix()` for error-message symbol prefixes instead of the hardcoded `literllm_` string. The request type is no longer hardcoded as `liter_llm::ChatCompletionRequest`; callers must set `request_type = "my_crate::MyRequest"` in the `[[crates.adapters]]` block for any streaming adapter that targets the FFI backend — codegen fails with a clear error if the field is absent.
+- refactor(e2e-rust): make visitor trait name config-driven instead of hardcoded. `resolve_visitor_trait` now reads `visitor_trait` from `[e2e.call.overrides.rust]` in `alef.toml` and returns `Option<String>`. Fixtures that declare a `visitor` block without a configured `visitor_trait` now fail at codegen time with a clear error. Callers must add `visitor_trait = "MyTrait"` to their Rust e2e override to keep visitor fixtures working.
+- refactor(docs): remove project-specific `html_to_markdown` string from `is_rust_code_fence` heuristic in `alef-docs`. The generic Rust signals (`use `, `unwrap()`, `assert!`, etc.) are sufficient.
+- refactor(backend-php, backend-pyo3): replace hardcoded `html_to_markdown_rs` fallback in visitor bridge `core_crate` derivation with a panic that reports the misconfiguration instead of silently using a wrong crate name.
+
+### Added
+
+- feat(php-backend): emit `FromZvalMut` for `Vec<NamedStruct>` parameters so PHP arrays of struct values cross the ext-php-rs boundary correctly.
+
 ### Fixed
 
+- fix(ffi-backend): parameterize `core_import` so generated FFI code uses the configured crate name instead of the hardcoded `kreuzberg` string. Also adds `Result<Vec<u8>>` return support via out-params (`out_ptr`, `out_len`, `out_cap`) returning `i32` (-1 = error, 0 = ok), with a companion `{prefix}_free_bytes` deallocator.
+- fix(swift-backend): emit `Vec<u8>` / `Path` convenience overloads from the IR shape (first-param `TypeRef::Bytes` / `TypeRef::Path`) instead of matching by hardcoded function names. The backend now derives wrapper names by stripping the `Sync` suffix and works for any library, not just kreuzberg.
+- chore(php-backend): fix `clippy::useless_format` warning in test helper.
 - fix(napi-backend): initialize all binding-struct fields in tagged-enum `From` and `Default` impls. The previous codegen only emitted the matching variant's slot plus shared fields, leaving the synthesized variant-data fields (e.g. `excel`, `docx`, `html` on `JsFormatMetadata`) unset and producing E0063 ("missing fields"). The struct-literal builders now initialize every variant-data field — `None` for non-matching variants, `Some(...)` only on the active variant. Boxed tuple variants (`FormatMetadata::Html(Box<HtmlMetadata>)`) now deref before calling `.into()` since `From<HtmlMetadata>` is derived for `JsHtmlMetadata`, not `Box<HtmlMetadata>`.
 - fix(csharp-backend): emit length parameters for byte slice and batch FFI calls. The C# P/Invoke signatures for `extract_bytes_sync` and related functions were missing `UIntPtr contentLen` and `UIntPtr itemsLen` parameters that the Rust FFI requires, causing host crashes. The codegen now expands `TypeRef::Bytes` parameters into two FFI arguments (pointer + length), and the wrapper methods pass `(UIntPtr)content.Length` when calling the native methods.
 

@@ -1077,6 +1077,10 @@ pub(super) fn gen_param_conversion(
     let mut out = String::with_capacity(2048);
 
     let fail_ret = if has_error && is_void_return(return_type) {
+        // Result<()> → returns i32; -1 signals error to caller
+        "return -1;"
+    } else if has_error && matches!(return_type, TypeRef::Bytes) {
+        // Result<Vec<u8>> → out-param convention, C return type is i32
         "return -1;"
     } else if is_void_return(return_type) {
         "return;"
