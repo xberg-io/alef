@@ -7,97 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-05-08
+
 ### Fixed
 
-- fix(java-backend): drop the `SerializationFeature.WRITE_BYTE_ARRAY_AS_BASE64`
-  configure call from `helper_object_mapper.jinja`. Jackson 2.x has no such
-  enum constant — the actual `SerializationFeature` enum (verified against
-  `jackson-databind:2.21.0`) does not contain it, so any backend that wires
-  this feature in fails to compile with `cannot find symbol`. (Re-applied
-  after a previous revert that thought the constant existed.) If a future
-  caller really wants to disable base64 byte-array serialization the
-  correct path is a custom `JsonSerializer<byte[]>`, not a SerFeature.
+- fix(java-backend): drop the `SerializationFeature.WRITE_BYTE_ARRAY_AS_BASE64` configure
+  call from `helper_object_mapper.jinja`. Jackson 2.x has no such enum constant — the
+  actual `SerializationFeature` enum (verified against `jackson-databind:2.21.0`) does not
+  contain it, so any backend that wires this feature in fails to compile with `cannot
+  find symbol`. If a future caller really wants to disable base64 byte-array
+  serialization the correct path is a custom `JsonSerializer<byte[]>`, not a SerFeature.
 
 - fix(php-backend): wrap the `php_visit_result_with_template` `format!` arg in
-  `{% raw %}…{% endraw %}` so Jinja stops eating the literal `{` / `}` braces.
-  The template wrote `format!("{{{}}}", k)` intending the Rust string
-  `"{...}"`, but minijinja parsed `{{{}}}` as an interpolation and rendered
-  `format!("{}", k)` instead. Clippy then flagged the result with
-  `useless_format` (`-D warnings`) and the html-to-markdown-php crate
-  refused to lint clean.
+  `{% raw %}…{% endraw %}` so Jinja stops eating the literal `{` / `}` braces. The
+  template wrote `format!("{{{}}}", k)` intending the Rust string `"{...}"`, but minijinja
+  parsed `{{{}}}` as an interpolation and rendered `format!("{}", k)` instead. Clippy
+  flagged the result with `useless_format` (`-D warnings`).
 
-- fix(java-backend): rebuild `convertWithVisitorInternal` so it actually compiles.
-  Three cascading bugs in `gen_convert_with_visitor_internal_method`:
-  (1) the try-with-resources parenthesis stayed open across `cHtml`, which is a
-  `MemorySegment` (not `AutoCloseable`), so the body was parsed as more resource
-  declarations until the parser hit `if` and gave up;
-  (2) the bridge variable referenced by `bridge.callbacksStruct()` and
-  `bridge.rethrowVisitorError()` was never declared in this method — it now lives
-  in the resource list as `var bridge = new VisitorBridge(options.visitor())`;
-  (3) `ffi_conversion_options_invoke.jinja` hardcoded `defaultJson` as the JSON
-  argument, so the `if (options != null)` branch (which allocates `optJson`)
-  emitted `…invoke(defaultJson)` and the symbol was undefined. The template now
-  takes a `var_name` context arg; both call sites pass the correct name.
+- fix(java-backend): rebuild `convertWithVisitorInternal` so it actually compiles. Three
+  cascading bugs in `gen_convert_with_visitor_internal_method`: (1) the try-with-resources
+  parenthesis stayed open across `cHtml` (a `MemorySegment`, not `AutoCloseable`); (2) the
+  bridge variable referenced by `bridge.callbacksStruct()` and
+  `bridge.rethrowVisitorError()` was never declared in this method — it now lives in the
+  resource list as `var bridge = new VisitorBridge(options.visitor())`;
+  (3) `ffi_conversion_options_invoke.jinja` hardcoded `defaultJson` as the JSON argument,
+  so the `if (options != null)` branch (which allocates `optJson`) emitted
+  `…invoke(defaultJson)`. Template now takes a `var_name` context arg.
 
-### Changed
+- fix(scaffold/php): exclude the `stubs/` directory from the emitted
+  `.php-cs-fixer.dist.php` finder. PHP CS Fixer's `@PHP82Migration` rule promotes
+  class-level property declarations into constructor parameters and deletes the explicit
+  `public Type $name;` lines. Stub files rely on those declarations for phpstan to know
+  what fields native classes expose, so the rewrite silently breaks static analysis.
+  Adding `->notPath('stubs')` keeps stubs untouched.
 
 - chore(scaffold/php): rename emitted PHP CS Fixer config from `php-cs-fixer.php` to
   `.php-cs-fixer.dist.php`. The dotted name is the default `php-cs-fixer` looks up
   without `--config`, so users (and the kreuzberg-dev pre-commit `php-cs-fixer` hook)
   pick up the alef-managed config instead of any hand-rolled `php-cs-fixer.php` left
-  over from earlier scaffolds. The `composer.json` `format`/`format:check`/`lint:fix`
-  scripts drop their `--config php-cs-fixer.php` flag for the same reason.
-
-### Fixed
-
-- fix(scaffold/php): exclude the `stubs/` directory from the emitted
-  `.php-cs-fixer.dist.php` finder. PHP CS Fixer's `@PHP82Migration` rule (enabled by
-  the scaffolded config) promotes class-level property declarations into constructor
-  parameters and *deletes* the explicit `public Type $name;` lines. Stub files (e.g.
-  `stubs/<extension>_extension.php`) are scanned by phpstan and rely on those explicit
-  property declarations to know what fields the native classes expose, so this rewrite
-  silently breaks `phpstan` (every property access becomes "unknown class"). Adding
-  `->notPath('stubs')` keeps stubs untouched.
+  over from earlier scaffolds.
 
 - fix(error-gen/java): wrap class doc comments in `/** ... */` and stop swallowing the
-  newline after the `package …;` declaration. The `{%-` whitespace control on the doc
-  block stripped the trailing newline, so the rendered class for a documented variant
-  collapsed onto a single line: `package …;* Panic caught …public class … {`. Java
-  checkstyle (`maven-checkstyle-plugin`) refused to parse the file. Templates now use
-  `{% if doc -%}` / `{% endif -%}` so the package separator is preserved, and emit a
-  proper `/** … */` block with leading-space lines.
+  newline after the `package …;` declaration. Templates now use `{% if doc -%}` /
+  `{% endif -%}` so the package separator is preserved.
 
 - fix(ffi-backend): emit a string literal instead of `format!("include/{header_name}")` in
-  the generated `build.rs` go-copy step. `header_name` is interpolated at codegen time, so
-  the rendered code only ever passes a literal — clippy's `clippy::useless_format` then
-  rewrote the call to `"...".to_string()` and broke the alef-verify hash check on every
-  fresh regen of html-to-markdown. Switching the template emission to a bare string
-  literal lets clippy and alef-verify agree.
+  the generated `build.rs` go-copy step. Clippy's `useless_format` rewrote the call to
+  `"...".to_string()` and broke the alef-verify hash check on every fresh regen.
 
 - fix(ffi-backend): drop `.clone()` on owned named returns. `gen_owned_value_to_c` was
-  emitting `Box::into_raw(Box::new(result.clone()))` for any `Named` return, which panics
-  the Rust compiler when the type is non-Clone (opaque handles like `Parser`,
-  `LanguageRegistry`, `DownloadManager`). New `named_owned` template arm moves the value
-  into the Box. `Optional` inner conversions now use `optional_owned` (`match expr` rather
-  than `match &expr`) so the inner `val` is owned and matches the new arm. Borrowed-context
-  generation (`gen_value_to_c`) is unchanged.
+  emitting `Box::into_raw(Box::new(result.clone()))` for any `Named` return, which fails
+  for non-Clone opaque handles. New `named_owned` template arm moves the value into the
+  Box; `Optional` inner conversions now use `optional_owned` so the inner `val` is owned.
+
 - fix(magnus-backend): suppress redundant `native.rb` re-export when the public Ruby
-  module name and the native extension's module name collide. tslp's gem (`TreeSitterLanguagePack`)
-  hits this case — both `module_name` and `native_module_name` resolve to the same
-  identifier, so the generated `define_singleton_method(m) { TreeSitterLanguagePack.public_send(m, ...) }`
-  loop overwrote each native function with a self-call and triggered `SystemStackError`
-  on the first invocation. Template now emits a `require`-only file in that case.
+  module name and the native extension's module name collide. The generated
+  `define_singleton_method(m) { Module.public_send(m, ...) }` loop overwrote each native
+  function with a self-call and triggered `SystemStackError` on first invocation.
+
 - fix(magnus-backend): exclude thread-unsafe bridge handle types (`VisitorHandle`) from
   binding ↔ core From impls via `ConversionConfig::exclude_types` instead of post-process
-  line filtering. The line filter (`filter_unsafe_field_assignments`) silently failed
-  whenever the alef extractor had already stripped the field's `cfg` for an active feature
-  — the IR then carried a `cfg: null` field referencing `VisitorHandle`, so codegen emitted
-  `visitor: val.visitor.map(...)` lines into both directions of the From impl. The
-  generated Ruby gem then refused to compile against a binding `ConversionOptions` struct
-  that (correctly) had no `visitor` field. Mirrors the Rustler backend's approach. Removes
-  the now-unused `filter_unsafe_field_assignments` helper.
-
-## [0.15.0] - [Unreleased]
+  line filtering. The line filter silently failed whenever the alef extractor had already
+  stripped the field's `cfg` for an active feature — the IR then carried a `cfg: null`
+  field referencing `VisitorHandle`, so codegen emitted `visitor: val.visitor.map(...)`
+  lines into both directions of the From impl, and the generated Ruby gem refused to
+  compile against a binding `ConversionOptions` struct that (correctly) had no `visitor`
+  field. Mirrors the Rustler backend's approach.
 
 ### Added
 
