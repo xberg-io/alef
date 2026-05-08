@@ -43,7 +43,7 @@ pub(crate) fn has_enum_named_field(typ: &alef_core::ir::TypeDef, enum_names: &AH
 pub(crate) fn gen_php_function_params(
     params: &[alef_core::ir::ParamDef],
     mapper: &PhpMapper,
-    _opaque_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
     bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     params
@@ -74,14 +74,32 @@ pub(crate) fn gen_php_function_params(
                         format!("&{base_ty}")
                     }
                 }
-                TypeRef::Vec(_inner) => {
-                    // ext-php-rs doesn't provide FromZvalMut for &Vec<T>, so all Vec params are owned.
-                    // The core function may expect &[T] or Vec<T>, which is handled in gen_php_call_args
-                    // via let bindings that convert the owned Vec to &[T] or &mut Vec<T> as needed.
-                    if p.optional {
-                        format!("Option<{base_ty}>")
+                TypeRef::Vec(inner) => {
+                    // Vec<NonOpaqueCustomType>: ext-php-rs cannot implement FromZvalMut for
+                    // Vec<T> when T is a #[php_class] type. Use &ZendHashTable instead and
+                    // convert element-by-element in a let binding via php_vec_named_struct_let_binding.
+                    if let TypeRef::Named(name) = inner.as_ref() {
+                        if !opaque_types.contains(name.as_str()) && !mapper.enum_names.contains(name.as_str()) {
+                            if p.optional {
+                                "Option<&ext_php_rs::types::ZendHashTable>".to_string()
+                            } else {
+                                "&ext_php_rs::types::ZendHashTable".to_string()
+                            }
+                        } else {
+                            // Opaque or enum named type inside Vec: use owned Vec.
+                            if p.optional {
+                                format!("Option<{base_ty}>")
+                            } else {
+                                base_ty
+                            }
+                        }
                     } else {
-                        base_ty
+                        // Primitive types inside Vec: use owned Vec.
+                        if p.optional {
+                            format!("Option<{base_ty}>")
+                        } else {
+                            base_ty
+                        }
                     }
                 }
                 _ => {
@@ -963,11 +981,15 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                 &field.vec_inner_core_wrapper,
                 field.optional,
             );
+            // field_conversion_to_core_cfg returns "name: expr" (with the field name prefix).
+            // php_struct_field_assignment.jinja already adds "{{ field_name }}: " so we strip
+            // the prefix here to avoid "name: name: expr" duplication.
+            let field_expr = conversion.strip_prefix(&format!("{name}: ")).unwrap_or(&conversion);
             out.push_str(&crate::template_env::render(
                 "php_struct_field_assignment.jinja",
                 context! {
                     field_name => name.as_str(),
-                    field_expr => &conversion,
+                    field_expr => field_expr,
                 },
             ));
         }

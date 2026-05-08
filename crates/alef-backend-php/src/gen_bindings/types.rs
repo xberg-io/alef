@@ -799,10 +799,12 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 },
             ));
             for f in &first.fields {
+                // Pass only the expression (without "name: " prefix and without trailing comma)
+                // since php_flat_enum_fallback_variant_field.jinja adds "{{ field_name }}: {{ default_expr }},"
                 let default_expr = if f.is_boxed {
-                    format!("{name}: Box::new(Default::default()),", name = f.name)
+                    "Box::new(Default::default())".to_string()
                 } else {
-                    format!("{name}: Default::default(),", name = f.name)
+                    "Default::default()".to_string()
                 };
                 out.push_str(&crate::template_env::render(
                     "php_flat_enum_fallback_variant_field.jinja",
