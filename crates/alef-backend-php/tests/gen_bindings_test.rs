@@ -2016,7 +2016,7 @@ fn test_vec_named_struct_parameter() {
     assert!(
         !lib_rs
             .content
-            .contains(&format!("fn batch_process() {{\n        unimplemented!()")),
+            .contains(&"fn batch_process() {\n        unimplemented!()".to_string()),
         "Should NOT generate unimplemented stub for batch_process"
     );
 }
