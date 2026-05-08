@@ -231,7 +231,7 @@ pub(super) fn gen_method_wrapper(
                 &method.return_type
             },
             &format!("{type_name}::{method_name}"),
-            has_error || is_bytes_result
+            has_error || is_bytes_result,
         ));
         out.push('}');
         return out;
@@ -450,19 +450,16 @@ pub(super) fn gen_method_wrapper(
     // Handle return
     if is_bytes_result {
         // Result<Vec<u8>> — decompose the Vec and write to out-params.
-        out.push_str(&crate::template_env::render(
-            "bytes_result_match.jinja",
-            context! {},
-        ));
+        out.push_str(&crate::template_env::render("bytes_result_match.jinja", context! {}));
     } else {
         // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
         // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
-        let result_expr = if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_))
-        {
-            "result.0"
-        } else {
-            "result"
-        };
+        let result_expr =
+            if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
+                "result.0"
+            } else {
+                "result"
+            };
         // When returns_ref=true, the core returns a reference (&T or &[T]).
         // We need to convert it to an owned value for C FFI:
         // - For String/&str: clone to owned String
@@ -663,7 +660,7 @@ pub(super) fn gen_free_function(
                 &func.return_type
             },
             func_name,
-            has_error || is_bytes_result
+            has_error || is_bytes_result,
         ));
         out.push('}');
         return out;
@@ -834,13 +831,11 @@ pub(super) fn gen_free_function(
     // Handle return
     if is_bytes_result {
         // Result<Vec<u8>> — decompose the Vec and write to out-params.
-        out.push_str(&crate::template_env::render(
-            "bytes_result_match.jinja",
-            context! {},
-        ));
+        out.push_str(&crate::template_env::render("bytes_result_match.jinja", context! {}));
     } else {
         // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
-        let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
+        let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
+        {
             "result.0"
         } else {
             "result"
@@ -862,12 +857,12 @@ pub(super) fn gen_free_function(
             if is_void_return(&func.return_type) {
                 out.push_str(&crate::template_env::render("error_match_void.jinja", context! {}));
             } else {
-                let val_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
-                {
-                    "val.0"
-                } else {
-                    "val"
-                };
+                let val_expr =
+                    if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
+                        "val.0"
+                    } else {
+                        "val"
+                    };
                 let ok_body = gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names);
                 out.push_str(&crate::template_env::render(
                     "error_match_non_void.jinja",
@@ -987,7 +982,7 @@ pub(super) fn gen_param_conversion(
                 ));
             }
             TypeRef::Path => {
-                out.push_str(" ");
+                out.push(' ');
                 out.push_str(&crate::template_env::render(
                     "param_path_conversion.jinja",
                     context! {
@@ -1020,7 +1015,7 @@ pub(super) fn gen_param_conversion(
                 ));
             }
             TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
-                out.push_str(" ");
+                out.push(' ');
                 out.push_str(&crate::template_env::render(
                     "param_optional_bool_conversion.jinja",
                     context! {
@@ -1050,7 +1045,7 @@ pub(super) fn gen_param_conversion(
                     prim,
                     alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64
                 );
-                out.push_str(" ");
+                out.push(' ');
                 out.push_str(&crate::template_env::render(
                     "param_optional_numeric_conversion.jinja",
                     context! {
@@ -1069,7 +1064,7 @@ pub(super) fn gen_param_conversion(
                     }
                     _ => String::new(),
                 };
-                out.push_str(" ");
+                out.push(' ');
                 out.push_str(&crate::template_env::render(
                     "param_optional_vec_map_conversion.jinja",
                     context! {

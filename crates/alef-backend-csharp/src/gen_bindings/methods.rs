@@ -3,6 +3,7 @@
 use super::errors::{
     emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
 };
+use super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::{
     emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented, is_bridge_param,
     native_call_arg, returns_ptr,
@@ -214,6 +215,27 @@ fn gen_wrapper_function(
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }
+    }
+
+    // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
+    if is_bytes_result_func(func) {
+        let cs_native_name = to_csharp_name(&func.name);
+        // Build the args block for the template: each arg on its own indented line with trailing comma.
+        let mut args_block = String::new();
+        for param in visible_params.iter() {
+            let param_name = param.name.to_lower_camel_case();
+            let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            args_block.push_str(&format!("            {arg},\n"));
+        }
+        out.push_str(&render(
+            "bytes_result_call.jinja",
+            minijinja::context! {
+                native_method_name => &cs_native_name,
+                args_block => &args_block,
+            },
+        ));
+        out.push_str("    }\n\n");
+        return out;
     }
 
     // Detect if this is the main convert function with visitor support.
@@ -513,6 +535,31 @@ fn gen_wrapper_method(
         }
     }
 
+    let cs_native_name = format!("{}{}", type_name.to_pascal_case(), to_csharp_name(&method.name));
+
+    // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
+    if is_bytes_result_method(method) {
+        // Build the args block: receiver (if any) then visible params, each with trailing comma.
+        let mut args_block = String::new();
+        if has_receiver {
+            args_block.push_str("            handle,\n");
+        }
+        for param in visible_params.iter() {
+            let param_name = param.name.to_lower_camel_case();
+            let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            args_block.push_str(&format!("            {arg},\n"));
+        }
+        out.push_str(&render(
+            "bytes_result_call.jinja",
+            minijinja::context! {
+                native_method_name => &cs_native_name,
+                args_block => &args_block,
+            },
+        ));
+        out.push_str("    }\n\n");
+        return out;
+    }
+
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
     emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
 
@@ -520,7 +567,6 @@ fn gen_wrapper_method(
     // Use the type-prefixed name to match the P/Invoke declaration, which includes the type
     // name to avoid collisions between different types with identically-named methods
     // (e.g. BrowserConfig::default and CrawlConfig::default).
-    let cs_native_name = format!("{}{}", type_name.to_pascal_case(), to_csharp_name(&method.name));
 
     if method.is_async {
         // Async: wrap in Task.Run. For unit returns drop the `return` so CS1997 (async Task

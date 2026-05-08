@@ -1,0 +1,12 @@
+	var outPtr *C.uint8_t
+	var outLen, outCap C.uintptr_t
+	rc := {{ c_call }}
+	if rc != 0 {
+		return nil, lastError()
+	}
+	if outPtr == nil {
+		return nil, lastError()
+	}
+	result := C.GoBytes(unsafe.Pointer(outPtr), C.int(outLen))
+	C.{{ ffi_prefix }}_free_bytes(outPtr, outLen, outCap)
+	return result, nil

@@ -357,6 +357,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "callback_result_serialize.jinja",
         include_str!("../templates/callback_result_serialize.jinja"),
     ),
+    (
+        "bytes_result_call.jinja",
+        include_str!("../templates/bytes_result_call.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

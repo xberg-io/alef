@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.0] - 2026-05-08
+## [0.15.0] - [Unreleased]
 
 ### Changed
 
@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `alef-backend-napi`, `alef-backend-pyo3`, `alef-backend-wasm`, `alef-backend-csharp`,
   `alef-backend-java`, `alef-backend-go`, `alef-backend-magnus`, `alef-backend-php`,
   `alef-backend-rustler`, `alef-backend-extendr`, `alef-backend-swift`, `alef-backend-zig`.
+
+### Fixed
+
+- fix(taskfile): make `task set-version` idempotent and tolerant of a leading `v` in the input
+  argument. `task set-version -- v0.15.0` previously wrote `version = "v0.15.0"` verbatim into
+  `Cargo.toml`/`alef.toml` (rejected by cargo as semver), and the dep-pin regex required strict
+  `[0-9]+\.[0-9]+\.[0-9]+` so a re-run could not repair its own bad output. The task now strips a
+  leading `v`, validates semver shape up front with a clear error, and tolerates an optional `v`
+  in the dep-pin and `ALEF_REV` regexes so subsequent runs are self-healing.
+- chore(clippy): clear `clippy::if_same_then_else`, `clippy::format_in_format_args`,
+  `clippy::dead_code`, `clippy::nonminimal_bool`, and `clippy::collapsible_match` warnings across
+  `alef-codegen`, `alef-backend-csharp`, `alef-backend-ffi`, `alef-backend-java`,
+  `alef-backend-napi`, and `alef-e2e`. Removes one dead helper in `alef-backend-csharp`
+  (`native_call_args`) and one dead method in `alef-backend-ffi` (`vtable_fn_ptr_field`); collapses
+  redundant identical `if`/`else` branches in `alef-codegen::config_gen` and
+  `alef-backend-java::gen_visitor::files`; drops a never-read `FieldEntry { decl, doc }` struct in
+  `alef-backend-java::gen_bindings::types` whose only observed use was `.len()`.
 
 ## [0.14.36] - 2026-05-08
 

@@ -459,7 +459,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                         "trait_bridge/dataclass_field_with_default.jinja",
                         minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
                     ));
-                    out.push_str("\n");
+                    out.push('\n');
                     let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
                     // Avoid `""""` when docstring ends with `"` — add trailing space.
                     let safe_doc = if doc_line.ends_with('"') {
@@ -477,7 +477,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                         "trait_bridge/dataclass_field_with_default.jinja",
                         minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
                     ));
-                    out.push_str("\n");
+                    out.push('\n');
                 }
             }
             out.push('\n');

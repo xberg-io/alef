@@ -551,6 +551,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "c_free_string_defer.jinja",
         include_str!("../templates/c_free_string_defer.jinja"),
     ),
+    (
+        "bytes_result_call.jinja",
+        include_str!("../templates/bytes_result_call.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

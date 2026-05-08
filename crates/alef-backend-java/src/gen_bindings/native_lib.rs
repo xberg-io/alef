@@ -387,7 +387,7 @@ pub(crate) fn gen_native_lib(
     out.push_str("import java.util.List;\n");
     out.push_str("import java.util.jar.JarEntry;\n");
     out.push_str("import java.util.jar.JarFile;\n");
-    out.push_str("\n");
+    out.push('\n');
 
     out.push_str(&class_body);
 

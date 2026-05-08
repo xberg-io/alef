@@ -62,18 +62,14 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     };
 
     // Determine body assertions
-    let (has_text_body, text_py) = if let Some(body) = &http.expected_response.body {
-        if let serde_json::Value::String(s) = body {
-            (true, format!("\"{}\"", escape_python(s)))
-        } else {
-            (false, String::new())
-        }
+    let (has_text_body, text_py) = if let Some(serde_json::Value::String(s)) = &http.expected_response.body {
+        (true, format!("\"{}\"", escape_python(s)))
     } else {
         (false, String::new())
     };
 
     let (has_json_body, json_py) = if let Some(body) = &http.expected_response.body {
-        if !body.is_null() && !(body.is_string() && body.as_str() == Some("")) {
+        if !(body.is_null() || body.is_string() && body.as_str() == Some("")) {
             if !matches!(body, serde_json::Value::String(_)) {
                 (true, json_to_python_literal(body))
             } else {

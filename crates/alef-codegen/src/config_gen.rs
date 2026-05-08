@@ -828,12 +828,9 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
                 let default_str = default_value_for_field(field, "rust");
                 let is_enum_variant_default = default_str.contains("::") || default_str.starts_with("\"");
 
-                if is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char) {
-                    format!(
-                        "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
-                        field.name
-                    )
-                } else if matches!(&field.ty, TypeRef::Named(_)) {
+                let unwrap_default = (is_enum_variant_default && matches!(&field.ty, TypeRef::String | TypeRef::Char))
+                    || matches!(&field.ty, TypeRef::Named(_));
+                if unwrap_default {
                     format!(
                         "opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
                         field.name
@@ -932,12 +929,7 @@ pub fn gen_extendr_kwargs_constructor(
                         field.name, field.name
                     )
                 }
-            } else if ty_is_optional(&field.ty) {
-                format!(
-                    "if let Some(v) = {} {{ __out.{} = Some(v); }}",
-                    field.name, field.name
-                )
-            } else if field.optional {
+            } else if ty_is_optional(&field.ty) || field.optional {
                 format!(
                     "if let Some(v) = {} {{ __out.{} = Some(v); }}",
                     field.name, field.name

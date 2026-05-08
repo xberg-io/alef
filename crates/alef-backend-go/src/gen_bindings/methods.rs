@@ -1,4 +1,4 @@
-use super::functions::params_require_marshal;
+use super::functions::{is_bytes_result_method, params_require_marshal};
 use super::types::{cgo_type_for_primitive, emit_type_doc, go_return_expr, primitive_max_sentinel};
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
@@ -25,7 +25,13 @@ pub(super) fn gen_method_wrapper(
     let method_marshals = receiver_requires_marshal || params_require_marshal(&method.params, opaque_names);
     let method_can_return_error = method.error_type.is_some() || method_marshals;
 
-    let return_type = if method_can_return_error {
+    // Detect Result<Vec<u8>> — uses out-param convention, always returns ([]byte, error).
+    let is_bytes_result = is_bytes_result_method(method);
+
+    let return_type = if is_bytes_result {
+        // Out-param bytes result always returns ([]byte, error)
+        "([]byte, error)".to_string()
+    } else if method_can_return_error {
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
@@ -131,7 +137,7 @@ pub(super) fn gen_method_wrapper(
 
         let type_snake = typ.name.to_snake_case();
         let method_snake = method.name.to_snake_case();
-        let c_call = if method.is_static {
+        let base_c_call = if method.is_static {
             // Static methods don't pass a receiver
             if c_params.is_empty() {
                 format!("C.{}_{}_{}()", ffi_prefix, type_snake, method_snake)
@@ -195,6 +201,28 @@ pub(super) fn gen_method_wrapper(
                 )
             }
         };
+
+        // For Result<Vec<u8>> (bytes_result), append the three out-param references to the call.
+        let c_call = if is_bytes_result {
+            let base = base_c_call.trim_end_matches(')');
+            if base.ends_with('(') {
+                format!("{}&outPtr, &outLen, &outCap)", base)
+            } else {
+                format!("{}, &outPtr, &outLen, &outCap)", base)
+            }
+        } else {
+            base_c_call
+        };
+
+        // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
+        if is_bytes_result {
+            out.push_str(&crate::template_env::render(
+                "bytes_result_call.jinja",
+                minijinja::context! { c_call => &c_call, ffi_prefix => ffi_prefix },
+            ));
+            out.push_str("}}\n");
+            return out;
+        }
 
         // Detect builder pattern: opaque type method that returns the same opaque type.
         // The C function consumes (Box::from_raw) the input pointer and returns a new pointer.
@@ -650,7 +678,7 @@ pub(super) fn gen_param_to_c(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::ir::{CoreWrapper, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+    use alef_core::ir::{CoreWrapper, FieldDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
     fn opaque_type(name: &str) -> TypeDef {
         TypeDef {
@@ -763,5 +791,51 @@ mod tests {
         let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
         // Static methods become package-level functions (no receiver)
         assert!(out.contains("func Config"));
+    }
+
+    #[test]
+    fn test_gen_method_wrapper_bytes_result_emits_out_params() {
+        let typ = opaque_type("Renderer");
+        let method = MethodDef {
+            name: "render_page".to_string(),
+            doc: String::new(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Bytes,
+            is_static: false,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
+        // Return type must be ([]byte, error).
+        assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
+        // Must declare out-param variables.
+        assert!(out.contains("var outPtr"), "missing outPtr in:\n{out}");
+        assert!(out.contains("outLen"), "missing outLen in:\n{out}");
+        assert!(out.contains("outCap"), "missing outCap in:\n{out}");
+        // Must pass out-params to C call.
+        assert!(out.contains("&outPtr"), "missing &outPtr in:\n{out}");
+        // Must copy bytes via C.GoBytes.
+        assert!(out.contains("C.GoBytes"), "missing C.GoBytes in:\n{out}");
+        // Must free via krz_free_bytes.
+        assert!(out.contains("krz_free_bytes"), "missing krz_free_bytes in:\n{out}");
     }
 }

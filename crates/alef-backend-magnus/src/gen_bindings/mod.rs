@@ -431,7 +431,7 @@ impl Backend for MagnusBackend {
         // Generate the main Ruby wrapper module file
         let mut content = hash::header(CommentStyle::Hash);
         content.push_str(
-            &crate::template_env::render(
+            crate::template_env::render(
                 "main_rb_wrapper.rb.jinja",
                 minijinja::context! {
                     gem_name_snake => gem_name_snake,
@@ -440,13 +440,13 @@ impl Backend for MagnusBackend {
             )
             .trim_end_matches('\n'),
         );
-        content.push_str("\n");
+        content.push('\n');
 
         // Generate the native.rb file that requires the extension and re-exports its symbols
         let native_module_name = get_module_name(&api.crate_name);
         let mut native_content = hash::header(CommentStyle::Hash);
         native_content.push_str(
-            &crate::template_env::render(
+            crate::template_env::render(
                 "native_rb_wrapper.rb.jinja",
                 minijinja::context! {
                     ext_name => ext_name,
@@ -456,7 +456,7 @@ impl Backend for MagnusBackend {
             )
             .trim_end_matches('\n'),
         );
-        native_content.push_str("\n");
+        native_content.push('\n');
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
         // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the
@@ -471,7 +471,7 @@ impl Backend for MagnusBackend {
 
         let mut version_content = hash::header(CommentStyle::Hash);
         version_content.push_str(
-            &crate::template_env::render(
+            crate::template_env::render(
                 "version_rb_wrapper.rb.jinja",
                 minijinja::context! {
                     module_name => module_name,
@@ -480,7 +480,7 @@ impl Backend for MagnusBackend {
             )
             .trim_end_matches('\n'),
         );
-        version_content.push_str("\n");
+        version_content.push('\n');
 
         let output_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
 

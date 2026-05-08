@@ -177,7 +177,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
                 name => module_name,
             },
         ));
-        body.push_str("\n");
+        body.push('\n');
         for f in &visible_functions {
             object_wrapper::emit_function(f, &mut body, &mut imports, &java_package);
             body.push('\n');

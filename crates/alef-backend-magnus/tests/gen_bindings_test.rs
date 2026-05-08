@@ -1615,3 +1615,90 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
         "field accessor must return Option<usize>:\n{content}"
     );
 }
+
+#[test]
+fn test_visitor_bridge_debug_not_duplicated() {
+    use alef_backend_magnus::trait_bridge::gen_trait_bridge;
+    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
+    use alef_core::ir::*;
+
+    let make_method_with_default = |name: &str| MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: true,
+    };
+
+    let trait_def = TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![make_method_with_default("visit_element_start")],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let cfg = TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "html_to_markdown_rs".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let code = gen_trait_bridge(
+        &trait_def,
+        &cfg,
+        "html_to_markdown_rs",
+        "ConversionError",
+        "ConversionError::new({msg})",
+        &api,
+    );
+
+    let debug_count = code.matches("impl std::fmt::Debug for RbHtmlVisitorBridge").count();
+    assert_eq!(
+        debug_count,
+        1,
+        "Expected 1 Debug impl, got {}:\n{}",
+        debug_count,
+        &code[..code.len().min(2000)]
+    );
+}

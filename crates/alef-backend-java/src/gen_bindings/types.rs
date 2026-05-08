@@ -17,18 +17,8 @@ pub(crate) fn gen_record_type(
     lang_rename_all: &str,
     has_visitor_pattern: bool,
 ) -> String {
-    // Single pass: build per-field (decl, doc) pairs and the comma-joined declaration
-    // string simultaneously.  This avoids the map+unzip double-allocation and the
-    // second .join(", ") that previously rebuilt the same content for emission.
-    //
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
-    struct FieldEntry {
-        decl: String,
-        doc: String,
-    }
-
-    let mut field_entries: Vec<FieldEntry> = Vec::with_capacity(typ.fields.len());
     // Pre-size: average field decl ≈ 40 chars + 2 for ", " separator.
     let mut fields_joined = String::with_capacity(typ.fields.len().saturating_mul(42));
 
@@ -115,11 +105,6 @@ pub(crate) fn gen_record_type(
             fields_joined.push_str(", ");
         }
         fields_joined.push_str(&decl);
-
-        field_entries.push(FieldEntry {
-            decl,
-            doc: f.doc.clone(),
-        });
     }
 
     // Build the single-line form to check length and scan for imports.
@@ -149,7 +134,7 @@ pub(crate) fn gen_record_type(
         record_block.push_str(&typ.name);
         record_block.push_str("Builder.class)\n");
     }
-    if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
+    if single_line_len > RECORD_LINE_WRAP_THRESHOLD && typ.fields.len() > 1 {
         record_block.push_str("public record ");
         record_block.push_str(&typ.name);
         record_block.push_str("(\n");
@@ -313,7 +298,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
                 out.push_str("    /**\n");
                 out.push_str("     * ");
                 out.push_str(&doc_summary);
-                out.push_str("\n");
+                out.push('\n');
                 out.push_str("     */\n");
             } else {
                 out.push_str("    /** ");
@@ -326,7 +311,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
         out.push_str("(\"");
         out.push_str(&json_name);
         out.push_str("\")");
-        out.push_str(&comma);
+        out.push_str(comma);
         out.push('\n');
     }
 
@@ -444,7 +429,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     emit_javadoc(&mut out, &enum_def.doc, "");
     // @JsonTypeInfo and @JsonSubTypes annotations
     out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
-    out.push_str(&tag_field);
+    out.push_str(tag_field);
     out.push_str("\", visible = false)\n");
     out.push_str("@JsonSubTypes({{\n");
     out.push_str("public sealed interface ");
@@ -554,9 +539,9 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             let return_type = java_boxed_type(&variant.fields[0].ty);
             let variant_name = &variant.name;
             out.push_str("    /** Returns the ");
-            out.push_str(&variant_name);
+            out.push_str(variant_name);
             out.push_str(" data if this is a ");
-            out.push_str(&variant_name);
+            out.push_str(variant_name);
             out.push_str(" variant, otherwise null. */\n");
             out.push_str("    default @Nullable ");
             out.push_str(return_type.as_ref());
@@ -564,7 +549,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             out.push_str(&method_name);
             out.push_str("() {\n");
             out.push_str("        return this instanceof ");
-            out.push_str(&variant_name);
+            out.push_str(variant_name);
             out.push_str(" e ? e.value() : null;\n");
             out.push_str("    }}\n");
             out.push('\n');
@@ -589,12 +574,12 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     emit_javadoc(&mut out, &typ.doc, "");
 
     out.push_str("public class ");
-    out.push_str(&class_name);
+    out.push_str(class_name);
     out.push_str(" implements AutoCloseable {\n");
     out.push_str("    private final MemorySegment handle;\n");
     out.push('\n');
     out.push_str("    ");
-    out.push_str(&class_name);
+    out.push_str(class_name);
     out.push_str("(MemorySegment handle) {\n");
     out.push_str("        this.handle = handle;\n");
     out.push_str("    }}\n");
@@ -614,7 +599,7 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     out.push_str("_FREE.invoke(handle);\n");
     out.push_str("            } catch (Throwable e) {\n");
     out.push_str("                throw new RuntimeException(\"Failed to free ");
-    out.push_str(&class_name);
+    out.push_str(class_name);
     out.push_str(": \" + e.getMessage(), e);\n");
     out.push_str("            }}\n");
     out.push_str("        }}\n");

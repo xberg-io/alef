@@ -1,7 +1,6 @@
 //! Vtable struct, bridge struct, Drop impl, and Plugin super-trait impl generation.
 
 use alef_codegen::generators::trait_bridge::TraitBridgeSpec;
-use alef_core::ir::MethodDef;
 
 use super::FfiBridgeGenerator;
 
@@ -166,26 +165,6 @@ impl FfiBridgeGenerator {
         ));
 
         Some(out)
-    }
-
-    /// Build the vtable function pointer field signature for one method.
-    pub(super) fn vtable_fn_ptr_field(&self, method: &MethodDef) -> String {
-        let mut params = vec!["user_data: *const std::ffi::c_void".to_string()];
-
-        for p in &method.params {
-            let cty = Self::c_param_type(&p.ty);
-            params.push(format!("{}: {}", p.name, cty));
-        }
-
-        let has_error = method.error_type.is_some();
-        let (out_params, ret_ty) = Self::c_return_convention(&method.return_type, has_error);
-        params.extend(out_params);
-
-        let params_str = params.join(", ");
-        format!(
-            "    pub {name}: Option<unsafe extern \"C\" fn({params_str}) -> {ret_ty}>,",
-            name = method.name,
-        )
     }
 }
 

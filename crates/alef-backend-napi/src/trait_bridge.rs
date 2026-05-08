@@ -430,9 +430,9 @@ fn gen_visitor_method_napi(
         .collect();
 
     let tuple_args = if arg_count == 1 {
-        format!("({},)", format!("arg_{}", 0))
+        "(arg_0,)".to_string()
     } else if arg_count > 0 {
-        let arg_names: Vec<String> = (0..arg_count).map(|i| format!("arg_{}", i)).collect();
+        let arg_names: Vec<String> = (0..arg_count).map(|i| format!("arg_{i}")).collect();
         format!("({})", arg_names.join(", "))
     } else {
         String::new()

@@ -1739,7 +1739,7 @@ fn gen_namespace(api: &ApiSurface, package_name: &str) -> String {
         "r_use_dyn_lib.jinja",
         minijinja::context! { package_name => package_name },
     ));
-    out.push_str("\n");
+    out.push('\n');
 
     for func in &api.functions {
         out.push_str(&crate::template_env::render(

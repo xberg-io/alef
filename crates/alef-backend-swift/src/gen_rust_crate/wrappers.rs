@@ -384,9 +384,9 @@ fn emit_vec_getter(
     enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
-    let name = &ctx.name;
-    let getter_name = &ctx.getter_name;
-    let bridge_ty_owned = &ctx.bridge_ty_owned;
+    let _name = &ctx.name;
+    let _getter_name = &ctx.getter_name;
+    let _bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
         // When the source field is Vec<Arc<T>>, cloning an element

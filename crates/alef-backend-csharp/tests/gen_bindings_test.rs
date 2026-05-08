@@ -816,3 +816,112 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         cs_file.content
     );
 }
+
+/// Verifies that a function returning `Result<Vec<u8>>` (error_type + TypeRef::Bytes) uses
+/// the out-param P/Invoke convention and emits correct wrapper code.
+#[test]
+fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "kreuzberg".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "process_image".to_string(),
+            rust_path: "kreuzberg::process_image".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config("kreuzberg", Some("Kreuzberg"), true);
+    let files = backend.generate_bindings(&api, &config).expect("generation must succeed");
+
+    let native = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs must be generated");
+
+    // P/Invoke: return type must be int (not IntPtr).
+    assert!(
+        native.content.contains("internal static extern int ProcessImage"),
+        "P/Invoke return must be int for bytes_result; got:\n{}",
+        native.content
+    );
+    // P/Invoke: must have out-params.
+    assert!(
+        native.content.contains("out IntPtr outPtr"),
+        "P/Invoke must have out IntPtr outPtr; got:\n{}",
+        native.content
+    );
+    assert!(
+        native.content.contains("out UIntPtr outLen"),
+        "P/Invoke must have out UIntPtr outLen; got:\n{}",
+        native.content
+    );
+    assert!(
+        native.content.contains("out UIntPtr outCap"),
+        "P/Invoke must have out UIntPtr outCap; got:\n{}",
+        native.content
+    );
+    // P/Invoke: FreeBytes declaration must be present.
+    assert!(
+        native.content.contains("internal static extern void FreeBytes"),
+        "NativeMethods.cs must have FreeBytes; got:\n{}",
+        native.content
+    );
+
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Kreuzberg.cs"))
+        .expect("Kreuzberg.cs must be generated");
+
+    // Wrapper: return type must be byte[].
+    assert!(
+        wrapper.content.contains("public static byte[] ProcessImage"),
+        "Wrapper return must be byte[] for bytes_result; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must check rc != 0.
+    assert!(
+        wrapper.content.contains("rc != 0"),
+        "Wrapper must check rc != 0; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must call Marshal.Copy.
+    assert!(
+        wrapper.content.contains("Marshal.Copy"),
+        "Wrapper must call Marshal.Copy; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must call FreeBytes.
+    assert!(
+        wrapper.content.contains("FreeBytes"),
+        "Wrapper must call NativeMethods.FreeBytes; got:\n{}",
+        wrapper.content
+    );
+}

@@ -241,7 +241,7 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         "gen_helper_methods_header.jinja",
         minijinja::context! {},
     ));
-    out.push_str("\n");
+    out.push('\n');
 
     if needs_check_last_error {
         // Reads the last FFI error code and, if non-zero, reads the error message and throws.

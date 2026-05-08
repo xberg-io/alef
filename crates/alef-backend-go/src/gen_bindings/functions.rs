@@ -2,7 +2,7 @@ use super::methods::gen_param_to_c;
 use super::types::{emit_type_doc, go_return_expr};
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_param_name, to_go_name};
-use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 use std::fmt::Write;
@@ -44,6 +44,18 @@ pub(super) fn is_bridge_param(
     type_name.is_some_and(|n| bridge_type_aliases.contains(n))
 }
 
+/// Returns true when the function returns `Result<Vec<u8>>` — i.e. has both an
+/// `error_type` and a `TypeRef::Bytes` return.  These functions use the out-param
+/// convention: `(args..., *uint8_t, *uintptr_t, *uintptr_t) -> i32`.
+fn is_bytes_result_func(func: &FunctionDef) -> bool {
+    func.error_type.is_some() && matches!(func.return_type, TypeRef::Bytes)
+}
+
+/// Same check for MethodDef — needed by methods.rs.
+pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    method.error_type.is_some() && matches!(method.return_type, TypeRef::Bytes)
+}
+
 /// Generate a wrapper function for a free function.
 pub(super) fn gen_function_wrapper(
     func: &FunctionDef,
@@ -58,6 +70,9 @@ pub(super) fn gen_function_wrapper(
 
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
+    // Detect Result<Vec<u8>> — uses out-param convention, always returns ([]byte, error).
+    let is_bytes_result = is_bytes_result_func(func);
+
     // A function that marshals parameters to JSON can fail even without a declared error_type.
     // Synthesize an error return in those cases so we never panic on marshal failure.
     // Exclude bridge params — they are not marshalled (they're passed as nil).
@@ -70,7 +85,10 @@ pub(super) fn gen_function_wrapper(
     let marshals_params = params_require_marshal(&non_bridge_params, opaque_names);
     let can_return_error = func.error_type.is_some() || marshals_params;
 
-    let return_type = if can_return_error {
+    let return_type = if is_bytes_result {
+        // Out-param bytes result always returns ([]byte, error)
+        "([]byte, error)".to_string()
+    } else if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
@@ -152,6 +170,7 @@ pub(super) fn gen_function_wrapper(
     // visitor path via a separate {prefix}_convert_with_visitor function.
     // Non-sanitized bridge params pass nil (no visitor) in the plain Convert().
     // Bytes params expand to two C arguments: the pointer and the length.
+    // For bytes-result functions, three trailing out-params (&outPtr, &outLen, &outCap) are appended.
     let c_params: Vec<String> = func
         .params
         .iter()
@@ -171,9 +190,36 @@ pub(super) fn gen_function_wrapper(
         })
         .collect();
 
-    let c_call = format!("{}({})", ffi_name, c_params.join(", "));
+    // For bytes-result, append the three out-param addresses.
+    let c_call = if is_bytes_result {
+        let mut all_params = c_params.clone();
+        all_params.push("&outPtr".to_string());
+        all_params.push("&outLen".to_string());
+        all_params.push("&outCap".to_string());
+        format!("{}({})", ffi_name, all_params.join(", "))
+    } else {
+        format!("{}({})", ffi_name, c_params.join(", "))
+    };
 
     // Handle result and error.
+    // Result<Vec<u8>> uses the out-param convention: emit bytes_result_call which
+    // declares outPtr/outLen/outCap, calls the FFI with those addresses appended,
+    // checks the i32 return code, copies the bytes, and frees via {prefix}_free_bytes.
+    if is_bytes_result {
+        out.push_str(&crate::template_env::render(
+            "bytes_result_call.jinja",
+            minijinja::context! {
+                c_call => &c_call,
+                ffi_prefix => ffi_prefix,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "function_body_end.jinja",
+            minijinja::Value::default(),
+        ));
+        return out;
+    }
+
     // When can_return_error is true (either from declared error_type or synthesized for
     // marshal-requiring params), emit lastError() checks. For synthesized-error functions
     // that have no declared error_type, the FFI call itself never sets a last error, so
@@ -607,5 +653,133 @@ mod tests {
         )];
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         assert!(params_require_marshal(&params, &opaque));
+    }
+
+    fn make_bytes_result_func(name: &str, with_bytes_param: bool) -> FunctionDef {
+        let params = if with_bytes_param {
+            vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }]
+        } else {
+            vec![]
+        };
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }
+    }
+
+    fn make_bytes_result_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            doc: String::new(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Bytes,
+            is_static: false,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_detects_bytes_with_error() {
+        let func = make_bytes_result_func("process_image", true);
+        assert!(is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_false_for_bytes_without_error() {
+        let mut func = make_bytes_result_func("get_data", false);
+        func.error_type = None;
+        assert!(!is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_func_false_for_string_with_error() {
+        let func = FunctionDef {
+            name: "get_text".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        };
+        assert!(!is_bytes_result_func(&func));
+    }
+
+    #[test]
+    fn test_is_bytes_result_method_detects_correctly() {
+        let method = make_bytes_result_method("render_page");
+        assert!(is_bytes_result_method(&method));
+    }
+
+    #[test]
+    fn test_gen_function_wrapper_bytes_result_emits_out_params() {
+        let func = make_bytes_result_func("process_image", true);
+        let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let bridge_names: HashSet<String> = HashSet::new();
+        let bridge_aliases: HashSet<String> = HashSet::new();
+        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases);
+        // Return type must be ([]byte, error)
+        assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
+        // Must declare out-param variables (outLen and outCap are declared together)
+        assert!(out.contains("var outPtr"), "missing outPtr in:\n{out}");
+        assert!(out.contains("outLen"), "missing outLen in:\n{out}");
+        assert!(out.contains("outCap"), "missing outCap in:\n{out}");
+        // Must pass out-params to C call
+        assert!(out.contains("&outPtr"), "missing &outPtr in:\n{out}");
+        assert!(out.contains("&outLen"), "missing &outLen in:\n{out}");
+        assert!(out.contains("&outCap"), "missing &outCap in:\n{out}");
+        // Must copy bytes via C.GoBytes
+        assert!(out.contains("C.GoBytes"), "missing C.GoBytes in:\n{out}");
+        // Must free via krz_free_bytes
+        assert!(out.contains("krz_free_bytes"), "missing krz_free_bytes in:\n{out}");
     }
 }

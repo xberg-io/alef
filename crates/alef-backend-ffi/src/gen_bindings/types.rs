@@ -191,14 +191,14 @@ fn gen_field_access_body(
                 "match_arm_value.jinja",
                 context! {
                     pattern => "Some(None)",
-                    value => &format!("{}", inner_null),
+                    value => &inner_null.to_string(),
                 },
             ));
             out.push_str(&crate::template_env::render(
                 "match_arm_value.jinja",
                 context! {
                     pattern => "None",
-                    value => &format!("{}", null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))),
+                    value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
             ));
             out.push_str("    }}\n");
@@ -228,7 +228,7 @@ fn gen_field_access_body(
                 "match_arm_value.jinja",
                 context! {
                     pattern => "None",
-                    value => &format!("{}", null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))),
+                    value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
             ));
             out.push_str("    }}\n");

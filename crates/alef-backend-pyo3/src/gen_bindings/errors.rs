@@ -231,7 +231,7 @@ pub(super) fn gen_init_py(
                     "trait_bridge/indented_import_item.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str("\n");
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
@@ -250,7 +250,7 @@ pub(super) fn gen_init_py(
                     "trait_bridge/indented_import_item.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str("\n");
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
@@ -273,7 +273,7 @@ pub(super) fn gen_init_py(
                     "trait_bridge/indented_import_item.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str("\n");
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {
@@ -292,7 +292,7 @@ pub(super) fn gen_init_py(
                     "trait_bridge/indented_import_item.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str("\n");
+                out.push('\n');
             }
             out.push_str(")\n");
         } else {

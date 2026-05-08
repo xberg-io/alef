@@ -411,7 +411,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                             ref => if p.is_ref { "" } else { "&" },
                         },
                     ));
-                    out.push_str("\n");
+                    out.push('\n');
                     continue;
                 }
             }
@@ -424,7 +424,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                         name => &p.name,
                     },
                 ));
-                out.push_str("\n");
+                out.push('\n');
                 continue;
             }
             if matches!(&p.ty, TypeRef::String) {
@@ -443,7 +443,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                         },
                     ));
                 }
-                out.push_str("\n");
+                out.push('\n');
                 continue;
             }
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
@@ -453,7 +453,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                         name => &p.name,
                     },
                 ));
-                out.push_str("\n");
+                out.push('\n');
                 continue;
             }
             // Default: format as string
@@ -463,7 +463,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                     name => &p.name,
                 },
             ));
-            out.push_str("\n");
+            out.push('\n');
         }
     }
 
@@ -516,7 +516,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                 expr => &expr,
             },
         ));
-        out.push_str("\n");
+        out.push('\n');
         tmpl_var_names.push(format!("(\"{key}\", {owned_var}.as_str())"));
     }
     let tmpl_vars_expr = if tmpl_var_names.is_empty() {

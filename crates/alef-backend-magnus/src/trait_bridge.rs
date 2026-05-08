@@ -725,7 +725,7 @@ impl MagnusBridgeGenerator {
                     format!("<{rust_ty} as magnus::TryConvert>::try_convert(val)\n    .map_err(|e| {err_expr})\n");
                 out.push_str(&convert_code);
             } else {
-                out.push_str("<");
+                out.push('<');
                 out.push_str(&rust_ty);
                 out.push_str(" as magnus::TryConvert>::try_convert(val).unwrap_or_default()\n");
             }
@@ -1189,7 +1189,7 @@ pub fn gen_options_field_bridge_function(
     out.push_str("    let (visitor,) = args.optional;\n");
     out.push_str("    ");
     out.push_str(&body);
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("}\n");
 
     out

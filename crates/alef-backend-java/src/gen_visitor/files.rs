@@ -78,11 +78,7 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     let num_chunks = CALLBACKS.chunks(10).count();
     let mut stub_calls = Vec::new();
     for i in 1..=num_chunks {
-        if i < num_chunks {
-            stub_calls.push(format!("registerStubs{}(offset)", i));
-        } else {
-            stub_calls.push(format!("registerStubs{}(offset)", i));
-        }
+        stub_calls.push(format!("registerStubs{i}(offset)"));
     }
 
     // Build stub_methods: the actual method implementations as a list of strings

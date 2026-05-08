@@ -233,7 +233,14 @@ pub(super) fn gen_native_methods(
         "dll_import_attr.jinja",
         minijinja::context! { entry_point => &free_string_entry },
     ));
-    out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
+    out.push_str("    internal static extern void FreeString(IntPtr ptr);\n\n");
+
+    let free_bytes_entry = format!("{prefix}_free_bytes");
+    out.push_str(&render(
+        "dll_import_attr.jinja",
+        minijinja::context! { entry_point => &free_bytes_entry },
+    ));
+    out.push_str("    internal static extern void FreeBytes(IntPtr ptr, UIntPtr len, UIntPtr cap);\n");
 
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
     if has_visitor_callbacks {
@@ -284,6 +291,17 @@ pub(super) fn gen_native_methods(
     out
 }
 
+/// Returns true when a function returns `Result<Vec<u8>>` — uses the out-param
+/// convention: `(args..., out IntPtr, out UIntPtr, out UIntPtr) -> int`.
+pub(super) fn is_bytes_result_func(func: &FunctionDef) -> bool {
+    func.error_type.is_some() && matches!(func.return_type, TypeRef::Bytes)
+}
+
+/// Same check for MethodDef.
+pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    method.error_type.is_some() && matches!(method.return_type, TypeRef::Bytes)
+}
+
 pub(super) fn gen_pinvoke_for_func(
     c_name: &str,
     func: &FunctionDef,
@@ -293,29 +311,35 @@ pub(super) fn gen_pinvoke_for_func(
     use crate::template_env::render;
 
     let cs_name = to_csharp_name(&func.name);
+    let is_bytes_result = is_bytes_result_func(func);
+
     let mut out = render("dll_import_attr.jinja", minijinja::context! { entry_point => c_name });
     out.push_str("    internal static extern ");
 
-    // Return type — use the correct P/Invoke type for each kind.
-    out.push_str(pinvoke_return_type(&func.return_type));
+    // Result<Vec<u8>> returns an i32 error code; output bytes come via out-params.
+    if is_bytes_result {
+        out.push_str("int");
+    } else {
+        out.push_str(pinvoke_return_type(&func.return_type));
+    }
 
     out.push(' ');
     out.push_str(&cs_name);
     out.push('(');
 
-    // Filter bridge params — they are not visible in P/Invoke declarations; the wrapper
-    // passes IntPtr.Zero directly when calling the visitor-less FFI entry point.
+    // Filter bridge params — they are not visible in P/Invoke declarations.
     let visible_params: Vec<_> = func
         .params
         .iter()
         .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
         .collect();
 
-    if visible_params.is_empty() {
+    // For bytes_result: always need params block for the three out-params.
+    if visible_params.is_empty() && !is_bytes_result {
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        for (i, param) in visible_params.iter().enumerate() {
+        for param in visible_params.iter() {
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             if pinvoke_ty == "string" {
@@ -325,10 +349,17 @@ pub(super) fn gen_pinvoke_for_func(
             out.push_str(
                 render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
             );
-
-            if i < visible_params.len() - 1 {
-                out.push(',');
-            }
+            out.push_str(",\n");
+        }
+        if is_bytes_result {
+            // Three trailing out-params for the byte-buffer out-param convention.
+            out.push_str("        out IntPtr outPtr,\n");
+            out.push_str("        out UIntPtr outLen,\n");
+            out.push_str("        out UIntPtr outCap\n");
+        } else {
+            // Remove trailing comma from the last regular param.
+            let trim_len = ",\n".len();
+            out.truncate(out.len() - trim_len);
             out.push('\n');
         }
         out.push_str("    );\n\n");
@@ -340,40 +371,32 @@ pub(super) fn gen_pinvoke_for_func(
 pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> String {
     use crate::template_env::render;
 
+    let is_bytes_result = is_bytes_result_method(method);
+
     let mut out = render("dll_import_attr.jinja", minijinja::context! { entry_point => c_name });
     out.push_str("    internal static extern ");
 
-    // Return type — use the correct P/Invoke type for each kind.
-    out.push_str(pinvoke_return_type(&method.return_type));
+    // Result<Vec<u8>> returns an i32 error code; output bytes come via out-params.
+    if is_bytes_result {
+        out.push_str("int");
+    } else {
+        out.push_str(pinvoke_return_type(&method.return_type));
+    }
 
     out.push(' ');
     out.push_str(cs_name);
     out.push('(');
 
-    // Non-static methods take the receiver as the first FFI parameter (the
-    // generated extern "C" fn signature is `fn (this: *const T, ...)`). Prepend
-    // an `IntPtr handle` here so the P/Invoke signature matches; without this
-    // the C# wrapper falls one argument short and the runtime throws
-    // EntryPointNotFoundException / the C# compiler rejects the call site.
+    // Non-static methods take the receiver as the first FFI parameter.
     let has_receiver = !method.is_static && method.receiver.is_some();
 
-    if !has_receiver && method.params.is_empty() {
+    let needs_params = has_receiver || !method.params.is_empty() || is_bytes_result;
+    if !needs_params {
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        let total = if has_receiver {
-            method.params.len() + 1
-        } else {
-            method.params.len()
-        };
-        let mut idx = 0usize;
         if has_receiver {
-            out.push_str("        IntPtr handle");
-            if total > 1 {
-                out.push(',');
-            }
-            out.push('\n');
-            idx += 1;
+            out.push_str("        IntPtr handle,\n");
         }
         for param in method.params.iter() {
             out.push_str("        ");
@@ -385,12 +408,18 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
             out.push_str(
                 render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
             );
-
-            if idx < total - 1 {
-                out.push(',');
-            }
+            out.push_str(",\n");
+        }
+        if is_bytes_result {
+            // Three trailing out-params for the byte-buffer out-param convention.
+            out.push_str("        out IntPtr outPtr,\n");
+            out.push_str("        out UIntPtr outLen,\n");
+            out.push_str("        out UIntPtr outCap\n");
+        } else {
+            // Remove trailing comma from the last param.
+            let trim_len = ",\n".len();
+            out.truncate(out.len() - trim_len);
             out.push('\n');
-            idx += 1;
         }
         out.push_str("    );\n\n");
     }
