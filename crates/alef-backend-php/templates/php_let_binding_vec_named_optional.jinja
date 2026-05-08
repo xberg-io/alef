@@ -1,1 +1,13 @@
-let {{ pname }}_core: Option<Vec<{{ core_import }}::{{ name }}>> = {{ pname }}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());
+let {{ pname }}_core: Option<Vec<{{ core_import }}::{{ name }}>> = if let Some(ht) = {{ pname }} {
+    let mut result = Vec::new();
+    for (_, item) in ht.iter() {
+        if let Some(parsed) = <&{{ name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+            result.push(parsed.clone().into());
+        } else {
+            return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ name }}".to_string()));
+        }
+    }
+    Some(result)
+} else {
+    None
+};

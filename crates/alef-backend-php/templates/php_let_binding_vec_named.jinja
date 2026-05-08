@@ -1,1 +1,9 @@
-let {{ pname }}_core: Vec<{{ core_import }}::{{ name }}> = {{ pname }}.iter().map(|x| x.clone().into()).collect();
+let mut {{ pname }}_core_result: Vec<{{ core_import }}::{{ name }}> = Vec::new();
+for (_, item) in {{ pname }}.iter() {
+    if let Some(parsed) = <&{{ name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
+        {{ pname }}_core_result.push(parsed.clone().into());
+    } else {
+        return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ name }}".to_string()));
+    }
+}
+let {{ pname }}_core: Vec<{{ core_import }}::{{ name }}> = {{ pname }}_core_result;
