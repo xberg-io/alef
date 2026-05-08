@@ -32,6 +32,9 @@ environment:
 dependencies:
   # FRB runtime is pure-Dart; works in both Flutter and server-Dart contexts.
   flutter_rust_bridge: '{flutter_rust_bridge}'
+  # FRB codegen-2.x emits `@freezed` sealed classes annotated with these.
+  freezed_annotation: '^2.4.0'
+  json_annotation: '^4.9.0'
 dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'
