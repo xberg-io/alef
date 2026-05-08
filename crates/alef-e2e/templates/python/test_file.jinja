@@ -11,20 +11,21 @@
 #}
 {{ header }}
 """{{ docstring }}"""
-{%- if stdlib_imports %}
+
+{% if stdlib_imports %}
 {% for imp in stdlib_imports %}
 {{ imp }}
-{%- endfor %}
+{% endfor %}
 {% endif %}
-{%- if thirdparty_bare %}
+{% if thirdparty_bare %}
 {% for imp in thirdparty_bare %}
 {{ imp }}
-{%- endfor %}
+{% endfor %}
 {% endif %}
-{%- if thirdparty_from %}
+{% if thirdparty_from %}
 {% for imp in thirdparty_from %}
 {{ imp }}
-{%- endfor %}
+{% endfor %}
 {% endif %}
 
 {{ helper_functions }}
