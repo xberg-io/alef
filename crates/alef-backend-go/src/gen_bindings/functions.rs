@@ -245,25 +245,25 @@ pub(super) fn gen_function_wrapper(
                 },
             ));
             if func.error_type.is_some() {
-                out.push_str("\tif err := lastError(); err != nil {{\n");
+                out.push_str("\tif err := lastError(); err != nil {\n");
                 // Free the pointer if non-nil even on error, to avoid leaks.
                 // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     func.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) {
-                    out.push_str("\t\tif ptr != nil {{\n");
+                    out.push_str("\t\tif ptr != nil {\n");
                     out.push_str(&crate::template_env::render(
                         "free_string_on_error.jinja",
                         minijinja::context! {
                             ffi_prefix => ffi_prefix,
                         },
                     ));
-                    out.push_str("\t\t}}\n");
+                    out.push_str("\t\t}\n");
                 }
                 if let TypeRef::Named(name) = &func.return_type {
                     let type_snake = name.to_snake_case();
-                    out.push_str("\t\tif ptr != nil {{\n");
+                    out.push_str("\t\tif ptr != nil {\n");
                     out.push_str(&crate::template_env::render(
                         "free_type_on_error.jinja",
                         minijinja::context! {
@@ -271,10 +271,10 @@ pub(super) fn gen_function_wrapper(
                             type_snake => &type_snake,
                         },
                     ));
-                    out.push_str("\t\t}}\n");
+                    out.push_str("\t\t}\n");
                 }
                 out.push_str("\t\treturn nil, err\n");
-                out.push_str("\t}}\n");
+                out.push_str("\t}\n");
             }
             // Free the FFI-allocated string after unmarshaling.
             // Bytes pointers are NOT freed — they alias internal storage owned by
@@ -320,9 +320,9 @@ pub(super) fn gen_function_wrapper(
                                 type_snake => &type_snake,
                             },
                         ));
-                        out.push_str("\tif jsonPtr == nil {{\n");
+                        out.push_str("\tif jsonPtr == nil {\n");
                         out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert to JSON\")\n");
-                        out.push_str("\t}}\n");
+                        out.push_str("\t}\n");
                         out.push_str(&crate::template_env::render(
                             "free_string.jinja",
                             minijinja::context! {
@@ -337,10 +337,10 @@ pub(super) fn gen_function_wrapper(
                             },
                         ));
                         out.push_str(
-                            "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{\n",
+                            "\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n",
                         );
                         out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)\n");
-                        out.push_str("\t}}\n");
+                        out.push_str("\t}\n");
                         out.push_str("\treturn &result, nil\n");
                     } else {
                         let return_expr = go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names);
@@ -355,9 +355,9 @@ pub(super) fn gen_function_wrapper(
                     // Handle Vec types with error propagation
                     if let TypeRef::Vec(inner) = &func.return_type {
                         let go_elem = go_type(inner);
-                        out.push_str("\tif ptr == nil {{\n");
+                        out.push_str("\tif ptr == nil {\n");
                         out.push_str("\t\treturn nil, fmt.Errorf(\"failed to get result\")\n");
-                        out.push_str("\t}}\n");
+                        out.push_str("\t}\n");
                         out.push_str(&crate::template_env::render(
                             "free_string.jinja",
                             minijinja::context! {
@@ -371,13 +371,13 @@ pub(super) fn gen_function_wrapper(
                                 element_type => &go_elem,
                             },
                         ));
-                        out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {{\n");
+                        out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {\n");
                         out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal: %w\", err)\n");
-                        out.push_str("\t}}\n");
+                        out.push_str("\t}\n");
                         out.push_str(&crate::template_env::render(
                             "method_return_simple.jinja",
                             minijinja::context! {
-                                value => "result",
+                                value => "result, nil",
                             },
                         ));
                     }
@@ -505,9 +505,9 @@ pub(super) fn gen_convert_with_visitor_wrapper(
 
     // Check if options.Visitor is set and delegate to helper
     if options_param.is_some() {
-        out.push_str("\tif options != nil && options.Visitor != nil {{\n");
+        out.push_str("\tif options != nil && options.Visitor != nil {\n");
         out.push_str("\t\treturn convertWithVisitorHelper(html, options, options.Visitor)\n");
-        out.push_str("\t}}\n");
+        out.push_str("\t}\n");
         out.push('\n');
     }
 
@@ -522,11 +522,11 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     // Handle options parameter.
     if options_param.is_some() {
         out.push_str("\tvar cOptions *C.HTMConversionOptions\n");
-        out.push_str("\tif options != nil {{\n");
+        out.push_str("\tif options != nil {\n");
         out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n");
-        out.push_str("\t\tif err != nil {{\n");
+        out.push_str("\t\tif err != nil {\n");
         out.push_str("\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)\n");
-        out.push_str("\t\t}}\n");
+        out.push_str("\t\t}\n");
         out.push_str("\t\ttmpStr := C.CString(string(jsonBytes))\n");
         out.push_str(&crate::template_env::render(
             "c_options_from_json_with_name.jinja",
@@ -541,7 +541,7 @@ pub(super) fn gen_convert_with_visitor_wrapper(
                 ffi_prefix => ffi_prefix,
             },
         ));
-        out.push_str("\t}}\n");
+        out.push_str("\t}\n");
         out.push('\n');
 
         out.push_str(&crate::template_env::render(
@@ -561,12 +561,12 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         ));
     }
 
-    out.push_str("\tif ptr == nil {{\n");
-    out.push_str("\t\tif err := lastError(); err != nil {{\n");
+    out.push_str("\tif ptr == nil {\n");
+    out.push_str("\t\tif err := lastError(); err != nil {\n");
     out.push_str("\t\t\treturn nil, err\n");
-    out.push_str("\t\t}}\n");
+    out.push_str("\t\t}\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_conversion_result_free.jinja",
         minijinja::context! {
@@ -581,9 +581,9 @@ pub(super) fn gen_convert_with_visitor_wrapper(
             ffi_prefix => ffi_prefix,
         },
     ));
-    out.push_str("\tif jsonPtr == nil {{\n");
+    out.push_str("\tif jsonPtr == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_free_string_defer.jinja",
         minijinja::context! {
@@ -591,9 +591,9 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         },
     ));
     out.push_str("\tvar result ConversionResult\n");
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{\n");
+    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn &result, nil\n");
     out.push_str(&crate::template_env::render(
         "function_body_end.jinja",

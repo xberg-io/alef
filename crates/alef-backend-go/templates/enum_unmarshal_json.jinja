@@ -26,8 +26,8 @@ func (e *{{ enum_name }}) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*e = {{ enum_name }}(decoded)
-	{%- if tag_field %}
+{% if tag_field %}
 	e.Variant = e.{{ tag_field }}
-	{%- endif %}
+{% endif %}
 	return nil
 }

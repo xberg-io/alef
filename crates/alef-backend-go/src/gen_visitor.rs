@@ -815,7 +815,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     out.push_str("// Visitor is the interface implemented by types that observe the HTML-to-Markdown\n");
     out.push_str("// conversion pipeline.  Embed BaseVisitor to get no-op defaults for all methods.\n");
-    out.push_str("type Visitor interface {{\n");
+    out.push_str("type Visitor interface {\n");
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
         out.push_str(&crate::template_env::render(
@@ -827,7 +827,7 @@ pub fn gen_visitor_file(
             },
         ));
     }
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // -------------------------------------------------------------------------
@@ -835,7 +835,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     out.push_str("// BaseVisitor provides default no-op implementations for all Visitor methods.\n");
     out.push_str("// Embed it in your struct and override only the methods you need.\n");
-    out.push_str("type BaseVisitor struct{{}}\n");
+    out.push_str("type BaseVisitor struct{}\n");
     out.push('\n');
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
@@ -864,23 +864,23 @@ pub fn gen_visitor_file(
     out.push_str("\tvisitorIDCounter atomic.Uint64\n");
     out.push_str(")\n");
     out.push('\n');
-    out.push_str("func registerVisitor(v Visitor) uintptr {{\n");
+    out.push_str("func registerVisitor(v Visitor) uintptr {\n");
     out.push_str("\tid := uintptr(visitorIDCounter.Add(1))\n");
     out.push_str("\tvisitorRegistry.Store(id, v)\n");
     out.push_str("\treturn id\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
-    out.push_str("func unregisterVisitor(id uintptr) {{\n");
+    out.push_str("func unregisterVisitor(id uintptr) {\n");
     out.push_str("\tvisitorRegistry.Delete(id)\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
-    out.push_str("func lookupVisitor(id uintptr) (Visitor, bool) {{\n");
+    out.push_str("func lookupVisitor(id uintptr) (Visitor, bool) {\n");
     out.push_str("\tv, ok := visitorRegistry.Load(id)\n");
-    out.push_str("\tif !ok {{\n");
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn nil, false\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn v.(Visitor), true\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // -------------------------------------------------------------------------
@@ -888,14 +888,14 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
 
     // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
-    out.push_str("func decodeNodeContext(ctxJSON *C.char) NodeContext {{\n");
+    out.push_str("func decodeNodeContext(ctxJSON *C.char) NodeContext {\n");
     out.push_str("\tvar ctx NodeContext\n");
-    out.push_str("\tif ctxJSON == nil {{\n");
+    out.push_str("\tif ctxJSON == nil {\n");
     out.push_str("\t\treturn ctx\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\t_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)\n");
     out.push_str("\treturn ctx\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
@@ -910,61 +910,61 @@ pub fn gen_visitor_file(
     //
     // The return code still carries the numeric variant tag so callers that only
     // inspect the code (and don't read out_result) remain compatible.
-    out.push_str("func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {{\n");
+    out.push_str("func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {\n");
     out.push_str("\t// Encode the result as serde-native JSON so the Rust trait bridge's\n");
     out.push_str("\t// serde_json::from_str::<VisitResult> deserialiser can decode it correctly.\n");
     out.push_str("\tvar jsonStr string\n");
-    out.push_str("\tswitch r.Code {{\n");
+    out.push_str("\tswitch r.Code {\n");
     out.push_str("\tcase 1:\n");
     out.push_str("\t\tjsonStr = `\"Skip\"`\n");
     out.push_str("\tcase 2:\n");
     out.push_str("\t\tjsonStr = `\"PreserveHtml\"`\n");
     out.push_str("\tcase 3:\n");
-    out.push_str("\t\tif r.Custom != nil {{\n");
+    out.push_str("\t\tif r.Custom != nil {\n");
     out.push_str("\t\t\tb, err := json.Marshal(*r.Custom)\n");
-    out.push_str("\t\t\tif err != nil {{\n");
+    out.push_str("\t\t\tif err != nil {\n");
     out.push_str("\t\t\t\tb = []byte(`\"\"`)\n");
-    out.push_str("\t\t\t}}\n");
-    out.push_str("\t\t\tjsonStr = `{{\"Custom\":` + string(b) + `}}`\n");
-    out.push_str("\t\t}} else {{\n");
-    out.push_str("\t\t\tjsonStr = `{{\"Custom\":\"\"}}`\n");
-    out.push_str("\t\t}}\n");
+    out.push_str("\t\t\t}\n");
+    out.push_str("\t\t\tjsonStr = `{\"Custom\":` + string(b) + `}`\n");
+    out.push_str("\t\t} else {\n");
+    out.push_str("\t\t\tjsonStr = `{\"Custom\":\"\"}`\n");
+    out.push_str("\t\t}\n");
     out.push_str("\tcase 4:\n");
-    out.push_str("\t\tif r.Custom != nil {{\n");
+    out.push_str("\t\tif r.Custom != nil {\n");
     out.push_str("\t\t\tb, err := json.Marshal(*r.Custom)\n");
-    out.push_str("\t\t\tif err != nil {{\n");
+    out.push_str("\t\t\tif err != nil {\n");
     out.push_str("\t\t\t\tb = []byte(`\"\"`)\n");
-    out.push_str("\t\t\t}}\n");
-    out.push_str("\t\t\tjsonStr = `{{\"Error\":` + string(b) + `}}`\n");
-    out.push_str("\t\t}} else {{\n");
-    out.push_str("\t\t\tjsonStr = `{{\"Error\":\"\"}}`\n");
-    out.push_str("\t\t}}\n");
+    out.push_str("\t\t\t}\n");
+    out.push_str("\t\t\tjsonStr = `{\"Error\":` + string(b) + `}`\n");
+    out.push_str("\t\t} else {\n");
+    out.push_str("\t\t\tjsonStr = `{\"Error\":\"\"}`\n");
+    out.push_str("\t\t}\n");
     out.push_str("\tdefault: // 0 = Continue and any unknown code\n");
     out.push_str("\t\tjsonStr = `\"Continue\"`\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\t*outResult = C.CString(jsonStr)\n");
     out.push_str("\treturn C.int32_t(r.Code)\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
-    out.push_str("func optGoString(p *C.char) *string {{\n");
-    out.push_str("\tif p == nil {{\n");
+    out.push_str("func optGoString(p *C.char) *string {\n");
+    out.push_str("\tif p == nil {\n");
     out.push_str("\t\treturn nil\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\ts := C.GoString(p)\n");
     out.push_str("\treturn &s\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // decodeCellsJSON: cells is a JSON-encoded []string in the VTable ABI.
-    out.push_str("func decodeCellsJSON(cells *C.char) []string {{\n");
-    out.push_str("\tif cells == nil {{\n");
+    out.push_str("func decodeCellsJSON(cells *C.char) []string {\n");
+    out.push_str("\tif cells == nil {\n");
     out.push_str("\t\treturn nil\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\tvar result []string\n");
     out.push_str("\t_ = json.Unmarshal([]byte(C.GoString(cells)), &result)\n");
     out.push_str("\treturn result\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // -------------------------------------------------------------------------
@@ -984,7 +984,7 @@ pub fn gen_visitor_file(
     out.push_str("// convertWithVisitorHelper converts HTML with visitor support.\n");
     out.push_str("// Called by Convert() when options.Visitor is not nil.\n");
     out.push_str("// Returns the ConversionResult or an error.\n");
-    out.push_str("func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{\n");
+    out.push_str("func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {\n");
     out.push_str("\tcHTML := C.CString(html)\n");
     out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
     out.push('\n');
@@ -997,12 +997,12 @@ pub fn gen_visitor_file(
         },
     ));
     out.push('\n');
-    out.push_str("\tif options != nil {{\n");
-    out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n");
-    out.push_str("\t}}\n");
-    out.push_str("\tif cOptions == nil {{\n");
+    out.push_str("\tif options != nil {\n");
+    out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n");
+    out.push_str("\t}\n");
+    out.push_str("\tif cOptions == nil {\n");
     out.push_str("\t\t// Allocate a default options struct so we can attach the visitor.\n");
-    out.push_str("\t\tdefaultJSON := C.CString(\"{{}}\")\n");
+    out.push_str("\t\tdefaultJSON := C.CString(\"{}\")\n");
     out.push_str(&crate::template_env::render(
         "c_options_from_json.jinja",
         minijinja::context! {
@@ -1016,7 +1016,7 @@ pub fn gen_visitor_file(
             fn_options_free => fn_options_free,
         },
     ));
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push('\n');
 
     // Register visitor and build VTable.
@@ -1034,9 +1034,9 @@ pub fn gen_visitor_file(
             fn_bridge_new => fn_bridge_new,
         },
     ));
-    out.push_str("\tif bridge == nil {{\n");
+    out.push_str("\tif bridge == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_bridge_defer_free.jinja",
         minijinja::context! {
@@ -1063,12 +1063,12 @@ pub fn gen_visitor_file(
             fn_convert => fn_convert,
         },
     ));
-    out.push_str("\tif ptr == nil {{\n");
-    out.push_str("\t\tif err := lastError(); err != nil {{\n");
+    out.push_str("\tif ptr == nil {\n");
+    out.push_str("\t\tif err := lastError(); err != nil {\n");
     out.push_str("\t\t\treturn nil, err\n");
-    out.push_str("\t\t}}\n");
+    out.push_str("\t\t}\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_result_defer_free.jinja",
         minijinja::context! {
@@ -1085,9 +1085,9 @@ pub fn gen_visitor_file(
             fn_result_to_json => fn_result_to_json,
         },
     ));
-    out.push_str("\tif jsonPtr == nil {{\n");
+    out.push_str("\tif jsonPtr == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_free_string_defer.jinja",
         minijinja::context! {
@@ -1095,11 +1095,11 @@ pub fn gen_visitor_file(
         },
     ));
     out.push_str("\tvar result ConversionResult\n");
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{\n");
+    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn &result, nil\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     out
@@ -1181,9 +1181,9 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     ));
     out.push_str("\tvisitorID := uintptr(uintptr(userData))\n");
     out.push_str("\tv, ok := lookupVisitor(visitorID)\n");
-    out.push_str("\tif !ok {{\n");
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 0\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\tnodeCtx := decodeNodeContext(ctx)\n");
 
     // Decode each extra parameter.
@@ -1216,7 +1216,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
             args => call_args.join(", "),
         },
     ));
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 }
 
@@ -1250,7 +1250,7 @@ fn gen_convert_with_visitor(
     out.push_str("// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during\n");
     out.push_str("// the conversion pipeline.  Pass nil for options to use defaults.\n");
     out.push_str("// Pass a struct embedding BaseVisitor and overriding only the methods you need.\n");
-    out.push_str("func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{\n");
+    out.push_str("func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {\n");
     out.push_str("\tcHTML := C.CString(html)\n");
     out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
     out.push('\n');
@@ -1263,12 +1263,12 @@ fn gen_convert_with_visitor(
         },
     ));
     out.push('\n');
-    out.push_str("\tif options != nil {{\n");
-    out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n");
-    out.push_str("\t}}\n");
-    out.push_str("\tif cOptions == nil {{\n");
+    out.push_str("\tif options != nil {\n");
+    out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n");
+    out.push_str("\t}\n");
+    out.push_str("\tif cOptions == nil {\n");
     out.push_str("\t\t// Allocate a default options struct so we can attach the visitor.\n");
-    out.push_str("\t\tdefaultJSON := C.CString(\"{{}}\")\n");
+    out.push_str("\t\tdefaultJSON := C.CString(\"{}\")\n");
     out.push_str(&crate::template_env::render(
         "c_options_from_json.jinja",
         minijinja::context! {
@@ -1282,7 +1282,7 @@ fn gen_convert_with_visitor(
             fn_options_free => fn_options_free,
         },
     ));
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push('\n');
 
     // Register visitor and build VTable.
@@ -1300,9 +1300,9 @@ fn gen_convert_with_visitor(
             fn_bridge_new => fn_bridge_new,
         },
     ));
-    out.push_str("\tif bridge == nil {{\n");
+    out.push_str("\tif bridge == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_bridge_defer_free.jinja",
         minijinja::context! {
@@ -1329,12 +1329,12 @@ fn gen_convert_with_visitor(
             fn_convert => fn_convert,
         },
     ));
-    out.push_str("\tif ptr == nil {{\n");
-    out.push_str("\t\tif err := lastError(); err != nil {{\n");
+    out.push_str("\tif ptr == nil {\n");
+    out.push_str("\t\tif err := lastError(); err != nil {\n");
     out.push_str("\t\t\treturn nil, err\n");
-    out.push_str("\t\t}}\n");
+    out.push_str("\t\t}\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_result_defer_free.jinja",
         minijinja::context! {
@@ -1353,9 +1353,9 @@ fn gen_convert_with_visitor(
             fn_result_to_json => fn_result_to_json,
         },
     ));
-    out.push_str("\tif jsonPtr == nil {{\n");
+    out.push_str("\tif jsonPtr == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str(&crate::template_env::render(
         "c_free_string_defer.jinja",
         minijinja::context! {
@@ -1363,11 +1363,11 @@ fn gen_convert_with_visitor(
         },
     ));
     out.push_str("\tvar result ConversionResult\n");
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{\n");
+    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn &result, nil\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 }
 

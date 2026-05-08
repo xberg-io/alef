@@ -45,7 +45,8 @@ pub fn gen_trait_bridges_file(
     let mut out = String::with_capacity(16_384);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str("/*\n");
+    // NOTE: package_and_cgo.jinja already emits "package {name}\n\n/*\n#cgo..."
+    // so we render it directly — do NOT push a separate "/*\n" before this call.
     out.push_str(&crate::template_env::render(
         "package_and_cgo.jinja",
         minijinja::context! {
@@ -207,7 +208,7 @@ fn gen_trait_bridge(
         gen_interface_method(out, method);
     }
 
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // =========================================================================
@@ -221,6 +222,7 @@ fn gen_trait_bridge(
                 name => &export_name,
             },
         ));
+        out.push('\n');
         gen_trampoline(out, trait_name, &trait_pascal, method);
     }
 
@@ -299,7 +301,7 @@ fn gen_trait_bridge(
         },
     ));
 
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push('\n');
 
     out.push_str(&crate::template_env::render(
@@ -309,7 +311,7 @@ fn gen_trait_bridge(
             trait_name => trait_name,
         },
     ));
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // =========================================================================
@@ -329,7 +331,7 @@ fn gen_trait_bridge(
             trait_name => trait_name,
         },
     ));
-    out.push_str("}}\n");
+    out.push_str("}\n");
 }
 
 /// Generate the Go interface method signature for a trait method.
@@ -387,6 +389,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
             params => params,
         },
     ));
+    out.push('\n');
 
     // Retrieve the Go object from the handle
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
@@ -396,9 +399,10 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
             type_name => trait_name,
         },
     ));
-    out.push_str("\tif !ok {{\n");
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 1  // error: invalid handle\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push('\n');
 
     // Convert C parameters to Go
@@ -425,6 +429,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
                         args => call_args.join(", "),
                     },
                 ));
+                out.push('\n');
             }
             _ => {
                 // Returns (value, error)
@@ -435,13 +440,14 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
                         args => call_args.join(", "),
                     },
                 ));
+                out.push('\n');
             }
         }
-        out.push_str("\tif err != nil {{\n");
+        out.push_str("\tif err != nil {\n");
         out.push_str("\t\tcErr := C.CString(err.Error())\n");
         out.push_str("\t\t*outError = cErr\n");
         out.push_str("\t\treturn 1\n");
-        out.push_str("\t}}\n");
+        out.push_str("\t}\n");
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
@@ -458,6 +464,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
                 args => call_args.join(", "),
             },
         ));
+        out.push('\n');
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
@@ -468,7 +475,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
     }
 
     out.push_str("\treturn 0  // success\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 }
 
@@ -481,6 +488,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Name"),
         },
     ));
+    out.push('\n');
     out.push_str(&crate::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -489,6 +497,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
         },
     ));
+    out.push('\n');
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::template_env::render(
         "handle_type_assertion.jinja",
@@ -496,14 +505,15 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             type_name => trait_name,
         },
     ));
-    out.push_str("\tif !ok {{\n");
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\tname := impl.Name()\n");
     out.push_str("\tcName := C.CString(name)\n");
     out.push_str("\t*outResult = cName\n");
     out.push_str("\treturn 0\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // Version trampoline
@@ -513,6 +523,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Version"),
         },
     ));
+    out.push('\n');
     out.push_str(&crate::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -521,6 +532,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             params => "userData unsafe.Pointer, outResult **C.char, outError **C.char",
         },
     ));
+    out.push('\n');
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::template_env::render(
         "handle_type_assertion.jinja",
@@ -528,14 +540,15 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             type_name => trait_name,
         },
     ));
-    out.push_str("\tif !ok {{\n");
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\tversion := impl.Version()\n");
     out.push_str("\tcVersion := C.CString(version)\n");
     out.push_str("\t*outResult = cVersion\n");
     out.push_str("\treturn 0\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // Initialize trampoline
@@ -545,6 +558,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Initialize"),
         },
     ));
+    out.push('\n');
     out.push_str(&crate::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -553,6 +567,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             params => "userData unsafe.Pointer, outError **C.char",
         },
     ));
+    out.push('\n');
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::template_env::render(
         "handle_type_assertion.jinja",
@@ -560,17 +575,18 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             type_name => trait_name,
         },
     ));
-    out.push_str("\tif !ok {{\n");
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\terr := impl.Initialize()\n");
-    out.push_str("\tif err != nil {{\n");
+    out.push_str("\tif err != nil {\n");
     out.push_str("\t\tcErr := C.CString(err.Error())\n");
     out.push_str("\t\t*outError = cErr\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn 0\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // Shutdown trampoline
@@ -580,6 +596,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Shutdown"),
         },
     ));
+    out.push('\n');
     out.push_str(&crate::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -588,6 +605,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             params => "userData unsafe.Pointer, outError **C.char",
         },
     ));
+    out.push('\n');
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::template_env::render(
         "handle_type_assertion.jinja",
@@ -595,17 +613,18 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             type_name => trait_name,
         },
     ));
-    out.push_str("\tif !ok {{\n");
+    out.push('\n');
+    out.push_str("\tif !ok {\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\terr := impl.Shutdown()\n");
-    out.push_str("\tif err != nil {{\n");
+    out.push_str("\tif err != nil {\n");
     out.push_str("\t\tcErr := C.CString(err.Error())\n");
     out.push_str("\t\t*outError = cErr\n");
     out.push_str("\t\treturn 1\n");
-    out.push_str("\t}}\n");
+    out.push_str("\t}\n");
     out.push_str("\treturn 0\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 
     // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
@@ -615,14 +634,16 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}FreeUserData"),
         },
     ));
+    out.push('\n');
     out.push_str(&crate::template_env::render(
         "plugin_free_user_data_func.jinja",
         minijinja::context! {
             pascal => &trait_pascal,
         },
     ));
+    out.push('\n');
     out.push_str("\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()\n");
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out.push('\n');
 }
 
@@ -777,7 +798,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t\tif decoded, err := base64.StdEncoding.DecodeString(b64str); err == nil {{\n");
+            out.push_str("\t\tif decoded, err := base64.StdEncoding.DecodeString(b64str); err == nil {\n");
             out.push_str(&crate::template_env::render(
                 "var_assign.jinja",
                 minijinja::context! {
@@ -785,8 +806,8 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                     expr => "decoded",
                 },
             ));
-            out.push_str("\t\t}}\n");
-            out.push_str("\t}}\n");
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
             out.push('\n');
         }
         TypeRef::Vec(_) => {
@@ -813,7 +834,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t}}\n");
+            out.push_str("\t}\n");
             out.push('\n');
         }
         TypeRef::Map(_, _) | TypeRef::Named(_) => {
@@ -832,7 +853,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                     param => param.name.as_str(),
                 },
             ));
-            out.push_str("\t\tvar rawData interface{{}}\n");
+            out.push_str("\t\tvar rawData interface{}\n");
             out.push_str(&crate::template_env::render(
                 "json_unmarshal_rawdata.jinja",
                 minijinja::context! {
@@ -840,7 +861,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{\n");
+            out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
             out.push_str(&crate::template_env::render(
                 "var_assign_m.jinja",
                 minijinja::context! {
@@ -848,8 +869,8 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t\t}}\n");
-            out.push_str("\t}}\n");
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
             out.push('\n');
         }
         TypeRef::Optional(_) => {
@@ -868,7 +889,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                     param => param.name.as_str(),
                 },
             ));
-            out.push_str("\t\tvar rawData interface{{}}\n");
+            out.push_str("\t\tvar rawData interface{}\n");
             out.push_str(&crate::template_env::render(
                 "json_unmarshal_rawdata.jinja",
                 minijinja::context! {
@@ -876,7 +897,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{\n");
+            out.push_str("\t\tif m, ok := rawData.(map[string]interface{}); ok {\n");
             out.push_str(&crate::template_env::render(
                 "var_assign_m.jinja",
                 minijinja::context! {
@@ -884,8 +905,8 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
                 },
             ));
             out.push('\n');
-            out.push_str("\t\t}}\n");
-            out.push_str("\t}}\n");
+            out.push_str("\t\t}\n");
+            out.push_str("\t}\n");
             out.push('\n');
         }
         TypeRef::Primitive(p) => {

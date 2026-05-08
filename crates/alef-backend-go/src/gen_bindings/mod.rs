@@ -359,16 +359,18 @@ fn gen_go_file(
     let has_non_static_methods = api.types.iter().any(|t| t.methods.iter().any(|m| !m.is_static));
     let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
 
-    let mut imports = vec!["\"fmt\""];
+    // NOTE: imports_basic.jinja renders each value as-is (no extra quoting).
+    // Pass bare package paths without surrounding quotes — the template does not add them.
+    let mut imports = vec!["fmt"];
     if needs_json_and_unsafe {
-        imports.insert(0, "\"encoding/json\"");
-        imports.push("\"unsafe\"");
+        imports.insert(0, "encoding/json");
+        imports.push("unsafe");
     } else if has_opaque_types {
         // Opaque types need unsafe for pointer wrapping even without JSON serialization.
-        imports.push("\"unsafe\"");
+        imports.push("unsafe");
     }
     if !api.errors.is_empty() {
-        imports.insert(1.min(imports.len()), "\"errors\"");
+        imports.insert(1.min(imports.len()), "errors");
     }
     out.push_str(&crate::template_env::render(
         "imports_basic.jinja",

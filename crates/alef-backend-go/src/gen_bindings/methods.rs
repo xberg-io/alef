@@ -220,7 +220,7 @@ pub(super) fn gen_method_wrapper(
                 "bytes_result_call.jinja",
                 minijinja::context! { c_call => &c_call, ffi_prefix => ffi_prefix },
             ));
-            out.push_str("}}\n");
+            out.push_str("}\n");
             return out;
         }
 
@@ -264,24 +264,24 @@ pub(super) fn gen_method_wrapper(
                     },
                 ));
                 if method.error_type.is_some() {
-                    out.push_str("\tif err := lastError(); err != nil {{\n");
+                    out.push_str("\tif err := lastError(); err != nil {\n");
                     // Free the pointer if non-nil even on error, to avoid leaks.
                     // Bytes pointers are NOT freed — they alias internal storage.
                     if matches!(
                         method.return_type,
                         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                     ) {
-                        out.push_str("\t\tif ptr != nil {{\n");
+                        out.push_str("\t\tif ptr != nil {\n");
                         out.push_str(&crate::template_env::render(
                             "free_string_on_error.jinja",
                             minijinja::context! {
                                 ffi_prefix => ffi_prefix,
                             },
                         ));
-                        out.push_str("\t\t}}\n");
+                        out.push_str("\t\t}\n");
                     }
                     out.push_str("\t\treturn nil, err\n");
-                    out.push_str("\t}}\n");
+                    out.push_str("\t}\n");
                 }
                 // Free the FFI-allocated string after unmarshaling.
                 // Bytes pointers are NOT freed — they alias internal storage.
@@ -407,7 +407,7 @@ pub(super) fn gen_method_wrapper(
         }
     }
 
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out
 }
 
@@ -760,7 +760,9 @@ mod tests {
         let method = simple_method("close", TypeRef::Unit, false);
         let opaque: std::collections::HashSet<&str> = ["Client"].into();
         let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
-        assert!(out.contains("func (h *Client) Close()"));
+        // The function signature may span multiple lines (method_receiver_instance + params + method_return).
+        // Check for the receiver and name components rather than the full single-line form.
+        assert!(out.contains("func (h *Client) Close("), "expected receiver+method in: {out}");
         assert!(out.contains("unsafe.Pointer(h.ptr)"));
     }
 
