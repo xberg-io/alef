@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(java-backend): close the `try (var arena = Arena.ofConfined())` parenthesis
+  in `gen_convert_with_visitor_internal_method`. The previous emission left the
+  resource list open (`try (var arena = ...;\n   var cHtml = …`), and `cHtml` is
+  a `MemorySegment` (non-`AutoCloseable`), so the body that followed got parsed
+  as more resource declarations and Java checkstyle bailed on the first `if`
+  with `mismatched input 'if' expecting ')'`. Now emits `try (var arena = …) {`
+  and lets the rest of the method live in the body.
+
 ### Changed
 
 - chore(scaffold/php): rename emitted PHP CS Fixer config from `php-cs-fixer.php` to
