@@ -167,6 +167,18 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     )
 }
 
+/// Generate `impl std::fmt::Debug for Wrapper`.
+///
+/// Required by trait bounds on `Plugin` super-trait (and many others) that
+/// extend `Debug`. Without this, generic plugin-pattern bridges fail to
+/// compile when the user's trait has a `Debug` super-trait bound.
+fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
+    let wrapper = spec.wrapper_name();
+    format!(
+        "impl std::fmt::Debug for {wrapper} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        write!(f, \"{wrapper}\")\n    }}\n}}"
+    )
+}
+
 /// Generate `impl SuperTrait for Wrapper` when the bridge config specifies a super-trait.
 ///
 /// Forwards `name()`, `version()`, `initialize()`, and `shutdown()` to the
@@ -451,6 +463,10 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));
+    out.push_str("\n\n");
+
+    // Debug impl (required by Plugin super-trait Debug bound)
+    out.push_str(&gen_bridge_debug_impl(spec));
     out.push_str("\n\n");
 
     // Constructor (impl block with new())
