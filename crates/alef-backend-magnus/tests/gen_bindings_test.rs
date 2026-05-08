@@ -1644,7 +1644,9 @@ fn test_visitor_bridge_debug_not_duplicated() {
         rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
-        methods: vec![make_method_with_default("visit_element_start")],
+        methods: (0..40)
+            .map(|i| make_method_with_default(&format!("visit_method_{i}")))
+            .collect(),
         is_opaque: false,
         is_clone: false,
         is_copy: false,

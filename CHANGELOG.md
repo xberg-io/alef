@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   redundant identical `if`/`else` branches in `alef-codegen::config_gen` and
   `alef-backend-java::gen_visitor::files`; drops a never-read `FieldEntry { decl, doc }` struct in
   `alef-backend-java::gen_bindings::types` whose only observed use was `.len()`.
+- diagnostics(backend-magnus): add `[ALEF BUG]` / `[ALEF OK]` instrumentation around
+  `gen_visitor_bridge` and `gen_trait_bridge` when emitting `impl std::fmt::Debug` for visitor
+  bridges. Prints rendered output to stderr when the count diverges from 1, added after a
+  duplicate `impl std::fmt::Debug for RbHtmlVisitorBridge` was observed in `html-to-markdown`
+  Ruby gem builds (E0119 conflicting trait impl). Test `test_visitor_bridge_debug_not_duplicated`
+  extended to 40 visitor methods to better mirror the real `HtmlVisitor` trait surface.
 
 ## [0.14.36] - 2026-05-08
 

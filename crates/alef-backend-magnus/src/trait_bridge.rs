@@ -153,7 +153,7 @@ fn gen_visitor_bridge(
         .map(|m| gen_visitor_method_magnus(m, type_paths))
         .collect();
 
-    out.push_str(&crate::template_env::render(
+    let rendered = crate::template_env::render(
         "visitor_bridge.rs.jinja",
         minijinja::context! {
             core_crate => core_crate,
@@ -161,7 +161,19 @@ fn gen_visitor_bridge(
             trait_path => trait_path,
             methods => methods,
         },
-    ));
+    );
+    let debug_count = rendered.matches("impl std::fmt::Debug").count();
+    if debug_count != 1 {
+        eprintln!(
+            "[ALEF BUG] visitor_bridge.rs.jinja rendered {} Debug impls (expected 1) for struct {}",
+            debug_count, struct_name
+        );
+        eprintln!(
+            "[ALEF BUG] Rendered output (first 2000 chars):\n{}",
+            &rendered[..rendered.len().min(2000)]
+        );
+    }
+    out.push_str(&rendered);
     out.push('\n');
 }
 

@@ -277,6 +277,18 @@ impl Backend for MagnusBackend {
                     &config.error_constructor_expr(),
                     api,
                 );
+                let bridge_debug_count = bridge_code.matches("impl std::fmt::Debug").count();
+                if bridge_debug_count != 1 {
+                    eprintln!(
+                        "[ALEF BUG] gen_trait_bridge returned {} Debug impls (expected 1) for {}",
+                        bridge_debug_count, bridge_cfg.trait_name
+                    );
+                } else {
+                    eprintln!(
+                        "[ALEF OK] gen_trait_bridge returned {} Debug impl for {}",
+                        bridge_debug_count, bridge_cfg.trait_name
+                    );
+                }
                 builder.add_item(&bridge_code);
             }
         }
