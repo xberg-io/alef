@@ -7,6 +7,7 @@
    - has_php_val: bool
    - trimmed_field_expr: field_expr with trim() wrapper
    - is_string_val: bool
+   - field_is_array: bool indicating if field is an array type
    - values_php: array of PHP-formatted strings
    - contains_any_checks: array of PHP check strings
    - n: number (as u64) or 0
@@ -25,11 +26,29 @@
     $this->assertEquals({{ php_val }}, {{ field_expr }});
 {% endif %}
 {% elif assertion_type == "contains" %}
+{% if field_is_array %}
+    $found = false;
+    foreach ({{ field_expr }} as $item) {
+        if (str_contains((string)$item, {{ php_val }})) { $found = true; }
+    }
+    $this->assertTrue($found, 'expected array to contain string');
+{% else %}
     $this->assertStringContainsString({{ php_val }}, {{ field_expr }});
+{% endif %}
 {% elif assertion_type == "contains_all" %}
+{% if field_is_array %}
+{% for val in values_php %}
+    $found = false;
+    foreach ({{ field_expr }} as $item) {
+        if (str_contains((string)$item, {{ val }})) { $found = true; }
+    }
+    $this->assertTrue($found, 'expected array to contain string');
+{% endfor %}
+{% else %}
 {% for val in values_php %}
     $this->assertStringContainsString({{ val }}, {{ field_expr }});
 {% endfor %}
+{% endif %}
 {% elif assertion_type == "not_contains" %}
     $this->assertStringNotContainsString({{ php_val }}, {{ field_expr }});
 {% elif assertion_type == "not_empty" %}
@@ -89,7 +108,16 @@
     $this->expectException(\Exception::class);
     {{ call_expr }};
 {% elif check == "contains" %}
-    $this->assertStringContainsString({{ php_check_val }}, {{ call_expr }});
+    $found = false;
+    $result = {{ call_expr }};
+    if (is_array($result)) {
+        foreach ($result as $item) {
+            if (str_contains((string)$item, {{ php_check_val }})) { $found = true; }
+        }
+    } else {
+        $found = str_contains((string)$result, {{ php_check_val }});
+    }
+    $this->assertTrue($found, 'expected result to contain string');
 {% endif %}
 {% elif assertion_type == "matches_regex" %}
     $this->assertMatchesRegularExpression({{ php_val }}, {{ field_expr }});

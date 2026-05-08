@@ -9,13 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- fix(java-backend): close the `try (var arena = Arena.ofConfined())` parenthesis
-  in `gen_convert_with_visitor_internal_method`. The previous emission left the
-  resource list open (`try (var arena = ...;\n   var cHtml = …`), and `cHtml` is
-  a `MemorySegment` (non-`AutoCloseable`), so the body that followed got parsed
-  as more resource declarations and Java checkstyle bailed on the first `if`
-  with `mismatched input 'if' expecting ')'`. Now emits `try (var arena = …) {`
-  and lets the rest of the method live in the body.
+- fix(java-backend): rebuild `convertWithVisitorInternal` so it actually compiles.
+  Three cascading bugs in `gen_convert_with_visitor_internal_method`:
+  (1) the try-with-resources parenthesis stayed open across `cHtml`, which is a
+  `MemorySegment` (not `AutoCloseable`), so the body was parsed as more resource
+  declarations until the parser hit `if` and gave up;
+  (2) the bridge variable referenced by `bridge.callbacksStruct()` and
+  `bridge.rethrowVisitorError()` was never declared in this method — it now lives
+  in the resource list as `var bridge = new VisitorBridge(options.visitor())`;
+  (3) `ffi_conversion_options_invoke.jinja` hardcoded `defaultJson` as the JSON
+  argument, so the `if (options != null)` branch (which allocates `optJson`)
+  emitted `…invoke(defaultJson)` and the symbol was undefined. The template now
+  takes a `var_name` context arg; both call sites pass the correct name.
 
 ### Changed
 

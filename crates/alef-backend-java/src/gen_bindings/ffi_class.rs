@@ -606,7 +606,8 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             exception_class => &exc,
         },
     ));
-    out.push_str("        try (var arena = Arena.ofConfined()) {\n");
+    out.push_str("        try (var arena = Arena.ofConfined();\n");
+    out.push_str("             var bridge = new VisitorBridge(options.visitor())) {\n");
     out.push_str("            var cHtml = arena.allocateFrom(html);\n");
     out.push('\n');
     out.push_str("            MemorySegment optionsPtr = MemorySegment.NULL;\n");
@@ -616,6 +617,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "ffi_conversion_options_invoke.jinja",
         minijinja::context! {
             pu => &pu,
+            var_name => "optJson",
         },
     ));
     out.push_str("            }\n");
@@ -625,6 +627,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "ffi_conversion_options_invoke.jinja",
         minijinja::context! {
             pu => &pu,
+            var_name => "defaultJson",
         },
     ));
     out.push_str("            }\n");

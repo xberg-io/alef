@@ -396,6 +396,7 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     // Return type name (Named types are used as Swift type names directly).
     let return_ty = swift_return_type(&func.return_type);
     let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+    let return_suffix = swift_return_conversion_suffix(&func.return_type);
 
     // ── String overload ──────────────────────────────────────────────────────
     out.push_str("/// Convenience overload: accepts a UTF-8 `String` and converts it to bytes.\n");
@@ -409,7 +410,7 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
-    out.push_str(")\n}\n\n");
+    out.push_str(&format!("){return_suffix}\n}}\n\n"));
 
     // ── [UInt8] overload ─────────────────────────────────────────────────────
     out.push_str("/// Convenience overload: accepts a `[UInt8]` byte array.\n");
@@ -421,7 +422,7 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
-    out.push_str(")\n}\n\n");
+    out.push_str(&format!("){return_suffix}\n}}\n\n"));
 }
 
 /// Emits a String path convenience overload for a function whose first param is
@@ -438,6 +439,7 @@ fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet
     let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
     let return_ty = swift_return_type(&func.return_type);
     let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+    let return_suffix = swift_return_conversion_suffix(&func.return_type);
 
     out.push_str("/// Convenience overload: accepts a file path as a `String`.\n");
     out.push_str(&format!("public func {wrapper_name}(\n"));
@@ -448,7 +450,7 @@ fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
-    out.push_str(")\n}\n");
+    out.push_str(&format!("){return_suffix}\n}}\n"));
 }
 
 /// Emits trailing parameters (after the first) as `, paramName: Type` additions
@@ -520,4 +522,23 @@ fn swift_type_name(ty: &TypeRef) -> String {
 /// Maps a function's return `TypeRef` to the Swift return type string.
 fn swift_return_type(ty: &TypeRef) -> String {
     swift_type_name(ty)
+}
+
+/// Returns the conversion suffix needed to bridge swift-bridge's runtime return
+/// types (`RustString`, `RustVec<T>`) to the Swift-native types declared in the
+/// convenience-wrapper signatures.
+///
+/// - `String` and `Json` returns: append `.toString()` to convert `RustString`.
+/// - `Bytes` and `Vec<primitive>` returns: append `.map { $0 }` to convert
+///   `RustVec<T>` to a Swift array via its `Sequence` conformance.
+///
+/// Returns the empty string for return types that need no conversion (opaque
+/// `Named` types, primitives, `Void`).
+fn swift_return_conversion_suffix(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Json => ".toString()".to_string(),
+        TypeRef::Bytes => ".map { $0 }".to_string(),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(_)) => ".map { $0 }".to_string(),
+        _ => String::new(),
+    }
 }

@@ -1180,7 +1180,7 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    _result_is_array: bool,
+    result_is_array: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1342,6 +1342,16 @@ fn render_assertion(
         _ => format!("${result_var}"),
     };
 
+    // Detect if this field is an array type
+    // When there's no field, default to result_is_array (the result itself is the array)
+    let field_is_array = assertion.field.as_ref().map_or(result_is_array, |f| {
+        if f.is_empty() {
+            result_is_array
+        } else {
+            field_resolver.is_array(f)
+        }
+    });
+
     // For string equality, trim trailing whitespace to handle trailing newlines.
     // Only apply trim() when the expected value is a string — calling trim() on int/bool
     // throws TypeError in PHP 8.4+.
@@ -1404,6 +1414,7 @@ fn render_assertion(
             has_php_val => has_php_val,
             trimmed_field_expr => trimmed_field_expr,
             is_string_val => is_string_val,
+            field_is_array => field_is_array,
             values_php => values_php,
             contains_any_checks => contains_any_checks,
             n => n,
