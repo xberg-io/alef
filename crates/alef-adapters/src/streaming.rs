@@ -208,8 +208,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
              .collect::<std::result::Result<Vec<_>, _>>()\n        \
              .map(|v| v.into_iter().map({item_type}::from).collect())\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
-         serde_json::to_string(&chunks)\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+         Ok(chunks)"
     );
 
     (body, None)

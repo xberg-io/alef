@@ -482,8 +482,24 @@ fn render_test_case(
     let is_skipped = fixture.assertions.is_empty();
 
     // Build client setup
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_setup = if let Some(factory) = client_factory {
-        format!("const client = {factory}('test-key', {base_url_expr});")
+        if has_mock {
+            format!("const client = {factory}('test-key', {base_url_expr});")
+        } else if let Some(var) = api_key_var {
+            // Live-API tests: skip when the env var isn't set so the suite can run
+            // without real credentials, matching the python codegen's pattern.
+            format!(
+                "const apiKey = process.env.{var};\n    \
+                 if (!apiKey) {{\n        \
+                     return;\n    \
+                 }}\n    \
+                 const client = {factory}(apiKey);"
+            )
+        } else {
+            format!("const client = {factory}('test-key', {base_url_expr});")
+        }
     } else {
         String::new()
     };

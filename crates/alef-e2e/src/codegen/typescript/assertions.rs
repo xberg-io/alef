@@ -674,7 +674,7 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("not_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver);
+        render_assertion(&mut out, &assertion, "result", &resolver, false);
         assert!(out.contains(".length"), "got: {out}");
     }
 
@@ -683,7 +683,7 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver);
+        render_assertion(&mut out, &assertion, "result", &resolver, false);
         assert!(out.contains(".trim()"), "got: {out}");
     }
 
@@ -692,7 +692,7 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("is_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver);
+        render_assertion(&mut out, &assertion, "result", &resolver, false);
         assert!(out.contains("(result ?? \"\").length"), "got: {out}");
     }
 
@@ -705,7 +705,7 @@ mod tests {
             Some(serde_json::Value::String("Function".into())),
         );
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver);
+        render_assertion(&mut out, &assertion, "result", &resolver, false);
         assert!(out.contains("_alefE2eItemTexts(item)"), "got: {out}");
     }
 
