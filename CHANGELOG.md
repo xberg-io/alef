@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(rustler-backend): emit `From<Local> for core::Enum` for flat data
+  enums when they appear in input position. Flat data enums (data variants
+  that are all single-tuple) are encoded as a flat NifStruct on the Elixir
+  side; the local→core direction was previously skipped (commented as
+  "output-only"). `Vec<Message>` parameters relied on the missing impl,
+  producing E0277 "the trait `From<Message>` is not implemented for
+  `liter_llm::Message`". Generator dispatches on the discriminator field
+  (`role`, `type`, etc.) and threads `.into()` / iter-map for `Vec<Named>`
+  payloads.
+
+- fix(rustler-backend): in `gen_rustler_flat_data_enum_from_core`,
+  convert `Vec<core::T>` payloads via `_0.into_iter().map(Into::into).collect()`
+  rather than the bare `_0.into()`, since `From<Vec<core::T>> for Vec<T>`
+  is not blanket-impled.
+
+- fix(go-backend): emit untagged-union Marshal/Unmarshal for enums with no
+  `#[serde(tag)]`. Previously the Go backend always assumed a tag field
+  named `Type` exists, but only emitted that field when `serde_tag` was
+  Some. Untagged enums (`#[serde(untagged)]`, e.g. `ToolChoice`) now get
+  marshalers that dispatch on the active variant pointer and unmarshalers
+  that try each variant in declaration order. Also avoids the broken
+  `&T{}` literal for variants whose payload type is a string alias.
+
+- fix(csharp-backend): handle `Result<bytes::Bytes>` methods on opaque
+  handle classes (e.g. `DefaultClient.Speech`). `gen_opaque_method`
+  previously fell through to the generic pointer-return path, calling
+  `NativeMethods.X(handle, req)` and JSON-deserialising into `byte[]`;
+  but the FFI declaration uses out-params (`out IntPtr ptr, out UIntPtr
+  len, out UIntPtr cap`). Now emits a dedicated body that pins the
+  out-params, copies the bytes, and frees them, throwing a fully
+  qualified exception (the wrapper-class `GetLastError` helper is private
+  and not visible from sibling classes).
+
 - fix(adapters/php): emit lowerCamelCase parameter names in `async_method`
   PHP body (`call_args_cloned`). PHP signatures camelCase param names via
   `gen_php_function_params`, so the body must reference the camelCased

@@ -343,6 +343,62 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
     out
 }
 
+/// Generate the binding-to-core direction for a flat data enum.
+///
+/// Local representation is a struct with a discriminator field plus one optional payload
+/// field per variant. Dispatches on the discriminator string to produce the matching core
+/// enum variant, threading per-payload conversions (`.into()`, or iter-map for `Vec<Named>`).
+pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import: &str) -> String {
+    let name = &enum_def.name;
+    let core_path = format!("{core_import}::{name}");
+    let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let mut out = String::with_capacity(512);
+
+    out.push_str(&format!(
+        "impl From<{name}> for {core_path} {{\n    fn from(val: {name}) -> Self {{\n        match val.{discriminator}.as_str() {{\n"
+    ));
+
+    for variant in &enum_def.variants {
+        let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
+        let wire_name = variant_wire_name(variant, enum_def);
+
+        if variant.fields.is_empty() {
+            out.push_str(&format!(
+                "            \"{wire_name}\" => {core_path}::{vname},\n",
+                vname = variant.name,
+            ));
+        } else if variant.is_tuple {
+            let first_field = variant.fields.first().unwrap();
+            let is_boxed = first_field.is_boxed;
+            let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
+            let is_vec_of_named =
+                matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
+            // Each variant's payload is stored as `Option<T>` on the local struct;
+            // `.unwrap_or_default()` falls back to T::default() when the discriminator matches
+            // but the payload is missing (defensive against malformed input).
+            let payload_expr = if is_sanitized_to_string {
+                "Default::default()".to_string()
+            } else if is_vec_of_named {
+                format!("val.{field_name}.unwrap_or_default().into_iter().map(Into::into).collect()")
+            } else {
+                format!("val.{field_name}.unwrap_or_default().into()")
+            };
+            let payload_expr = if is_boxed {
+                format!("Box::new({payload_expr})")
+            } else {
+                payload_expr
+            };
+            out.push_str(&format!(
+                "            \"{wire_name}\" => {core_path}::{vname}({payload_expr}),\n",
+                vname = variant.name,
+            ));
+        }
+    }
+
+    out.push_str("            _ => Default::default(),\n        }\n    }\n}\n");
+    out
+}
+
 /// Generate a Rustler NIF enum definition.
 ///
 /// Unit enums (all variants have no fields) use `NifUnitEnum` — they encode as atoms.

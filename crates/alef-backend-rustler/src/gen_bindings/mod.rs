@@ -19,7 +19,10 @@ use helpers::{
     elixir_return_typespec, elixir_safe_param_name, elixir_typespec, gen_elixir_enum_module, gen_elixir_struct_module,
     gen_native_ex, get_module_info,
 };
-use types::{gen_enum, gen_opaque_resource, gen_rustler_config_impl, gen_rustler_flat_data_enum_from_core, gen_struct};
+use types::{
+    gen_enum, gen_opaque_resource, gen_rustler_config_impl, gen_rustler_flat_data_enum_from_core,
+    gen_rustler_flat_data_enum_to_core, gen_struct,
+};
 
 pub struct RustlerBackend;
 
@@ -417,7 +420,12 @@ impl Backend for RustlerBackend {
                 if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
                     builder.add_item(&gen_rustler_flat_data_enum_from_core(e, &core_import));
                 }
-                // No binding→core conversion for flat structs (they are output-only).
+                // Emit binding→core for input-typed flat data enums so they round-trip through
+                // public function arguments (e.g. Vec<Message> in ChatCompletionRequest). The
+                // discriminator field on the local struct selects the matching core variant.
+                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                    builder.add_item(&gen_rustler_flat_data_enum_to_core(e, &core_import));
+                }
             } else {
                 let rustler_conv_config = alef_codegen::conversions::ConversionConfig {
                     binding_enums_have_data: has_data,
