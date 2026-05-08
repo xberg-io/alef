@@ -254,9 +254,104 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
 
 /// Emits lightweight function wrappers for common extraction functions.
 /// These provide a convenient Swift API surface that delegates to RustBridge.
-fn emit_extraction_wrappers(_out: &mut String) {
-    // Disabled: swift-bridge's auto-generated RustBridge functions already provide
-    // full extraction APIs. Optional config parameters cannot be implemented here
-    // without a Default factory (which requires Rust Default impl on ExtractionConfig).
-    // Tests must use RustBridge functions directly with explicit config values.
+/// Wrappers handle String-to-RustVec<UInt8> conversion and JSON config parsing.
+fn emit_extraction_wrappers(out: &mut String) {
+    out.push_str("// MARK: - Extraction Wrapper Functions\n");
+    out.push_str("// These wrappers bridge String/JSON inputs to RustBridge's\n");
+    out.push_str("// RustVec<UInt8> and ExtractionConfig requirements.\n\n");
+
+    // extractBytes wrapper - accepts String or [UInt8]
+    out.push_str("/// Extract text from byte content with optional JSON config.\n");
+    out.push_str("/// - Parameters:\n");
+    out.push_str("///   - content: Document bytes as String (UTF-8) or array of bytes\n");
+    out.push_str("///   - mimeType: MIME type (e.g., \"application/pdf\")\n");
+    out.push_str("///   - configJson: Optional JSON config string; defaults to `{}`\n");
+    out.push_str("/// - Returns: ExtractionResult with extracted text\n");
+    out.push_str("public func extractBytes(\n");
+    out.push_str("    content: String,\n");
+    out.push_str("    mimeType: String,\n");
+    out.push_str("    configJson: String? = nil\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let contentBytes = Array(content.utf8)\n");
+    out.push_str("    let contentVec = RustVec<UInt8>(contentBytes)\n");
+    out.push_str("    let config = try parseExtractionConfig(configJson)\n");
+    out.push_str("    return try extractBytesSync(contentVec, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFile wrapper
+    out.push_str("/// Extract text from a file at the given path with optional JSON config.\n");
+    out.push_str("/// - Parameters:\n");
+    out.push_str("///   - path: File path\n");
+    out.push_str("///   - mimeType: Optional MIME type; auto-detected if nil\n");
+    out.push_str("///   - configJson: Optional JSON config string; defaults to `{}`\n");
+    out.push_str("/// - Returns: ExtractionResult with extracted text\n");
+    out.push_str("public func extractFile(\n");
+    out.push_str("    path: String,\n");
+    out.push_str("    mimeType: String? = nil,\n");
+    out.push_str("    configJson: String? = nil\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let config = try parseExtractionConfig(configJson)\n");
+    out.push_str("    return try extractFileSync(path, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // batchExtractBytes wrapper
+    out.push_str("/// Batch extract from multiple byte inputs with optional JSON config.\n");
+    out.push_str("/// - Parameters:\n");
+    out.push_str("///   - items: Array of (content: String, mimeType: String) tuples\n");
+    out.push_str("///   - configJson: Optional JSON config string; defaults to `{}`\n");
+    out.push_str("/// - Returns: Array of ExtractionResult\n");
+    out.push_str("public func batchExtractBytes(\n");
+    out.push_str("    items: [(content: String, mimeType: String)],\n");
+    out.push_str("    configJson: String? = nil\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    let config = try parseExtractionConfig(configJson)\n");
+    out.push_str("    let batchItems = items.map { item -> BatchBytesItem in\n");
+    out.push_str("        let contentBytes = Array(item.content.utf8)\n");
+    out.push_str("        let contentVec = RustVec<UInt8>(contentBytes)\n");
+    out.push_str("        return BatchBytesItem(content: contentVec, mime_type: item.mimeType)\n");
+    out.push_str("    }\n");
+    out.push_str("    let itemsVec = RustVec<BatchBytesItem>(batchItems)\n");
+    out.push_str("    let results = try RustBridge.batchExtractBytesSync(itemsVec, config)\n");
+    out.push_str("    return results.allElements\n");
+    out.push_str("}\n\n");
+
+    // batchExtractFiles wrapper
+    out.push_str("/// Batch extract from multiple files with optional JSON config.\n");
+    out.push_str("/// - Parameters:\n");
+    out.push_str("///   - items: Array of (path: String, mimeType: String?) tuples\n");
+    out.push_str("///   - configJson: Optional JSON config string; defaults to `{}`\n");
+    out.push_str("/// - Returns: Array of ExtractionResult\n");
+    out.push_str("public func batchExtractFiles(\n");
+    out.push_str("    items: [(path: String, mimeType: String?)],\n");
+    out.push_str("    configJson: String? = nil\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    let config = try parseExtractionConfig(configJson)\n");
+    out.push_str("    let batchItems = items.map { item -> BatchFileItem in\n");
+    out.push_str("        return BatchFileItem(path: item.path, mime_type: item.mimeType)\n");
+    out.push_str("    }\n");
+    out.push_str("    let itemsVec = RustVec<BatchFileItem>(batchItems)\n");
+    out.push_str("    let results = try RustBridge.batchExtractFilesSync(itemsVec, config)\n");
+    out.push_str("    return results.allElements\n");
+    out.push_str("}\n\n");
+
+    // parseExtractionConfig helper
+    out.push_str("// MARK: - Config Parsing Helper\n\n");
+    out.push_str("/// Parse JSON string to ExtractionConfig, defaulting to ExtractionConfig() on empty/nil.\n");
+    out.push_str("private func parseExtractionConfig(_ jsonString: String?) throws -> ExtractionConfig {\n");
+    out.push_str("    let json = jsonString ?? \"{}\"\n");
+    out.push_str("    if json.trimmingCharacters(in: .whitespaces).isEmpty {\n");
+    out.push_str("        return ExtractionConfig()\n");
+    out.push_str("    }\n");
+    out.push_str("    guard let data = json.data(using: .utf8) else {\n");
+    out.push_str("        throw NSError(domain: \"parseExtractionConfig\", code: -1,\n");
+    out.push_str("                      userInfo: [NSLocalizedDescriptionKey: \"Invalid UTF-8 in config JSON\"])\n");
+    out.push_str("    }\n");
+    out.push_str("    do {\n");
+    out.push_str("        let decoder = JSONDecoder()\n");
+    out.push_str("        return try decoder.decode(ExtractionConfig.self, from: data)\n");
+    out.push_str("    } catch {\n");
+    out.push_str("        throw NSError(domain: \"parseExtractionConfig\", code: -2,\n");
+    out.push_str("                      userInfo: [NSLocalizedDescriptionKey: \"Failed to decode config JSON: \\(error.localizedDescription)\"])\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
 }

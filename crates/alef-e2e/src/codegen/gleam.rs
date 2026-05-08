@@ -599,9 +599,10 @@ fn render_test_case(
 
     let _ = writeln!(out, "  let {result_var} = {module_path}.{function_name}({args_str})");
     let _ = writeln!(out, "  {result_var} |> should.be_ok()");
+    let _ = writeln!(out, "  let assert Ok(r) = {result_var}");
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+        render_assertion(out, assertion, "r", field_resolver, enum_fields);
     }
 
     let _ = writeln!(out, "}}");
