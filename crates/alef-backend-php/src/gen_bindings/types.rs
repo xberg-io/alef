@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_adapters::AdapterBodies;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
-use alef_codegen::shared::{constructor_parts, partition_methods};
+use alef_codegen::shared::partition_methods;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
@@ -307,56 +307,64 @@ fn gen_struct_methods_impl(
             impl_builder.add_method(&constructor);
 
             // Also generate a #[php(constructor)] for named construction.
-            // Required fields that are scalar or Vec<T> stay required; pure complex types become Option<T>.
-            let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
-
-            // Check if a type can be required (non-named-struct types and Vec<> are okay)
-            let can_be_required = |ty: &alef_core::ir::TypeRef| {
+            // Include parameters for all scalar/Vec fields (required and optional).
+            // Omit complex optional fields (they default to None).
+            fn field_can_be_param(ty: &alef_core::ir::TypeRef, enum_names: &AHashSet<String>) -> bool {
                 match ty {
-                    alef_core::ir::TypeRef::Vec(_) => true,  // Vec<T> can be passed as binary string in PHP
-                    alef_core::ir::TypeRef::Bytes => true,    // Bytes can be passed as binary string
+                    alef_core::ir::TypeRef::Vec(_) => true,
+                    alef_core::ir::TypeRef::Bytes => true,
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        // Optional scalar/Vec can be a param; optional complex cannot
+                        field_can_be_param(inner, enum_names)
+                    }
                     _ => is_php_prop_scalar_with_enums(ty, enum_names),
                 }
-            };
+            }
 
-            let param_lines = typ.fields.iter()
-                .map(|f| {
-                    let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                    let mapped_ty = map_fn(&f.ty);
-                    if f.optional {
-                        // Already optional
-                        format!("    {}: Option<{}>", php_param_name, mapped_ty)
-                    } else if can_be_required(&f.ty) {
-                        // Can be required: keep required
-                        format!("    {}: {}", php_param_name, mapped_ty)
-                    } else {
-                        // Complex type (Named struct): make optional to handle null from PHP
-                        format!("    {}: Option<{}>", php_param_name, mapped_ty)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(",\n");
-            let param_init = typ.fields.iter()
-                .map(|f| {
-                    let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                    if f.optional {
-                        format!("{}: {}", f.name, php_param_name)
-                    } else if can_be_required(&f.ty) {
-                        // Can be required: directly use the value
-                        format!("{}: {}", f.name, php_param_name)
-                    } else {
-                        // Complex: unwrap or use default
-                        format!("{}: {}.unwrap_or_default()", f.name, php_param_name)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            let named_constructor = format!(
-                "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
-                 Self {{ {param_init} }}\n\
-                 }}"
-            );
-            impl_builder.add_method(&named_constructor);
+            // Only generate constructor if there's at least one representable required field (otherwise from_json is simpler)
+            let has_representable_required = typ.fields.iter().any(|f| !f.optional && field_can_be_param(&f.ty, enum_names));
+
+            if has_representable_required {
+                let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+                let param_lines = typ
+                    .fields
+                    .iter()
+                    .filter(|f| field_can_be_param(&f.ty, enum_names))  // Only fields that can be params
+                    .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        let mapped_ty = map_fn(&f.ty);
+                        if f.optional {
+                            // Optional scalar/Vec fields become Option<T>
+                            format!("    {}: Option<{}>", php_param_name, mapped_ty)
+                        } else {
+                            // Required scalar/Vec fields stay required
+                            format!("    {}: {}", php_param_name, mapped_ty)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",\n");
+                let param_init = typ
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        if field_can_be_param(&f.ty, enum_names) {
+                            // Params that are in the constructor
+                            format!("{}: {}", f.name, php_param_name)
+                        } else {
+                            // Complex fields default to None/Default
+                            format!("{}: Default::default()", f.name)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let named_constructor = format!(
+                    "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
+                     Self {{ {param_init} }}\n\
+                     }}"
+                );
+                impl_builder.add_method(&named_constructor);
+            }
         } else if has_named_params {
             let constructor = format!(
                 "pub fn __construct() -> PhpResult<Self> {{\n    \
@@ -374,7 +382,9 @@ fn gen_struct_methods_impl(
             } else {
                 // Named constructor for non-Default types. Generate a factory method
                 // decorated with #[php(constructor)] that accepts named parameters.
-                let param_lines = typ.fields.iter()
+                let param_lines = typ
+                    .fields
+                    .iter()
                     .map(|f| {
                         let mapped_ty = map_fn(&f.ty);
                         if f.optional {
@@ -385,7 +395,9 @@ fn gen_struct_methods_impl(
                     })
                     .collect::<Vec<_>>()
                     .join(",\n");
-                let param_init = typ.fields.iter()
+                let param_init = typ
+                    .fields
+                    .iter()
                     .map(|f| {
                         let snake_name = &f.name;
                         let camel_name = if f.optional {
