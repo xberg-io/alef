@@ -1027,6 +1027,42 @@ fn build_args_and_setup(
 
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
+
+        // Bytes args: fixture stores either a fixture-relative path string (load
+        // with file_get_contents at runtime, mirroring the go/python convention)
+        // or an inline byte array (encode as a "\xNN" escape string).
+        if arg.arg_type == "bytes" {
+            match val {
+                None | Some(serde_json::Value::Null) => {
+                    if arg.optional {
+                        parts.push("null".to_string());
+                    } else {
+                        parts.push("\"\"".to_string());
+                    }
+                }
+                Some(serde_json::Value::String(s)) => {
+                    let var_name = format!("{}Bytes", arg.name);
+                    setup_lines.push(format!(
+                        "${var_name} = file_get_contents(\"{path}\");\n        if (${var_name} === false) {{ $this->fail(\"failed to read fixture: {path}\"); }}",
+                        path = s.replace('"', "\\\"")
+                    ));
+                    parts.push(format!("${var_name}"));
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    let bytes: String = arr
+                        .iter()
+                        .filter_map(|v| v.as_u64())
+                        .map(|n| format!("\\x{:02x}", n))
+                        .collect();
+                    parts.push(format!("\"{bytes}\""));
+                }
+                Some(other) => {
+                    parts.push(json_to_php(other));
+                }
+            }
+            continue;
+        }
+
         match val {
             None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
                 // Special case: ExtractionConfig and similar config objects with no fixture value
