@@ -18,9 +18,10 @@ RSpec.describe '{{ category }}' do
 {%- if has_array_contains %}
 
   def alef_e2e_item_texts(item)
+    return [item.to_s] if item.is_a?(String) || item.is_a?(Symbol) || item.is_a?(Numeric)
     [:kind, :name, :signature, :path, :alias, :text, :source].filter_map do |attr|
       item.respond_to?(attr) ? item.send(attr).to_s : nil
-    end
+    end + [item.to_s]
   end
 {%- endif %}
 {%- if has_http %}
