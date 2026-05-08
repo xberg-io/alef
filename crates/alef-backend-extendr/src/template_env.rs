@@ -88,6 +88,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("r_use_dyn_lib.jinja", include_str!("../templates/r_use_dyn_lib.jinja")),
     (
+        "r_namespace_use_dyn_lib.jinja",
+        include_str!("../templates/r_namespace_use_dyn_lib.jinja"),
+    ),
+    (
         "flat_enum_derive.jinja",
         include_str!("../templates/flat_enum_derive.jinja"),
     ),
