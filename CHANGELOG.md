@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(java-backend): drop the `SerializationFeature.WRITE_BYTE_ARRAY_AS_BASE64`
+  configure call from `helper_object_mapper.jinja`. Jackson 2.x has no such
+  enum constant — the actual `SerializationFeature` enum (verified against
+  `jackson-databind:2.21.0`) does not contain it, so any backend that wires
+  this feature in fails to compile with `cannot find symbol`. (Re-applied
+  after a previous revert that thought the constant existed.) If a future
+  caller really wants to disable base64 byte-array serialization the
+  correct path is a custom `JsonSerializer<byte[]>`, not a SerFeature.
+
 - fix(php-backend): wrap the `php_visit_result_with_template` `format!` arg in
   `{% raw %}…{% endraw %}` so Jinja stops eating the literal `{` / `}` braces.
   The template wrote `format!("{{{}}}", k)` intending the Rust string
