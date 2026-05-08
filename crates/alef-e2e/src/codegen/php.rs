@@ -335,6 +335,13 @@ require_once __DIR__ . '/vendor/autoload.php';
 $pkgAutoloader = __DIR__ . '/{pkg_path}/vendor/autoload.php';
 if (file_exists($pkgAutoloader)) {{
     require_once $pkgAutoloader;
+}}
+
+// Change to the test_documents directory so that fixture file paths like
+// "pdf/fake_memo.pdf" resolve correctly when running phpunit from e2e/php/.
+$testDocuments = __DIR__ . '/../../test_documents';
+if (is_dir($testDocuments)) {{
+    chdir($testDocuments);
 }}{mock_server_block}
 "#
     )
@@ -1083,6 +1090,19 @@ fn build_args_and_setup(
                 }
                 continue;
             }
+            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
+                // Special case: ExtractionConfig and similar config objects with no fixture value
+                // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
+                // to satisfy required parameters.
+                // Infer the type name from the arg name and capitalize it (e.g., "config" -> "ExtractionConfig").
+                let type_name = if arg.name == "config" {
+                    "ExtractionConfig".to_string()
+                } else {
+                    format!("{}Config", arg.name.to_upper_camel_case())
+                };
+                parts.push(format!("{type_name}::from_json('{{}}')"));
+                continue;
+            }
             None | Some(serde_json::Value::Null) => {
                 // Required arg with no fixture value: pass a language-appropriate default.
                 let default_val = match arg.arg_type.as_str() {
@@ -1192,6 +1212,18 @@ fn build_args_and_setup(
                                 continue;
                             }
                         }
+                    }
+                }
+                // For extract_bytes operations, when "data" or "content" field is a string file path,
+                // wrap it in file_get_contents() to read the actual bytes.
+                let field_name = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                if (field_name == "data" || field_name == "content") && v.is_string() {
+                    let file_path = v.as_str().unwrap_or("");
+                    // Check if this looks like a file path (contains / or ends with an extension)
+                    if file_path.contains('/') || file_path.contains('.') {
+                        let escaped_path = escape_php(file_path);
+                        parts.push(format!("file_get_contents(\"{escaped_path}\")"));
+                        continue;
                     }
                 }
                 parts.push(json_to_php(v));
