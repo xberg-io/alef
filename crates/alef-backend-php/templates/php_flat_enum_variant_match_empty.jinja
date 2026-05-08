@@ -1,1 +1,1 @@
-            {{ core_path }}::{{ variant_name }} => Self { {{ tag_field }}_tag: "{{ tag_val }}".to_string(){{ needs_default | ternary(', ..Default::default()', '') }} },
+            {{ core_path }}::{{ variant_name }} => Self { {{ tag_field }}_tag: "{{ tag_val }}".to_string(){% if needs_default %}, ..Default::default(){% endif %} },
