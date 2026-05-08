@@ -1,68 +1,68 @@
 let key = wasm_bindgen::JsValue::from_str("{{ js_name }}");
 let has_method = js_sys::Reflect::has(&self.inner, &key).unwrap_or(false);
 if !has_method {
-{%- if has_error %}
+{% if has_error %}
     return Err({{ error_expr }});
-{%- else %}
+{% else %}
     return Default::default();
-{%- endif %}
+{% endif %}
 }
 
-{%- if has_error %}
+{% if has_error %}
 let func_val = js_sys::Reflect::get(&self.inner, &key)
     .map_err(|_| {{ error_get_method }})?;
-{%- else %}
+{% else %}
 let func_val = match js_sys::Reflect::get(&self.inner, &key) {
     Ok(f) => f,
     Err(_) => return Default::default(),
 };
-{%- endif %}
+{% endif %}
 
-{%- if has_error %}
+{% if has_error %}
 let func: js_sys::Function = func_val.dyn_into()
     .map_err(|_| {{ error_dyn_into }})?;
-{%- else %}
+{% else %}
 let func: js_sys::Function = match func_val.dyn_into() {
     Ok(f) => f,
     Err(_) => return Default::default(),
 };
-{%- endif %}
+{% endif %}
 
 let args = js_sys::Array::new();
-{%- for param in params %}
+{% for param in params %}
 args.push(&{{ param }});
-{%- endfor %}
+{% endfor %}
 
-{%- if has_error %}
+{% if has_error %}
 let result = func.apply(&self.inner, &args)
     .map_err(|_| {{ error_apply }})?;
-{%- else %}
+{% else %}
 let result = match func.apply(&self.inner, &args) {
     Ok(r) => r,
     Err(_) => return Default::default(),
 };
-{%- endif %}
+{% endif %}
 
 // Convert result
-{%- if return_unit %}
-{%- if has_error %}
+{% if return_unit %}
+{% if has_error %}
 Ok(())
-{%- else %}
+{% else %}
 ()
-{%- endif %}
-{%- elif return_string %}
-{%- if has_error %}
+{% endif %}
+{% elif return_string %}
+{% if has_error %}
 result.as_string()
     .ok_or_else(|| {{ error_string_conv }})
-{%- else %}
+{% else %}
 result.as_string().unwrap_or_default()
-{%- endif %}
-{%- else %}
-{%- if has_error %}
+{% endif %}
+{% else %}
+{% if has_error %}
 result.as_string()
     .ok_or_else(|| {{ error_result_conv }})
     .and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&s).map_err(|e| {{ error_deser }}))
-{%- else %}
+{% else %}
 result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&s).ok()).unwrap_or_default()
-{%- endif %}
-{%- endif %}
+{% endif %}
+{% endif %}

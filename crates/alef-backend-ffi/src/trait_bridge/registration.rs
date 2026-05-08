@@ -144,19 +144,19 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         );
         out.push_str("// SAFETY: caller guarantees vtable fn pointers and user_data are valid across threads.\n");
         out.push_str(
-            "unsafe impl<F> Send for _SendFn<F> {{}}
+            "unsafe impl<F> Send for _SendFn<F> {}
 ",
         );
         out.push_str(
-            "impl<F: FnOnce() -> R, R> _SendFn<F> {{
+            "impl<F: FnOnce() -> R, R> _SendFn<F> {
 ",
         );
         out.push_str(
-            "    fn call(self) -> R {{ (self.0)() }}
+            "    fn call(self) -> R { (self.0)() }
 ",
         );
         out.push_str(
-            "}}
+            "}
 ",
         );
         out.push('\n');
@@ -182,7 +182,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         out.push('\n');
 
         out.push_str(
-            "let _task = _SendFn(move || {{
+            "let _task = _SendFn(move || {
 ",
         );
         out.push_str(
@@ -196,7 +196,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             ));
         }
         out.push_str(
-            "}});
+            "});
 ",
         );
         out.push_str(

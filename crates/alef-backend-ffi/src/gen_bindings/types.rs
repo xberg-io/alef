@@ -179,14 +179,14 @@ fn gen_field_access_body(
                 "match_field_start.jinja",
                 context! { field_name => field_name },
             ));
-            out.push_str("        Some(Some(inner_val)) => {{\n");
+            out.push_str("        Some(Some(inner_val)) => {\n");
             write!(
                 out,
                 "{}",
                 gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names)
             )
             .ok();
-            out.push_str("        }}\n");
+            out.push_str("        }\n");
             out.push_str(&crate::template_env::render(
                 "match_arm_value.jinja",
                 context! {
@@ -201,7 +201,7 @@ fn gen_field_access_body(
                     value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
             ));
-            out.push_str("    }}\n");
+            out.push_str("    }\n");
         } else {
             let val_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
                 "val.0" // unwrap newtype inner value
@@ -216,14 +216,14 @@ fn gen_field_access_body(
                 "match_field_start.jinja",
                 context! { field_name => field_name },
             ));
-            out.push_str("        Some(val) => {{\n");
+            out.push_str("        Some(val) => {\n");
             write!(
                 out,
                 "{}",
                 gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names)
             )
             .ok();
-            out.push_str("        }}\n");
+            out.push_str("        }\n");
             out.push_str(&crate::template_env::render(
                 "match_arm_value.jinja",
                 context! {
@@ -231,7 +231,7 @@ fn gen_field_access_body(
                     value => &null_return_value(&TypeRef::Optional(Box::new(field.ty.clone()))).to_string(),
                 },
             ));
-            out.push_str("    }}\n");
+            out.push_str("    }\n");
         }
     } else if needs_len_out {
         // Bytes with length out-param
@@ -239,10 +239,10 @@ fn gen_field_access_body(
             "bytes_field_access.jinja",
             context! { field_name => field_name },
         ));
-        out.push_str("    if !out_len.is_null() {{\n");
+        out.push_str("    if !out_len.is_null() {\n");
         out.push_str("// SAFETY: null check above guarantees out_len is a valid pointer.\n");
-        out.push_str("        unsafe {{ *out_len = data.len(); }}\n");
-        out.push_str("    }}\n");
+        out.push_str("        unsafe { *out_len = data.len(); }\n");
+        out.push_str("    }\n");
         out.push_str("    data.as_ptr() as *mut u8\n");
     } else {
         // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning.

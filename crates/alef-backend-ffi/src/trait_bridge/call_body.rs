@@ -32,7 +32,7 @@ impl FfiBridgeGenerator {
             ));
         }
         out.push_str(
-            "}};
+            "};
 ",
         );
 
@@ -74,7 +74,7 @@ impl FfiBridgeGenerator {
 ",
                         );
                         out.push_str(
-                            "}});
+                            "});
 ",
                         );
                         out.push_str(&crate::template_env::render(
@@ -118,7 +118,7 @@ impl FfiBridgeGenerator {
 ",
                         );
                         out.push_str(
-                            "    Err(_) => {{
+                            "    Err(_) => {
 ",
                         );
                         if has_error {
@@ -138,11 +138,11 @@ impl FfiBridgeGenerator {
                             ));
                         }
                         out.push_str(
-                            "    }}
+                            "    }
 ",
                         );
                         out.push_str(
-                            "}};
+                            "};
 ",
                         );
                         out.push_str(&crate::template_env::render(
@@ -170,7 +170,7 @@ impl FfiBridgeGenerator {
 ",
                         );
                         out.push_str(
-                            "    Err(_) => {{
+                            "    Err(_) => {
 ",
                         );
                         if has_error {
@@ -190,11 +190,11 @@ impl FfiBridgeGenerator {
                             ));
                         }
                         out.push_str(
-                            "    }}
+                            "    }
 ",
                         );
                         out.push_str(
-                            "}};
+                            "};
 ",
                         );
                         out.push_str(&crate::template_env::render(
@@ -301,29 +301,29 @@ impl FfiBridgeGenerator {
         // Handle the return
         if has_error {
             out.push_str(
-                "if _rc != 0 {{
+                "if _rc != 0 {
 ",
             );
             out.push_str(
-                "    let msg = if _out_error.is_null() {{
+                "    let msg = if _out_error.is_null() {
 ",
             );
             out.push_str(
-                "        format!(\"vtable.{name} returned error code {{}}\", _rc)
+                "        format!(\"vtable.{name} returned error code {}\", _rc)
 ",
             );
             out.push_str(
-                "    }} else {{
+                "    } else {
 ",
             );
             out.push_str("// SAFETY: out_error was written by the callee as a valid CString.\n");
-            out.push_str("let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};\n");
+            out.push_str("let cs = unsafe { std::ffi::CString::from_raw(_out_error) };\n");
             out.push_str(
                 "        cs.to_string_lossy().into_owned()
 ",
             );
             out.push_str(
-                "    }};
+                "    };
 ",
             );
             out.push_str(
@@ -331,7 +331,7 @@ impl FfiBridgeGenerator {
 ",
             );
             out.push_str(
-                "}}
+                "}
 ",
             );
 
@@ -345,7 +345,7 @@ impl FfiBridgeGenerator {
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(
-                        "if _out_result.is_null() {{
+                        "if _out_result.is_null() {
 ",
                     );
                     out.push_str(
@@ -353,12 +353,12 @@ impl FfiBridgeGenerator {
 ",
                     );
                     out.push_str(
-                        "}}
+                        "}
 ",
                     );
                     out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
                     out.push_str(
-                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
 ",
                     );
                     out.push_str(
@@ -369,17 +369,17 @@ impl FfiBridgeGenerator {
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
                     out.push_str(
-                        "if _out_result.is_null() {{
+                        "if _out_result.is_null() {
 ",
                     );
                     out.push_str("return Err(Box::from(\"vtable.{name} returned null out_result\"));\n");
                     out.push_str(
-                        "}}
+                        "}
 ",
                     );
                     out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
                     out.push_str(
-                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
 ",
                     );
                     out.push_str(
@@ -415,7 +415,7 @@ impl FfiBridgeGenerator {
                 TypeRef::Unit => {}
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(
-                        "if _out_result.is_null() {{
+                        "if _out_result.is_null() {
 ",
                     );
                     out.push_str(
@@ -423,12 +423,12 @@ impl FfiBridgeGenerator {
 ",
                     );
                     out.push_str(
-                        "}}
+                        "}
 ",
                     );
                     out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
                     out.push_str(
-                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
 ",
                     );
                     out.push_str(
@@ -439,7 +439,7 @@ impl FfiBridgeGenerator {
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
                     out.push_str(
-                        "if _out_result.is_null() {{
+                        "if _out_result.is_null() {
 ",
                     );
                     out.push_str(
@@ -447,12 +447,12 @@ impl FfiBridgeGenerator {
 ",
                     );
                     out.push_str(
-                        "}}
+                        "}
 ",
                     );
                     out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
                     out.push_str(
-                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
 ",
                     );
                     out.push_str(
