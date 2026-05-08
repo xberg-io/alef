@@ -128,6 +128,7 @@ impl FieldResolver {
             "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
+            "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields),
             _ => render_accessor(&segments, language, result_var),
         }
     }
@@ -557,6 +558,64 @@ fn render_rust_with_optionals(
             }
             PathSegment::Length => {
                 out.push_str(".len()");
+            }
+        }
+    }
+    out
+}
+
+/// Zig accessor that unwraps optional fields with `.?`.
+///
+/// Zig does not allow field access, indexing, or comparisons through `?T`;
+/// the value must be unwrapped first. Every segment whose path appears in the
+/// optional-field set is followed by `.?` so the resulting expression is a
+/// concrete value usable in assertions.
+fn render_zig_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                if optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                if optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+                out.push_str("[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                out.push('.');
+                out.push_str(field);
+                if optional_fields.contains(&path_so_far) {
+                    out.push_str(".?");
+                }
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\")"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".len");
             }
         }
     }

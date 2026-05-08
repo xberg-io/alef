@@ -157,7 +157,7 @@ pub(crate) fn gen_sync_function_method(
     if is_convert_with_visitor_support {
         out.push_str("        if (options != null && options.visitor() != null) {\n");
         out.push_str("            return convertWithVisitorInternal(html, options);\n");
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
         out.push('\n');
     }
 
@@ -270,7 +270,7 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     } else if is_ffi_string_return(&dispatch_return_type) {
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
         out.push_str(&crate::template_env::render(
@@ -323,7 +323,7 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Named(_)) {
         // Named return types: FFI returns a struct pointer.
         let return_type_name = match &dispatch_return_type {
@@ -395,7 +395,7 @@ pub(crate) fn gen_sync_function_method(
             } else {
                 out.push_str("                return null;\n");
             }
-            out.push_str("            }}\n");
+            out.push_str("            }\n");
             out.push_str("            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
             out.push_str(&crate::template_env::render(
                 "ffi_invoke_free_string.jinja",
@@ -427,7 +427,7 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
         // Vec return types: FFI returns a JSON string pointer; deserialize into List<T>.
         // The body is delegated to a single `readJsonList` helper emitted by
@@ -471,7 +471,7 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Bytes) && is_bytes_result(func) {
         // Bytes-result functions use the out-param convention:
         //   (inputs..., out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize) -> i32
@@ -499,7 +499,7 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     } else {
         // Primitive return types (including boxed types for Optional)
         out.push_str(&crate::template_env::render(
@@ -523,10 +523,10 @@ pub(crate) fn gen_sync_function_method(
                 exception_class => format!("{}Exception", class_name),
             },
         ));
-        out.push_str("        }}\n");
+        out.push_str("        }\n");
     }
 
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
 }
 
 pub(crate) fn gen_async_wrapper_method(
@@ -568,7 +568,7 @@ pub(crate) fn gen_async_wrapper_method(
         },
     ));
     out.push_str("        return CompletableFuture.supplyAsync(() -> {\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
 }
 
 /// Generate the internal convertWithVisitor method to delegate visitor handling.
@@ -599,16 +599,16 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
-    out.push_str("            }}\n");
+    out.push_str("            }\n");
     out.push_str("            if (optionsPtr.equals(MemorySegment.NULL)) {\n");
-    out.push_str("                var defaultJson = arena.allocateFrom(\"{{}}\");\n");
+    out.push_str("                var defaultJson = arena.allocateFrom(\"{}\");\n");
     out.push_str(&crate::template_env::render(
         "ffi_conversion_options_invoke.jinja",
         minijinja::context! {
             pu => &pu,
         },
     ));
-    out.push_str("            }}\n");
+    out.push_str("            }\n");
     out.push('\n');
     out.push_str(&crate::template_env::render(
         "ffi_visitor_create.jinja",
@@ -624,14 +624,14 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
-    out.push_str("                }}\n");
+    out.push_str("                }\n");
     out.push_str(&crate::template_env::render(
         "ffi_throw_on_null.jinja",
         minijinja::context! {
             exception_class => &exc,
         },
     ));
-    out.push_str("            }}\n");
+    out.push_str("            }\n");
     out.push('\n');
     out.push_str("            try {\n");
     out.push_str(&crate::template_env::render(
@@ -655,7 +655,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     out.push_str("                if (resultPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                    checkLastError();\n");
     out.push_str("                    return null;\n");
-    out.push_str("                }}\n");
+    out.push_str("                }\n");
     out.push_str(&crate::template_env::render(
         "ffi_result_to_json.jinja",
         minijinja::context! {
@@ -671,7 +671,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                    checkLastError();\n");
     out.push_str("                    return null;\n");
-    out.push_str("                }}\n");
+    out.push_str("                }\n");
     out.push_str("                String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
     out.push_str(&crate::template_env::render(
         "ffi_invoke_free_string.jinja",
@@ -687,7 +687,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             exception_class => &exc,
         },
     ));
-    out.push_str("            }} finally {{\n");
+    out.push_str("            } finally {\n");
     out.push_str(&crate::template_env::render(
         "ffi_visitor_free.jinja",
         minijinja::context! {
@@ -695,7 +695,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("                bridge.rethrowVisitorError();\n");
-    out.push_str("            }}\n");
+    out.push_str("            }\n");
     out.push_str(&crate::template_env::render(
         "ffi_catch_exception.jinja",
         minijinja::context! {
@@ -710,8 +710,8 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             exception_class => &exc,
         },
     ));
-    out.push_str("        }}\n");
-    out.push_str("    }}\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
 
     out
 }

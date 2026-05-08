@@ -105,7 +105,7 @@ fn struct_emits_zig_struct() {
 }
 
 /// String parameter: wrapper takes `[]const u8`; body allocates a null-terminated
-/// copy via `std.fmt.allocPrintZ` and frees it after the C call.
+/// copy via `std.fmt.allocPrintSentinel` and frees it after the C call.
 #[test]
 fn string_param_allocates_z_string_and_frees() {
     let api = ApiSurface {
@@ -142,7 +142,7 @@ fn string_param_allocates_z_string_and_frees() {
     );
     // Body allocates a null-terminated copy.
     assert!(
-        content.contains("allocPrintZ") && content.contains("who_z"),
+        content.contains("allocPrintSentinel") && content.contains("who_z"),
         "body must allocate a null-terminated copy: {content}"
     );
     // The null-terminated copy is passed to the C function.
@@ -241,7 +241,7 @@ fn vec_param_takes_json_slice() {
     );
     // Body allocates a null-terminated copy.
     assert!(
-        content.contains("allocPrintZ") && content.contains("items_z"),
+        content.contains("allocPrintSentinel") && content.contains("items_z"),
         "body must allocate null-terminated copy for Vec param: {content}"
     );
 }

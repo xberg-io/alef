@@ -2,7 +2,7 @@
 func (t *{{ go_enum_name }}) UnmarshalJSON(data []byte) error {
 	// Probe for the tag first
 	var probe struct {
-{% if tag_field_name %}		{{ tag_field_name }} string `json:"{{ tag_field_name }}"`
+{% if tag_field_name %}		{{ tag_field_name }} string `json:"{{ tag_name }}"`
 {% endif %}	}
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return err

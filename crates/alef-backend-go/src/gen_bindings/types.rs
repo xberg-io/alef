@@ -419,6 +419,7 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         context! {
             go_enum_name => &go_enum_name,
             tag_field_name => &tag_field_name,
+            tag_name => tag_name,
         },
     ));
 

@@ -19,8 +19,11 @@ pub(crate) fn gen_record_type(
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
-    // Pre-size: average field decl ≈ 40 chars + 2 for ", " separator.
+    // `field_decls` keeps each individual decl so the multi-line emit path can put
+    // each on its own line (annotations within a single decl may contain commas,
+    // so we cannot split `fields_joined` by ", ").
     let mut fields_joined = String::with_capacity(typ.fields.len().saturating_mul(42));
+    let mut field_decls: Vec<String> = Vec::with_capacity(typ.fields.len());
 
     for (i, f) in typ.fields.iter().enumerate() {
         // Complex enums (tagged unions with data) can't be simple Java enums.
@@ -105,6 +108,7 @@ pub(crate) fn gen_record_type(
             fields_joined.push_str(", ");
         }
         fields_joined.push_str(&decl);
+        field_decls.push(decl);
     }
 
     // Build the single-line form to check length and scan for imports.
@@ -138,6 +142,14 @@ pub(crate) fn gen_record_type(
         record_block.push_str("public record ");
         record_block.push_str(&typ.name);
         record_block.push_str("(\n");
+        for (i, decl) in field_decls.iter().enumerate() {
+            let comma = if i < field_decls.len() - 1 { "," } else { "" };
+            record_block.push_str("    ");
+            record_block.push_str(decl);
+            record_block.push_str(comma);
+            record_block.push('\n');
+        }
+        record_block.push_str(") {\n");
     } else {
         // Reuse fields_joined — no second allocation.
         record_block.push_str("public record ");
@@ -155,7 +167,7 @@ pub(crate) fn gen_record_type(
         record_block.push_str("        return new ");
         record_block.push_str(&typ.name);
         record_block.push_str("Builder();\n");
-        record_block.push_str("    }}\n");
+        record_block.push_str("    }\n");
     }
 
     // Generate a compact constructor that applies Rust-side defaults for non-optional
@@ -197,7 +209,7 @@ pub(crate) fn gen_record_type(
             record_block.push_str(line);
             record_block.push('\n');
         }
-        record_block.push_str("    }}\n");
+        record_block.push_str("    }\n");
     }
 
     // Note: do NOT emit Optional<String>-returning shadow accessors for nullable
@@ -207,7 +219,7 @@ pub(crate) fn gen_record_type(
     // `Optional.ofNullable(record.content())` at the call site, or the e2e
     // codegen emits a null-safe pattern.
 
-    record_block.push_str("}}\n");
+    record_block.push_str("}\n");
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.
     let needs_json_property = fields_joined.contains("@JsonProperty(");
@@ -323,13 +335,13 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     out.push_str(&enum_def.name);
     out.push_str("(final String value) {\n");
     out.push_str("        this.value = value;\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
     out.push('\n');
     out.push_str("    /** Returns the string value. */\n");
     out.push_str("    @JsonValue\n");
     out.push_str("    public String getValue() {\n");
     out.push_str("        return value;\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
     out.push('\n');
     out.push_str("    /** Creates an instance from a string value. */\n");
     out.push_str("    @JsonCreator\n");
@@ -339,14 +351,14 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     out.push_str("        for (");
     out.push_str(&enum_def.name);
     out.push_str(" e : values()) {\n");
-    out.push_str("            if (e.value.equalsIgnoreCase(value)) {{\n");
+    out.push_str("            if (e.value.equalsIgnoreCase(value)) {\n");
     out.push_str("                return e;\n");
-    out.push_str("            }}\n");
-    out.push_str("        }}\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
     out.push_str("        throw new IllegalArgumentException(\"Unknown value: \" + value);\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
 
-    out.push_str("}}\n");
+    out.push_str("}\n");
 
     out
 }
@@ -431,7 +443,28 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
     out.push_str(tag_field);
     out.push_str("\", visible = false)\n");
-    out.push_str("@JsonSubTypes({{\n");
+    out.push_str("@JsonSubTypes({\n");
+    for (i, variant) in enum_def.variants.iter().enumerate() {
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        let comma = if i < enum_def.variants.len() - 1 { "," } else { "" };
+        out.push_str("    @JsonSubTypes.Type(value = ");
+        out.push_str(&enum_def.name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(".class, name = \"");
+        out.push_str(&discriminator);
+        out.push_str("\")");
+        out.push_str(comma);
+        out.push('\n');
+    }
+    out.push_str("})\n");
+    // Newtype variants with flattened fields cannot directly map to record fields.
+    // Allow unknown properties at the interface level so Jackson doesn't fail when
+    // encountering flattened inner-type fields.
+    out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
     out.push_str("public sealed interface ");
     out.push_str(&enum_def.name);
     out.push_str(" {\n");
@@ -452,7 +485,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             out.push_str("() implements ");
             out.push_str(&enum_def.name);
             out.push_str(" {\n");
-            out.push_str("    }}\n");
+            out.push_str("    }\n");
         } else {
             // Build field list using fully qualified names where variant names shadow imports
             let field_parts: Vec<String> = variant
@@ -515,7 +548,17 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 out.push_str("    record ");
                 out.push_str(&variant.name);
                 out.push_str("(\n");
-                out.push_str("    }}\n");
+                for (i, fp) in field_parts.iter().enumerate() {
+                    let comma = if i < field_parts.len() - 1 { "," } else { "" };
+                    out.push_str("        ");
+                    out.push_str(fp);
+                    out.push_str(comma);
+                    out.push('\n');
+                }
+                out.push_str("    ) implements ");
+                out.push_str(&enum_def.name);
+                out.push_str(" {\n");
+                out.push_str("    }\n");
             } else {
                 out.push_str("    record ");
                 out.push_str(&variant.name);
@@ -551,12 +594,12 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             out.push_str("        return this instanceof ");
             out.push_str(variant_name);
             out.push_str(" e ? e.value() : null;\n");
-            out.push_str("    }}\n");
+            out.push_str("    }\n");
             out.push('\n');
         }
     }
 
-    out.push_str("}}\n");
+    out.push_str("}\n");
     out
 }
 
@@ -582,11 +625,11 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     out.push_str(class_name);
     out.push_str("(MemorySegment handle) {\n");
     out.push_str("        this.handle = handle;\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
     out.push('\n');
-    out.push_str("    MemorySegment handle() {{\n");
+    out.push_str("    MemorySegment handle() {\n");
     out.push_str("        return this.handle;\n");
-    out.push_str("    }}\n");
+    out.push_str("    }\n");
     out.push('\n');
     out.push_str("    @Override\n");
     out.push_str("    public void close() {\n");
@@ -601,10 +644,10 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     out.push_str("                throw new RuntimeException(\"Failed to free ");
     out.push_str(class_name);
     out.push_str(": \" + e.getMessage(), e);\n");
-    out.push_str("            }}\n");
-    out.push_str("        }}\n");
-    out.push_str("    }}\n");
-    out.push_str("}}\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
 
     out
 }
@@ -780,7 +823,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             body.push_str(" = value;\n");
         }
         body.push_str("        return this;\n");
-        body.push_str("    }}\n");
+        body.push_str("    }\n");
         body.push('\n');
     }
 
@@ -794,9 +837,35 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     body.push_str("        return new ");
     body.push_str(&typ.name);
     body.push_str("(\n");
-    body.push_str("    }}\n");
+    let non_tuple_fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|f| {
+            !(f.name.starts_with('_') && f.name[1..].chars().all(|c| c.is_ascii_digit())
+                || f.name.chars().next().is_none_or(|c| c.is_ascii_digit()))
+        })
+        .collect();
+    for (i, field) in non_tuple_fields.iter().enumerate() {
+        let field_name = safe_java_field_name(&field.name);
+        let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
+        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        if field.optional || is_visitor_field {
+            body.push_str("            ");
+            body.push_str(&field_name);
+            body.push_str(".orElse(null)");
+            body.push_str(comma);
+            body.push('\n');
+        } else {
+            body.push_str("            ");
+            body.push_str(&field_name);
+            body.push_str(comma);
+            body.push('\n');
+        }
+    }
+    body.push_str("        );\n");
+    body.push_str("    }\n");
 
-    body.push_str("}}\n");
+    body.push_str("}\n");
 
     // Assemble with conditional imports based on what's actually used in the body
     let mut imports: Vec<&str> = vec![];
