@@ -3,7 +3,7 @@ unsafe impl IntoValueFromNative for {{ struct_name }} {}
 
 impl magnus::TryConvert for {{ struct_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
-        let r: &{{ struct_name }} = magnus::TryConvert::try_convert(val)?;
+        let r: &{{ struct_name }} = <&{{ struct_name }} as magnus::TryConvert>::try_convert(val)?;
         Ok(r.clone())
     }
 }
