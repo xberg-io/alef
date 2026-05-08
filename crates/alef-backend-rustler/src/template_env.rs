@@ -26,8 +26,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     version: Mix.Project.config()[:version],
     targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),
     nif_versions: ["2.16", "2.17"],
-    force_build:
-      System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:test, :dev]
+    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:test, :dev]
 
 "#,
     ),
@@ -35,11 +34,11 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "struct_module_header.jinja",
         r#"defmodule {{ app_module }}.{{ type_name }} do
-{%- if has_doc %}
+{% if has_doc %}
   @moduledoc "{{ doc }}"
-{%- else %}
+{% else %}
   @moduledoc false
-{%- endif %}
+{% endif %}
 
 "#,
     ),
@@ -48,11 +47,11 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "enum_module_header.jinja",
         r#"defmodule {{ app_module }}.{{ enum_name }} do
-{%- if has_doc %}
+{% if has_doc %}
   @moduledoc "{{ doc }}"
-{%- else %}
+{% else %}
   @moduledoc false
-{%- endif %}
+{% endif %}
 
 "#,
     ),

@@ -128,7 +128,7 @@ impl FieldResolver {
             "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
-            "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields),
+            "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             _ => render_accessor(&segments, language, result_var),
         }
     }
@@ -567,10 +567,21 @@ fn render_rust_with_optionals(
 /// Zig accessor that unwraps optional fields with `.?`.
 ///
 /// Zig does not allow field access, indexing, or comparisons through `?T`;
-/// the value must be unwrapped first. Every segment whose path appears in the
+/// the value must be unwrapped first. Each segment whose path appears in the
 /// optional-field set is followed by `.?` so the resulting expression is a
 /// concrete value usable in assertions.
-fn render_zig_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
+///
+/// Paths in `method_calls` represent tagged-union variant accessors (Rust
+/// variant getters such as `FormatMetadata::excel()`). In Zig, tagged-union
+/// variants are accessed via the same dot syntax as struct fields, so the
+/// segment is emitted as `.{name}` *without* `.?` even if the path also
+/// appears in `optional_fields`.
+fn render_zig_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+    method_calls: &HashSet<String>,
+) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
     for seg in segments {
@@ -582,7 +593,7 @@ fn render_zig_with_optionals(segments: &[PathSegment], result_var: &str, optiona
                 path_so_far.push_str(f);
                 out.push('.');
                 out.push_str(f);
-                if optional_fields.contains(&path_so_far) {
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
                     out.push_str(".?");
                 }
             }
@@ -593,7 +604,7 @@ fn render_zig_with_optionals(segments: &[PathSegment], result_var: &str, optiona
                 path_so_far.push_str(f);
                 out.push('.');
                 out.push_str(f);
-                if optional_fields.contains(&path_so_far) {
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
                     out.push_str(".?");
                 }
                 out.push_str("[0]");
@@ -605,7 +616,7 @@ fn render_zig_with_optionals(segments: &[PathSegment], result_var: &str, optiona
                 path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(field);
-                if optional_fields.contains(&path_so_far) {
+                if !method_calls.contains(&path_so_far) && optional_fields.contains(&path_so_far) {
                     out.push_str(".?");
                 }
                 if key.chars().all(|c| c.is_ascii_digit()) {
