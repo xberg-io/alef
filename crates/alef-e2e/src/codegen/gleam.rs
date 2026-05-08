@@ -345,7 +345,12 @@ fn render_test_file(
                 }
             }
             match assertion.assertion_type.as_str() {
-                "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with" | "contains_any" => {
+                "contains_any" => {
+                    // contains_any always generates list.any(...) + string.contains(...) — needs both.
+                    needed_modules.insert("string");
+                    needed_modules.insert("list");
+                }
+                "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with" => {
                     needed_modules.insert("string");
                     // `contains` on an array field emits list.any — also need `list`.
                     if let Some(f) = &assertion.field {
