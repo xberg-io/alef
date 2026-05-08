@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(swift-backend): emit string/bytes/JSON-config wrapper helpers. `emit_extraction_wrappers()` previously returned without emitting anything, forcing e2e tests to call `RustBridge.extract_*` directly with `RustVec<UInt8>` and pre-parsed `ExtractionConfig`. The backend now emits public Swift `extractBytes`/`extractFile` (sync + async) wrappers that accept `String`/`[UInt8]` content and an optional JSON config string, parse the JSON via `serde_json` on the Rust side, and delegate to the underlying RustBridge calls.
+- fix(napi-backend): emit per-variant getters on `#[napi(object)]` tagged-enum structs. `JsFormatMetadata` is emitted as a flat struct with `<tag>_tag: String` plus optional fields per variant, but `#[napi(object)]` on its own does not expose getters that match `result.metadata.format.excel.sheetCount`. Each variant of every tagged enum that maps every non-empty variant to a single Named field now has a `#[napi(getter)]` method on a `#[napi]` impl block: it checks `<tag>_tag`, then deserializes the variant's JSON payload and returns it.
+- fix(magnus-backend): emit per-variant accessor methods on tagged-enum classes. The Ruby `FormatMetadata` class was previously emitted with flat optional fields but no per-variant accessors. Each non-empty variant now has a Ruby method (`#excel`, `#docx`, …) that returns the variant payload when the discriminator matches, or `nil` otherwise.
+- fix(e2e-gleam): unwrap `Result(_, _)` before field-access assertions. The codegen previously emitted `result.field |> should.equal(...)` even when `result` was a `Result`, failing Gleam's type checker. The codegen now emits `let assert Ok(r) = result` once after the call and uses `r` as the access base for every assertion.
+- fix(zig-backend): port to zig 0.16. Replaced `std.fmt.allocPrintZ` (removed in 0.16) with `std.fmt.allocPrintSentinel(allocator, ..., 0)` returning `[:0]u8`, simplified the matching `free` calls, and updated `@typeInfo(E).ErrorSet` to `@typeInfo(E).error_set` (snake_case rename in 0.16).
+
 ## [0.14.34] - 2026-05-08
 
 ### Fixed
