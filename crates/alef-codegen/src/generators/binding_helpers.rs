@@ -17,6 +17,8 @@ fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
             needs_mutex => needs_mutex,
         },
     )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Wrap a core-call result for opaque delegation methods.
@@ -222,7 +224,9 @@ pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<S
             minijinja::context! {
                 expr => expr,
             },
-        ),
+        )
+        .trim_end_matches('\n')
+        .to_string(),
         None => expr.to_string(),
     }
 }
