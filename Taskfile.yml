@@ -73,21 +73,25 @@ tasks:
       - prek run --all-files
 
   set-version:
-    desc: "Set workspace version (usage: task set-version -- 0.8.0)"
+    desc: "Set workspace version (usage: task set-version -- 0.15.0)"
     requires:
       vars: [CLI_ARGS]
-    vars:
-      VERSION: "{{.CLI_ARGS}}"
     cmds:
       # Use `sed -i.bak ... && rm -f` for portability between BSD sed (macOS) and GNU sed (Linux CI).
       - |
+        version="{{.CLI_ARGS}}"
+        version="${version#v}"
+        case "$version" in
+          [0-9]*.[0-9]*.[0-9]*) ;;
+          *) echo "set-version: expected semver like '0.15.0' (with or without leading 'v'); got '{{.CLI_ARGS}}'" >&2; exit 2 ;;
+        esac
         for f in Cargo.toml alef.toml; do
-          sed -i.bak "s/^version = \".*\"/version = \"{{.VERSION}}\"/" "$f"
+          sed -i.bak "s/^version = \".*\"/version = \"$version\"/" "$f"
           rm -f "$f.bak"
         done
-        sed -i.bak -E "s|^(alef-[a-z0-9-]+ = \{ version = )\"[0-9]+\.[0-9]+\.[0-9]+\"|\\1\"{{.VERSION}}\"|" Cargo.toml
+        sed -i.bak -E "s|^(alef-[a-z0-9-]+ = \{ version = )\"v?[0-9]+\.[0-9]+\.[0-9]+\"|\\1\"$version\"|" Cargo.toml
         rm -f Cargo.toml.bak
-        sed -i.bak "s/pub const ALEF_REV: &str = \"v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\";/pub const ALEF_REV: \&str = \"v{{.VERSION}}\";/" crates/alef-core/src/template_versions.rs
+        sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+\";|pub const ALEF_REV: \&str = \"v$version\";|" crates/alef-core/src/template_versions.rs
         rm -f crates/alef-core/src/template_versions.rs.bak
       - cargo update --workspace
 
