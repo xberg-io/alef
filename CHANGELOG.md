@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(ffi-backend): emit a string literal instead of `format!("include/{header_name}")` in
+  the generated `build.rs` go-copy step. `header_name` is interpolated at codegen time, so
+  the rendered code only ever passes a literal — clippy's `clippy::useless_format` then
+  rewrote the call to `"...".to_string()` and broke the alef-verify hash check on every
+  fresh regen of html-to-markdown. Switching the template emission to a bare string
+  literal lets clippy and alef-verify agree.
+
+- fix(ffi-backend): drop `.clone()` on owned named returns. `gen_owned_value_to_c` was
+  emitting `Box::into_raw(Box::new(result.clone()))` for any `Named` return, which panics
+  the Rust compiler when the type is non-Clone (opaque handles like `Parser`,
+  `LanguageRegistry`, `DownloadManager`). New `named_owned` template arm moves the value
+  into the Box. `Optional` inner conversions now use `optional_owned` (`match expr` rather
+  than `match &expr`) so the inner `val` is owned and matches the new arm. Borrowed-context
+  generation (`gen_value_to_c`) is unchanged.
+- fix(magnus-backend): suppress redundant `native.rb` re-export when the public Ruby
+  module name and the native extension's module name collide. tslp's gem (`TreeSitterLanguagePack`)
+  hits this case — both `module_name` and `native_module_name` resolve to the same
+  identifier, so the generated `define_singleton_method(m) { TreeSitterLanguagePack.public_send(m, ...) }`
+  loop overwrote each native function with a self-call and triggered `SystemStackError`
+  on the first invocation. Template now emits a `require`-only file in that case.
 - fix(magnus-backend): exclude thread-unsafe bridge handle types (`VisitorHandle`) from
   binding ↔ core From impls via `ConversionConfig::exclude_types` instead of post-process
   line filtering. The line filter (`filter_unsafe_field_assignments`) silently failed

@@ -252,12 +252,12 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
             },
         ),
         TypeRef::Named(_) => {
-            // For owned values, .clone() is wasteful. Just box the value directly.
-            // (Copy enums auto-copy; non-Copy types move into Box::new.)
+            // For owned values, .clone() is wasteful AND incorrect when the type is non-Clone
+            // (opaque handles like Parser/Registry). Move the value into the Box.
             crate::template_env::render(
                 "value_to_c_conversion.jinja",
                 minijinja::context! {
-                    type_class => "named_clone",
+                    type_class => "named_owned",
                     expr => expr,
                     indent => indent,
                 },
@@ -285,10 +285,11 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         TypeRef::Optional(inner) => {
             let inner_conversion = gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names);
             let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+            // Owned-context: consume the Option so val is owned T (not &T).
             crate::template_env::render(
                 "value_to_c_conversion.jinja",
                 minijinja::context! {
-                    type_class => "optional",
+                    type_class => "optional_owned",
                     expr => expr,
                     indent => indent,
                     inner_conversion => &inner_conversion,
@@ -373,7 +374,7 @@ pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> St
             format!(
                 "\n    let go_include_dir = std::path::Path::new(\"{dest_dir}\");\n    \
                  std::fs::create_dir_all(go_include_dir).expect(\"Unable to create Go include directory\");\n    \
-                 std::fs::copy(format!(\"include/{header_name}\"), go_include_dir.join(\"{header_name}\"))\n        \
+                 std::fs::copy(\"include/{header_name}\", go_include_dir.join(\"{header_name}\"))\n        \
                  .expect(\"Unable to copy header to Go include directory\");\n"
             )
         }
