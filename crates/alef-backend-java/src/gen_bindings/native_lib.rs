@@ -383,6 +383,7 @@ pub(crate) fn gen_native_lib(
             class_name => "NativeLib",
             lib_name => lib_name,
             prefix => prefix,
+            prefix_upper => prefix.to_uppercase(),
             function_handles => function_handles,
             accessor_handles => accessor_handles,
             builder_handles => builder_handles,
