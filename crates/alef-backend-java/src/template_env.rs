@@ -151,6 +151,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/method_handle_free.jinja"),
     ),
     (
+        "method_handle_free_bytes.jinja",
+        include_str!("../templates/method_handle_free_bytes.jinja"),
+    ),
+    (
+        "bytes_result_call.jinja",
+        include_str!("../templates/bytes_result_call.jinja"),
+    ),
+    (
         "method_handle_from_json.jinja",
         include_str!("../templates/method_handle_from_json.jinja"),
     ),

@@ -4,7 +4,7 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, TypeRef};
 use heck::ToSnakeCase;
 
-use super::marshal::{gen_ffi_layout, gen_function_descriptor};
+use super::marshal::{gen_ffi_layout, gen_function_descriptor, is_bytes_result};
 
 pub(crate) fn gen_native_lib(
     api: &ApiSurface,
@@ -62,8 +62,20 @@ pub(crate) fn gen_native_lib(
         }
 
         let ffi_name = format!("{}_{}", prefix, func.name.to_lowercase());
-        let return_layout = gen_ffi_layout(&func.return_type);
-        let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+
+        // Bytes-result functions use the out-param convention: JAVA_INT return +
+        // 3 trailing ADDRESS/JAVA_LONG/JAVA_LONG params for (out_ptr, out_len, out_cap).
+        let (return_layout, param_layouts) = if is_bytes_result(func) {
+            let mut layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr: *mut *mut u8
+            layouts.push("ValueLayout.JAVA_LONG".to_string()); // out_len: *mut usize
+            layouts.push("ValueLayout.JAVA_LONG".to_string()); // out_cap: *mut usize
+            ("ValueLayout.JAVA_INT".to_string(), layouts)
+        } else {
+            let return_layout = gen_ffi_layout(&func.return_type);
+            let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+            (return_layout, param_layouts)
+        };
 
         let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 
@@ -100,6 +112,21 @@ pub(crate) fn gen_native_lib(
             minijinja::context! {
                 handle_name => handle_name,
                 ffi_name => free_name,
+            },
+        );
+        function_handles.push(handle_code);
+    }
+
+    // free_bytes handle for releasing byte buffers returned via the out-param convention.
+    // Signature: (ptr: ADDRESS, len: JAVA_LONG, cap: JAVA_LONG) -> void
+    {
+        let free_bytes_name = format!("{}_free_bytes", prefix);
+        let handle_name = format!("{}_FREE_BYTES", prefix.to_uppercase());
+        let handle_code = crate::template_env::render(
+            "method_handle_free_bytes.jinja",
+            minijinja::context! {
+                handle_name => handle_name,
+                ffi_name => free_bytes_name,
             },
         );
         function_handles.push(handle_code);

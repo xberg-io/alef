@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.15.0] - [Unreleased]
 
+### Added
+
+- feat(java-backend): consume the FFI `Result<Vec<u8>>` out-param convention. Java now detects byte-buffer return shapes from IR (`is_bytes_result`), declares the symbol with three trailing `ADDRESS` out-params and a `JAVA_INT` return, allocates `outPtr`/`outLen`/`outCap` slots in a confined `Arena`, checks the return code, copies the bytes via `outPtr.reinterpret(outLen).toArray(JAVA_BYTE)`, and frees them through a bound `{prefix}_free_bytes` method handle. Templates: `bytes_result_call.jinja`, `method_handle_free_bytes.jinja`. Existing Go and C# byte-buffer support unchanged.
+
 ### Changed
 
 - refactor(backends): migrate all parameterized code emission in every `alef-backend-*` crate to
