@@ -64,12 +64,30 @@ pub(crate) fn gen_native_lib(
         let ffi_name = format!("{}_{}", prefix, func.name.to_lowercase());
 
         // Bytes-result functions use the out-param convention: JAVA_INT return +
-        // 3 trailing ADDRESS/JAVA_LONG/JAVA_LONG params for (out_ptr, out_len, out_cap).
+        // 3 trailing ADDRESS/ADDRESS/ADDRESS params for (out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize).
+        // For input Bytes parameters, expand them to (ADDRESS pointer, JAVA_LONG length) pairs.
         let (return_layout, param_layouts) = if is_bytes_result(func) {
-            let mut layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
+            let mut layouts: Vec<String> = Vec::new();
+            for param in &func.params {
+                match &param.ty {
+                    TypeRef::Bytes => {
+                        // Input byte slice: expand to pointer + length
+                        layouts.push("ValueLayout.ADDRESS".to_string()); // pointer
+                        layouts.push("ValueLayout.JAVA_LONG".to_string()); // length
+                    }
+                    TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+                        // Optional byte slice: expand to pointer + length
+                        layouts.push("ValueLayout.ADDRESS".to_string());
+                        layouts.push("ValueLayout.JAVA_LONG".to_string());
+                    }
+                    other => {
+                        layouts.push(gen_ffi_layout(other));
+                    }
+                }
+            }
             layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr: *mut *mut u8
-            layouts.push("ValueLayout.JAVA_LONG".to_string()); // out_len: *mut usize
-            layouts.push("ValueLayout.JAVA_LONG".to_string()); // out_cap: *mut usize
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_len: *mut usize
+            layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap: *mut usize
             ("ValueLayout.JAVA_INT".to_string(), layouts)
         } else {
             let return_layout = gen_ffi_layout(&func.return_type);
