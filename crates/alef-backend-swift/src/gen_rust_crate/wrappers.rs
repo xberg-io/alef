@@ -519,6 +519,46 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
                 },
             ));
         }
+    } else if matches!(field.ty, TypeRef::String)
+        && !field.sanitized
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::None)
+    {
+        // Plain String field (not sanitized from another type) — just clone/clone_opt.
+        // serde_json::to_string on a &String adds JSON quotes ("text" → "\"text\"").
+        out.push_str(&crate::template_env::render(
+            "getter_simple_clone.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
+    } else if matches!(field.ty, TypeRef::String)
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::Cow)
+        && !field.optional
+    {
+        // Cow<'static, str> field — use .to_string() to avoid JSON quoting.
+        out.push_str(&crate::template_env::render(
+            "getter_string_cow.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
+    } else if matches!(field.ty, TypeRef::String)
+        && matches!(field.core_wrapper, alef_core::ir::CoreWrapper::Cow)
+        && field.optional
+    {
+        // Option<Cow<'static, str>> field — map to String via .to_string().
+        out.push_str(&crate::template_env::render(
+            "getter_string_cow_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                return_type => bridge_ty_owned,
+                name => name,
+            },
+        ));
     } else if field.optional {
         out.push_str(&crate::template_env::render(
             "getter_string_like_serde_optional.jinja",

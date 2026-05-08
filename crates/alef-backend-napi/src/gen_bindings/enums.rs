@@ -29,10 +29,16 @@ pub(super) fn variant_data_field_names(enum_def: &EnumDef) -> Vec<String> {
 }
 
 pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
-    let is_tagged_data_enum = enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let is_tagged_data_enum = enum_def.serde_tag.is_some() && has_data_variants;
+    let is_untagged_data_enum = enum_def.serde_tag.is_none() && has_data_variants;
 
     if is_tagged_data_enum {
         return gen_tagged_enum_as_object(enum_def, prefix, has_serde);
+    }
+
+    if is_untagged_data_enum {
+        return gen_untagged_data_enum_as_value_wrapper(enum_def, prefix);
     }
 
     // Simple string enum
@@ -79,6 +85,42 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     }
 
     lines.join("\n")
+}
+
+/// Generate an untagged data enum as a thin wrapper around `serde_json::Value`.
+///
+/// `#[serde(untagged)]` enums (e.g. `enum Input { Single(String), Multiple(Vec<String>) }`)
+/// can't be expressed as a `#[napi(string_enum)]` because that loses the inner data.
+/// JS users want to pass either shape directly (`"hi"` or `["a", "b"]`), so we wrap the
+/// value through `serde_json::Value` (napi-rs's `serde-json` feature provides FromNapiValue/
+/// ToNapiValue for it) and bridge to/from the core enum via serde.
+pub(super) fn gen_untagged_data_enum_as_value_wrapper(enum_def: &EnumDef, prefix: &str) -> String {
+    let name = format!("{prefix}{}", enum_def.name);
+    format!(
+        "#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]\n\
+         #[serde(transparent)]\n\
+         pub struct {name}(pub serde_json::Value);\n\
+         \n\
+         impl napi::bindgen_prelude::TypeName for {name} {{\n    \
+             fn type_name() -> &'static str {{ \"{name}\" }}\n    \
+             fn value_type() -> napi::ValueType {{ napi::ValueType::Unknown }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::FromNapiValue for {name} {{\n    \
+             unsafe fn from_napi_value(env: napi::sys::napi_env, val: napi::sys::napi_value) -> napi::Result<Self> {{\n        \
+                 let v: serde_json::Value = unsafe {{ napi::bindgen_prelude::FromNapiValue::from_napi_value(env, val)? }};\n        \
+                 Ok(Self(v))\n    \
+             }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::ToNapiValue for {name} {{\n    \
+             unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {{\n        \
+                 unsafe {{ napi::bindgen_prelude::ToNapiValue::to_napi_value(env, val.0) }}\n    \
+             }}\n\
+         }}\n\
+         \n\
+         impl napi::bindgen_prelude::ValidateNapiValue for {name} {{}}\n"
+    )
 }
 
 /// Generate a tagged enum as a flattened `#[napi(object)]` struct.

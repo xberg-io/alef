@@ -39,6 +39,12 @@ impl TypeMapper for PhpMapper {
         Cow::Borrowed("String")
     }
 
+    /// Map bytes type to String (PHP strings are binary-safe).
+    /// ext-php-rs will handle the String <-> PHP string conversion automatically.
+    fn bytes(&self) -> Cow<'static, str> {
+        Cow::Borrowed("String")
+    }
+
     /// Map enum types to their PHP representation.
     /// - Unit-variant enums → `String` (paired with generated string constants).
     /// - Tagged data enums (struct variants) → their own flat PHP class name.

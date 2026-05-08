@@ -3,11 +3,17 @@
             out var outLen,
             out var outCap
         );
-        if (rc != 0)
+        try
         {
-            throw GetLastError();
+            if (rc != 0)
+            {
+                throw GetLastError();
+            }
+            var result = new byte[(int)outLen];
+            Marshal.Copy(outPtr, result, 0, (int)outLen);
+            NativeMethods.FreeBytes(outPtr, outLen, outCap);
+            return result;
         }
-        var result = new byte[(int)outLen];
-        Marshal.Copy(outPtr, result, 0, (int)outLen);
-        NativeMethods.FreeBytes(outPtr, outLen, outCap);
-        return result;
+        finally
+        {
+{{ cleanup_block }}        }

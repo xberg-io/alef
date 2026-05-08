@@ -869,6 +869,23 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: val.{name}.to_string()")
             }
         }
+        // Json stays as serde_json::Value: identity passthrough.
+        TypeRef::Json if config.json_as_value => {
+            format!("{name}: val.{name}")
+        }
+        TypeRef::Optional(inner) if config.json_as_value && matches!(inner.as_ref(), TypeRef::Json) => {
+            format!("{name}: val.{name}")
+        }
+        TypeRef::Vec(inner) if config.json_as_value && matches!(inner.as_ref(), TypeRef::Json) => {
+            if optional {
+                format!("{name}: Some(val.{name})")
+            } else {
+                format!("{name}: val.{name}")
+            }
+        }
+        TypeRef::Map(_k, v) if config.json_as_value && matches!(v.as_ref(), TypeRef::Json) => {
+            format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()")
+        }
         // Json→JsValue: core uses serde_json::Value, binding uses JsValue (WASM)
         TypeRef::Json if config.map_uses_jsvalue => {
             if optional {

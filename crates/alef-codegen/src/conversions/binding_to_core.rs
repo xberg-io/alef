@@ -304,6 +304,9 @@ pub(super) fn gen_optionalized_field_to_core(
     field_is_ir_optional: bool,
 ) -> String {
     match ty {
+        TypeRef::Json if config.json_as_value => {
+            format!("{name}: val.{name}.unwrap_or_default()")
+        }
         TypeRef::Json => {
             format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()")
         }
@@ -679,6 +682,30 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)
     if config.json_to_string && matches!(ty, TypeRef::Json) {
         return format!("{name}: Default::default()");
+    }
+    // Json stays as serde_json::Value: identity passthrough.
+    if config.json_as_value && matches!(ty, TypeRef::Json) {
+        return format!("{name}: val.{name}");
+    }
+    if config.json_as_value {
+        if let TypeRef::Optional(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Json) {
+                return format!("{name}: val.{name}");
+            }
+        }
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Json) {
+                if optional {
+                    return format!("{name}: val.{name}.unwrap_or_default()");
+                }
+                return format!("{name}: val.{name}");
+            }
+        }
+        if let TypeRef::Map(_k, v) = ty {
+            if matches!(v.as_ref(), TypeRef::Json) {
+                return format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()");
+            }
+        }
     }
     // Json→JsValue binding→core: use serde_wasm_bindgen to convert (WASM)
     if config.map_uses_jsvalue && matches!(ty, TypeRef::Json) {

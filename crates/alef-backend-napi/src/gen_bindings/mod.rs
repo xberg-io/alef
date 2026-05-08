@@ -351,6 +351,9 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // for opaque-type fields (e.g. visitor: Object<'static>) instead of trying to
             // convert them via Into — these fields are handled separately via bridge code.
             opaque_types: Some(&opaque_types),
+            // Json fields are stored as serde_json::Value in the binding so JS
+            // callers can pass objects/arrays/scalars directly.
+            json_as_value: true,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators
@@ -374,7 +377,9 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             }
         }
         for e in &api.enums {
-            let is_tagged_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
+            let has_data_variants = e.variants.iter().any(|v| !v.fields.is_empty());
+            let is_tagged_data_enum = e.serde_tag.is_some() && has_data_variants;
+            let is_untagged_data_enum = e.serde_tag.is_none() && has_data_variants;
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
                 builder.add_item(&methods::gen_tagged_enum_binding_to_core(
@@ -388,6 +393,24 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &core_import,
                     &prefix,
                     &struct_names,
+                ));
+            } else if is_untagged_data_enum {
+                // Untagged data enums are wrapped around serde_json::Value — bridge via serde.
+                let binding_name = format!("{prefix}{}", e.name);
+                let core_path = format!("{core_import}{}", e.name);
+                builder.add_item(&format!(
+                    "impl From<{binding_name}> for {core_path} {{\n    \
+                         fn from(val: {binding_name}) -> Self {{\n        \
+                             serde_json::from_value(val.0).unwrap_or_default()\n    \
+                         }}\n\
+                     }}\n"
+                ));
+                builder.add_item(&format!(
+                    "impl From<{core_path}> for {binding_name} {{\n    \
+                         fn from(val: {core_path}) -> Self {{\n        \
+                             Self(serde_json::to_value(val).unwrap_or_default())\n    \
+                         }}\n\
+                     }}\n"
                 ));
             } else {
                 if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {

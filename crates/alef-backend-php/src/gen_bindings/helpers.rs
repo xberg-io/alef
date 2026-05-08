@@ -187,12 +187,12 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                 TypeRef::Bytes => {
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_deref()")
+                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
                         } else {
                             php_name
                         }
                     } else if p.is_ref {
-                        format!("&{php_name}")
+                        format!("{php_name}.as_bytes()")
                     } else {
                         php_name
                     }
@@ -386,12 +386,12 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                 TypeRef::Bytes => {
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_deref()")
+                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
                         } else {
                             php_name
                         }
                     } else if p.is_ref {
-                        format!("&{php_name}")
+                        format!("{php_name}.as_bytes()")
                     } else {
                         php_name
                     }

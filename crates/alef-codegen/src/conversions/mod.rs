@@ -30,6 +30,11 @@ pub struct ConversionConfig<'a> {
     /// Core→binding uses `.to_string()`, binding→core uses `Default::default()` (lossy).
     /// Used by PHP where serde_json::Value can't cross the extension boundary.
     pub json_to_string: bool,
+    /// When true, Json fields stay as `serde_json::Value` in the binding layer (no wrapping).
+    /// Core↔binding conversions are identity since both sides hold the same type.
+    /// Used by NAPI (with `serde-json` feature) so JS callers can pass arbitrary objects
+    /// directly without first stringifying them.
+    pub json_as_value: bool,
     /// When true, add synthetic metadata field conversion for ConversionResult.
     /// Only NAPI backend sets this (it adds metadata field to the struct).
     pub include_cfg_metadata: bool,

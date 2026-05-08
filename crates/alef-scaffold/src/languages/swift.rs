@@ -28,6 +28,21 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // (RustStr, RustString, etc.) without import statements. SwiftPM's mixed-target
     // rules require those types to be exported from a separate C target so that
     // `import RustBridgeC` at the top of the generated Swift files brings them in scope.
+    //
+    // Linking the Rust staticlib: SwiftPM cannot drive Cargo, so the consumer must run
+    // `cargo build -p {binding_crate}` first. We then declare `linkerSettings` on
+    // RustBridge that pass `-L<repo>/target/{release,debug}` and `-l{binding_underscore}`
+    // to the linker. The `-L` paths are relative to the package root (`packages/swift`).
+    // Both `release` and `debug` are listed so either Cargo profile produces a runnable
+    // `swift test`. macOS Frameworks (Security, CoreFoundation, SystemConfiguration) are
+    // linked because the Rust binding pulls in `ureq` / `rustls-platform-verifier` /
+    // `keyring`-style deps that reference them on macOS targets.
+    //
+    // `.unsafeFlags` prevents this package from being used as a `.package(url: ...)`
+    // dependency by other packages. That is acceptable: the canonical distribution
+    // channel for Apple platforms is a pre-built XCFramework (see xcframework/BUILDING.md
+    // in the published archive). The linkerSettings here only support the in-tree
+    // `swift test` workflow.
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -55,12 +70,24 @@ let package = Package(
         ),
         // RustBridge: Swift wrapper around the Rust static library.
         // Depends on RustBridgeC so the generated Swift files can use the C types.
-        // Note: link the Rust static library by setting LIBRARY_SEARCH_PATHS in your
-        // build system rather than unsafeFlags here (unsafeFlags prevents use as a dep).
+        // linkerSettings wire the Rust staticlib (lib{binding_underscore}.a) produced by
+        // `cargo build -p {binding_crate}` so `swift build` / `swift test` can resolve
+        // the `__swift_bridge__$*` C symbols. Both target/release and target/debug are
+        // searched so either cargo profile works.
         .target(
             name: "RustBridge",
             dependencies: ["RustBridgeC"],
-            path: "Sources/RustBridge"
+            path: "Sources/RustBridge",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L../../target/release",
+                    "-L../../target/debug",
+                ]),
+                .linkedLibrary("{binding_underscore}"),
+                .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+                .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+                .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+            ]
         ),
         .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
         .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
@@ -71,6 +98,7 @@ let package = Package(
         min_macos = min_macos_major,
         min_ios = min_ios_major,
         binding_crate = binding_crate_name,
+        binding_underscore = binding_crate_underscore,
     );
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";

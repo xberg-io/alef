@@ -220,6 +220,8 @@ fn gen_wrapper_function(
     // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_func(func) {
         let cs_native_name = to_csharp_name(&func.name);
+        // Emit setup for Named and Bytes parameters before calling the native method
+        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
         // Build the args block for the template: each arg on its own indented line with trailing comma.
         let mut args_block = String::new();
         for param in visible_params.iter() {
@@ -231,11 +233,15 @@ fn gen_wrapper_function(
                 args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
             }
         }
+        // Build cleanup block for try-finally
+        let mut cleanup_block = String::new();
+        emit_named_param_teardown_indented(&mut cleanup_block, &visible_params, "            ", true_opaque_types);
         out.push_str(&render(
             "bytes_result_call.jinja",
             minijinja::context! {
                 native_method_name => &cs_native_name,
                 args_block => &args_block,
+                cleanup_block => &cleanup_block,
             },
         ));
         out.push_str("    }\n\n");
@@ -559,6 +565,8 @@ fn gen_wrapper_method(
 
     // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_method(method) {
+        // Emit setup for Named and Bytes parameters before calling the native method
+        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
         // Build the args block: receiver (if any) then visible params, each with trailing comma.
         let mut args_block = String::new();
         if has_receiver {
@@ -573,11 +581,15 @@ fn gen_wrapper_method(
                 args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
             }
         }
+        // Build cleanup block for try-finally
+        let mut cleanup_block = String::new();
+        emit_named_param_teardown_indented(&mut cleanup_block, &visible_params, "            ", true_opaque_types);
         out.push_str(&render(
             "bytes_result_call.jinja",
             minijinja::context! {
                 native_method_name => &cs_native_name,
                 args_block => &args_block,
+                cleanup_block => &cleanup_block,
             },
         ));
         out.push_str("    }\n\n");

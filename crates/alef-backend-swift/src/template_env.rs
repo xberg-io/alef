@@ -94,6 +94,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/getter_string_like_serde.jinja"),
     ),
     (
+        "getter_string_cow.jinja",
+        include_str!("../templates/getter_string_cow.jinja"),
+    ),
+    (
+        "getter_string_cow_optional.jinja",
+        include_str!("../templates/getter_string_cow_optional.jinja"),
+    ),
+    (
         "getter_skip_comment.jinja",
         include_str!("../templates/getter_skip_comment.jinja"),
     ),

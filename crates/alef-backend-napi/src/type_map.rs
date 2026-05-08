@@ -64,10 +64,11 @@ impl TypeMapper for NapiMapper {
         Cow::Borrowed("i64")
     }
 
-    /// NAPI doesn't implement FromNapiValue/ToNapiValue for serde_json::Value,
-    /// so JSON is passed as a String and parsed on the JS side.
+    /// NAPI v3's `serde-json` feature provides FromNapiValue/ToNapiValue for
+    /// `serde_json::Value`, so JS callers can pass arbitrary objects/values
+    /// directly without first stringifying them.
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("String")
+        Cow::Borrowed("serde_json::Value")
     }
 
     /// NAPI v3 keeps `Buffer` under `napi::bindgen_prelude::Buffer`. Using `Vec<u8>`
