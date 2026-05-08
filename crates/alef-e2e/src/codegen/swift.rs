@@ -676,7 +676,10 @@ fn render_assertion(
     // are not generated, so such assertions cannot be expressed.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && field_resolver.tagged_union_split(f).is_some() {
-            let _ = writeln!(out, "        // skipped: field '{f}' crosses a tagged-union variant boundary (not expressible in Swift)");
+            let _ = writeln!(
+                out,
+                "        // skipped: field '{f}' crosses a tagged-union variant boundary (not expressible in Swift)"
+            );
             return;
         }
     }

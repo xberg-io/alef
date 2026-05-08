@@ -157,8 +157,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let has_batch_byte_items = fixtures.iter().any(|f| {
         let call_config = e2e_config.resolve_call(f.call.as_deref());
         call_config.args.iter().any(|a| {
-            a.element_type.as_deref() == Some("BatchBytesItem")
-                && resolve_field(&f.input, &a.field).is_array()
+            a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
         })
     });
 
@@ -320,9 +319,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
             "json_object" => {
                 // Handle batch item arrays (BatchBytesItem / BatchFileItem).
                 if let Some(elem_type) = &arg_def.element_type {
-                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem")
-                        && arg_value.is_array()
-                    {
+                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && arg_value.is_array() {
                         let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
                         args.push(dart_items);
                     }
@@ -729,8 +726,10 @@ fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                             format!("Uint8List.fromList([{}])", nums.join(", "))
                         })
                         .unwrap_or_else(|| "Uint8List(0)".to_string());
-                    let mime_type =
-                        obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+                    let mime_type = obj
+                        .get("mime_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("application/octet-stream");
                     Some(format!(
                         "BatchBytesItem(content: {content_bytes}, mimeType: '{}')",
                         escape_dart(mime_type)

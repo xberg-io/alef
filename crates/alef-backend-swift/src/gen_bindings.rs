@@ -445,7 +445,9 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("}\n\n");
 
     // extractFileSync(path:configJson:) - 2-arg form (no mimeType)
-    out.push_str("/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
+    out.push_str(
+        "/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n",
+    );
     out.push_str("public func extractFileSync(\n");
     out.push_str("    _ path: String,\n");
     out.push_str("    _ configJson: String\n");

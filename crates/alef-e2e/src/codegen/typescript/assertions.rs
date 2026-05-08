@@ -11,7 +11,53 @@ pub(super) fn render_assertion(
     assertion: &Assertion,
     result_var: &str,
     field_resolver: &FieldResolver,
+    result_is_simple: bool,
 ) {
+    // For simple-result methods (e.g., `speech` returning bytes/Buffer), every
+    // field-based assertion targets the result itself — there is no struct to
+    // access. Drop length-only assertions onto the result directly and skip
+    // anything that requires a real struct sub-field.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() {
+                match assertion.assertion_type.as_str() {
+                    "not_empty" => {
+                        out.push_str(&format!("    expect({result_var}.length).toBeGreaterThan(0);\n"));
+                        return;
+                    }
+                    "is_empty" => {
+                        out.push_str(&format!("    expect({result_var}.length).toBe(0);\n"));
+                        return;
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!(
+                                "    expect({result_var}.length).toBe({js_val});\n"
+                            ));
+                        }
+                        return;
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!(
+                                "    expect({result_var}.length).toBeGreaterThanOrEqual({js_val});\n"
+                            ));
+                        }
+                        return;
+                    }
+                    _ => {
+                        out.push_str(&format!(
+                            "    // skipped: field '{f}' not applicable for simple result type\n"
+                        ));
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
     if let Some(f) = &assertion.field {

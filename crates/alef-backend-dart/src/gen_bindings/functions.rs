@@ -67,7 +67,11 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
             format!("{}, [ExtractionConfig? config]", required_params.join(", "))
         }
     } else {
-        f.params.iter().map(|p| format_param(p, imports)).collect::<Vec<_>>().join(", ")
+        f.params
+            .iter()
+            .map(|p| format_param(p, imports))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
 
     // FRB bridge functions use Dart named parameters (required keyword).

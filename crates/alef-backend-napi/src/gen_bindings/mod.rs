@@ -397,7 +397,11 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             } else if is_untagged_data_enum {
                 // Untagged data enums are wrapped around serde_json::Value — bridge via serde.
                 let binding_name = format!("{prefix}{}", e.name);
-                let core_path = format!("{core_import}{}", e.name);
+                let core_path = alef_codegen::conversions::core_enum_path_remapped(
+                    e,
+                    &core_import,
+                    napi_conv_config.source_crate_remaps,
+                );
                 builder.add_item(&format!(
                     "impl From<{binding_name}> for {core_path} {{\n    \
                          fn from(val: {binding_name}) -> Self {{\n        \

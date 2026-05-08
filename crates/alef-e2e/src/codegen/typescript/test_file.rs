@@ -408,6 +408,11 @@ fn render_test_case(
     let result_var = &call_config.result_var;
     let call_is_async = call_config.r#async;
     let args = &call_config.args;
+    let result_is_simple = call_config.result_is_simple
+        || call_config
+            .overrides
+            .get(lang)
+            .is_some_and(|o| o.result_is_simple);
 
     // Force test to async if we need to read files for bytes args
     let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args);
@@ -489,7 +494,7 @@ fn render_test_case(
         if assertion.assertion_type == "not_error" && !call_config.returns_result {
             continue;
         }
-        render_assertion(&mut assertions_body, assertion, result_var, field_resolver);
+        render_assertion(&mut assertions_body, assertion, result_var, field_resolver, result_is_simple);
     }
 
     let has_usable_assertion = fixture.assertions.iter().any(|a| {

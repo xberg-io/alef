@@ -79,7 +79,12 @@ pub(super) fn gen_struct(
         } else {
             base_type
         };
-        let js_name = to_node_name(&field.name);
+        // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
+        // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
+        let js_name = field
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| to_node_name(&field.name));
         let mut attrs = if js_name != field.name {
             vec![format!("napi(js_name = \"{}\")", js_name)]
         } else {

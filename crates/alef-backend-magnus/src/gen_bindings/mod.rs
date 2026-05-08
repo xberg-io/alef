@@ -473,7 +473,8 @@ impl Backend for MagnusBackend {
         );
 
         // Add Hash monkey-patch for internally-tagged enum accessors and field access
-        native_content.push_str("\n\n# Add accessor methods to Hash-based internally-tagged enum instances\nclass Hash\n");
+        native_content
+            .push_str("\n\n# Add accessor methods to Hash-based internally-tagged enum instances\nclass Hash\n");
         native_content.push_str("  # Support internally-tagged enum accessors like format.excel, format.email, etc.\n");
         native_content.push_str("  # Also support direct field access like format.sheet_count\n");
         native_content.push_str("  def method_missing(method_name, *args, &block)\n");
@@ -481,12 +482,15 @@ impl Backend for MagnusBackend {
         native_content.push_str("    return self[method_name] if key?(method_name)\n\n");
         native_content.push_str("    # Try string key\n");
         native_content.push_str("    return self[method_name.to_s] if key?(method_name.to_s)\n\n");
-        native_content.push_str("    # Check if this hash has a 'format_type' field (indicating an internally-tagged enum)\n");
+        native_content
+            .push_str("    # Check if this hash has a 'format_type' field (indicating an internally-tagged enum)\n");
         native_content.push_str("    format_type = self[:'format_type'] || self['format_type']\n");
         native_content.push_str("    return super unless format_type\n\n");
         native_content.push_str("    # If the method name matches the format_type (snake_case), extract and return the variant's wrapped data\n");
         native_content.push_str("    # Internally-tagged enums store variant data in the '_0' field (from alef's struct variant conversion)\n");
-        native_content.push_str("    # This allows format.excel to return the ExcelMetadata hash with sheet_count, sheet_names, etc.\n");
+        native_content.push_str(
+            "    # This allows format.excel to return the ExcelMetadata hash with sheet_count, sheet_names, etc.\n",
+        );
         native_content.push_str("    snake_case_method = method_name.to_s.downcase\n");
         native_content.push_str("    if snake_case_method == format_type.to_s.downcase\n");
         native_content.push_str("      return self[:'_0'] || self['_0'] || self\n");
