@@ -47,14 +47,9 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
         _ => None,
     });
 
-    // napi-rs forbids mixing `string_enum = "rule"` with explicit `Variant = "value"` literals.
-    // When any variant carries `#[serde(rename = "...")]`, fall back to the no-rule form and
-    // emit each variant's wire name explicitly so the per-variant rename is preserved.
-    let any_explicit_rename = enum_def.variants.iter().any(|v| v.serde_rename.is_some());
-    let string_enum_attr = match (any_explicit_rename, napi_case) {
-        (true, _) => "#[napi(string_enum)]".to_string(),
-        (false, Some(case)) => format!("#[napi(string_enum = \"{case}\")]"),
-        (false, None) => "#[napi(string_enum)]".to_string(),
+    let string_enum_attr = match napi_case {
+        Some(case) => format!("#[napi(string_enum = \"{case}\")]"),
+        None => "#[napi(string_enum)]".to_string(),
     };
 
     let derives = if has_serde {
@@ -69,15 +64,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     ];
 
     for variant in &enum_def.variants {
-        // When any variant in this enum is renamed, emit explicit wire names for ALL
-        // variants (per-variant rename if present, plain variant name otherwise) to
-        // satisfy napi-rs's "no mixing" constraint.
-        if any_explicit_rename {
-            let wire = variant.serde_rename.as_deref().unwrap_or(&variant.name);
-            lines.push(format!("    {} = \"{}\",", variant.name, wire));
-        } else {
-            lines.push(format!("    {},", variant.name));
-        }
+        lines.push(format!("    {},", variant.name));
     }
 
     lines.push("}".to_string());

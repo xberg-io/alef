@@ -79,14 +79,7 @@ pub(super) fn gen_struct(
         } else {
             base_type
         };
-        // When the core has `#[serde(rename = "X")]` on this field, X is the canonical
-        // wire name on both JSON and the JS object. Use it as the napi `js_name` so
-        // callers pass `{ type: "function" }` rather than camelCased Rust names like
-        // `{ toolType: "function" }` that don't match the network format.
-        let js_name = field
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| to_node_name(&field.name));
+        let js_name = to_node_name(&field.name);
         let mut attrs = if js_name != field.name {
             vec![format!("napi(js_name = \"{}\")", js_name)]
         } else {
