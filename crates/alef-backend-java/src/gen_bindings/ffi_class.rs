@@ -9,7 +9,8 @@ use std::collections::HashSet;
 
 use super::helpers::is_bridge_param_java;
 use super::marshal::{
-    ffi_param_name, gen_helper_methods, is_ffi_string_return, java_ffi_return_cast, marshal_param_to_ffi,
+    ffi_param_name, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
+    marshal_param_to_ffi,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -471,39 +472,26 @@ pub(crate) fn gen_sync_function_method(
             },
         ));
         out.push_str("        }}\n");
-    } else if matches!(dispatch_return_type, TypeRef::Bytes) {
-        // Bytes return types: FFI returns an opaque pointer to allocated bytes; deserialize as byte array.
-        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+    } else if matches!(dispatch_return_type, TypeRef::Bytes) && is_bytes_result(func) {
+        // Bytes-result functions use the out-param convention:
+        //   (inputs..., out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize) -> i32
+        // Never use the old direct-pointer pattern (FREE_STRING / byteSize()) for these.
+        let free_bytes_handle = format!("NativeLib.{}_FREE_BYTES", prefix.to_uppercase());
+        let args_with_sep = if call_args.is_empty() {
+            String::new()
+        } else {
+            format!("{}, ", call_args.join(", "))
+        };
+        emit_ffi_ptr_cleanup(out);
         out.push_str(&crate::template_env::render(
-            "ffi_result_ptr_call.jinja",
+            "bytes_result_call.jinja",
             minijinja::context! {
                 ffi_handle => &ffi_handle,
-                args => call_args.join(", "),
+                args => &args_with_sep,
+                free_bytes_handle => &free_bytes_handle,
+                optional => is_optional_return,
             },
         ));
-        emit_ffi_ptr_cleanup(out);
-        out.push_str("            if (resultPtr.equals(MemorySegment.NULL)) {{\n");
-        out.push_str("                checkLastError();\n");
-        if is_optional_return {
-            out.push_str("                return Optional.empty();\n");
-        } else {
-            out.push_str("                return null;\n");
-        }
-        out.push_str("            }}\n");
-        out.push_str("            long byteLen = resultPtr.byteSize();\n");
-        out.push_str("            byte[] result = resultPtr.reinterpret(byteLen).toArray(ValueLayout.JAVA_BYTE);\n");
-        out.push_str(&crate::template_env::render(
-            "ffi_invoke_free.jinja",
-            minijinja::context! {
-                free_handle => &free_handle,
-                ptr => "resultPtr",
-            },
-        ));
-        if is_optional_return {
-            out.push_str("            return Optional.of(result);\n");
-        } else {
-            out.push_str("            return result;\n");
-        }
         out.push_str("        }} catch (Throwable e) {{\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
@@ -839,8 +827,24 @@ mod tests {
     }
 
     #[test]
-    fn test_optional_bytes_return_emits_optional_array() {
-        let func = create_test_function("get_data", TypeRef::Optional(Box::new(TypeRef::Bytes)));
+    fn test_optional_bytes_result_emits_out_param_pattern() {
+        // Bytes with error_type → out-param convention: i32 return + 3 trailing out-params.
+        let func = FunctionDef {
+            name: "get_data".to_string(),
+            rust_path: "test::get_data".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        };
 
         let mut out = String::new();
         let opaque_types = create_test_opaque_types();
@@ -857,8 +861,55 @@ mod tests {
             false,
         );
 
+        assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
+        assert!(out.contains("outLenHolder"), "should allocate outLenHolder");
+        assert!(out.contains("outCapHolder"), "should allocate outCapHolder");
+        assert!(out.contains("int rc = (int)"), "should have int rc");
+        assert!(out.contains("TEST_FREE_BYTES"), "should call FREE_BYTES");
         assert!(out.contains("return Optional.empty();"));
         assert!(out.contains("return Optional.of(result);"));
+    }
+
+    #[test]
+    fn test_bytes_result_emits_out_param_pattern_non_optional() {
+        // Non-optional Bytes with error_type → out-param convention.
+        let func = FunctionDef {
+            name: "render_png".to_string(),
+            rust_path: "test::render_png".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            error_type: Some("KreuzbergError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        };
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            false,
+        );
+
+        assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
+        assert!(out.contains("TEST_FREE_BYTES"), "should call FREE_BYTES");
+        assert!(!out.contains("FREE_STRING"), "must not use FREE_STRING");
+        assert!(out.contains("return result;"), "non-optional plain return");
+        assert!(!out.contains("Optional.of(result)"), "must not wrap in Optional");
     }
 
     #[test]

@@ -859,7 +859,9 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
     };
 
     let config = make_config("kreuzberg", Some("Kreuzberg"), true);
-    let files = backend.generate_bindings(&api, &config).expect("generation must succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation must succeed");
 
     let native = files
         .iter()
@@ -897,8 +899,8 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
 
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("Kreuzberg.cs"))
-        .expect("Kreuzberg.cs must be generated");
+        .find(|f| f.path.to_string_lossy().contains("KreuzbergLib.cs"))
+        .expect("KreuzbergLib.cs must be generated");
 
     // Wrapper: return type must be byte[].
     assert!(

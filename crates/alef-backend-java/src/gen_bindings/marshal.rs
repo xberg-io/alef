@@ -1,8 +1,37 @@
 use crate::type_map::java_ffi_type;
 use ahash::AHashSet;
-use alef_core::ir::{PrimitiveType, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, PrimitiveType, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
+
+/// Returns true when the function's Rust return type is `Result<Vec<u8>>` (or
+/// `Result<Option<Vec<u8>>>`). The FFI layer emits these as the out-param
+/// convention: `(inputs..., out_ptr: *mut *mut u8, out_len: *mut usize,
+/// out_cap: *mut usize) -> i32`.
+pub(crate) fn is_bytes_result(func: &FunctionDef) -> bool {
+    if func.error_type.is_none() {
+        return false;
+    }
+    match &func.return_type {
+        TypeRef::Bytes => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+        _ => false,
+    }
+}
+
+/// Same detection for methods on opaque types.
+/// Reserved for future Java opaque-type method dispatch.
+#[allow(dead_code)]
+pub(crate) fn is_bytes_result_method(method: &MethodDef) -> bool {
+    if method.error_type.is_none() {
+        return false;
+    }
+    match &method.return_type {
+        TypeRef::Bytes => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
+        _ => false,
+    }
+}
 
 /// Check if the return type is a string-like type that requires pointer-based
 /// FFI return handling (allocate + free pattern). `Optional<String>` and
