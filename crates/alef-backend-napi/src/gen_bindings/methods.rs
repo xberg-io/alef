@@ -2,7 +2,7 @@
 
 use alef_core::ir::EnumDef;
 
-use super::enums::{tagged_enum_binding_struct_fields, tagged_enum_mixed_named_fields};
+use super::enums::{tagged_enum_binding_struct_fields, tagged_enum_mixed_named_fields, variant_data_field_names};
 use super::functions::{core_prim_str, needs_napi_cast};
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
@@ -201,6 +201,11 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         fields.into_iter().collect()
     };
 
+    // Collect synthesized variant-data field names (e.g. `pdf`, `docx`, `archive`).
+    // These are the per-variant optional properties added to the binding struct for
+    // single-tuple Named variants, enabling direct property access in TypeScript.
+    let synth_field_names = variant_data_field_names(enum_def);
+
     // Precompute all variant data for template
     let variants = enum_def
         .variants
@@ -208,9 +213,28 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         .map(|variant| {
             let default_tag = variant.name.to_lowercase();
             let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
+            // Synthesized field name for this variant (snake_case of variant name), if any
+            let this_synth_field = if variant.fields.len() == 1 {
+                let field = &variant.fields[0];
+                let is_tuple = field
+                    .name
+                    .strip_prefix('_')
+                    .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+                if is_tuple && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
+                    Some(alef_codegen::naming::to_python_name(&variant.name))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             if variant.fields.is_empty() {
-                let all_fields_none: Vec<String> = all_fields.iter().map(|f| format!("{f}: None")).collect();
+                let mut all_fields_none: Vec<String> = all_fields.iter().map(|f| format!("{f}: None")).collect();
+                // Include synthesized fields as None for empty variants
+                for sf in &synth_field_names {
+                    all_fields_none.push(format!("{sf}: None"));
+                }
                 minijinja::context! {
                     name => variant.name.clone(),
                     tag_value => tag_value.to_string(),
@@ -238,7 +262,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         }
                     })
                     .collect();
-                let field_inits: Vec<String> = all_fields
+                let mut field_inits: Vec<String> = all_fields
                     .iter()
                     .map(|f| {
                         if let Some(field) = variant_field_map.get(f.as_str()) {
@@ -283,6 +307,22 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         }
                     })
                     .collect();
+                // Append synthesized variant-data fields. The field matching this variant gets
+                // Some(inner.into()), all others get None.
+                for sf in &synth_field_names {
+                    if this_synth_field.as_deref() == Some(sf.as_str()) {
+                        // The destructured tuple variable is the first field name
+                        let var_name = &variant.fields[0].name;
+                        let is_boxed = variant.fields[0].is_boxed;
+                        if is_boxed {
+                            field_inits.push(format!("{sf}: Some((*{var_name}).into())"));
+                        } else {
+                            field_inits.push(format!("{sf}: Some({var_name}.into())"));
+                        }
+                    } else {
+                        field_inits.push(format!("{sf}: None"));
+                    }
+                }
 
                 minijinja::context! {
                     name => variant.name.clone(),
