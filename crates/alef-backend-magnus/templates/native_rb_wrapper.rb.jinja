@@ -2,7 +2,7 @@
 
 require 'json'
 require '{{ ext_name }}'
-
+{% if module_name != native_module_name %}
 module {{ module_name }}
   # Re-export all public module functions from the native extension
   {{ native_module_name }}.methods(false).each do |m|
@@ -14,3 +14,4 @@ module {{ module_name }}
     const_set(c, {{ native_module_name }}.const_get(c)) unless const_defined?(c)
   end
 end
+{% endif %}

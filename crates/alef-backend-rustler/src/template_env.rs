@@ -22,7 +22,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     otp_app: :{{ app_name }},
     crate: "{{ app_name }}_nif",
     base_url:
-      "{{ repo_url }}/releases/download/v#{% raw %}{{{% endraw %}Mix.Project.config()[:version]{% raw %}}}{% endraw %},
+      "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
     targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),
     nif_versions: ["2.16", "2.17"],
