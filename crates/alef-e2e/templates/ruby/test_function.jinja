@@ -14,19 +14,19 @@
    - call_receiver: module or class name for the call
 #}
   it '{{ test_name }}: {{ description }}' do
-{%- if client_factory %}
+{% if client_factory %}
     client = {{ call_receiver }}.{{ client_factory }}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{{ fixture_id }}')
-{%- endif %}
-{%- for line in setup_lines %}
+{% endif %}
+{% for line in setup_lines %}
     {{ line }}
-{%- endfor %}
-{%- if expects_error %}
+{% endfor %}
+{% if expects_error %}
     expect { {{ call_expr }} }.to raise_error
-{%- else %}
+{% else %}
     {{ result_var }} = {{ call_expr }}
 {{ assertions_rendered }}
-{%- if not has_usable %}
+{% if not has_usable %}
     expect({{ result_var }}).not_to be_nil
-{%- endif %}
-{%- endif %}
+{% endif %}
+{% endif %}
   end

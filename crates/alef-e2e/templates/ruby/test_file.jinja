@@ -10,9 +10,9 @@
 #}
 {{ header }}# frozen_string_literal: true
 
-{%- for req in requires %}
+{% for req in requires -%}
 require '{{ req }}'
-{%- endfor %}
+{% endfor %}
 
 RSpec.describe '{{ category }}' do
 {%- if has_array_contains %}
