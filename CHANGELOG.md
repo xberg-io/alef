@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- fix(go-backend): substitute `{fn_options_from_json}` and `{fn_options_free}` placeholders
-  in `gen_visitor.rs`. Two `out.push_str("...")` calls embedded the placeholders verbatim
-  inside a raw Rust string literal, so the generated Go visitor code shipped unsubstituted
-  Jinja-style braces (e.g. `cOptions = C.{fn_options_from_json}(tmpStr)`), failing
-  `gofmt` parse. Switched to `format!` with the existing locals; doubled the unrelated
-  Go-block `{`/`}` so they survive the format string.
+- fix(error-gen/java): wrap class doc comments in `/** ... */` and stop swallowing the
+  newline after the `package …;` declaration. The `{%-` whitespace control on the doc
+  block stripped the trailing newline, so the rendered class for a documented variant
+  collapsed onto a single line: `package …;* Panic caught …public class … {`. Java
+  checkstyle (`maven-checkstyle-plugin`) refused to parse the file. Templates now use
+  `{% if doc -%}` / `{% endif -%}` so the package separator is preserved, and emit a
+  proper `/** … */` block with leading-space lines.
 
 - fix(ffi-backend): emit a string literal instead of `format!("include/{header_name}")` in
   the generated `build.rs` go-copy step. `header_name` is interpolated at codegen time, so
