@@ -4,7 +4,8 @@
             .findAndRegisterModules()
             .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
             .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-            .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);
+            .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true)
+            .configure(com.fasterxml.jackson.databind.SerializationFeature.WRITE_BYTE_ARRAY_AS_BASE64, false);
     }
 
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = createObjectMapper();

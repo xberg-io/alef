@@ -1,5 +1,6 @@
     private static <T> java.util.List<T> readJsonList(MemorySegment resultPtr, com.fasterxml.jackson.core.type.TypeReference<java.util.List<T>> typeRef) throws {{ class_name }}Exception {
         if (resultPtr.equals(MemorySegment.NULL)) {
+            checkLastError();
             return java.util.List.of();
         }
         try {
