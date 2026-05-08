@@ -266,9 +266,13 @@ fn render_test_file(
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
 
     if needs_chdir {
-        // chdir once for the class so all fixture file_path arguments resolve relative
-        // to the repository's test_documents directory. The path traversal mirrors the
-        // package layout: packages/swift/.. /.. /test_documents.
+        // Chdir once at class setUp so all fixture file_path arguments resolve relative
+        // to the repository's test_documents directory.
+        //
+        // #filePath = <repo>/packages/swift/Tests/<Module>Tests/<Class>.swift
+        // 5 deletingLastPathComponent() calls climb to the repo root before appending
+        // "test_documents". Mirrors the Ruby/Python conftest pattern that chdirs to
+        // test_documents.
         let _ = writeln!(out, "    override class func setUp() {{");
         let _ = writeln!(out, "        super.setUp()");
         let _ = writeln!(
@@ -277,7 +281,7 @@ fn render_test_file(
         );
         let _ = writeln!(
             out,
-            "            .deletingLastPathComponent() // KreuzbergTests/"
+            "            .deletingLastPathComponent() // <Module>Tests/"
         );
         let _ = writeln!(
             out,
@@ -285,7 +289,7 @@ fn render_test_file(
         );
         let _ = writeln!(
             out,
-            "            .deletingLastPathComponent() // packages/swift/"
+            "            .deletingLastPathComponent() // swift/"
         );
         let _ = writeln!(
             out,
