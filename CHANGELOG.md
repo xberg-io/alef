@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php-backend): wrap the `php_visit_result_with_template` `format!` arg in
+  `{% raw %}…{% endraw %}` so Jinja stops eating the literal `{` / `}` braces.
+  The template wrote `format!("{{{}}}", k)` intending the Rust string
+  `"{...}"`, but minijinja parsed `{{{}}}` as an interpolation and rendered
+  `format!("{}", k)` instead. Clippy then flagged the result with
+  `useless_format` (`-D warnings`) and the html-to-markdown-php crate
+  refused to lint clean.
+
 - fix(java-backend): rebuild `convertWithVisitorInternal` so it actually compiles.
   Three cascading bugs in `gen_convert_with_visitor_internal_method`:
   (1) the try-with-resources parenthesis stayed open across `cHtml`, which is a

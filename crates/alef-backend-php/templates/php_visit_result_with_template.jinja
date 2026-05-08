@@ -3,7 +3,7 @@ fn php_visit_result_with_template(val: &ext_php_rs::types::Zval, tmpl_vars: &[(&
     if let {{ core_crate }}::VisitResult::Custom(tmpl) = base {
         let mut s = tmpl;
         for (k, v) in tmpl_vars {
-            s = s.replace(&format!("{{{}}}", k), v);
+            s = s.replace(&format!("{% raw %}{{{}}}{% endraw %}", k), v);
         }
         {{ core_crate }}::VisitResult::Custom(s)
     } else {
