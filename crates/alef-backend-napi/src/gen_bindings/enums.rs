@@ -188,19 +188,13 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             lines.push(format!(
                 "    pub fn {variant_name_snake}(&self) -> napi::bindgen_prelude::Result<{binding_type}> {{"
             ));
-            lines.push(format!(
-                "        if self.{tag_field}_tag != \"{discriminator}\" {{"
-            ));
+            lines.push(format!("        if self.{tag_field}_tag != \"{discriminator}\" {{"));
             lines.push(format!(
                 "            return Err(napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, format!(\"variant is not {discriminator}, got {{}}\", self.{tag_field}_tag)));"
             ));
             lines.push("        }".to_string());
-            lines.push(format!(
-                "        self._0.as_ref()"
-            ));
-            lines.push(format!(
-                "            .ok_or_else(|| napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, \"field _0 is empty\"))"
-            ));
+            lines.push("        self._0.as_ref()".to_string());
+            lines.push("            .ok_or_else(|| napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, \"field _0 is empty\"))".to_string());
             lines.push(format!(
                 "            .and_then(|s| serde_json::from_str::<{binding_type}>(s).map_err(|e| napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, format!(\"failed to deserialize {binding_type}: {{}}\", e))))"
             ));

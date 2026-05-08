@@ -75,20 +75,28 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
-    assert_eq!(files.len(), 9);
+    // scaffold_node: pkg package.json + crate package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
+    assert_eq!(files.len(), 10);
     assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert!(files[0].content.contains("oxfmt"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
-    assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
-    assert_eq!(files[3].path, PathBuf::from("packages/node/index.d.ts"));
-    assert_eq!(files[4].path, PathBuf::from("packages/node/index.js"));
-    assert_eq!(files[5].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[6].path, PathBuf::from("packages/node/.oxfmtrc.json"));
-    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxlintrc.json"));
-    assert_eq!(files[8].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[8].content.contains("napi-derive"));
+    assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/index.js"));
+    // Verify platform dispatch index contains expected platforms and binary name
+    assert!(files[2].content.contains("const { platform, arch } = process"));
+    assert!(files[2].content.contains("darwin"));
+    assert!(files[2].content.contains("linux"));
+    assert!(files[2].content.contains("win32"));
+    assert!(files[2].content.contains("my-lib-node.darwin-arm64.node"));
+    assert!(files[2].content.contains("tryLoadBinding"));
+    assert_eq!(files[3].path, PathBuf::from("packages/node/src/index.d.ts"));
+    assert_eq!(files[4].path, PathBuf::from("packages/node/index.d.ts"));
+    assert_eq!(files[5].path, PathBuf::from("packages/node/index.js"));
+    assert_eq!(files[6].path, PathBuf::from("packages/node/tsconfig.json"));
+    assert_eq!(files[7].path, PathBuf::from("packages/node/.oxfmtrc.json"));
+    assert_eq!(files[8].path, PathBuf::from("packages/node/.oxlintrc.json"));
+    assert_eq!(files[9].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[9].content.contains("napi-derive"));
 }
 
 #[test]
@@ -97,8 +105,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 9 files (2 package.json + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
-    assert_eq!(files.len(), 12);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 10 files (2 package.json + crate index.js + src/index.d.ts + index.d.ts + index.js + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
+    assert_eq!(files.len(), 13);
 }
 
 #[test]

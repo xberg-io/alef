@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.34] - 2026-05-08
+
 ### Fixed
 
+- fix(scaffold/node): generate proper platform-dispatch `index.js` at `crates/{X}-node/index.js` instead of a single-file stub. Previously the scaffold did not emit this file, so a `napi build` (without `--platform`) stub `module.exports = require("./{X}-node.node");` would persist in the source tree. Per-target CI builds with `napi build --platform --target X` regenerate the file locally on each runner, but only `*.node` artifacts get uploaded — the platform-aware `index.js` is discarded. The committed stub then ships in the npm tarball, even though the bundled binaries are platform-suffixed (`{X}-node.darwin-arm64.node`, `{X}-node.linux-x64-gnu.node`, etc.), so `require("./{X}-node.node")` fails for every consumer at install time. The new generator emits a self-contained dispatcher covering linux x64/arm64 (gnu+musl), darwin x64/arm64, and win32 x64/arm64 (msvc), with a fallback to optional `{packageName}-{platformArchABI}` deps.
 - fix(e2e-swift): handle optional string fields in trimming assertions. When a Rust `Option<String>` maps to Swift `String?`, calling `.trimmingCharacters(in:)` directly fails because the method is unavailable on the optional type. Generated assertions now coalesce optional strings with `?? ""` before trimming, enabling fixtures to assert on optional metadata fields like `output_format`.
 - fix(rustler-backend): always convert rustler::Binary to owned Vec<u8> in NIF deser to avoid escape-into-spawn lifetime errors. Previously, the `is_ref` branch emitted `let content: &[u8] = content.as_slice();`, which borrows from the input Binary and cannot satisfy the `'static` requirement of `std::thread::spawn`. Always cloning to `Vec<u8>` is correct and the call site re-borrows the slice when the underlying core function takes `&[u8]`.
 - fix(e2e-swift): emit RustBridge-qualified function calls in generated tests. Since wrapper functions were disabled in Phase 2D (commit 6bdbd0e9), e2e tests must call `RustBridge.extractFileSync(...)` instead of bare `extractFileSync(...)`. The codegen now qualifies all function calls with the RustBridge module prefix.
@@ -3447,6 +3450,7 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 - Blake3-based caching for `extract` and `generate` commands
 - CI pipeline: cargo fmt, clippy, deny, machete, sort, taplo
 - GoReleaser-based publish workflow with cross-platform binaries and Homebrew tap
+
 ## [Unreleased]
 
 - fix(magnus): remove problematic re-export loop in native.rb wrapper
