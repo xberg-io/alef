@@ -100,7 +100,9 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
             .join(", ")
     };
 
-    if f.is_async {
+    // FRB v2 wraps ALL Rust functions as `Future<T>` in Dart, including sync ones.
+    // Therefore all wrapper methods must be `async` and `await` the bridge call.
+    {
         let return_ty = if matches!(f.return_type, TypeRef::Unit) {
             "Future<void>".to_string()
         } else {
@@ -116,24 +118,6 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         ));
         out.push_str(&template_env::render(
             "function_await_return.jinja",
-            minijinja::context! {
-                fn_name => fn_name.as_str(),
-                call_args_str => call_args_str.as_str(),
-            },
-        ));
-        out.push_str("  }\n");
-    } else {
-        let return_ty = render_type(&f.return_type, imports);
-        out.push_str(&template_env::render(
-            "function_signature_sync.jinja",
-            minijinja::context! {
-                return_ty => return_ty,
-                fn_name => fn_name.as_str(),
-                params => params_str.as_str(),
-            },
-        ));
-        out.push_str(&template_env::render(
-            "function_sync_return.jinja",
             minijinja::context! {
                 fn_name => fn_name.as_str(),
                 call_args_str => call_args_str.as_str(),

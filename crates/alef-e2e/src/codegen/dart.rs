@@ -268,7 +268,9 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .join("");
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
-    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+    // `is_async` retained for future use (e.g. non-FRB backends); unused with FRB since
+    // all wrappers return Future<T>.
+    let _is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     // Build argument list from fixture.input and call_config.args.
     // Use `resolve_field` (respects the `field` path like "input.data") rather than
@@ -332,11 +334,10 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         }
     }
 
-    if is_async {
-        let _ = writeln!(out, "  test('{description}', () async {{");
-    } else {
-        let _ = writeln!(out, "  test('{description}', () {{");
-    }
+    // All KreuzbergBridge methods return Future<T> because FRB v2 wraps every Rust
+    // function as async in Dart — even "sync" Rust functions. Always emit an async
+    // test body and await the call so the test framework waits for the future.
+    let _ = writeln!(out, "  test('{description}', () async {{");
 
     // Emit the receiver class name and arguments
     let args_str = args.join(", ");
@@ -345,17 +346,10 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .cloned()
         .unwrap_or_else(|| "KreuzbergBridge".to_string());
 
-    if is_async {
-        let _ = writeln!(
-            out,
-            "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "    final {result_var} = {receiver_class}.{function_name}({args_str});"
-        );
-    }
+    let _ = writeln!(
+        out,
+        "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
+    );
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
