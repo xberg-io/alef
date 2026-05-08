@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(magnus-backend): exclude thread-unsafe bridge handle types (`VisitorHandle`) from
+  binding ↔ core From impls via `ConversionConfig::exclude_types` instead of post-process
+  line filtering. The line filter (`filter_unsafe_field_assignments`) silently failed
+  whenever the alef extractor had already stripped the field's `cfg` for an active feature
+  — the IR then carried a `cfg: null` field referencing `VisitorHandle`, so codegen emitted
+  `visitor: val.visitor.map(...)` lines into both directions of the From impl. The
+  generated Ruby gem then refused to compile against a binding `ConversionOptions` struct
+  that (correctly) had no `visitor` field. Mirrors the Rustler backend's approach. Removes
+  the now-unused `filter_unsafe_field_assignments` helper.
+
 ## [0.15.0] - [Unreleased]
 
 ### Added

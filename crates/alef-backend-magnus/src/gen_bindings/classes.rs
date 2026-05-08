@@ -610,86 +610,47 @@ fn field_type_for_serde(field: &FieldDef) -> String {
     }
 }
 
-/// Helper to filter generated code by removing field assignments for unsafe fields.
-/// Removes lines where the field_name (before ':') matches an unsafe field.
-fn filter_unsafe_field_assignments(full_code: &str, typ: &TypeDef) -> String {
-    let mut filtered_lines = Vec::new();
-    let mut in_struct_body = false;
+/// Bridge handle types that cannot cross the Send + Sync boundary required by Magnus.
+/// Their fields are excluded from binding structs and From impls.
+const THREAD_UNSAFE_BRIDGE_TYPES: &[&str] = &["VisitorHandle"];
 
-    for line in full_code.lines() {
-        let trimmed = line.trim();
-
-        // Track if we're inside the struct initialization
-        if trimmed.contains("Self {") || trimmed.contains("} {") {
-            in_struct_body = true;
-            filtered_lines.push(line.to_string());
-            continue;
-        }
-
-        if in_struct_body {
-            if trimmed.starts_with('}') {
-                in_struct_body = false;
-                filtered_lines.push(line.to_string());
-                continue;
-            }
-
-            // Extract field name from assignment like "field_name: val.field_name.into(),"
-            let field_name = if let Some(colon_idx) = trimmed.find(':') {
-                trimmed[..colon_idx].trim()
-            } else {
-                ""
-            };
-
-            // Skip if this is a thread-unsafe field
-            if typ
-                .fields
-                .iter()
-                .any(|f| f.name == field_name && is_thread_unsafe_field(f))
-            {
-                continue;
-            }
-        }
-
-        filtered_lines.push(line.to_string());
-    }
-
-    filtered_lines.join("\n")
-}
-
-/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
-/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
-/// unsafe field assignments.
+/// Generate a From impl for binding → core conversion that excludes thread-unsafe fields.
+///
+/// Fields whose type references a bridge handle (e.g. `VisitorHandle`) are dropped via
+/// `ConversionConfig::exclude_types`, which filters at codegen time. The previous
+/// post-processing line filter broke when the IR's `cfg` was stripped for active
+/// features, leaving the field present and emitted into the From body.
 pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    // First get the full generated code from alef_codegen
-    let full_code = alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
-
-    // If there are no thread-unsafe fields, just return the full code
     if !typ.fields.iter().any(is_thread_unsafe_field) {
-        return full_code;
+        return alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
     }
 
-    filter_unsafe_field_assignments(&full_code, typ)
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = alef_codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        ..Default::default()
+    };
+    alef_codegen::conversions::gen_from_binding_to_core_cfg(typ, core_import, &cfg)
 }
 
-/// Generate a custom From impl for core → binding conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_core_to_binding to exclude fields like
-/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
-/// unsafe field assignments.
+/// Generate a From impl for core → binding conversion that excludes thread-unsafe fields.
+/// Mirrors `gen_from_binding_to_core_filtered` for the opposite direction.
 pub(super) fn gen_from_core_to_binding_filtered(
     typ: &TypeDef,
     core_import: &str,
     opaque_types: &AHashSet<String>,
 ) -> String {
-    // First get the full generated code from alef_codegen
-    let full_code = alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
-
-    // If there are no thread-unsafe fields, just return the full code
     if !typ.fields.iter().any(is_thread_unsafe_field) {
-        return full_code;
+        return alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
     }
 
-    filter_unsafe_field_assignments(&full_code, typ)
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = alef_codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        opaque_types: Some(opaque_types),
+        ..Default::default()
+    };
+    alef_codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, &cfg)
 }
 
 #[cfg(test)]
