@@ -884,7 +884,11 @@ pub fn field_conversion_from_core_cfg(
             }
         }
         TypeRef::Map(_k, v) if config.json_as_value && matches!(v.as_ref(), TypeRef::Json) => {
-            format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()")
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()")
+            }
         }
         // Json→JsValue: core uses serde_json::Value, binding uses JsValue (WASM)
         TypeRef::Json if config.map_uses_jsvalue => {
