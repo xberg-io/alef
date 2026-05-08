@@ -341,12 +341,20 @@ pub fn sync_versions(
         }
     }
 
-    // Node: package.json
-    if let Ok(content) = std::fs::read_to_string("packages/typescript/package.json") {
-        if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
-            std::fs::write("packages/typescript/package.json", &new_content)
-                .context("failed to write packages/typescript/package.json")?;
-            updated.push("packages/typescript/package.json".to_string());
+    // Node: package.json — use the configured Node package_dir, falling back
+    // to "packages/node" (the modern default) and "packages/typescript" (legacy
+    // path retained so older repos that still use the old default keep syncing).
+    let node_pkg_dir = config.package_dir(Language::Node);
+    let mut node_paths: Vec<String> = vec![format!("{node_pkg_dir}/package.json")];
+    if node_pkg_dir != "packages/typescript" {
+        node_paths.push("packages/typescript/package.json".to_string());
+    }
+    for node_path in node_paths {
+        if let Ok(content) = std::fs::read_to_string(&node_path) {
+            if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
+                std::fs::write(&node_path, &new_content).with_context(|| format!("failed to write {node_path}"))?;
+                updated.push(node_path);
+            }
         }
     }
 
