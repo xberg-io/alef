@@ -3,7 +3,7 @@
 use super::{csharp_file_header, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
 use alef_codegen::naming::to_csharp_name;
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -282,16 +282,36 @@ pub(super) fn gen_pinvoke_for_func(
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        for (i, param) in visible_params.iter().enumerate() {
-            out.push_str("        ");
-            let pinvoke_ty = pinvoke_param_type(&param.ty);
-            if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
-            }
-            let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{pinvoke_ty} {param_name}"));
+        // Expand Bytes params into two FFI parameters (pointer + length).
+        // All other params map to a single FFI parameter.
+        let flattened_params: Vec<(&ParamDef, bool)> = visible_params
+            .into_iter()
+            .flat_map(|p| {
+                if matches!(p.ty, TypeRef::Bytes) {
+                    // Emit both pointer and length for Bytes parameters
+                    vec![(p, false), (p, true)]
+                } else {
+                    vec![(p, false)]
+                }
+            })
+            .collect();
 
-            if i < visible_params.len() - 1 {
+        for (idx, (param, is_len)) in flattened_params.iter().enumerate() {
+            out.push_str("        ");
+            if *is_len {
+                // Length parameter for Bytes
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("UIntPtr {}Len", param_name));
+            } else {
+                let pinvoke_ty = pinvoke_param_type(&param.ty);
+                if pinvoke_ty == "string" {
+                    out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
+                }
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("{pinvoke_ty} {param_name}"));
+            }
+
+            if idx < flattened_params.len() - 1 {
                 out.push(',');
             }
             out.push('\n');
@@ -323,11 +343,17 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        let total = if has_receiver {
-            method.params.len() + 1
-        } else {
-            method.params.len()
-        };
+        // Expand Bytes params into two FFI parameters (pointer + length).
+        // Count total parameters including expanded Bytes params.
+        let mut total = if has_receiver { 1 } else { 0 };
+        for param in &method.params {
+            if matches!(param.ty, TypeRef::Bytes) {
+                total += 2;
+            } else {
+                total += 1;
+            }
+        }
+
         let mut idx = 0usize;
         if has_receiver {
             out.push_str("        IntPtr handle");
@@ -337,20 +363,45 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
             out.push('\n');
             idx += 1;
         }
-        for param in method.params.iter() {
-            out.push_str("        ");
-            let pinvoke_ty = pinvoke_param_type(&param.ty);
-            if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
-            }
-            let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{pinvoke_ty} {param_name}"));
 
-            if idx < total - 1 {
-                out.push(',');
+        for param in method.params.iter() {
+            if matches!(param.ty, TypeRef::Bytes) {
+                // Emit pointer parameter
+                out.push_str("        ");
+                let pinvoke_ty = pinvoke_param_type(&param.ty);
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("{pinvoke_ty} {param_name}"));
+
+                if idx < total - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+                idx += 1;
+
+                // Emit length parameter
+                out.push_str("        ");
+                out.push_str(&format!("UIntPtr {}Len", param_name));
+
+                if idx < total - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+                idx += 1;
+            } else {
+                out.push_str("        ");
+                let pinvoke_ty = pinvoke_param_type(&param.ty);
+                if pinvoke_ty == "string" {
+                    out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
+                }
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("{pinvoke_ty} {param_name}"));
+
+                if idx < total - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+                idx += 1;
             }
-            out.push('\n');
-            idx += 1;
         }
         out.push_str("    );\n\n");
     }

@@ -595,6 +595,33 @@ pub(super) fn native_call_arg(
     }
 }
 
+/// Emit native call arguments, expanding Bytes parameters into (pointer, length) pairs.
+/// Returns a vector of argument strings for calling P/Invoke methods.
+pub(super) fn native_call_args(params: &[alef_core::ir::ParamDef], true_opaque_types: &HashSet<String>) -> Vec<String> {
+    let mut args = Vec::new();
+    for param in params {
+        let param_name = param.name.to_lower_camel_case();
+        if matches!(param.ty, TypeRef::Bytes) {
+            // Bytes params expand to: pointer + length
+            args.push(native_call_arg(
+                &param.ty,
+                &param_name,
+                param.optional,
+                true_opaque_types,
+            ));
+            args.push(format!("(UIntPtr){param_name}.Length"));
+        } else {
+            args.push(native_call_arg(
+                &param.ty,
+                &param_name,
+                param.optional,
+                true_opaque_types,
+            ));
+        }
+    }
+    args
+}
+
 /// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.
 ///
 /// For truly opaque types (is_opaque = true), the C# class already wraps the native handle, so

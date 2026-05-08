@@ -5,7 +5,7 @@ use super::errors::{
 };
 use super::{
     csharp_file_header, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
-    is_bridge_param, native_call_arg, returns_ptr,
+    is_bridge_param, native_call_args, returns_ptr,
 };
 use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
@@ -341,17 +341,16 @@ fn gen_wrapper_function(
         if visible_params.is_empty() {
             out.push_str(");\n");
         } else {
+            let args = native_call_args(&visible_params, true_opaque_types);
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            for (i, arg) in args.iter().enumerate() {
                 out.push_str(&crate::template_env::render(
                     "indented_arg_async.jinja",
                     minijinja::context! {
                         arg => arg
                     },
                 ));
-                if i < visible_params.len() - 1 {
+                if i < args.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
@@ -400,17 +399,16 @@ fn gen_wrapper_function(
         if visible_params.is_empty() {
             out.push_str(");\n");
         } else {
+            let args = native_call_args(&visible_params, true_opaque_types);
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            for (i, arg) in args.iter().enumerate() {
                 out.push_str(&crate::template_env::render(
                     "indented_arg_sync.jinja",
                     minijinja::context! {
                         arg => arg
                     },
                 ));
-                if i < visible_params.len() - 1 {
+                if i < args.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
@@ -594,11 +592,8 @@ fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            let total = if has_receiver {
-                visible_params.len() + 1
-            } else {
-                visible_params.len()
-            };
+            let args = native_call_args(&visible_params, true_opaque_types);
+            let total = if has_receiver { args.len() + 1 } else { args.len() };
             let mut idx = 0usize;
             if has_receiver {
                 out.push_str("                handle");
@@ -608,9 +603,7 @@ fn gen_wrapper_method(
                 out.push('\n');
                 idx += 1;
             }
-            for param in visible_params.iter() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            for arg in &args {
                 out.push_str(&crate::template_env::render(
                     "indented_arg_async.jinja",
                     minijinja::context! {
@@ -654,11 +647,8 @@ fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            let total = if has_receiver {
-                visible_params.len() + 1
-            } else {
-                visible_params.len()
-            };
+            let args = native_call_args(&visible_params, true_opaque_types);
+            let total = if has_receiver { args.len() + 1 } else { args.len() };
             let mut idx = 0usize;
             if has_receiver {
                 out.push_str("            handle");
@@ -668,9 +658,7 @@ fn gen_wrapper_method(
                 out.push('\n');
                 idx += 1;
             }
-            for param in visible_params.iter() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            for arg in &args {
                 out.push_str(&crate::template_env::render(
                     "indented_arg_sync.jinja",
                     minijinja::context! {

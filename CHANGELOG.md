@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(csharp-backend): emit length parameters for byte slice and batch FFI calls. The C# P/Invoke signatures for `extract_bytes_sync` and related functions were missing `UIntPtr contentLen` and `UIntPtr itemsLen` parameters that the Rust FFI requires, causing host crashes. The codegen now expands `TypeRef::Bytes` parameters into two FFI arguments (pointer + length), and the wrapper methods pass `(UIntPtr)content.Length` when calling the native methods.
+
 ## [0.14.35] - 2026-05-08
 
 Re-roll of 0.14.34: the v0.14.34 tag captured an early commit, missing the long fix list
