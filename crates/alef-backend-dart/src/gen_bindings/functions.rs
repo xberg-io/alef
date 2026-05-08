@@ -26,10 +26,15 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
 
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
+    // FRB bridge functions use Dart named parameters (required keyword).
+    // Call them with `name: value` named-argument syntax.
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| dart_safe_ident(&p.name.to_lower_camel_case()))
+        .map(|p| {
+            let ident = dart_safe_ident(&p.name.to_lower_camel_case());
+            format!("{ident}: {ident}")
+        })
         .collect();
     let call_args_str = call_args.join(", ");
 

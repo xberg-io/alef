@@ -59,6 +59,7 @@ pub(crate) fn primitive_name(prim: &PrimitiveType) -> &'static str {
 /// Like `frb_rust_type`, but Named types resolve to their source-crate path
 /// so the bridge fn signature uses the original Rust type (the mirror struct
 /// is layout-identical via `#[frb(mirror(T))]`).
+#[allow(dead_code)]
 pub(crate) fn frb_rust_type_with_source(
     ty: &TypeRef,
     optional: bool,

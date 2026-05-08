@@ -407,7 +407,12 @@ fn c_arg_names(p: &ParamDef, struct_names: &std::collections::HashSet<String>) -
 /// copy the JSON string to an owned Zig slice, then free both the JSON string and
 /// the opaque handle.
 /// Everything else: pass through unchanged.
-fn unwrap_return_expr(raw: &str, ty: &TypeRef, prefix: &str, struct_names: &std::collections::HashSet<String>) -> String {
+fn unwrap_return_expr(
+    raw: &str,
+    ty: &TypeRef,
+    prefix: &str,
+    struct_names: &std::collections::HashSet<String>,
+) -> String {
     match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Copy the null-terminated C string to an owned Zig allocation, then free the C copy.
@@ -438,7 +443,9 @@ fn unwrap_return_expr(raw: &str, ty: &TypeRef, prefix: &str, struct_names: &std:
             let snake = snake_case(name);
             let mut s = String::new();
             s.push_str("blk: {\n");
-            s.push_str(&format!("        const _json_ptr = c.{prefix}_{snake}_to_json({raw}.?);\n"));
+            s.push_str(&format!(
+                "        const _json_ptr = c.{prefix}_{snake}_to_json({raw}.?);\n"
+            ));
             s.push_str("        defer _free_string(_json_ptr);\n");
             s.push_str(&format!("        c.{prefix}_{snake}_free({raw}.?);\n"));
             s.push_str("        const slice = std.mem.sliceTo(_json_ptr, 0);\n");

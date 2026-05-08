@@ -303,7 +303,8 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             let is_boxed = first_field.is_boxed;
             let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
             // Vec<Named>: blanket From<Vec<core::T>> for Vec<T> doesn't exist; map element-wise.
-            let is_vec_of_named = matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
+            let is_vec_of_named =
+                matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
             let data_expr: String = if is_sanitized_to_string {
                 if is_boxed {
                     "format!(\"{:?}\", *_0)".to_string()

@@ -1,3 +1,41 @@
+/// Dart core library class names that cannot be shadowed by generated type names.
+///
+/// These are not keywords (they are not in DART_RESERVED) but they are defined in
+/// `dart:core` and would shadow the built-in generic types if used as class names,
+/// causing "Expected 0 type arguments" errors for any code that uses `List<T>`, etc.
+#[allow(dead_code)]
+const DART_CORE_TYPES: &[&str] = &[
+    "bool",
+    "double",
+    "Duration",
+    "Error",
+    "Exception",
+    "Future",
+    "int",
+    "Invocation",
+    "Iterable",
+    "Iterator",
+    "List",
+    "Map",
+    "MapEntry",
+    "Null",
+    "num",
+    "Object",
+    "Pattern",
+    "RegExp",
+    "RuneIterator",
+    "Runes",
+    "Set",
+    "Sink",
+    "StackTrace",
+    "Stream",
+    "String",
+    "StringBuffer",
+    "Symbol",
+    "Type",
+    "Uri",
+];
+
 /// Dart reserved words and built-in identifiers that cannot be used as identifiers.
 ///
 /// Includes all reserved words, built-in identifiers, and async-reserved words.
@@ -70,6 +108,26 @@ const DART_RESERVED: &[&str] = &[
     "with",
     "yield",
 ];
+
+/// Make a generated class name safe for use as a Dart type declaration.
+///
+/// Dart core library classes (like `List`, `Map`, `Set`, `String`, etc.) cannot be
+/// shadowed by generated classes: doing so breaks `List<T>` generics in the same file.
+///
+/// When `name` conflicts with a Dart core type, the parent enum or struct name is
+/// prepended (e.g. `NodeContent` + `List` → `NodeContentList`). If `parent` is empty
+/// or None, a trailing `Node` suffix is appended instead.
+#[allow(dead_code)]
+pub(crate) fn dart_safe_type_name(name: &str, parent: Option<&str>) -> String {
+    if DART_CORE_TYPES.contains(&name) || DART_RESERVED.contains(&name) {
+        match parent {
+            Some(p) if !p.is_empty() => format!("{p}{name}"),
+            _ => format!("{name}Node"),
+        }
+    } else {
+        name.to_string()
+    }
+}
 
 /// Escape a Dart identifier to avoid conflicts with reserved keywords or
 /// invalid names such as numeric tuple-variant field indices.

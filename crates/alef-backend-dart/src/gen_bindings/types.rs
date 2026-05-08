@@ -3,12 +3,13 @@ use alef_core::ir::{EnumDef, TypeDef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
-use crate::ident::dart_safe_ident;
+use crate::ident::{dart_safe_ident, dart_safe_type_name};
 use crate::template_env;
 use crate::type_map::DartMapper;
 
 use super::render_type::render_type;
 
+#[allow(dead_code)]
 pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !ty.doc.is_empty() {
         for line in ty.doc.lines() {
@@ -91,6 +92,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
 }
 
+#[allow(dead_code)]
 pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     if !en.doc.is_empty() {
         for line in en.doc.lines() {
@@ -135,6 +137,8 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
+            // Use dart_safe_type_name to avoid shadowing Dart core types (e.g. `List`, `Map`).
+            let safe_variant_name = dart_safe_type_name(&variant.name, Some(&en.name));
             if !variant.doc.is_empty() {
                 for line in variant.doc.lines() {
                     out.push_str("/// ");
@@ -146,7 +150,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 out.push_str(&template_env::render(
                     "final_class_extends.jinja",
                     minijinja::context! {
-                        name => variant.name.as_str(),
+                        name => safe_variant_name.as_str(),
                         parent => en.name.as_str(),
                     },
                 ));
@@ -154,7 +158,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 out.push_str(&template_env::render(
                     "final_class_header.jinja",
                     minijinja::context! {
-                        name => variant.name.as_str(),
+                        name => safe_variant_name.as_str(),
                         parent => en.name.as_str(),
                     },
                 ));
@@ -174,7 +178,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     out.push_str(&template_env::render(
                         "single_param_constructor.jinja",
                         minijinja::context! {
-                            name => variant.name.as_str(),
+                            name => safe_variant_name.as_str(),
                             param_name => fname.as_str(),
                         },
                     ));
@@ -182,7 +186,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     out.push_str(&template_env::render(
                         "multi_param_constructor_open.jinja",
                         minijinja::context! {
-                            name => variant.name.as_str(),
+                            name => safe_variant_name.as_str(),
                         },
                     ));
                     for f in variant.fields.iter() {

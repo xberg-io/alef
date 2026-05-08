@@ -240,6 +240,9 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
         ));
+        content.push_str(&format!(
+            "    {test_name}_run.setCwd(b.path(\"../../test_documents\"));\n"
+        ));
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
 
@@ -507,15 +510,32 @@ fn render_test_fn(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
+    let (setup_lines, args_str, setup_needs_gpa) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
+
+    // Pre-compute whether any assertion will emit code that references `result` /
+    // `allocator`. Used to decide whether to emit the GPA allocator binding.
+    let any_happy_emits_code = fixture
+        .assertions
+        .iter()
+        .any(|a| assertion_emits_code(a, field_resolver));
+    let any_non_error_emits_code = fixture
+        .assertions
+        .iter()
+        .filter(|a| a.assertion_type != "error")
+        .any(|a| assertion_emits_code(a, field_resolver));
 
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
 
-    // Only emit allocator setup when setup lines actually need it (avoids unused-variable errors).
-    // For JSON struct results we always need a GPA allocator for `std.json.parseFromSlice`.
-    let needs_alloc = !setup_lines.is_empty() || result_is_json_struct;
-    if needs_alloc {
+    // Emit GPA allocator only when it will actually be used: setup lines that
+    // need GPA allocation (mock_url), or a JSON-struct result path where the test
+    // will call `std.json.parseFromSlice`. The binding is not needed for
+    // error-only paths or tests with no field assertions.
+    // Note: `bytes` arg setup uses c_allocator directly and does NOT require GPA.
+    let needs_gpa = setup_needs_gpa
+        || (result_is_json_struct && !expects_error && any_happy_emits_code)
+        || (result_is_json_struct && expects_error && any_non_error_emits_code);
+    if needs_gpa {
         let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
         let _ = writeln!(out, "    defer _ = gpa.deinit();");
         let _ = writeln!(out, "    const allocator = gpa.allocator();");
@@ -660,11 +680,48 @@ fn render_test_fn(
 /// Returns `(base_expr, last_key)` where `base_expr` already includes all
 /// intermediate `.object.get("…").?` dereferences up to (but not including)
 /// the leaf, and `last_key` is the last path segment.
+/// Variant names of `FormatMetadata` (snake_case, from `#[serde(rename_all = "snake_case")]`).
+/// These appear as typed accessors in fixture paths (e.g. `format.excel.sheet_count`)
+/// but are NOT JSON keys — `FormatMetadata` is internally tagged so variant fields are
+/// flattened directly into the `format` object alongside the `format_type` discriminant.
+const FORMAT_METADATA_VARIANTS: &[&str] = &[
+    "pdf",
+    "docx",
+    "excel",
+    "email",
+    "pptx",
+    "archive",
+    "image",
+    "xml",
+    "text",
+    "html",
+    "ocr",
+    "csv",
+    "bibtex",
+    "citation",
+    "fiction_book",
+    "dbf",
+    "jats",
+    "epub",
+    "pst",
+    "code",
+];
+
 fn json_path_expr(result_var: &str, field_path: &str) -> String {
     let segments: Vec<&str> = field_path.split('.').collect();
     let mut expr = result_var.to_string();
+    let mut prev_seg: Option<&str> = None;
     for seg in &segments {
+        // Skip variant-name accessor segments that follow a `format` key.
+        // FormatMetadata is an internally-tagged enum (`#[serde(tag = "format_type")]`),
+        // so variant fields are flattened directly into the format object — there is no
+        // intermediate JSON key for the variant name.
+        if prev_seg == Some("format") && FORMAT_METADATA_VARIANTS.contains(seg) {
+            prev_seg = Some(seg);
+            continue;
+        }
         expr = format!("{expr}.object.get(\"{seg}\").?");
+        prev_seg = Some(seg);
     }
     expr
 }
@@ -705,28 +762,23 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
             }
         }
         "contains" => {
-            if let Some(expected) = &assertion.value {
-                if let serde_json::Value::String(s) = expected {
-                    let zig_val = format!("\"{}\"", escape_zig(s));
-                    // Serialize the JSON value to a string and search.
-                    // Works for both string fields (value is the string) and array/object
-                    // fields (value is the JSON-encoded representation).
-                    let _ = writeln!(out, "    {{");
-                    let _ = writeln!(out, "        const _jv = {field_expr};");
-                    let _ = writeln!(
-                        out,
-                        "        const _js = if (_jv == .string) _jv.string else try std.json.stringifyAlloc(std.heap.c_allocator, _jv, .{{}});"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        defer if (_jv != .string) std.heap.c_allocator.free(_js);"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        try testing.expect(std.mem.indexOf(u8, _js, {zig_val}) != null);"
-                    );
-                    let _ = writeln!(out, "    }}");
-                }
+            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                let zig_val = format!("\"{}\"", escape_zig(s));
+                // Serialize the JSON value to a string and search.
+                // Works for both string fields (value is the string) and array/object
+                // fields (value is the JSON-encoded representation).
+                let _ = writeln!(out, "    {{");
+                let _ = writeln!(out, "        const _jv = {field_expr};");
+                let _ = writeln!(
+                    out,
+                    "        const _js = if (_jv == .string) _jv.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jv, .{{}});"
+                );
+                let _ = writeln!(out, "        defer if (_jv != .string) std.heap.c_allocator.free(_js);");
+                let _ = writeln!(
+                    out,
+                    "        try testing.expect(std.mem.indexOf(u8, _js, {zig_val}) != null);"
+                );
+                let _ = writeln!(out, "    }}");
             }
         }
         "contains_all" => {
@@ -742,7 +794,7 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
                         let _ = writeln!(out, "        const {jv} = {field_expr};");
                         let _ = writeln!(
                             out,
-                            "        const {js} = if ({jv} == .string) {jv}.string else try std.json.stringifyAlloc(std.heap.c_allocator, {jv}, .{{}});"
+                            "        const {js} = if ({jv} == .string) {jv}.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, {jv}, .{{}});"
                         );
                         let _ = writeln!(
                             out,
@@ -758,25 +810,23 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
             }
         }
         "not_contains" => {
-            if let Some(expected) = &assertion.value {
-                if let serde_json::Value::String(s) = expected {
-                    let zig_val = format!("\"{}\"", escape_zig(s));
-                    let _ = writeln!(out, "    {{");
-                    let _ = writeln!(out, "        const _jvnc = {field_expr};");
-                    let _ = writeln!(
-                        out,
-                        "        const _jsnc = if (_jvnc == .string) _jvnc.string else try std.json.stringifyAlloc(std.heap.c_allocator, _jvnc, .{{}});"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        defer if (_jvnc != .string) std.heap.c_allocator.free(_jsnc);"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        try testing.expect(std.mem.indexOf(u8, _jsnc, {zig_val}) == null);"
-                    );
-                    let _ = writeln!(out, "    }}");
-                }
+            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                let zig_val = format!("\"{}\"", escape_zig(s));
+                let _ = writeln!(out, "    {{");
+                let _ = writeln!(out, "        const _jvnc = {field_expr};");
+                let _ = writeln!(
+                    out,
+                    "        const _jsnc = if (_jvnc == .string) _jvnc.string else try std.json.Stringify.valueAlloc(std.heap.c_allocator, _jvnc, .{{}});"
+                );
+                let _ = writeln!(
+                    out,
+                    "        defer if (_jvnc != .string) std.heap.c_allocator.free(_jsnc);"
+                );
+                let _ = writeln!(
+                    out,
+                    "        try testing.expect(std.mem.indexOf(u8, _jsnc, {zig_val}) == null);"
+                );
+                let _ = writeln!(out, "    }}");
             }
         }
         "not_empty" => {
@@ -791,30 +841,21 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect({field_expr}.string.len >= {n});"
-                    );
+                    let _ = writeln!(out, "    try testing.expect({field_expr}.string.len >= {n});");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect({field_expr}.array.items.len >= {n});"
-                    );
+                    let _ = writeln!(out, "    try testing.expect({field_expr}.array.items.len >= {n});");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expectEqual({n}, {field_expr}.array.items.len);"
-                    );
+                    let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.array.items.len);");
                 }
             }
         }
@@ -852,37 +893,42 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
             // Handled at the call level.
         }
         "starts_with" => {
-            if let Some(expected) = &assertion.value {
-                if let serde_json::Value::String(s) = expected {
-                    let zig_val = format!("\"{}\"", escape_zig(s));
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect(std.mem.startsWith(u8, {field_expr}.string, {zig_val}));"
-                    );
-                }
+            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                let zig_val = format!("\"{}\"", escape_zig(s));
+                let _ = writeln!(
+                    out,
+                    "    try testing.expect(std.mem.startsWith(u8, {field_expr}.string, {zig_val}));"
+                );
             }
         }
         "ends_with" => {
-            if let Some(expected) = &assertion.value {
-                if let serde_json::Value::String(s) = expected {
-                    let zig_val = format!("\"{}\"", escape_zig(s));
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect(std.mem.endsWith(u8, {field_expr}.string, {zig_val}));"
-                    );
-                }
+            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                let zig_val = format!("\"{}\"", escape_zig(s));
+                let _ = writeln!(
+                    out,
+                    "    try testing.expect(std.mem.endsWith(u8, {field_expr}.string, {zig_val}));"
+                );
             }
         }
         "contains_any" => {
+            // At least ONE of the values must be found in the field (OR logic).
             if let Some(values) = &assertion.values {
-                for val in values {
-                    if let serde_json::Value::String(s) = val {
-                        let zig_val = format!("\"{}\"", escape_zig(s));
-                        let _ = writeln!(
-                            out,
-                            "    try testing.expect(std.mem.indexOf(u8, {field_expr}.string, {zig_val}) != null);"
-                        );
-                    }
+                let string_values: Vec<String> = values
+                    .iter()
+                    .filter_map(|v| {
+                        if let serde_json::Value::String(s) = v {
+                            Some(format!(
+                                "std.mem.indexOf(u8, {field_expr}.string, \"{}\") != null",
+                                escape_zig(s)
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !string_values.is_empty() {
+                    let condition = string_values.join(" or\n        ");
+                    let _ = writeln!(out, "    try testing.expect(\n        {condition}\n    );");
                 }
             }
         }
@@ -925,18 +971,22 @@ fn assertion_emits_code(assertion: &Assertion, field_resolver: &FieldResolver) -
 }
 
 /// Build setup lines and the argument list for the function call.
+///
+/// Returns `(setup_lines, args_str, setup_needs_gpa)` where `setup_needs_gpa`
+/// is `true` when at least one setup line requires the GPA `allocator` binding.
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     fixture_id: &str,
     _module_name: &str,
-) -> (Vec<String>, String) {
+) -> (Vec<String>, String, bool) {
     if args.is_empty() {
-        return (Vec::new(), String::new());
+        return (Vec::new(), String::new(), false);
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    let mut setup_needs_gpa = false;
 
     for arg in args {
         if arg.arg_type == "mock_url" {
@@ -945,6 +995,7 @@ fn build_args_and_setup(
                 arg.name,
             ));
             parts.push(arg.name.clone());
+            setup_needs_gpa = true;
             continue;
         }
 
@@ -991,6 +1042,22 @@ fn build_args_and_setup(
                 if arg.arg_type == "json_object" {
                     let json_str = serde_json::to_string(v).unwrap_or_default();
                     parts.push(format!("\"{}\"", escape_zig(&json_str)));
+                } else if arg.arg_type == "bytes" {
+                    // `bytes` args are file paths in fixtures — read the file into a
+                    // local buffer. The cwd is set to test_documents/ at runtime.
+                    // Zig 0.16 uses std.Io.Dir.cwd() (not std.fs.cwd()) and requires
+                    // an `io` instance from std.testing.io in test context.
+                    if let serde_json::Value::String(path) = v {
+                        let var_name = format!("{}_bytes", arg.name);
+                        let epath = escape_zig(path);
+                        setup_lines.push(format!(
+                            "const {var_name} = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, \"{epath}\", std.heap.c_allocator, .unlimited);"
+                        ));
+                        setup_lines.push(format!("defer std.heap.c_allocator.free({var_name});"));
+                        parts.push(var_name);
+                    } else {
+                        parts.push(json_to_zig(v));
+                    }
                 } else {
                     parts.push(json_to_zig(v));
                 }
@@ -998,7 +1065,7 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    (setup_lines, parts.join(", "), setup_needs_gpa)
 }
 
 fn render_assertion(
@@ -1170,13 +1237,24 @@ fn render_assertion(
             }
         }
         "contains_any" => {
+            // At least ONE of the values must be found in the field (OR logic).
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let zig_val = json_to_zig(val);
-                    let _ = writeln!(
-                        out,
-                        "    try testing.expect(std.mem.indexOf(u8, {field_expr}, {zig_val}) != null);"
-                    );
+                let string_values: Vec<String> = values
+                    .iter()
+                    .filter_map(|v| {
+                        if let serde_json::Value::String(s) = v {
+                            Some(format!(
+                                "std.mem.indexOf(u8, {field_expr}, \"{}\") != null",
+                                escape_zig(s)
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !string_values.is_empty() {
+                    let condition = string_values.join(" or\n        ");
+                    let _ = writeln!(out, "    try testing.expect(\n        {condition}\n    );");
                 }
             }
         }

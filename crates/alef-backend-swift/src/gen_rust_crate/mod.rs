@@ -46,7 +46,22 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         None => crate_name.replace('-', "_"),
     };
 
-    let features = config.features_for_language(alef_core::config::extras::Language::Swift);
+    let base_features = config.features_for_language(alef_core::config::extras::Language::Swift);
+    // The IR records `any(feature = "ocr", feature = "ocr-wasm")` as the cfg condition for
+    // TesseractWasmBackend (inherited from `pub mod ocr` in lib.rs). The concrete type,
+    // however, lives in `kreuzberg::ocr::TesseractWasmBackend` which requires `ocr-wasm`.
+    // `ocr` is transitively enabled by `full`; ensure `ocr-wasm` is also included whenever
+    // the OCR module would be active so the bridge compiles correctly.
+    let mut features_owned: Vec<String>;
+    let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
+    let ocr_wasm_present = base_features.iter().any(|f| f == "ocr-wasm");
+    let features: &[String] = if ocr_active && !ocr_wasm_present {
+        features_owned = base_features.to_vec();
+        features_owned.push("ocr-wasm".to_string());
+        &features_owned
+    } else {
+        base_features
+    };
     let exclude_functions: HashSet<String> = config
         .swift
         .as_ref()
@@ -77,6 +92,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         features,
         license,
     );
+    let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(
         api,
         config,
@@ -84,6 +100,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         &exclude_functions,
         &exclude_types,
         &exclude_fields,
+        &configured_features,
     );
     let build_rs = cargo::emit_build_rs();
 
@@ -113,6 +130,7 @@ fn emit_lib_rs(
     exclude_functions: &HashSet<String>,
     exclude_types: &HashSet<String>,
     exclude_fields: &HashSet<String>,
+    configured_features: &HashSet<&str>,
 ) -> String {
     let source_crate = crate_name.replace('-', "_");
 
@@ -139,8 +157,14 @@ fn emit_lib_rs(
         .types
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
+        .filter(|t| cfg_satisfied(t.cfg.as_deref(), configured_features))
         .collect();
-    let visible_enums: Vec<&EnumDef> = api.enums.iter().filter(|e| !exclude_types.contains(&e.name)).collect();
+    let visible_enums: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name))
+        .filter(|e| cfg_satisfied(e.cfg.as_deref(), configured_features))
+        .collect();
 
     // Set of enum names (not struct names) so wrappers can use the correct
     // conversion idiom: `T::from(val)` for enums, `T(val)` for struct newtypes.
@@ -304,4 +328,65 @@ fn emit_json_factory_shims(source_crate: &str, out: &mut String) {
                  .map(BatchFileItem)\n\
          }}\n\n"
     ));
+}
+
+/// Returns `true` when the `cfg` condition is satisfied by `configured_features`.
+///
+/// Handles:
+/// - `feature = "foo"` — simple single-feature gate
+/// - `any (feature = "foo" , feature = "bar")` — OR of feature gates (alef IR format)
+///
+/// Returns `true` for `None` (no condition) and for any condition format that cannot
+/// be parsed (safe default: include the type and let the compiler surface the error
+/// only if the feature combination is truly incompatible).
+///
+/// NOTE: the alef IR sometimes records a broader cfg condition from a parent module
+/// rather than the exact gate on the specific item.  When all conditions in an `any()`
+/// are features (not target_arch etc.) we check whether ALL of them are present in
+/// the configured features — not just any one.  This is conservative: it only excludes
+/// types that cannot possibly compile given the configured features.
+fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool {
+    let Some(cfg_str) = cfg else {
+        return true; // no condition → always visible
+    };
+
+    // `full` is the all-inclusive aggregate feature: every sub-feature is transitively
+    // enabled when `full` is configured. Skip the cfg check entirely in that case.
+    if configured_features.contains("full") {
+        return true;
+    }
+
+    // Simple `feature = "foo"` form.
+    if let Some(rest) = cfg_str.strip_prefix("feature = \"") {
+        if let Some(feature_name) = rest.strip_suffix('"') {
+            return configured_features.contains(feature_name);
+        }
+    }
+
+    // `any (feature = "foo" , feature = "bar" , ...)` form produced by the alef IR extractor.
+    // Extract the parenthesised content and check every listed feature.
+    // We require ALL of the listed features to be absent before excluding a type — i.e. we
+    // include the type if ANY of the listed features is configured.
+    if let Some(inner) = cfg_str
+        .strip_prefix("any (")
+        .or_else(|| cfg_str.strip_prefix("any("))
+        .and_then(|s| s.strip_suffix(')'))
+    {
+        // Split on `,` and parse each clause as `feature = "..."`.
+        let feature_names: Vec<&str> = inner
+            .split(',')
+            .filter_map(|clause| {
+                let trimmed = clause.trim();
+                trimmed.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"'))
+            })
+            .collect();
+
+        if !feature_names.is_empty() {
+            // any() → include if at least one required feature is present.
+            return feature_names.iter().any(|f| configured_features.contains(f));
+        }
+    }
+
+    // For unrecognised formats, include the type (conservative default).
+    true
 }

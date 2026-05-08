@@ -117,10 +117,7 @@ impl FieldResolver {
     ///   (e.g., `"sheet_count"`)
     ///
     /// Returns `None` if no tagged-union segment exists in the path.
-    pub fn tagged_union_split<'a>(
-        &self,
-        fixture_field: &'a str,
-    ) -> Option<(String, String, String)> {
+    pub fn tagged_union_split(&self, fixture_field: &str) -> Option<(String, String, String)> {
         let resolved = self.resolve(fixture_field);
         let segments: Vec<&str> = resolved.split('.').collect();
         let mut path_so_far = String::new();
@@ -163,6 +160,7 @@ impl FieldResolver {
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
+            "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
             _ => render_accessor(&segments, language, result_var),
         }
     }
@@ -320,7 +318,71 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     out.push_str(&format!("()[{key}]"));
                 } else {
-                    out.push_str(&format!()()[\"$key\"]"));
+                    out.push_str(&format!("()[\"{key}\"]"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".count");
+            }
+        }
+    }
+    out
+}
+
+/// Generate a Swift accessor expression with optional chaining.
+///
+/// When an intermediate field is in `optional_fields`, a `?` is inserted after the
+/// `()` call on that segment so the next access uses `?.`. This prevents compile
+/// errors when accessing members through an `Optional<T>` in Swift.
+///
+/// Example: for `metadata.format.excel.sheet_count` where `metadata.format` and
+/// `metadata.format.excel` are optional, the result is:
+/// `result.metadata().format()?.excel()?.sheet_count()`
+fn render_swift_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    let total = segments.len();
+    for (i, seg) in segments.iter().enumerate() {
+        let is_leaf = i == total - 1;
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()");
+                // Insert `?` after `()` for non-leaf optional fields so the next
+                // member access becomes `?.`.
+                if !is_leaf && optional_fields.contains(&path_so_far) {
+                    out.push('?');
+                }
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
+                out.push('.');
+                out.push_str(field);
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("()[{key}]"));
+                } else {
+                    out.push_str(&format!("()[\"{key}\"]"));
                 }
             }
             PathSegment::Length => {

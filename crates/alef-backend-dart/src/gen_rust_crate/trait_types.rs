@@ -89,7 +89,7 @@ pub(super) fn trait_impl_param_type(
 }
 
 /// Build the conversion expression that converts the parameter from its original
-/// trait type to the FRB-friendly owned type expected by the DartFnFuture closure.
+/// trait type to the FRB-friendly mirror type expected by the DartFnFuture closure.
 /// Returns an empty string if no conversion is needed.
 pub(super) fn trait_impl_param_conversion(p: &ParamDef) -> String {
     let name = &p.name;
@@ -112,26 +112,37 @@ pub(super) fn trait_impl_param_conversion(p: &ParamDef) -> String {
                     format!("let {name} = {name}.to_vec();")
                 }
             }
-            TypeRef::Named(_) => format!("let {name} = {name}.clone();"),
+            // Named ref: clone and convert to mirror type.
+            TypeRef::Named(type_name) => {
+                format!("let {name} = {type_name}::from({name}.clone());")
+            }
             _ => String::new(),
         }
     } else {
-        // Non-ref: primitive widening might be needed for the closure
-        if let TypeRef::Primitive(prim) = &p.ty {
-            let orig = primitive_name(prim);
-            let widened = frb_rust_type_inner(&p.ty);
-            if orig != widened {
-                return format!("let {name} = {name} as {widened};");
+        match &p.ty {
+            // Non-ref Named: convert to mirror type.
+            TypeRef::Named(type_name) => {
+                format!("let {name} = {type_name}::from({name});")
             }
+            // Non-ref: primitive widening might be needed for the closure.
+            TypeRef::Primitive(prim) => {
+                let orig = primitive_name(prim);
+                let widened = frb_rust_type_inner(&p.ty);
+                if orig != widened {
+                    format!("let {name} = {name} as {widened};")
+                } else {
+                    String::new()
+                }
+            }
+            _ => String::new(),
         }
-        String::new()
     }
 }
 
-/// Build a return-value conversion suffix to transform the FRB-widened return
+/// Build a return-value conversion suffix to transform the FRB-friendly mirror return
 /// value from the DartFnFuture closure back to the original trait return type.
 /// Returns an empty string when no conversion is needed.
-pub(super) fn trait_impl_return_conversion(ty: &TypeRef) -> String {
+pub(super) fn trait_impl_return_conversion(ty: &TypeRef, _source_crate_name: &str) -> String {
     match ty {
         TypeRef::Primitive(prim) => {
             let orig = primitive_name(prim);
@@ -141,6 +152,18 @@ pub(super) fn trait_impl_return_conversion(ty: &TypeRef) -> String {
             } else {
                 String::new()
             }
+        }
+        TypeRef::Named(_) => {
+            // Mirror type → core type: the mirror DartFnFuture returns a mirror struct,
+            // but the trait method must return the core type. We drop the mirror result
+            // and return Default since a proper reverse conversion requires a separate
+            // implementation path. Trait bridge return types should be primitive or ()
+            // for full correctness.
+            // TODO: implement mirror → core conversion for named return types.
+            // The suffix form: `{ let _ = __RESULT; Default::default() }` is not a
+            // clean suffix, so we use a named-return sentinel instead.
+            // Use a special marker that emit_trait_bridge_method will detect.
+            "__NAMED_RETURN_DEFAULT__".to_string()
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Vec(inner2) = inner.as_ref() {

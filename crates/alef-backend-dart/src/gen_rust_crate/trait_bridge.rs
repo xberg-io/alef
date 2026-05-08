@@ -1,7 +1,7 @@
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
-use super::conversions::frb_rust_type_with_source;
+use super::conversions::frb_rust_type;
 use super::trait_types::{
     trait_impl_param_conversion, trait_impl_param_type, trait_impl_return_conversion, trait_impl_return_type,
 };
@@ -208,25 +208,20 @@ pub(crate) fn emit_trait_bridge(
 
 /// Build the callback closure type stored in the bridge struct field.
 ///
-/// Closures always accept **owned** FRB-friendly types (the Dart FFI layer passes
-/// owned values). Reference parameters in the original trait are converted to owned
-/// before the closure is invoked. Returns a `DartFnFuture<T>` wrapping the
-/// FRB-friendly return type.
+/// Closures always accept **owned** FRB-friendly mirror types (the Dart FFI layer
+/// decodes arguments as mirror types, not source-crate types). Returns a
+/// `DartFnFuture<T>` wrapping the FRB-friendly mirror return type.
 ///
 /// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<ExtractionResult> + Send + Sync>`
 fn dart_fn_future_callback_type(
     method: &MethodDef,
-    source_crate_name: &str,
-    type_paths: &std::collections::HashMap<String, String>,
+    _source_crate_name: &str,
+    _type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    // Closures take owned FRB-friendly types — strip any reference wrappers.
-    let params: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| frb_rust_type_with_source(&p.ty, p.optional, source_crate_name, type_paths))
-        .collect();
+    // Closures take owned FRB mirror types — use frb_rust_type (no source prefix).
+    let params: Vec<String> = method.params.iter().map(|p| frb_rust_type(&p.ty, p.optional)).collect();
 
-    let ret = frb_rust_type_with_source(&method.return_type, false, source_crate_name, type_paths);
+    let ret = frb_rust_type(&method.return_type, false);
     let dart_fn_ret = format!("flutter_rust_bridge::DartFnFuture<{ret}>");
 
     let params_str = params.join(", ");
@@ -303,12 +298,20 @@ fn emit_trait_bridge_method(
     let call_expr = format!("(self.{method_name})({})", call_args.join(", "));
 
     // Emit the body, adapting the return value from FRB-widened to original type.
-    let ret_conv = trait_impl_return_conversion(&method.return_type);
+    let ret_conv = trait_impl_return_conversion(&method.return_type, source_crate_name);
+
+    // Special case: Named return type — the mirror type cannot be trivially converted
+    // back to the core type. Drop the result and return Default::default().
+    let named_return_default = ret_conv == "__NAMED_RETURN_DEFAULT__";
 
     if method.error_type.is_some() {
         // DartFnFuture never fails: wrap the awaited value in Ok(...).
         if method.is_async {
-            if ret_conv.is_empty() {
+            if named_return_default {
+                out.push_str(&format!(
+                    "        let _ = {call_expr}.await;\n        Ok(Default::default())\n"
+                ));
+            } else if ret_conv.is_empty() {
                 out.push_str(&crate::template_env::render(
                     "rust_trait_method_ok_await.jinja",
                     minijinja::context! {
@@ -332,12 +335,10 @@ fn emit_trait_bridge_method(
                     call_expr => call_expr.as_str(),
                 },
             ));
-            if ret_conv.is_empty() {
-                out.push_str(&crate::template_env::render(
-                    "rust_trait_method_plain_result.jinja",
-                    minijinja::context! {},
-                ));
+            if named_return_default {
+                out.push_str("        let _ = __result;\n        Ok(Default::default())\n");
             } else {
+                // error_type present: the Dart callback never fails, so wrap in Ok(...).
                 out.push_str(&crate::template_env::render(
                     "rust_trait_method_ok_block_on.jinja",
                     minijinja::context! {
@@ -347,7 +348,11 @@ fn emit_trait_bridge_method(
             }
         }
     } else if method.is_async {
-        if ret_conv.is_empty() {
+        if named_return_default {
+            out.push_str(&format!(
+                "        let _ = {call_expr}.await;\n        Default::default()\n"
+            ));
+        } else if ret_conv.is_empty() {
             out.push_str(&crate::template_env::render(
                 "rust_trait_method_await_plain.jinja",
                 minijinja::context! {
@@ -371,15 +376,11 @@ fn emit_trait_bridge_method(
                 call_expr => call_expr.as_str(),
             },
         ));
-        if ret_conv.is_empty() {
-            out.push_str("        __result\n");
+        if named_return_default {
+            out.push_str("        let _ = __result;\n        Default::default()\n");
         } else {
-            out.push_str(&crate::template_env::render(
-                "rust_trait_method_ok_block_on.jinja",
-                minijinja::context! {
-                    ret_conv => ret_conv.as_str(),
-                },
-            ));
+            // No error_type: return the plain value (no Ok() wrapping).
+            out.push_str(&format!("        __result{ret_conv}\n"));
         }
     }
     out.push_str("    }\n");

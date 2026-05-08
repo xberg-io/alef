@@ -14,6 +14,7 @@ use super::render_type::render_type;
 /// - `\` introduces an escape sequence → must be doubled.
 /// - `'` terminates the literal → must be escaped as `\'`.
 /// - `$` introduces string interpolation → must be escaped as `\$`.
+#[allow(dead_code)]
 fn escape_dart_string_literal(s: &str) -> String {
     s.replace('\\', r"\\").replace('\'', r"\'").replace('$', r"\$")
 }
@@ -24,6 +25,7 @@ fn escape_dart_string_literal(s: &str) -> String {
 /// surfaces literal substitution markers (`Parsing error: {message}` becomes
 /// `Parsing error`). When the template is empty (or stripping leaves nothing)
 /// falls back to the variant name to preserve some context.
+#[allow(dead_code)]
 fn build_message(variant_name: &str, template: Option<&str>) -> String {
     let raw = template.unwrap_or(variant_name);
     let stripped = strip_thiserror_placeholders(raw);
@@ -34,6 +36,7 @@ fn build_message(variant_name: &str, template: Option<&str>) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !error.doc.is_empty() {
         for line in error.doc.lines() {

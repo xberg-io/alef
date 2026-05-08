@@ -74,7 +74,11 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{}\n", workspace_dep_lines.join("\n"))
     };
-    let extra_deps = format!("{trait_bridge_deps}{workspace_deps_block}");
+    // serde_json is always required: the generated From<kreuzberg::T> impls use
+    // serde_json::to_string() to convert Json-typed fields (serde_json::Value,
+    // ProcessResult, InternalDocument, etc.) to String for the FRB-friendly mirror.
+    let serde_json_dep = "serde_json = \"1\"\n";
+    let extra_deps = format!("{serde_json_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold
@@ -139,10 +143,10 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 }
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
-    // FRB v2 schema: `rust_root` points at the Rust crate dir (not a single file)
-    // and `dart_output` is the directory where Dart bindings are written. The v1
-    // `rust_input` / `rust_output` keys were removed in v2.
-    let content = format!("rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
+    // FRB v2 schema: `rust_root` points at the Rust crate dir (not a single file),
+    // `rust_input` specifies which crate modules FRB should process,
+    // and `dart_output` is the directory where Dart bindings are written.
+    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,

@@ -31,10 +31,7 @@ pub(crate) fn emit_bridge_fn(
     let has_error = f.error_type.is_some();
     // Return type uses local mirror names so FRB's generated SseEncode impls match.
     let return_ty = if has_error {
-        format!(
-            "Result<{}, String>",
-            frb_rust_type_mirror(&f.return_type, false)
-        )
+        format!("Result<{}, String>", frb_rust_type_mirror(&f.return_type, false))
     } else {
         frb_rust_type_mirror(&f.return_type, false)
     };
@@ -77,13 +74,7 @@ pub(crate) fn emit_bridge_fn(
         String::new()
     };
 
-    let body = build_body(
-        &call,
-        &result_cast,
-        &ret_transmute,
-        has_error,
-        f.is_async,
-    );
+    let body = build_body(&call, &result_cast, &ret_transmute, has_error, f.is_async);
 
     out.push_str(&body);
     out.push_str("}\n");
@@ -226,9 +217,7 @@ fn dart_call_arg_with_mirror_transmute(
                     "unsafe {{ std::mem::transmute::<*const {type_name}, *const {core_ty}>({name}.as_ptr()) }}"
                 );
             }
-            return format!(
-                "unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>({name}) }}"
-            );
+            return format!("unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>({name}) }}");
         }
     }
 
@@ -236,9 +225,7 @@ fn dart_call_arg_with_mirror_transmute(
     if let TypeRef::Optional(inner) = &p.ty {
         if let TypeRef::Named(type_name) = inner.as_ref() {
             let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
-            return format!(
-                "{name}.map(|v| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(v) }})"
-            );
+            return format!("{name}.map(|v| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(v) }})");
         }
     }
 
@@ -260,44 +247,42 @@ fn resolve_core_type(
 /// Emit the transmute call for a single Named parameter going INTO the core fn.
 fn build_named_in_transmute(name: &str, mirror_name: &str, core_ty: &str, is_ref: bool, optional: bool) -> String {
     if optional {
-        return format!(
-            "{name}.map(|v| unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})"
-        );
+        return format!("{name}.map(|v| unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})");
     }
     if is_ref {
-        return format!(
-            "unsafe {{ std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{name}) }}"
-        );
+        return format!("unsafe {{ std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{name}) }}");
     }
     format!("unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>({name}) }}")
 }
 
-/// Build a transmute expression for the return value FROM the core fn to the local mirror type.
-/// Returns an empty string if no transmute is needed.
+/// Build a conversion expression for the return value FROM the core fn to the local mirror type.
+/// Returns an empty string if no conversion is needed.
 /// Returns a closure/expression string that wraps the raw call value.
+///
+/// Uses `From<kreuzberg::T> for T` rather than transmute, because mirror types may differ
+/// in layout (e.g. `Cow<'static, str>` in core vs `String` in mirror).
 fn return_transmute_expr(
     ty: &TypeRef,
-    source_crate_name: &str,
-    type_paths: &std::collections::HashMap<String, String>,
+    _source_crate_name: &str,
+    _type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
     match ty {
         TypeRef::Named(mirror_name) => {
-            let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
-            // Produce a closure body: |v| unsafe { transmute::<CoreType, MirrorType>(v) }
-            format!("|v| unsafe {{ std::mem::transmute::<{core_ty}, {mirror_name}>(v) }}")
+            // Use From conversion: core type implements Into<MirrorType> via the generated From impl.
+            format!("|v| {mirror_name}::from(v)")
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
-                format!("|v| unsafe {{ std::mem::transmute::<Vec<{core_ty}>, Vec<{mirror_name}>>(v) }}")
+                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
             } else {
                 String::new()
             }
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
-                format!("|v| v.map(|x| unsafe {{ std::mem::transmute::<{core_ty}, {mirror_name}>(x) }})")
+                // Add explicit type annotation to avoid E0282 type inference failure
+                // when the core return type is ambiguous (e.g. returned via trait object).
+                format!("|v: Option<_>| v.map({mirror_name}::from)")
             } else {
                 String::new()
             }
@@ -370,22 +355,14 @@ fn build_body(call: &str, result_cast: &str, ret_transmute: &str, has_error: boo
         let transmute_fn = ret_transmute;
         if has_error {
             if is_async {
-                return format!(
-                    "    {call}.await.map({transmute_fn}).map_err(|e| e.to_string())\n"
-                );
+                return format!("    {call}.await.map({transmute_fn}).map_err(|e| e.to_string())\n");
             }
-            return format!(
-                "    {call}.map({transmute_fn}).map_err(|e| e.to_string())\n"
-            );
+            return format!("    {call}.map({transmute_fn}).map_err(|e| e.to_string())\n");
         }
         if is_async {
-            return format!(
-                "    ({transmute_fn})({call}.await)\n"
-            );
+            return format!("    ({transmute_fn})({call}.await)\n");
         }
-        return format!(
-            "    ({transmute_fn})({call})\n"
-        );
+        return format!("    ({transmute_fn})({call})\n");
     }
 
     // Non-Named return type: use result_cast suffix.
