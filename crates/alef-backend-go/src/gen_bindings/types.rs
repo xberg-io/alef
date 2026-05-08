@@ -802,7 +802,11 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
         // in Go, which breaks Rust serde deserialization expecting an array), fields
         // where the Go zero value differs from the Rust Default value, and string enum
         // fields where "" is never a valid Rust enum variant.
-        let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
+        // Per-field `#[serde(rename = "...")]` wins over `rename_all`.
+        let json_name = field
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
         let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
         let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
             format!("json:\"{},omitempty\"", json_name)
@@ -859,7 +863,11 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
                 continue;
             }
             let go_field = to_go_name(&field.name);
-            let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
+            // Per-field `#[serde(rename = "...")]` wins over `rename_all`.
+        let json_name = field
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
             let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
             let is_named_enum = !field.optional
                 && !use_default_pointer
