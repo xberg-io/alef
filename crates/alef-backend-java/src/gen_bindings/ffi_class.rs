@@ -155,7 +155,7 @@ pub(crate) fn gen_sync_function_method(
 
     // For convert with visitor, handle delegation at the top level
     if is_convert_with_visitor_support {
-        out.push_str("        if (options != null && options.visitor() != null) {{\n");
+        out.push_str("        if (options != null && options.visitor() != null) {\n");
         out.push_str("            return convertWithVisitorInternal(html, options);\n");
         out.push_str("        }}\n");
         out.push('\n');
@@ -263,7 +263,7 @@ pub(crate) fn gen_sync_function_method(
             },
         ));
         emit_ffi_ptr_cleanup(out);
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -316,7 +316,7 @@ pub(crate) fn gen_sync_function_method(
                 },
             ));
         }
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -388,7 +388,7 @@ pub(crate) fn gen_sync_function_method(
                     ptr => "resultPtr",
                 },
             ));
-            out.push_str("            if (jsonPtr.equals(MemorySegment.NULL)) {{\n");
+            out.push_str("            if (jsonPtr.equals(MemorySegment.NULL)) {\n");
             out.push_str("                checkLastError();\n");
             if is_optional_return {
                 out.push_str("                return Optional.empty();\n");
@@ -420,7 +420,7 @@ pub(crate) fn gen_sync_function_method(
             }
         }
 
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -464,7 +464,7 @@ pub(crate) fn gen_sync_function_method(
                 },
             ));
         }
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -492,7 +492,7 @@ pub(crate) fn gen_sync_function_method(
                 optional => is_optional_return,
             },
         ));
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -516,7 +516,7 @@ pub(crate) fn gen_sync_function_method(
         } else {
             out.push_str("            return primitiveResult;\n");
         }
-        out.push_str("        }} catch (Throwable e) {{\n");
+        out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
             "ffi_throw_exception.jinja",
             minijinja::context! {
@@ -567,7 +567,7 @@ pub(crate) fn gen_async_wrapper_method(
             params => params.join(", "),
         },
     ));
-    out.push_str("        return CompletableFuture.supplyAsync(() -> {{\n");
+    out.push_str("        return CompletableFuture.supplyAsync(() -> {\n");
     out.push_str("    }}\n");
 }
 
@@ -591,7 +591,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     out.push_str("            var cHtml = arena.allocateFrom(html);\n");
     out.push('\n');
     out.push_str("            MemorySegment optionsPtr = MemorySegment.NULL;\n");
-    out.push_str("            if (options != null) {{\n");
+    out.push_str("            if (options != null) {\n");
     out.push_str("                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));\n");
     out.push_str(&crate::template_env::render(
         "ffi_conversion_options_invoke.jinja",
@@ -600,7 +600,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("            }}\n");
-    out.push_str("            if (optionsPtr.equals(MemorySegment.NULL)) {{\n");
+    out.push_str("            if (optionsPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                var defaultJson = arena.allocateFrom(\"{{}}\");\n");
     out.push_str(&crate::template_env::render(
         "ffi_conversion_options_invoke.jinja",
@@ -616,8 +616,8 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
-    out.push_str("            if (visitorHandle.equals(MemorySegment.NULL)) {{\n");
-    out.push_str("                if (!optionsPtr.equals(MemorySegment.NULL)) {{\n");
+    out.push_str("            if (visitorHandle.equals(MemorySegment.NULL)) {\n");
+    out.push_str("                if (!optionsPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str(&crate::template_env::render(
         "ffi_options_free.jinja",
         minijinja::context! {
@@ -633,7 +633,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     ));
     out.push_str("            }}\n");
     out.push('\n');
-    out.push_str("            try {{\n");
+    out.push_str("            try {\n");
     out.push_str(&crate::template_env::render(
         "ffi_options_set_visitor.jinja",
         minijinja::context! {
@@ -652,7 +652,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
-    out.push_str("                if (resultPtr.equals(MemorySegment.NULL)) {{\n");
+    out.push_str("                if (resultPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                    checkLastError();\n");
     out.push_str("                    return null;\n");
     out.push_str("                }}\n");
@@ -668,7 +668,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
-    out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {{\n");
+    out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                    checkLastError();\n");
     out.push_str("                    return null;\n");
     out.push_str("                }}\n");
@@ -680,7 +680,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("                return MAPPER.readValue(json, ConversionResult.class);\n");
-    out.push_str("            }} catch (Throwable e) {{\n");
+    out.push_str("            } catch (Throwable e) {\n");
     out.push_str(&crate::template_env::render(
         "ffi_throw_inner.jinja",
         minijinja::context! {
@@ -703,7 +703,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("            throw e;\n");
-    out.push_str("        }} catch (Throwable e) {{\n");
+    out.push_str("        } catch (Throwable e) {\n");
     out.push_str(&crate::template_env::render(
         "ffi_throw_outer.jinja",
         minijinja::context! {
