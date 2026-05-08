@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(java-backend): wrap `readJsonList` null-check inside try-catch so that
+  `checkLastError()`'s `Throwable` is caught and rethrown as `KreuzbergRsException`,
+  resolving Java compile error on FFI method calls.
 - fix(e2e/gleam): `contains_any` assertion now compiles to OR logic via
   `gleam/list.any` + `string.contains`, instead of N independent
   `string.contains` calls AND-ed together. Adds `gleam/list` to required
