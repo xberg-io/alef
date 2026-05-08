@@ -1080,6 +1080,20 @@ fn build_args_and_setup(
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
         match val {
+            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
+                // Special case: ExtractionConfig and similar config objects with no fixture value
+                // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
+                // to satisfy required parameters. This check happens BEFORE the optional check
+                // so that config args are always provided, even if marked optional in alef.toml.
+                // Infer the type name from the arg name and capitalize it (e.g., "config" -> "ExtractionConfig").
+                let type_name = if arg.name == "config" {
+                    "ExtractionConfig".to_string()
+                } else {
+                    format!("{}Config", arg.name.to_upper_camel_case())
+                };
+                parts.push(format!("{type_name}::from_json('{{}}')"));
+                continue;
+            }
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value. If a later arg WILL emit
                 // something, we must keep this slot in place by passing `null`
@@ -1088,19 +1102,6 @@ fn build_args_and_setup(
                 if any_later_has_emission(idx + 1) {
                     parts.push("null".to_string());
                 }
-                continue;
-            }
-            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
-                // Special case: ExtractionConfig and similar config objects with no fixture value
-                // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
-                // to satisfy required parameters.
-                // Infer the type name from the arg name and capitalize it (e.g., "config" -> "ExtractionConfig").
-                let type_name = if arg.name == "config" {
-                    "ExtractionConfig".to_string()
-                } else {
-                    format!("{}Config", arg.name.to_upper_camel_case())
-                };
-                parts.push(format!("{type_name}::from_json('{{}}')"));
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
@@ -1168,9 +1169,12 @@ fn build_args_and_setup(
                                 }
 
                                 let arg_var = format!("${}", arg.name);
+                                // Use json_to_php (snake_case) instead of json_to_php_camel_keys because
+                                // Rust's serde deserializes field names as snake_case by default (via #[serde(rename_all = "snake_case")]).
+                                // PHP should match Rust field naming conventions, not use camelCase.
                                 setup_lines.push(format!(
                                     "{arg_var} = {type_name}::from_json(json_encode({}));",
-                                    json_to_php_camel_keys(&filtered_v)
+                                    json_to_php(&filtered_v)
                                 ));
                                 parts.push(arg_var);
                                 continue;
