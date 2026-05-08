@@ -851,32 +851,6 @@ pub(super) fn gen_module_init(
         }
     }
 
-    // Register enum variant accessor methods for tagged enums
-    for enum_def in &api.enums {
-        if super::is_reserved_enum(&enum_def.name) || exclude_types.contains(enum_def.name.as_str()) {
-            continue;
-        }
-        let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-        if has_data {
-            lines.push(format!(
-                r#"    let enum_class = module.define_class("{}", ruby.class_object())?;"#,
-                enum_def.name
-            ));
-            for variant in &enum_def.variants {
-                if !variant.fields.is_empty() {
-                    let method_name = super::classes::pascal_to_snake(&variant.name);
-                    lines.push(format!(
-                        r#"    enum_class.define_method("{}", method!({enum_name}::{method_name}, 0))?;"#,
-                        method_name,
-                        enum_name = enum_def.name,
-                        method_name = method_name
-                    ));
-                }
-            }
-            lines.push("".to_string());
-        }
-    }
-
     // Register trait bridge entry points: pub fn register_xxx(rb_obj, name) -> Result<...>
     // is emitted by the trait_bridge generator; surface it on the Ruby module here.
     for bridge_cfg in &config.trait_bridges {
