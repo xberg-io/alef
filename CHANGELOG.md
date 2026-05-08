@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate `impl std::fmt::Debug for RbHtmlVisitorBridge` was observed in `html-to-markdown`
   Ruby gem builds (E0119 conflicting trait impl). Test `test_visitor_bridge_debug_not_duplicated`
   extended to 40 visitor methods to better mirror the real `HtmlVisitor` trait surface.
+- fix(codegen/config_gen): drop trailing `,` from rendered field assignments in
+  `magnus_hash_constructor.jinja` and `rustler_kwargs_constructor.jinja`. The `field.assignment`
+  strings already terminate in `,`, so the templates were emitting `,,` and Rust rejected the
+  generated kwargs constructors with `expected identifier, found ','`.
 
 ## [0.14.36] - 2026-05-08
 

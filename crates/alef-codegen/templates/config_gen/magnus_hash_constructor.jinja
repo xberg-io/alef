@@ -5,7 +5,7 @@ fn new(args: &[magnus::Value]) -> Result<Self, magnus::Error> {
     let kwargs = kwargs_opt.unwrap_or_else(|| ruby.hash_new());
     Ok(Self {
 {% for field in fields -%}
-        {{ field.name }}: {{ field.assignment }},
+        {{ field.name }}: {{ field.assignment }}
 {% endfor -%}
     })
 }
