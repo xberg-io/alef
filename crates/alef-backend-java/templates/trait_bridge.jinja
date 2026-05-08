@@ -77,7 +77,7 @@ public final class {{ bridge_class }} implements AutoCloseable {
     private int {{ method.handle_name }}({{ method.sig_params }}) {
         try {
 {% for unmarshal in method.unmarshal_params %}
-            {{ unmarshal }};
+            {{ unmarshal }}
 {% endfor %}
 {% if method.has_return %}
             {{ method.return_type }} result = impl.{{ method.name }}({{ method.call_args }});

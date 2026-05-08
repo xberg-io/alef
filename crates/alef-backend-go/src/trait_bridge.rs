@@ -22,7 +22,7 @@ use heck::ToPascalCase;
 /// `Register{Trait}(impl {Trait}) error` builds the C vtable, calls the C registration
 /// function, and returns any error. The handle remains valid for the lifetime of the
 /// plugin; a corresponding `Unregister{Trait}(name string) error` removes it.
-
+///
 /// Generate the complete trait_bridges.go file content for all configured trait bridges.
 ///
 /// `pkg_name`: Go package name (e.g., `"kreuzberg"`).

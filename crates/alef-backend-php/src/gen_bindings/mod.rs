@@ -19,6 +19,16 @@ use std::path::PathBuf;
 
 use crate::naming::php_autoload_namespace;
 use functions::{gen_async_function_as_static_method, gen_function_as_static_method};
+
+/// PHP 8.1 enum cases cannot use case-insensitive `class` (reserved for
+/// `EnumName::class` syntax). Append a trailing underscore for those cases.
+fn sanitize_php_enum_case(name: &str) -> String {
+    if name.eq_ignore_ascii_case("class") {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
+}
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
     gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
@@ -1045,10 +1055,12 @@ impl Backend for PhpBackend {
                     context! { enum_name => &enum_def.name },
                 ));
                 for variant in &enum_def.variants {
+                    let case_name = sanitize_php_enum_case(&variant.name);
                     content.push_str(&crate::template_env::render(
                         "php_enum_variant_stub.jinja",
                         context! {
-                            variant_name => &variant.name,
+                            variant_name => case_name,
+                            value => &variant.name,
                         },
                     ));
                 }
