@@ -680,9 +680,9 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             let variant_flat_names: std::collections::BTreeSet<String> =
                 (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
             if variant_flat_names == all_flat_fields {
-                out.push_str(" }},\n");
+                out.push_str(" },\n");
             } else {
-                out.push_str(" ..Default::default() }},\n");
+                out.push_str(" ..Default::default() },\n");
             }
         }
     }
@@ -750,7 +750,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                         },
                     ));
                 }
-                out.push_str(" }},\n");
+                out.push_str(" },\n");
             }
         }
     }
@@ -812,7 +812,7 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     },
                 ));
             }
-            out.push_str(" }},\n");
+            out.push_str(" },\n");
         }
     }
     out.push_str(&crate::template_env::render(
