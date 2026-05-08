@@ -16,7 +16,7 @@ public typealias Status = RustBridge.Status
 /// Errors emitted by demo operations.
 public enum DemoError: Error {
     /// Input validation failed.
-    case invalidInput(message: String)
+    case invalidInput
     /// Processing encountered an error.
-    case processingFailed(message: String)
+    case processingFailed
 }

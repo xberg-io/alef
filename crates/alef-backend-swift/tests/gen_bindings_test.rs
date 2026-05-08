@@ -497,14 +497,8 @@ fn error_enum_conforms_to_error_protocol() {
         content.contains("public enum ApiError: Error {"),
         "missing Error conformance: {content}"
     );
-    assert!(
-        content.contains("case notFound(message: String)"),
-        "missing notFound case: {content}"
-    );
-    assert!(
-        content.contains("case timeout(message: String)"),
-        "missing timeout case: {content}"
-    );
+    assert!(content.contains("case notFound\n"), "missing notFound case: {content}");
+    assert!(content.contains("case timeout\n"), "missing timeout case: {content}");
 }
 
 // ── convenience wrapper tests ─────────────────────────────────────────────────
