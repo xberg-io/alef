@@ -308,6 +308,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/ffi_invoke_free.jinja"),
     ),
     (
+        "ffi_invoke_void.jinja",
+        include_str!("../templates/ffi_invoke_void.jinja"),
+    ),
+    (
         "ffi_return_expr.jinja",
         include_str!("../templates/ffi_return_expr.jinja"),
     ),
