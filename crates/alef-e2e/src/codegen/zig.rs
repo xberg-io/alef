@@ -681,12 +681,22 @@ fn build_args_and_setup(
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0".to_string(),
                     "bool" | "boolean" => "false".to_string(),
+                    "json_object" => "\"{}\"".to_string(),
                     _ => "null".to_string(),
                 };
                 parts.push(default_val);
             }
             Some(v) => {
-                parts.push(json_to_zig(v));
+                // For `json_object` arguments other than `config` (handled
+                // above) the Zig binding accepts a JSON `[]const u8`, so we
+                // serialize the entire fixture value as a single JSON string
+                // literal rather than rendering it as a Zig array/struct.
+                if arg.arg_type == "json_object" {
+                    let json_str = serde_json::to_string(v).unwrap_or_default();
+                    parts.push(format!("\"{}\"", escape_zig(&json_str)));
+                } else {
+                    parts.push(json_to_zig(v));
+                }
             }
         }
     }
