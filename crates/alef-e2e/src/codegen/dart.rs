@@ -4,6 +4,7 @@
 //! HTTP fixtures hit the mock server at `MOCK_SERVER_URL/fixtures/<id>`.
 //! Non-HTTP fixtures without a dart-specific call override emit a skip stub.
 
+use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
 use crate::fixture::{Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
@@ -152,8 +153,20 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
+    // Check if any fixture needs Uint8List.fromList (batch item byte arrays).
+    let has_batch_byte_items = fixtures.iter().any(|f| {
+        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        call_config.args.iter().any(|a| {
+            a.element_type.as_deref() == Some("BatchBytesItem")
+                && resolve_field(&f.input, &a.field).is_array()
+        })
+    });
+
     let _ = writeln!(out, "import 'package:test/test.dart';");
     let _ = writeln!(out, "import 'dart:io';");
+    if has_batch_byte_items {
+        let _ = writeln!(out, "import 'dart:typed_data';");
+    }
     let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
@@ -257,20 +270,63 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let description = escape_dart(&fixture.description);
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
-    // Build argument list from fixture.input and call_config.args
+    // Build argument list from fixture.input and call_config.args.
+    // Use `resolve_field` (respects the `field` path like "input.data") rather than
+    // looking up by `arg_def.name` directly — the name and the field key may differ.
+    //
+    // For `extract_file_sync` / `extract_file` fixtures that omit `mime_type`,
+    // derive the MIME from the path extension so `extractBytesSync`/`extractBytes`
+    // can be called (both require an explicit MIME type).
+    let file_path_for_mime: Option<&str> = call_config
+        .args
+        .iter()
+        .find(|a| a.arg_type == "file_path")
+        .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
+
     let mut args = Vec::new();
     for arg_def in &call_config.args {
-        let arg_value = fixture.input.get(&arg_def.name);
+        let arg_value = resolve_field(&fixture.input, &arg_def.field);
         match arg_def.arg_type.as_str() {
-            "file_path" | "bytes" => {
-                if let Some(serde_json::Value::String(file_path)) = arg_value {
+            "bytes" | "file_path" => {
+                // `bytes`: value is a file path string; load file contents at test-run time.
+                // `file_path`: also loaded as bytes for dart — extractBytes/extractBytesSync is
+                // the idiomatic Dart API since the Dart runtime cannot pass OS-level file paths
+                // through the FFI bridge.
+                if let serde_json::Value::String(file_path) = arg_value {
                     args.push(format!("File('{}').readAsBytesSync()", file_path));
                 }
             }
             "string" => {
-                if let Some(serde_json::Value::String(s)) = arg_value {
-                    args.push(format!("'{}'", escape_dart(s)));
+                match arg_value {
+                    serde_json::Value::String(s) => {
+                        args.push(format!("'{}'", escape_dart(s)));
+                    }
+                    serde_json::Value::Null if arg_def.optional => {
+                        // Optional string absent from fixture — try to infer MIME from path
+                        // when the arg name looks like a MIME-type parameter.
+                        if arg_def.name == "mime_type" {
+                            let inferred = file_path_for_mime
+                                .and_then(|p| mime_from_extension(p))
+                                .unwrap_or("application/octet-stream");
+                            args.push(format!("'{inferred}'"));
+                        }
+                        // Other optional strings with null value are omitted.
+                    }
+                    _ => {}
                 }
+            }
+            "json_object" => {
+                // Handle batch item arrays (BatchBytesItem / BatchFileItem).
+                if let Some(elem_type) = &arg_def.element_type {
+                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem")
+                        && arg_value.is_array()
+                    {
+                        let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
+                        args.push(dart_items);
+                    }
+                }
+                // Optional json_object args (e.g. config) are omitted — the wrapper
+                // supplies the default ExtractionConfig when config is not passed.
             }
             _ => {}
         }
@@ -620,6 +676,81 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     // concept of expected status code so we thread it through renderer state.
     let is_redirect = http.expected_response.status_code / 100 == 3;
     client::http_call::render_http_test(out, &DartTestClientRenderer::new(is_redirect), fixture);
+}
+
+/// Infer a MIME type from a file path extension.
+///
+/// Returns `None` when the extension is unknown so the caller can supply a fallback.
+/// Used in dart e2e tests when a fixture omits `mime_type` but uses a `file_path` arg.
+fn mime_from_extension(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext.to_lowercase().as_str() {
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        "pdf" => Some("application/pdf"),
+        "txt" | "text" => Some("text/plain"),
+        "html" | "htm" => Some("text/html"),
+        "json" => Some("application/json"),
+        "xml" => Some("application/xml"),
+        "csv" => Some("text/csv"),
+        "md" | "markdown" => Some("text/markdown"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "zip" => Some("application/zip"),
+        "odt" => Some("application/vnd.oasis.opendocument.text"),
+        "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
+        "odp" => Some("application/vnd.oasis.opendocument.presentation"),
+        "rtf" => Some("application/rtf"),
+        "epub" => Some("application/epub+zip"),
+        "msg" => Some("application/vnd.ms-outlook"),
+        "eml" => Some("message/rfc822"),
+        _ => None,
+    }
+}
+
+/// Emit Dart constructors for a batch item array (`BatchBytesItem` or `BatchFileItem`).
+///
+/// Returns a Dart list literal like:
+/// ```dart
+/// [BatchBytesItem(content: Uint8List.fromList([72, 101, ...]), mimeType: 'text/plain')]
+/// ```
+fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    let items: Vec<String> = arr
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|item| {
+            let obj = item.as_object()?;
+            match elem_type {
+                "BatchBytesItem" => {
+                    let content_bytes = obj
+                        .get("content")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            let nums: Vec<String> =
+                                arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
+                            format!("Uint8List.fromList([{}])", nums.join(", "))
+                        })
+                        .unwrap_or_else(|| "Uint8List(0)".to_string());
+                    let mime_type =
+                        obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
+                    Some(format!(
+                        "BatchBytesItem(content: {content_bytes}, mimeType: '{}')",
+                        escape_dart(mime_type)
+                    ))
+                }
+                "BatchFileItem" => {
+                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    Some(format!("BatchFileItem(path: '{}')", escape_dart(path)))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    format!("[{}]", items.join(", "))
 }
 
 /// Escape a string for embedding in a Dart single-quoted string literal.

@@ -13,6 +13,9 @@ pub enum {{ enum_name }} {
 {%- if variant.is_default %}
     #[default]
 {%- endif %}
+{%- if variant.serde_rename %}
+    #[serde(rename = "{{ variant.serde_rename }}")]
+{%- endif %}
     {{ variant.name }} = {{ variant.idx }},
 {%- endfor %}
 }

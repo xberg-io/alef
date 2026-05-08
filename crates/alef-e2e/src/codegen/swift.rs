@@ -114,7 +114,7 @@ impl E2eCodegen for SwiftE2eCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
-            &HashSet::new(),
+            &e2e_config.fields_method_calls,
         );
 
         // One test file per fixture group.
@@ -518,6 +518,9 @@ fn render_test_method(
         .unwrap_or_else(|| call_config.function.to_lower_camel_case());
     let result_var = &call_config.result_var;
     let args = &call_config.args;
+    // Per-call flags override the global default.
+    let result_is_simple = call_config.result_is_simple || result_is_simple;
+    let result_is_array = call_config.result_is_array;
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -583,6 +586,7 @@ fn render_test_method(
             result_var,
             field_resolver,
             result_is_simple,
+            result_is_array,
             enum_fields,
         );
     }
@@ -655,12 +659,24 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_array: bool,
     enum_fields: &HashSet<String>,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
             let _ = writeln!(out, "        // skipped: field '{{f}}' not available on result type");
+            return;
+        }
+    }
+
+    // Skip assertions that traverse a tagged-union variant boundary.
+    // In Swift, FormatMetadata and similar enum-backed opaque types are exposed as
+    // plain classes by swift-bridge — variant accessor methods (e.g., `.excel()`)
+    // are not generated, so such assertions cannot be expressed.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && field_resolver.tagged_union_split(f).is_some() {
+            let _ = writeln!(out, "        // skipped: field '{f}' crosses a tagged-union variant boundary (not expressible in Swift)");
             return;
         }
     }
@@ -718,23 +734,35 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let swift_val = json_to_swift(expected);
-                // For array fields (RustVec<RustString>), check membership via map+contains.
-                let field_is_array = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
-                if field_is_array {
-                    let contains_expr =
-                        swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                // When the root result IS the array (result_is_simple + result_is_array) and
+                // there is no field path, check array membership via map+contains.
+                let no_field = assertion.field.as_deref().map_or(true, |f| f.is_empty());
+                if result_is_simple && result_is_array && no_field {
+                    // RustVec<RustString> iteration yields RustStringRef (no `toString()`);
+                    // use `.as_str().toString()` to convert each element to a Swift String.
                     let _ = writeln!(
                         out,
-                        "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        "        XCTAssertTrue({result_var}.map {{ $0.as_str().toString() }}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                     );
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                    );
+                    // For array fields (RustVec<RustString>), check membership via map+contains.
+                    let field_is_array = assertion
+                        .field
+                        .as_deref()
+                        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+                    if field_is_array {
+                        let contains_expr =
+                            swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
+                    }
                 }
             }
         }
@@ -1009,22 +1037,24 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
 ///
 /// The result is `Optional<[String]>` — callers should coalesce with `?? []`.
 ///
-/// We always use `?.map { $0.toString() }` because:
-/// 1. The accessor may end with an `Optional<RustVec<RustString>>` (e.g. `sheet_names()` is
+/// We use `?.map { $0.as_str().toString() }` because:
+/// 1. Iterating a `RustVec<RustString>` yields `RustStringRef` (not `RustString`), which
+///    only has `as_str()` but not `toString()` directly.
+/// 2. The accessor may end with an `Optional<RustVec<RustString>>` (e.g. `sheet_names()` is
 ///    `Option<Vec<String>>` in Rust, which becomes `Optional<RustVec<RustString>>` in Swift).
-/// 2. Optional chaining from parent `?.` already produces `Optional<RustVec<T>>`.
+/// 3. Optional chaining from parent `?.` already produces `Optional<RustVec<T>>`.
 ///
-/// In both cases, `?.map { $0.toString() }` is the correct Swift idiom:
-/// it calls the Sequence's `.map` on the unwrapped `RustVec`, giving `[String]`, wrapped
-/// in `Optional`. The `?? []` in callers coalesces nil to an empty array.
+/// `?.map { $0.as_str().toString() }` converts each `RustStringRef` to a Swift `String`,
+/// giving `[String]` wrapped in `Optional`. The `?? []` in callers coalesces nil to an empty
+/// array.
 fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolver: &FieldResolver) -> String {
     let Some(f) = field else {
-        return format!("{result_var}.map {{ $0.toString() }}");
+        return format!("{result_var}.map {{ $0.as_str().toString() }}");
     };
     let (accessor, _has_optional) = swift_build_accessor(f, result_var, field_resolver);
     // Always use `?.map` — the array field (sheet_names, etc.) may itself return
     // Optional<RustVec<T>> even if not listed in fields_optional.
-    format!("{accessor}?.map {{ $0.toString() }}")
+    format!("{accessor}?.map {{ $0.as_str().toString() }}")
 }
 
 /// Generate a `.count` expression for an array field that may be nested inside optional parents.

@@ -221,6 +221,17 @@ pub fn gen_struct_with_rename(
         if has_serde && (opaque_fields.contains(&field.name.as_str()) || skip_sanitized_field) {
             attrs.push("serde(skip)".to_string());
         }
+        // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
+        // struct's JSON wire format matches the core's. Only when no caller-supplied
+        // serde rename is already present (caller may emit one for keyword-escapes).
+        if has_serde
+            && !attrs.iter().any(|a| a.starts_with("serde(rename"))
+            && !attrs.iter().any(|a| a == "serde(skip)")
+        {
+            if let Some(rename) = &field.serde_rename {
+                attrs.push(format!("serde(rename = \"{rename}\")"));
+            }
+        }
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());
         sb.add_field_with_doc(&emit_name, &ty, attrs, &field.doc);
     }
@@ -273,12 +284,14 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
-        let attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
-        // Only add #[serde(default)] when serde derives are present on the struct
-        // (opaque_fields empty = serde derives added, opaque field needs serde(default))
-        // This can't happen: if opaque_fields is empty, no field matches this check.
-        // If opaque_fields is non-empty, serde derives were suppressed → skip serde attr.
-        // So this block is effectively dead — remove it to prevent stale serde attrs.
+        let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+        // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
+        // struct's JSON wire format matches the core's.
+        if let Some(rename) = &field.serde_rename {
+            if !attrs.iter().any(|a| a.starts_with("serde(rename")) {
+                attrs.push(format!("serde(rename = \"{rename}\")"));
+            }
+        }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
     }
     sb.build()

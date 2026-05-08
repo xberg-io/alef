@@ -340,6 +340,45 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
 "#;
         builder.add_item(py_visitor_ref_def);
 
+        // Serde helper for fields where the Python binding stores JSON as a `String` but
+        // the input may be either a JSON string or a raw value. Used via
+        // `#[serde(default, deserialize_with = "alef_json_str::deserialize")]` on Json
+        // fields so `from_json` accepts both `"parameters": "{...}"` and the more
+        // ergonomic `"parameters": {...}`.
+        let alef_json_helper = r#"
+mod alef_json_str {
+    use serde::{Deserialize, Deserializer};
+    use serde_json::Value;
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = Value::deserialize(deserializer)?;
+        Ok(match v {
+            Value::String(s) => s,
+            other => other.to_string(),
+        })
+    }
+}
+
+mod alef_json_str_opt {
+    use serde::{Deserialize, Deserializer};
+    use serde_json::Value;
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v: Option<Value> = Option::deserialize(deserializer)?;
+        Ok(v.and_then(|val| match val {
+            Value::Null => None,
+            Value::String(s) => Some(s),
+            other => Some(other.to_string()),
+        }))
+    }
+}
+"#;
+        builder.add_item(alef_json_helper);
+
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);
         for module in custom_mods {
@@ -462,6 +501,23 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
                     &mapper,
                     type_cfg,
                     |field| {
+                        // For Json-typed fields whose Python binding stores `String`,
+                        // route deserialisation through the `alef_json_str{,_opt}` helpers
+                        // so callers may pass either a JSON-string-encoded value or a
+                        // raw object/array (which the helper re-encodes to a string).
+                        // The Json-field is detected via TypeRef directly (not via the
+                        // mapped type name) so `Option<Json>` cases also match.
+                        let is_json_field = matches!(field.ty, alef_core::ir::TypeRef::Json);
+                        let is_opt_json_field = field.optional && is_json_field
+                            || matches!(&field.ty, alef_core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::Json));
+                        let json_attr = if is_opt_json_field {
+                            Some("serde(default, deserialize_with = \"alef_json_str_opt::deserialize\")".to_string())
+                        } else if is_json_field {
+                            Some("serde(default, deserialize_with = \"alef_json_str::deserialize\")".to_string())
+                        } else {
+                            None
+                        };
+
                         // When the field needs a keyword-escape rename, replace the default
                         // `pyo3(get)` with `pyo3(get, name = "original")` and add a serde
                         // rename attr so JSON serialization still uses the original name.
@@ -472,10 +528,16 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
                             .resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name)
                             .is_some()
                         {
-                            vec![
+                            let mut attrs = vec![
                                 format!("pyo3(get, name = \"{}\")", field.name),
                                 format!("serde(rename = \"{}\")", field.name),
-                            ]
+                            ];
+                            if let Some(a) = json_attr {
+                                attrs.push(a);
+                            }
+                            attrs
+                        } else if let Some(a) = json_attr {
+                            vec![a]
                         } else {
                             vec![]
                         }

@@ -568,6 +568,8 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
     let resolved = type_resolver::resolve_type(&field.ty);
     let (ty, optional) = unwrap_optional(resolved);
 
+    let serde_rename = extract_serde_rename(&field.attrs);
+
     FieldDef {
         name,
         ty,
@@ -582,7 +584,38 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
         core_wrapper,
         vec_inner_core_wrapper,
         newtype_wrapper: None,
+        serde_rename,
     }
+}
+
+/// Extract a `#[serde(rename = "...")]` value from a list of attributes (also
+/// matching `#[cfg_attr(..., serde(rename = "..."))]`).
+pub(crate) fn extract_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        if !attr_str.contains("serde") || !attr_str.contains("rename") {
+            return None;
+        }
+        // `rename_all` also contains `rename`; ensure we anchor on `rename =` (or `rename=`)
+        // and not on `rename_all`.
+        let needles = ["rename =", "rename="];
+        for needle in &needles {
+            if let Some(pos) = attr_str.find(needle) {
+                // Reject `rename_all`: the pos check fails when preceded by `_all`.
+                let before = &attr_str[..pos];
+                if before.ends_with("rename_all_") || before.ends_with("rename_all") {
+                    continue;
+                }
+                let rest = &attr_str[pos + needle.len()..];
+                let after = rest.trim_start();
+                let start = after.find('"')?;
+                let value_start = &after[start + 1..];
+                let end = value_start.find('"')?;
+                return Some(value_start[..end].to_string());
+            }
+        }
+        None
+    })
 }
 
 /// Extract an enum variant with its fields.
@@ -611,6 +644,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 }
             })
             .collect(),

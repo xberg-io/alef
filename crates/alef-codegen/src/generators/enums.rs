@@ -98,6 +98,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
                 idx => idx,
                 is_default => idx == default_idx,
                 has_pyo3_rename => is_pyo3 && PYTHON_KEYWORDS.contains(&v.name.as_str()),
+                serde_rename => v.serde_rename.clone().unwrap_or_default(),
             }
         })
         .collect();

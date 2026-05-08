@@ -133,6 +133,11 @@ pub struct FieldDef {
     /// (e.g. `my_crate::NodeIndex(val.field)`) and core→binding codegen must unwrap (`.0`).
     #[serde(default)]
     pub newtype_wrapper: Option<String>,
+    /// Explicit `#[serde(rename = "...")]` on this field, if any. Preserved so binding
+    /// structs that mirror the core struct can serialize/deserialize using the same wire
+    /// names (e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as `"type"`).
+    #[serde(default)]
+    pub serde_rename: Option<String>,
 }
 
 /// A method on a public struct.

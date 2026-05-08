@@ -55,7 +55,7 @@ impl {{ enum_name }} {
 {%- if variant.fields | length == 1 %}
 {%- if variant.is_tuple %}
     {# Tuple variant: just one unnamed field #}
-    fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
+    pub fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
         match self {
             Self::{{ variant.name }}(inner) => Some(inner.clone()),
             _ => None,
@@ -63,9 +63,27 @@ impl {{ enum_name }} {
     }
 {%- else %}
     {# Struct variant: one named field #}
-    fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
+    pub fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
         match self {
             Self::{{ variant.name }} { {{ variant.fields[0].name }} } => Some({{ variant.fields[0].name }}.clone()),
+            _ => None,
+        }
+    }
+{%- endif %}
+{%- elif serde_tag and variant.fields %}
+{%- if variant.is_tuple %}
+    {# Internally-tagged tuple variant with multiple fields or no fields: return reference #}
+    pub fn {{ variant.snake_name }}(&self) -> Option<&{{ variant.fields[0].field_type }}> {
+        match self {
+            Self::{{ variant.name }}(inner) => Some(inner),
+            _ => None,
+        }
+    }
+{%- else %}
+    {# Internally-tagged struct variant: return all fields as a reference #}
+    pub fn {{ variant.snake_name }}(&self) -> Option<&Self> {
+        match self {
+            Self::{{ variant.name }} { .. } => Some(self),
             _ => None,
         }
     }
