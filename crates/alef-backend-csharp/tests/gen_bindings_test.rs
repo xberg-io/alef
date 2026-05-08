@@ -874,6 +874,12 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         "P/Invoke return must be int for bytes_result; got:\n{}",
         native.content
     );
+    // P/Invoke: must have input byte-length parameter for byte-slice input.
+    assert!(
+        native.content.contains("IntPtr data") && native.content.contains("UIntPtr dataLen"),
+        "P/Invoke must have byte-slice length parameter; got:\n{}",
+        native.content
+    );
     // P/Invoke: must have out-params.
     assert!(
         native.content.contains("out IntPtr outPtr"),
@@ -906,6 +912,12 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
     assert!(
         wrapper.content.contains("public static byte[] ProcessImage"),
         "Wrapper return must be byte[] for bytes_result; got:\n{}",
+        wrapper.content
+    );
+    // Wrapper: must pass byte-length argument for byte-slice input.
+    assert!(
+        wrapper.content.contains("(UIntPtr)data.Length"),
+        "Wrapper must pass byte-length argument (UIntPtr)data.Length; got:\n{}",
         wrapper.content
     );
     // Wrapper: must check rc != 0.
