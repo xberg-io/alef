@@ -623,7 +623,7 @@ fn test_gen_impl_block_with_constructor_and_methods() {
     assert!(result.contains("pub fn get_name"), "should contain instance method");
     assert!(result.contains("pub fn create"), "should contain static method");
     assert!(result.starts_with("impl"), "should start with impl");
-    assert!(result.ends_with("}"), "should end with closing brace");
+    assert!(result.trim_end().ends_with("}"), "should end with closing brace");
 }
 
 #[test]
@@ -4168,7 +4168,7 @@ fn test_gen_opaque_impl_block_generates_delegation() {
     assert!(result.contains("impl MyConfig {"), "should contain impl block");
     assert!(result.contains("pub fn get_name"), "should contain delegated method");
     assert!(result.starts_with("impl"), "should start with impl");
-    assert!(result.ends_with("}"), "should end with closing brace");
+    assert!(result.trim_end().ends_with("}"), "should end with closing brace");
 }
 
 #[test]

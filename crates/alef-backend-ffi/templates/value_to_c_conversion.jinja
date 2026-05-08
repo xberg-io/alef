@@ -24,6 +24,8 @@
 {{ indent }}Box::into_raw(Box::new({{ copy_expr }}))
 {%- elif type_class == "named_clone" %}
 {{ indent }}Box::into_raw(Box::new({{ expr }}.clone()))
+{%- elif type_class == "named_owned" %}
+{{ indent }}Box::into_raw(Box::new({{ expr }}))
 {%- elif type_class == "named_non_clone" %}
 {{ indent }}{{ expr }} as *const _ as *mut _
 {%- elif type_class == "bytes" %}
@@ -32,6 +34,13 @@
 {{ indent }}{{ expr }}.as_millis() as u64
 {%- elif type_class == "optional" %}
 {{ indent }}match &{{ expr }} {
+{{ indent }}    Some(val) => {
+{{ inner_conversion }}
+{{ indent }}    }
+{{ indent }}    None => {{ null_value }},
+{{ indent }}}
+{%- elif type_class == "optional_owned" %}
+{{ indent }}match {{ expr }} {
 {{ indent }}    Some(val) => {
 {{ inner_conversion }}
 {{ indent }}    }
