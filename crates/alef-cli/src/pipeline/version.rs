@@ -572,11 +572,24 @@ pub fn sync_versions(
                                             }
                                         }
                                     } else if file_name == "gleam.toml" {
-                                        // gleam.toml: only update the package version field.
-                                        // Never replace dependency version specs (e.g., gleam_stdlib).
-                                        if let Some(new_content) =
-                                            replace_version_pattern(&content, r#"version = "[^"]*""#, &version)
+                                        // gleam.toml: update the package version field AND restore
+                                        // canonical dependency version ranges. The restore is a
+                                        // self-healing safeguard — earlier alef releases routed
+                                        // `gleam.toml` through the SEMVER_RE catch-all path, which
+                                        // rewrote `gleam_stdlib = ">= 0.34.0 and < 2.0.0"` into
+                                        // `>= {workspace_version} and < {workspace_version}` (an
+                                        // empty range gleam refuses to resolve). Without the
+                                        // dep-range restore, any package that still has the
+                                        // corrupted shape on disk stays broken until a contributor
+                                        // notices.
+                                        let mut new_content = content.clone();
+                                        if let Some(updated_version) =
+                                            replace_version_pattern(&new_content, r#"version = "[^"]*""#, &version)
                                         {
+                                            new_content = updated_version;
+                                        }
+                                        new_content = restore_gleam_dep_ranges(&new_content);
+                                        if new_content != content {
                                             if let Err(e) = std::fs::write(&path, &new_content) {
                                                 debug!("Could not write {}: {e}", path.display());
                                             } else {
@@ -909,6 +922,40 @@ fn matched_version_equals(matched: &str, target: &str) -> bool {
     extract_version_literal(matched).is_some_and(|v| v == target)
 }
 
+/// Restore canonical hex dependency version ranges in `gleam.toml`.
+///
+/// Earlier alef releases sometimes routed `gleam.toml` through the catch-all
+/// `SEMVER_RE.replace_all` path, which rewrote every `\d+\.\d+\.\d+` literal
+/// in the file with the workspace version — turning
+/// `gleam_stdlib = ">= 0.34.0 and < 2.0.0"` into
+/// `gleam_stdlib = ">= 5.0.0-rc.1 and < 5.0.0-rc.1"` (an empty version range
+/// that gleam refuses to resolve).
+///
+/// This helper deterministically restores the canonical ranges from
+/// `template_versions::hex` whenever it sees a `gleam_stdlib` or `gleeunit`
+/// dependency line, so a single `alef sync-versions` heals affected
+/// manifests without manual intervention.
+fn restore_gleam_dep_ranges(content: &str) -> String {
+    use alef_core::template_versions::hex;
+    static GLEAM_DEP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        // Match lines like:  `gleam_stdlib = "..."`  or  `gleeunit = "..."`
+        // Captures: 1=name, 2=value (between quotes).
+        regex::Regex::new(r#"(?m)^(gleam_stdlib|gleeunit)\s*=\s*"([^"]*)""#).expect("valid regex")
+    });
+
+    GLEAM_DEP_RE
+        .replace_all(content, |caps: &regex::Captures<'_>| {
+            let name = &caps[1];
+            let canonical = match name {
+                "gleam_stdlib" => hex::GLEAM_STDLIB_VERSION_RANGE,
+                "gleeunit" => hex::GLEEUNIT_VERSION_RANGE,
+                _ => return caps[0].to_string(),
+            };
+            format!("{name} = \"{canonical}\"")
+        })
+        .into_owned()
+}
+
 fn extract_version_literal(matched: &str) -> Option<&str> {
     // Try paired-quote form first ("..." or '...').
     if let Some(start) = matched.find(['"', '\'']) {
@@ -1180,5 +1227,31 @@ BUNDLED WITH
         let content = "GEM\n  remote: https://rubygems.org/\n  specs:\n    rake (13.4.2)\n";
         let result = sync_gemfile_lock(content, "1.0.0");
         assert!(result.is_none(), "no PATH gem means nothing to update");
+    }
+
+    #[test]
+    fn restore_gleam_dep_ranges_repairs_corrupted_workspace_version_ranges() {
+        let corrupted = "name = \"kreuzberg\"\nversion = \"5.0.0-rc.1\"\ntarget = \"erlang\"\n\n[dependencies]\ngleam_stdlib = \">= 5.0.0-rc.1 and < 5.0.0-rc.1\"\n\n[dev-dependencies]\ngleeunit = \">= 5.0.0-rc.1 and < 5.0.0-rc.1\"\n";
+        let healed = restore_gleam_dep_ranges(corrupted);
+        assert!(
+            healed.contains("gleam_stdlib = \">= 0.34.0 and < 2.0.0\""),
+            "gleam_stdlib should be restored to canonical range, got:\n{healed}"
+        );
+        assert!(
+            healed.contains("gleeunit = \">= 1.0.0 and < 2.0.0\""),
+            "gleeunit should be restored to canonical range, got:\n{healed}"
+        );
+        // The package version line itself must not be touched.
+        assert!(
+            healed.contains("version = \"5.0.0-rc.1\""),
+            "package version must not be rewritten, got:\n{healed}"
+        );
+    }
+
+    #[test]
+    fn restore_gleam_dep_ranges_is_idempotent_on_healthy_input() {
+        let healthy = "name = \"kreuzberg\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\ngleam_stdlib = \">= 0.34.0 and < 2.0.0\"\n\n[dev-dependencies]\ngleeunit = \">= 1.0.0 and < 2.0.0\"\n";
+        let healed = restore_gleam_dep_ranges(healthy);
+        assert_eq!(healed, healthy, "healthy gleam.toml must not be rewritten");
     }
 }
