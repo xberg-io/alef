@@ -495,6 +495,14 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         .ok();
     }
     writeln!(out, "}})").ok();
+    // Newtype variants with flattened fields cannot directly map to record fields.
+    // Allow unknown properties at the interface level so Jackson doesn't fail when
+    // encountering flattened inner-type fields.
+    writeln!(
+        out,
+        "@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)"
+    )
+    .ok();
     writeln!(out, "public sealed interface {} {{", enum_def.name).ok();
 
     // Nested records for each variant

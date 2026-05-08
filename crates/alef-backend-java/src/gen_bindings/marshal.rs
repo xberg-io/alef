@@ -75,9 +75,14 @@ pub(crate) fn marshal_param_to_ffi(
         }
         TypeRef::Bytes => {
             // byte[] → convert to MemorySegment pointer for FFI
-            // Use MemorySegment.ofArray() which is zero-copy on JVM heap
+            // Must allocate off-heap via Arena for Panama FFM compatibility
             let cname = "c".to_string() + name;
-            writeln!(out, "            var {} = MemorySegment.ofArray({});", cname, name).ok();
+            writeln!(
+                out,
+                "            var {} = arena.allocateArray(ValueLayout.JAVA_BYTE, {});",
+                cname, name
+            )
+            .ok();
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
