@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-05-08
+
+### Fixed
+
+- fix(rustler-backend): remove 7 orphan template files in
+  `crates/alef-backend-rustler/templates/` whose filenames embedded literal newlines and
+  template content (residue from the c6856f8c Jinja migration). The clean `*.jinja` files
+  with the same logical names were already committed and referenced by `include_str!`,
+  but the duplicates were tracked in git. They blocked `cargo publish` (`cannot package
+  a filename with a special character`) and Windows builds (`invalid path` on git
+  checkout). 0.15.0 published partially as a result; 0.15.1 republishes the affected
+  downstream crates (alef-backend-rustler/swift/zig/dart/extendr/java/csharp/kotlin/gleam,
+  alef-e2e, alef-readme, alef-scaffold, alef-publish, alef-cli).
+
 ## [0.15.0] - 2026-05-08
 
 ### Fixed
@@ -16,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actual `SerializationFeature` enum (verified against `jackson-databind:2.21.0`) does not
   contain it, so any backend that wires this feature in fails to compile with `cannot
   find symbol`. If a future caller really wants to disable base64 byte-array
-  serialization the correct path is a custom `JsonSerializer<byte[]>`, not a SerFeature.
+  serialization the correct path is a custom `JsonSerializer<byte[]>`, not a serialization feature flag.
 
 - fix(php-backend): wrap the `php_visit_result_with_template` `format!` arg in
   `{% raw %}…{% endraw %}` so Jinja stops eating the literal `{` / `}` braces. The
