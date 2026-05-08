@@ -196,10 +196,7 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
-        fields.push(minijinja::Value::from_serialize(&minijinja::context! {
-            name => binding_field,
-            conversion => conversion,
-        }));
+        fields.push(conversion);
     }
 
     crate::template_env::render(
