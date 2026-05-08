@@ -74,7 +74,7 @@ pub(super) fn gen_struct(
             "rust_struct_field.jinja",
             minijinja::context! {
                 name => &field.name,
-                type_name => &field_type,
+                type => &field_type,
             },
         ));
     }
