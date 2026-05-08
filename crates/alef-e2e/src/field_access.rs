@@ -106,6 +106,40 @@ impl FieldResolver {
         self.array_fields.contains(field)
     }
 
+    /// Check if a resolved field path traverses a tagged-union variant.
+    ///
+    /// Returns `Some((prefix, variant, suffix))` where:
+    /// - `prefix` is the path up to (but not including) the tagged-union field
+    ///   (e.g., `"metadata.format"`)
+    /// - `variant` is the tagged-union accessor segment
+    ///   (e.g., `"excel"`)
+    /// - `suffix` is the remaining path after the variant
+    ///   (e.g., `"sheet_count"`)
+    ///
+    /// Returns `None` if no tagged-union segment exists in the path.
+    pub fn tagged_union_split<'a>(
+        &self,
+        fixture_field: &'a str,
+    ) -> Option<(String, String, String)> {
+        let resolved = self.resolve(fixture_field);
+        let segments: Vec<&str> = resolved.split('.').collect();
+        let mut path_so_far = String::new();
+        for (i, seg) in segments.iter().enumerate() {
+            if !path_so_far.is_empty() {
+                path_so_far.push('.');
+            }
+            path_so_far.push_str(seg);
+            if self.method_calls.contains(&path_so_far) {
+                // Everything before the last segment of path_so_far is the prefix.
+                let prefix = segments[..i].join(".");
+                let variant = (*seg).to_string();
+                let suffix = segments[i + 1..].join(".");
+                return Some((prefix, variant, suffix));
+            }
+        }
+        None
+    }
+
     /// Check if a resolved field path contains a non-numeric map access.
     pub fn has_map_access(&self, fixture_field: &str) -> bool {
         let resolved = self.resolve(fixture_field);
@@ -256,8 +290,45 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
         "elixir" => render_dot_access(segments, result_var, "elixir"),
         "r" => render_r(segments, result_var),
         "c" => render_c(segments, result_var),
+        "swift" => render_swift(segments, result_var),
         _ => render_dot_access(segments, result_var, language),
     }
+}
+
+/// Generate a Swift accessor expression.
+///
+/// Swift-bridge exposes all Rust struct fields as methods with `()`, so every
+/// field segment must be followed by `()`. Array fields (e.g. `nodes` inside
+/// an array parent) also need `()`.
+fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
+    let mut out = result_var.to_string();
+    for seg in segments {
+        match seg {
+            PathSegment::Field(f) => {
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()");
+            }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(f);
+                out.push_str("()[0]");
+            }
+            PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(field);
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("()[{key}]"));
+                } else {
+                    out.push_str(&format!()()[\"$key\"]"));
+                }
+            }
+            PathSegment::Length => {
+                out.push_str(".count");
+            }
+        }
+    }
+    out
 }
 
 fn render_rust(segments: &[PathSegment], result_var: &str) -> String {

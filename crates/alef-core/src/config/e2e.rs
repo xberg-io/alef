@@ -448,6 +448,14 @@ pub struct CallOverride {
     /// implied — only the JSON parse wrapper is suppressed). (R generator only.)
     #[serde(default)]
     pub result_is_r_list: bool,
+    /// When `true`, the Zig generator treats the result as a `[]u8` JSON string
+    /// representing a struct value (e.g., `ExtractionResult` serialized via the
+    /// FFI `_to_json` helper). The generator parses the JSON with
+    /// `std.json.parseFromSlice(std.json.Value, ...)` before emitting field
+    /// assertions, traversing the dynamic JSON object for each field path.
+    /// (Zig generator only.)
+    #[serde(default)]
+    pub result_is_json_struct: bool,
     /// When `true`, the Rust generator wraps the `json_object` argument expression
     /// in `Some(...).clone()` to match an owned `Option<T>` parameter slot rather
     /// than passing `&options`. (Rust generator only.)

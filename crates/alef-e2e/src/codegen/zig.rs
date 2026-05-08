@@ -498,6 +498,10 @@ fn render_test_fn(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+    // When `result_is_json_struct = true`, the Zig function returns `[]u8` JSON.
+    // The test parses it with `std.json.parseFromSlice(std.json.Value, ...)` and
+    // traverses the dynamic JSON object for field assertions.
+    let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct);
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
@@ -509,7 +513,8 @@ fn render_test_fn(
     let _ = writeln!(out, "    // {description}");
 
     // Only emit allocator setup when setup lines actually need it (avoids unused-variable errors).
-    let needs_alloc = !setup_lines.is_empty();
+    // For JSON struct results we always need a GPA allocator for `std.json.parseFromSlice`.
+    let needs_alloc = !setup_lines.is_empty() || result_is_json_struct;
     if needs_alloc {
         let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
         let _ = writeln!(out, "    defer _ = gpa.deinit();");
@@ -529,10 +534,17 @@ fn render_test_fn(
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(
-            out,
-            "    const result = {module_name}.{function_name}({args_str}) catch {{"
-        );
+        if result_is_json_struct {
+            let _ = writeln!(
+                out,
+                "    const _result_json = {module_name}.{function_name}({args_str}) catch {{"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    const result = {module_name}.{function_name}({args_str}) catch {{"
+            );
+        }
         let _ = writeln!(out, "        try testing.expect(true); // Error occurred as expected");
         let _ = writeln!(out, "        return;");
         let _ = writeln!(out, "    }};");
@@ -544,7 +556,23 @@ fn render_test_fn(
             .iter()
             .filter(|a| a.assertion_type != "error")
             .any(|a| assertion_emits_code(a, field_resolver));
-        if any_emits_code {
+        if result_is_json_struct && any_emits_code {
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+            let _ = writeln!(
+                out,
+                "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+            );
+            let _ = writeln!(out, "    defer _parsed.deinit();");
+            let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+            let _ = writeln!(out, "    // Perform success assertions if any");
+            for assertion in &fixture.assertions {
+                if assertion.assertion_type != "error" {
+                    render_json_assertion(out, assertion, result_var);
+                }
+            }
+        } else if result_is_json_struct {
+            let _ = writeln!(out, "    _ = _result_json;");
+        } else if any_emits_code {
             let _ = writeln!(out, "    // Perform success assertions if any");
             for assertion in &fixture.assertions {
                 if assertion.assertion_type != "error" {
@@ -562,7 +590,15 @@ fn render_test_fn(
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
+        if result_is_json_struct {
+            let _ = writeln!(
+                out,
+                "    const _result_json = try {module_name}.{function_name}({args_str});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+        } else {
+            let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
+        }
     } else {
         // Happy path: call and assert. Detect whether any assertion actually
         // emits code that references `result` (some — like `not_error` — emit
@@ -577,7 +613,25 @@ fn render_test_fn(
             .assertions
             .iter()
             .any(|a| assertion_emits_code(a, field_resolver));
-        if any_emits_code {
+        if result_is_json_struct {
+            // JSON struct path: parse result JSON and access fields dynamically.
+            let _ = writeln!(
+                out,
+                "    const _result_json = try {module_name}.{function_name}({args_str});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
+            if any_emits_code {
+                let _ = writeln!(
+                    out,
+                    "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+                );
+                let _ = writeln!(out, "    defer _parsed.deinit();");
+                let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                for assertion in &fixture.assertions {
+                    render_json_assertion(out, assertion, result_var);
+                }
+            }
+        } else if any_emits_code {
             let _ = writeln!(
                 out,
                 "    const {result_var} = try {module_name}.{function_name}({args_str});"
@@ -591,6 +645,251 @@ fn render_test_fn(
     }
 
     let _ = writeln!(out, "}}");
+}
+
+// ---------------------------------------------------------------------------
+// JSON-struct assertion rendering (for result_is_json_struct = true)
+// ---------------------------------------------------------------------------
+
+/// Convert a dot-separated field path into a chain of `std.json.Value` lookups.
+///
+/// Each segment uses `.object.get("key").?` to traverse the JSON object tree.
+/// The final segment stops before the leaf-type accessor so callers can append
+/// the appropriate accessor (`.string`, `.integer`, `.array.items`, etc.).
+///
+/// Returns `(base_expr, last_key)` where `base_expr` already includes all
+/// intermediate `.object.get("…").?` dereferences up to (but not including)
+/// the leaf, and `last_key` is the last path segment.
+fn json_path_expr(result_var: &str, field_path: &str) -> String {
+    let segments: Vec<&str> = field_path.split('.').collect();
+    let mut expr = result_var.to_string();
+    for seg in &segments {
+        expr = format!("{expr}.object.get(\"{seg}\").?");
+    }
+    expr
+}
+
+/// Render a single assertion for a JSON-struct result (result_is_json_struct = true).
+///
+/// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
+/// Field paths are traversed via `.object.get("key").?` chains.
+fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+    let field_path = assertion.field.as_deref().unwrap_or("").trim();
+
+    // Build the JSON traversal expression up to the leaf.
+    let field_expr = if field_path.is_empty() {
+        result_var.to_string()
+    } else {
+        json_path_expr(result_var, field_path)
+    };
+
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(expected) = &assertion.value {
+                match expected {
+                    serde_json::Value::String(s) => {
+                        let zig_val = format!("\"{}\"", escape_zig(s));
+                        let _ = writeln!(
+                            out,
+                            "    try testing.expectEqualStrings({zig_val}, {field_expr}.string);"
+                        );
+                    }
+                    serde_json::Value::Bool(b) => {
+                        let _ = writeln!(out, "    try testing.expectEqual({b}, {field_expr}.bool);");
+                    }
+                    serde_json::Value::Number(n) => {
+                        let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.integer);");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "contains" => {
+            if let Some(expected) = &assertion.value {
+                if let serde_json::Value::String(s) = expected {
+                    let zig_val = format!("\"{}\"", escape_zig(s));
+                    // Serialize the JSON value to a string and search.
+                    // Works for both string fields (value is the string) and array/object
+                    // fields (value is the JSON-encoded representation).
+                    let _ = writeln!(out, "    {{");
+                    let _ = writeln!(out, "        const _jv = {field_expr};");
+                    let _ = writeln!(
+                        out,
+                        "        const _js = if (_jv == .string) _jv.string else try std.json.stringifyAlloc(std.heap.c_allocator, _jv, .{{}});"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "        defer if (_jv != .string) std.heap.c_allocator.free(_js);"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expect(std.mem.indexOf(u8, _js, {zig_val}) != null);"
+                    );
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+        }
+        "contains_all" => {
+            // For string fields: search the string value. For array/object fields:
+            // serialize to JSON and search the JSON text (e.g., ["a","b"] contains "b").
+            if let Some(values) = &assertion.values {
+                for (idx, val) in values.iter().enumerate() {
+                    if let serde_json::Value::String(s) = val {
+                        let zig_val = format!("\"{}\"", escape_zig(s));
+                        let jv = format!("_jva{idx}");
+                        let js = format!("_jsa{idx}");
+                        let _ = writeln!(out, "    {{");
+                        let _ = writeln!(out, "        const {jv} = {field_expr};");
+                        let _ = writeln!(
+                            out,
+                            "        const {js} = if ({jv} == .string) {jv}.string else try std.json.stringifyAlloc(std.heap.c_allocator, {jv}, .{{}});"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "        defer if ({jv} != .string) std.heap.c_allocator.free({js});"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "        try testing.expect(std.mem.indexOf(u8, {js}, {zig_val}) != null);"
+                        );
+                        let _ = writeln!(out, "    }}");
+                    }
+                }
+            }
+        }
+        "not_contains" => {
+            if let Some(expected) = &assertion.value {
+                if let serde_json::Value::String(s) = expected {
+                    let zig_val = format!("\"{}\"", escape_zig(s));
+                    let _ = writeln!(out, "    {{");
+                    let _ = writeln!(out, "        const _jvnc = {field_expr};");
+                    let _ = writeln!(
+                        out,
+                        "        const _jsnc = if (_jvnc == .string) _jvnc.string else try std.json.stringifyAlloc(std.heap.c_allocator, _jvnc, .{{}});"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "        defer if (_jvnc != .string) std.heap.c_allocator.free(_jsnc);"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "        try testing.expect(std.mem.indexOf(u8, _jsnc, {zig_val}) == null);"
+                    );
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+        }
+        "not_empty" => {
+            // For a JSON object field: check it's present and non-null.
+            // For a string field: check length > 0.
+            // We emit a check that the field is not a JSON null.
+            let _ = writeln!(out, "    try testing.expect({field_expr} != .null);");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "    try testing.expectEqual(.null, {field_expr});");
+        }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expect({field_expr}.string.len >= {n});"
+                    );
+                }
+            }
+        }
+        "count_min" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expect({field_expr}.array.items.len >= {n});"
+                    );
+                }
+            }
+        }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expectEqual({n}, {field_expr}.array.items.len);"
+                    );
+                }
+            }
+        }
+        "greater_than" => {
+            if let Some(val) = &assertion.value {
+                let n = json_to_zig(val);
+                let _ = writeln!(out, "    try testing.expect({field_expr}.integer > {n});");
+            }
+        }
+        "less_than" => {
+            if let Some(val) = &assertion.value {
+                let n = json_to_zig(val);
+                let _ = writeln!(out, "    try testing.expect({field_expr}.integer < {n});");
+            }
+        }
+        "greater_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let n = json_to_zig(val);
+                let _ = writeln!(out, "    try testing.expect({field_expr}.integer >= {n});");
+            }
+        }
+        "less_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let n = json_to_zig(val);
+                let _ = writeln!(out, "    try testing.expect({field_expr}.integer <= {n});");
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    try testing.expect({field_expr}.bool);");
+        }
+        "is_false" => {
+            let _ = writeln!(out, "    try testing.expect(!{field_expr}.bool);");
+        }
+        "not_error" | "error" => {
+            // Handled at the call level.
+        }
+        "starts_with" => {
+            if let Some(expected) = &assertion.value {
+                if let serde_json::Value::String(s) = expected {
+                    let zig_val = format!("\"{}\"", escape_zig(s));
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expect(std.mem.startsWith(u8, {field_expr}.string, {zig_val}));"
+                    );
+                }
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                if let serde_json::Value::String(s) = expected {
+                    let zig_val = format!("\"{}\"", escape_zig(s));
+                    let _ = writeln!(
+                        out,
+                        "    try testing.expect(std.mem.endsWith(u8, {field_expr}.string, {zig_val}));"
+                    );
+                }
+            }
+        }
+        "contains_any" => {
+            if let Some(values) = &assertion.values {
+                for val in values {
+                    if let serde_json::Value::String(s) = val {
+                        let zig_val = format!("\"{}\"", escape_zig(s));
+                        let _ = writeln!(
+                            out,
+                            "    try testing.expect(std.mem.indexOf(u8, {field_expr}.string, {zig_val}) != null);"
+                        );
+                    }
+                }
+            }
+        }
+        other => {
+            let _ = writeln!(out, "    // json assertion '{other}' not implemented for Zig");
+        }
+    }
 }
 
 /// Predicate matching `render_assertion`: returns true when the assertion
@@ -812,7 +1111,25 @@ fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
+                    // When there is no field (field_expr == result_var), the result
+                    // is `[]u8` JSON (e.g. batch functions). Parse the JSON array
+                    // and count its elements; `.len` would give byte count, not item count.
+                    let has_field = assertion.field.as_deref().is_some_and(|f| !f.is_empty());
+                    if has_field {
+                        let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
+                    } else {
+                        let _ = writeln!(out, "    {{");
+                        let _ = writeln!(
+                            out,
+                            "        var _cparse = try std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {field_expr}, .{{}});"
+                        );
+                        let _ = writeln!(out, "        defer _cparse.deinit();");
+                        let _ = writeln!(
+                            out,
+                            "        try testing.expectEqual({n}, _cparse.value.array.items.len);"
+                        );
+                        let _ = writeln!(out, "    }}");
+                    }
                 }
             }
         }

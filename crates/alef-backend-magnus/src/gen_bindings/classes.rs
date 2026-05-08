@@ -560,6 +560,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
             enum_name => &enum_def.name,
             has_data => has_data,
             serde_tag => &enum_def.serde_tag,
+            serde_rename_all => &enum_def.serde_rename_all,
             variants => &variants,
             first_variant => first_variant,
             first_variant_default => &first_variant_default,
@@ -651,6 +652,21 @@ pub(super) fn gen_from_core_to_binding_filtered(
         ..Default::default()
     };
     alef_codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, &cfg)
+}
+
+/// Generate a Magnus-specific Default impl that delegates to the core type's Default.
+/// This is used for structs with has_default=true to ensure proper defaults are used
+/// instead of field-level Default::default() which may not match the core's semantics
+/// (e.g., SecurityLimits uses 0 for usize fields but core defaults them to 500MB/100/10K).
+pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> String {
+    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+    format!(
+        "impl Default for {} {{\n    \
+         fn default() -> Self {{\n        \
+         {core_path}::default().into()\n    \
+         }}\n}}\n",
+        typ.name
+    )
 }
 
 #[cfg(test)]

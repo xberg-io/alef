@@ -188,7 +188,10 @@ impl Backend for MagnusBackend {
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
                 builder.add_item(&classes::gen_struct(typ, &mapper, &module_name, api, generates_default));
                 if generates_default {
-                    builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
+                    // Use Magnus-specific Default impl that delegates to core type's Default
+                    // instead of field-level defaults. This preserves core semantics
+                    // (e.g., SecurityLimits::default() returns proper limits, not 0).
+                    builder.add_item(&classes::gen_magnus_default_impl(typ, &core_import));
                 }
                 builder.add_item(&classes::gen_struct_methods(
                     typ,

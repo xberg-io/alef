@@ -297,6 +297,7 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
 fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(2048);
     let go_enum_name = go_type_name(&enum_def.name);
+    let is_untagged = enum_def.serde_tag.is_none();
 
     // Collect variant names for the doc comment
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
@@ -305,7 +306,11 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         &mut out,
         &go_enum_name,
         &enum_def.doc,
-        "is a tagged union type (discriminated by format_type).",
+        if is_untagged {
+            "is an untagged union type (variants discriminated by JSON shape)."
+        } else {
+            "is a tagged union type (discriminated by format_type)."
+        },
     );
     out.push_str(&crate::template_env::render(
         "tagged_union_struct_header.jinja",
@@ -362,22 +367,27 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
 
     out.push_str("}\n\n");
 
-    // Generate MarshalJSON
-    let tag_field_name = if let Some(tn) = &enum_def.serde_tag {
-        to_go_name(tn)
+    if is_untagged {
+        emit_untagged_union_marshalers(&mut out, &go_enum_name, enum_def);
     } else {
-        "Type".to_string()
-    };
-    let tag_name = if let Some(tn) = &enum_def.serde_tag {
-        tn.as_str()
-    } else {
-        "type"
-    };
+        emit_tagged_union_marshalers(&mut out, &go_enum_name, enum_def);
+    }
+
+    out
+}
+
+/// Emit MarshalJSON / UnmarshalJSON for `#[serde(tag = "...")]` enums.
+fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: &EnumDef) {
+    let tag_name = enum_def
+        .serde_tag
+        .as_deref()
+        .expect("emit_tagged_union_marshalers called for untagged enum");
+    let tag_field_name = to_go_name(tag_name);
 
     out.push_str(&crate::template_env::render(
         "tagged_union_marshal_json_header.jinja",
         context! {
-            go_enum_name => &go_enum_name,
+            go_enum_name => go_enum_name,
             tag_field_name => &tag_field_name,
         },
     ));
@@ -386,12 +396,10 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         if variant.fields.is_empty() {
             continue;
         }
-
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(_) = &field.ty {
                 let variant_go_name = to_go_name(&variant.name);
                 let wire_value = enum_variant_wire_value(variant, enum_def);
-
                 out.push_str(&crate::template_env::render(
                     "tagged_union_marshal_variant.jinja",
                     context! {
@@ -413,11 +421,10 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     ));
     out.push('\n');
 
-    // Generate UnmarshalJSON
     out.push_str(&crate::template_env::render(
         "tagged_union_unmarshal_json_header.jinja",
         context! {
-            go_enum_name => &go_enum_name,
+            go_enum_name => go_enum_name,
             tag_field_name => &tag_field_name,
             tag_name => tag_name,
         },
@@ -427,13 +434,11 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         if variant.fields.is_empty() {
             continue;
         }
-
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
                 let variant_go_name = to_go_name(&variant.name);
                 let wire_value = enum_variant_wire_value(variant, enum_def);
-
                 out.push_str(&crate::template_env::render(
                     "tagged_union_unmarshal_variant.jinja",
                     context! {
@@ -450,8 +455,55 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         "tagged_union_unmarshal_json_footer.jinja",
         minijinja::Value::default(),
     ));
+}
 
-    out
+/// Emit MarshalJSON / UnmarshalJSON for `#[serde(untagged)]` enums.
+///
+/// Marshal: dispatch on the first non-nil variant pointer.
+/// Unmarshal: try each variant in declaration order; return on first success.
+/// Uses `var v T; t.Field = &v` to allocate so that variant types which are
+/// string aliases (e.g. `type Mode string`) work alongside struct types.
+fn emit_untagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: &EnumDef) {
+    let variants_with_types: Vec<(String, String)> = enum_def
+        .variants
+        .iter()
+        .filter_map(|v| {
+            if v.fields.is_empty() {
+                return None;
+            }
+            v.fields.iter().find(|f| is_tuple_field(f)).and_then(|f| {
+                if let TypeRef::Named(struct_type_name) = &f.ty {
+                    Some((to_go_name(&v.name), go_type_name(struct_type_name)))
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    out.push_str(&format!(
+        "// MarshalJSON encodes the untagged union by serialising the active variant.\n\
+         func (t {go_enum_name}) MarshalJSON() ([]byte, error) {{\n"
+    ));
+    for (field, _) in &variants_with_types {
+        out.push_str(&format!(
+            "\tif t.{field} != nil {{\n\t\treturn json.Marshal(t.{field})\n\t}}\n"
+        ));
+    }
+    out.push_str("\treturn []byte(\"null\"), nil\n}\n\n");
+
+    out.push_str(&format!(
+        "// UnmarshalJSON decodes an untagged union by trying each variant in order.\n\
+         func (t *{go_enum_name}) UnmarshalJSON(data []byte) error {{\n"
+    ));
+    for (field, ty) in &variants_with_types {
+        out.push_str(&format!(
+            "\t{{\n\t\tvar v {ty}\n\t\tif err := json.Unmarshal(data, &v); err == nil {{\n\t\t\tt.{field} = &v\n\t\t\treturn nil\n\t\t}}\n\t}}\n"
+        ));
+    }
+    out.push_str(&format!(
+        "\treturn fmt.Errorf(\"{go_enum_name}: cannot match any variant\")\n}}\n"
+    ));
 }
 
 /// Generate a Go unit enum as `type X string` with const block.

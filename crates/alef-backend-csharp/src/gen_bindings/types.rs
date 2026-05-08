@@ -174,6 +174,46 @@ fn gen_opaque_method(
     // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
     let cs_native_name = format!("{class_name}{method_cs_name}");
 
+    // Result<bytes::Bytes> uses the FFI out-param convention (out_ptr/out_len/out_cap)
+    // rather than the standard pointer-return marshalling. Emit a dedicated body that
+    // throws via NativeMethods.LastError* directly (rather than the wrapper-class-private
+    // GetLastError helper, which is not visible from this opaque-handle class).
+    if super::functions::is_bytes_result_method(method) {
+        let mut args_block = String::new();
+        if !is_static {
+            args_block.push_str("            Handle,\n");
+        }
+        for param in visible_params.iter() {
+            let param_name = param.name.to_lower_camel_case();
+            let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+            args_block.push_str(&format!("            {arg},\n"));
+            if matches!(param.ty, TypeRef::Bytes) {
+                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+            }
+        }
+        let body = format!(
+            "        var rc = NativeMethods.{cs_native_name}(\n{args_block}            out var outPtr,\n            out var outLen,\n            out var outCap\n        );\n        if (rc != 0)\n        {{\n            var ec = NativeMethods.LastErrorCode();\n            var ctxPtr = NativeMethods.LastErrorContext();\n            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n            throw new {exception_name}(ec, msg);\n        }}\n        var result = new byte[(int)outLen];\n        System.Runtime.InteropServices.Marshal.Copy(outPtr, result, 0, (int)outLen);\n        NativeMethods.FreeBytes(outPtr, outLen, outCap);\n        return result;\n",
+        );
+        if method.is_async {
+            // Wrap synchronous P/Invoke in Task.Run to keep the async signature awaitable.
+            out.push_str("        return await Task.Run(() =>\n        {\n");
+            for line in body.lines() {
+                if line.is_empty() {
+                    out.push('\n');
+                } else {
+                    out.push_str("    ");
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out.push_str("        });\n");
+        } else {
+            out.push_str(&body);
+        }
+        out.push_str("    }\n\n");
+        return out;
+    }
+
     if method.is_async {
         if method.return_type == TypeRef::Unit {
             out.push_str("        await Task.Run(() =>\n        {\n");

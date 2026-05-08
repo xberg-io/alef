@@ -1,6 +1,6 @@
-use alef_core::ir::{FunctionDef, TypeRef};
+use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
 
-use super::conversions::{dart_call_arg, frb_rust_type_inner, frb_rust_type_with_source, primitive_name};
+use super::conversions::{dart_call_arg, frb_rust_type_inner, primitive_name};
 use super::helpers::emit_cleaned_dartdoc;
 
 pub(crate) fn emit_bridge_fn(
@@ -11,40 +11,32 @@ pub(crate) fn emit_bridge_fn(
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
-    // FRB v2: ordinary public functions need no annotation. A bare `#[frb]`
-    // with no arguments is rejected by the macro. Don't emit it.
     let fn_name = &f.name;
     let async_kw = if f.is_async { "async " } else { "" };
 
+    // Bridge function parameters use the LOCAL mirror type names (no source-crate prefix).
+    // FRB's generated wire code decodes arguments into local mirror types (`crate::T`)
+    // and passes them to bridge functions. Using `kreuzberg::T` in signatures would
+    // create a type mismatch: `crate::T` ≠ `kreuzberg::T` in Rust's type system even
+    // though they are layout-identical via `#[frb(mirror(T))]`.
     let params: Vec<String> = f
         .params
         .iter()
         .map(|p| {
-            // Use the source-crate type for Named types so the bridge fn passes
-            // them straight through to the underlying Rust API. The `#[frb(mirror(T))]`
-            // attribute on the mirror struct tells FRB that the local declaration
-            // is layout-identical to the source type — FRB substitutes them on the
-            // Dart side but the generated Rust code must still pass the original.
-            let rust_ty = frb_rust_type_with_source(&p.ty, p.optional, source_crate_name, type_paths);
+            let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
             format!("{}: {rust_ty}", p.name)
         })
         .collect();
 
-    // For each parameter, build the call-site expression. The IR records whether
-    // the underlying Rust function takes the value by reference (`is_ref`) and
-    // the original concrete type (`original_type`). FRB widens primitives to
-    // i64/f64 and Strings to `String`, but the source function may want `u16`,
-    // `usize`, `&Path`, etc. — emit a cast (`as Foo`) or conversion call.
-    let call_args: Vec<String> = f.params.iter().map(dart_call_arg).collect();
-
     let has_error = f.error_type.is_some();
+    // Return type uses local mirror names so FRB's generated SseEncode impls match.
     let return_ty = if has_error {
         format!(
             "Result<{}, String>",
-            frb_rust_type_with_source(&f.return_type, false, source_crate_name, type_paths)
+            frb_rust_type_mirror(&f.return_type, false)
         )
     } else {
-        frb_rust_type_with_source(&f.return_type, false, source_crate_name, type_paths)
+        frb_rust_type_mirror(&f.return_type, false)
     };
 
     out.push_str(&crate::template_env::render(
@@ -57,33 +49,273 @@ pub(crate) fn emit_bridge_fn(
         },
     ));
 
-    // Resolve the call target via the IR's full rust_path, falling back to the
-    // backend's bare fn name if rust_path is empty. This matches alef-backend-ffi
-    // and ensures functions defined in submodules (e.g. `my_lib::utils::helper`)
-    // generate correct shim calls.
+    // Resolve the call target.
     let resolved_path = if f.rust_path.is_empty() {
         format!("{source_crate_name}::{fn_name}")
     } else {
         f.rust_path.replace('-', "_")
     };
+
+    // Build call-site arguments. Named types (structs/enums declared with
+    // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
+    // expects `kreuzberg::T`. Transmute is sound because the layouts are identical.
+    let call_args: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths))
+        .collect();
+
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
-    // Handle return-type mismatches: FRB widens primitives but the source fn
-    // may return e.g. `u64` or `&str`. Bridge with explicit conversions.
-    let result_cast = match &f.return_type {
+    // Determine if the return type needs a mirror-transmute (Named or Vec<Named> or Option<Named>).
+    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths);
+
+    // Build suffix cast for primitives / Strings.
+    let result_cast = if ret_transmute.is_empty() {
+        build_primitive_result_cast(&f.return_type, f.returns_ref)
+    } else {
+        String::new()
+    };
+
+    let body = build_body(
+        &call,
+        &result_cast,
+        &ret_transmute,
+        has_error,
+        f.is_async,
+    );
+
+    out.push_str(&body);
+    out.push_str("}\n");
+}
+
+/// Build the FRB-friendly parameter type using **local mirror names** (no source-crate prefix).
+/// FRB decodes wire bytes into local `crate::T` mirror types and passes them to bridge fns.
+pub(crate) fn frb_rust_type_mirror(ty: &TypeRef, optional: bool) -> String {
+    let inner = frb_rust_type_mirror_inner(ty);
+    if optional { format!("Option<{inner}>") } else { inner }
+}
+
+fn frb_rust_type_mirror_inner(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(p) => frb_rust_type_inner(&TypeRef::Primitive(p.clone())),
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", frb_rust_type_mirror_inner(inner)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", frb_rust_type_mirror_inner(inner)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            frb_rust_type_mirror_inner(k),
+            frb_rust_type_mirror_inner(v)
+        ),
+        // Named types: use bare name (resolves to local mirror `crate::T`)
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Unit => "()".to_string(),
+        TypeRef::Json => "String".to_string(),
+        TypeRef::Duration => "i64".to_string(),
+    }
+}
+
+/// Build call-site expression for one parameter, transmuting Named mirror types to core types.
+///
+/// For Named types, the bridge fn receives the local mirror type (`crate::T`) but the core
+/// function expects `kreuzberg::T`. Since `#[frb(mirror(T))]` guarantees identical layout,
+/// `unsafe { std::mem::transmute }` is sound and zero-cost.
+fn dart_call_arg_with_mirror_transmute(
+    p: &ParamDef,
+    source_crate_name: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let name = &p.name;
+    let original = p.original_type.as_deref().unwrap_or("");
+    let stripped_orig = original
+        .trim()
+        .trim_start_matches('&')
+        .trim_start_matches("mut ")
+        .trim();
+
+    // Tuple parameters.
+    if !stripped_orig.is_empty() && stripped_orig.starts_with("Vec(") && stripped_orig.contains("Named(\"(") {
+        let tuple_inner = stripped_orig
+            .find("Named(\"(")
+            .and_then(|start| {
+                let rest = &stripped_orig[start + 8..];
+                rest.find(")\")")
+                    .map(|end| rest[..end].trim_end_matches(')').to_string())
+            })
+            .unwrap_or_default();
+        if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
+            return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
+        }
+        if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
+            return format!(
+                "{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Dart not yet bridged\") }}"
+            );
+        }
+    }
+
+    // Path.
+    if matches!(p.ty, TypeRef::Path) {
+        if p.optional {
+            if p.is_ref {
+                return format!("{name}.as_ref().map(std::path::Path::new)");
+            }
+            return format!("{name}.map(std::path::PathBuf::from)");
+        }
+        if p.is_ref {
+            return format!("std::path::Path::new(&{name})");
+        }
+        return format!("std::path::PathBuf::from({name})");
+    }
+
+    // Primitives: cast back to original width.
+    if let TypeRef::Primitive(prim) = &p.ty {
+        let target = primitive_name(prim);
+        if target != "i64" && target != "f64" && target != "bool" {
+            if p.optional {
+                return format!("{name}.map(|v| v as {target})");
+            }
+            return if p.is_ref {
+                format!("&({name} as {target})")
+            } else {
+                format!("{name} as {target}")
+            };
+        }
+    }
+
+    // Inner-Vec primitive cast.
+    if let TypeRef::Vec(inner) = &p.ty {
+        if let TypeRef::Primitive(prim) = inner.as_ref() {
+            let target = primitive_name(prim);
+            if target != "i64" && target != "f64" && target != "bool" {
+                if p.optional {
+                    if p.is_ref {
+                        return format!(
+                            "{name}.as_ref().map(|v| v.iter().map(|x| *x as {target}).collect::<Vec<_>>()).as_deref()"
+                        );
+                    }
+                    return format!("{name}.map(|v| v.into_iter().map(|x| x as {target}).collect::<Vec<_>>())");
+                }
+                if p.is_ref {
+                    return format!("{name}.iter().map(|x| *x as {target}).collect::<Vec<_>>().as_slice()");
+                }
+                return format!("{name}.into_iter().map(|x| x as {target}).collect::<Vec<_>>()");
+            }
+        }
+    }
+
+    // Named type: transmute from local mirror to core type.
+    if let TypeRef::Named(type_name) = &p.ty {
+        let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+        return build_named_in_transmute(name, type_name, &core_ty, p.is_ref, p.optional);
+    }
+
+    // Vec<Named>: transmute the whole Vec.
+    if let TypeRef::Vec(inner) = &p.ty {
+        if let TypeRef::Named(type_name) = inner.as_ref() {
+            let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+            if p.optional {
+                return format!(
+                    "{name}.map(|v| unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>(v) }})"
+                );
+            }
+            if p.is_ref {
+                // &[MirrorT] → &[CoreT] via transmute (same layout, same size)
+                return format!(
+                    "unsafe {{ std::mem::transmute::<*const {type_name}, *const {core_ty}>({name}.as_ptr()) }}"
+                );
+            }
+            return format!(
+                "unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>({name}) }}"
+            );
+        }
+    }
+
+    // Option<Named>.
+    if let TypeRef::Optional(inner) = &p.ty {
+        if let TypeRef::Named(type_name) = inner.as_ref() {
+            let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+            return format!(
+                "{name}.map(|v| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(v) }})"
+            );
+        }
+    }
+
+    // Default: fall back to original logic for non-Named cases.
+    dart_call_arg(p)
+}
+
+fn resolve_core_type(
+    type_name: &str,
+    source_crate_name: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    match type_paths.get(type_name) {
+        Some(path) => path.clone(),
+        None => format!("{source_crate_name}::{type_name}"),
+    }
+}
+
+/// Emit the transmute call for a single Named parameter going INTO the core fn.
+fn build_named_in_transmute(name: &str, mirror_name: &str, core_ty: &str, is_ref: bool, optional: bool) -> String {
+    if optional {
+        return format!(
+            "{name}.map(|v| unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})"
+        );
+    }
+    if is_ref {
+        return format!(
+            "unsafe {{ std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{name}) }}"
+        );
+    }
+    format!("unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>({name}) }}")
+}
+
+/// Build a transmute expression for the return value FROM the core fn to the local mirror type.
+/// Returns an empty string if no transmute is needed.
+/// Returns a closure/expression string that wraps the raw call value.
+fn return_transmute_expr(
+    ty: &TypeRef,
+    source_crate_name: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    match ty {
+        TypeRef::Named(mirror_name) => {
+            let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
+            // Produce a closure body: |v| unsafe { transmute::<CoreType, MirrorType>(v) }
+            format!("|v| unsafe {{ std::mem::transmute::<{core_ty}, {mirror_name}>(v) }}")
+        }
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
+                format!("|v| unsafe {{ std::mem::transmute::<Vec<{core_ty}>, Vec<{mirror_name}>>(v) }}")
+            } else {
+                String::new()
+            }
+        }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                let core_ty = resolve_core_type(mirror_name, source_crate_name, type_paths);
+                format!("|v| v.map(|x| unsafe {{ std::mem::transmute::<{core_ty}, {mirror_name}>(x) }})")
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Build primitive/string result cast (suffix after the raw value).
+fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
+    match ty {
         TypeRef::Primitive(_) => {
-            let target = frb_rust_type_inner(&f.return_type);
+            let target = frb_rust_type_inner(ty);
             format!(" as {target}")
         }
-        // String/Path/Char returns may be `&str`/`&Path`/`&Path` from the source;
-        // call .to_string() to ensure an owned String is returned.
         TypeRef::String | TypeRef::Path | TypeRef::Char => ".to_string()".to_string(),
-        // Optional<String> with returns_ref=true is alef's fallback for
-        // `Option<&'static T>` where T is a non-String type (like EmbeddingPreset).
-        // Use Debug format so the Dart side gets a printable representation —
-        // `serde_json::to_string` would require T: Serialize which isn't always true.
         TypeRef::Optional(inner)
-            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Char) && f.returns_ref =>
+            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Char) && returns_ref =>
         {
             ".map(|v| format!(\"{:?}\", v))".to_string()
         }
@@ -99,11 +331,9 @@ pub(crate) fn emit_bridge_fn(
                     )
                 }
             }
-            // Vec<&str> -> Vec<String>
             TypeRef::String | TypeRef::Path | TypeRef::Char => {
                 ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string()
             }
-            // Vec<Vec<f32>> → Vec<Vec<f64>> (and similar nested primitive widening)
             TypeRef::Vec(inner2) => {
                 if let TypeRef::Primitive(prim) = inner2.as_ref() {
                     let target = primitive_name(prim);
@@ -126,26 +356,54 @@ pub(crate) fn emit_bridge_fn(
             _ => String::new(),
         },
         _ => String::new(),
-    };
+    }
+}
 
-    let body = if has_error {
-        if f.is_async {
-            format!("    {call}.await.map(|v| v{result_cast}).map_err(|e| e.to_string())\n")
-        } else {
-            format!("    {call}.map(|v| v{result_cast}).map_err(|e| e.to_string())\n")
+/// Build the function body string.
+///
+/// `ret_transmute` is a closure expression `|v| unsafe { transmute(v) }` that wraps
+/// the raw Ok value when returning a mirror type. If empty, `result_cast` is used as
+/// a suffix instead (for primitives / String).
+fn build_body(call: &str, result_cast: &str, ret_transmute: &str, has_error: bool, is_async: bool) -> String {
+    if !ret_transmute.is_empty() {
+        // Named return type: wrap in transmute closure.
+        let transmute_fn = ret_transmute;
+        if has_error {
+            if is_async {
+                return format!(
+                    "    {call}.await.map({transmute_fn}).map_err(|e| e.to_string())\n"
+                );
+            }
+            return format!(
+                "    {call}.map({transmute_fn}).map_err(|e| e.to_string())\n"
+            );
         }
-    } else if f.is_async {
+        if is_async {
+            return format!(
+                "    ({transmute_fn})({call}.await)\n"
+            );
+        }
+        return format!(
+            "    ({transmute_fn})({call})\n"
+        );
+    }
+
+    // Non-Named return type: use result_cast suffix.
+    if has_error {
+        if is_async {
+            return format!("    {call}.await.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+        }
+        return format!("    {call}.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+    }
+    if is_async {
         if result_cast.is_empty() {
-            format!("    {call}.await\n")
-        } else {
-            format!("    {call}.await{result_cast}\n")
+            return format!("    {call}.await\n");
         }
-    } else if result_cast.is_empty() {
+        return format!("    {call}.await{result_cast}\n");
+    }
+    if result_cast.is_empty() {
         format!("    {call}\n")
     } else {
         format!("    {call}{result_cast}\n")
-    };
-
-    out.push_str(&body);
-    out.push_str("}\n");
+    }
 }

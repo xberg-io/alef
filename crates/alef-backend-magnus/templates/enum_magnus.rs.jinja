@@ -2,6 +2,7 @@
 {% if has_data %}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 {% if serde_tag %}#[serde(tag = "{{ serde_tag }}")]
+{% endif %}{% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
 {% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}
 {% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
@@ -28,7 +29,19 @@ impl magnus::IntoValue for {{ enum_name }} {
 impl magnus::TryConvert for {{ enum_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
         let s: String = magnus::TryConvert::try_convert(val)?;
-        serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))
+        // Try deserializing as JSON first (handles JSON strings like "\"markdown\"")
+        // If that fails, try treating it as a plain string value and wrap in quotes
+        // If both fail, try as Custom variant (for untagged enum support)
+        serde_json::from_str(&s)
+            .or_else(|_| serde_json::from_str(&format!("\"{s}\"")))
+            .or_else(|_| {
+                // Try as a JSON string for Custom variant (untagged enums accept any remaining value)
+                match serde_json::to_value(&s) {
+                    Ok(val) => serde_json::from_value(val),
+                    Err(e) => Err(e),
+                }
+            })
+            .map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))
     }
 }
 
@@ -65,7 +78,8 @@ impl {{ enum_name }} {
 {# Unit enum definition with Symbol-based conversion #}
 {% else %}
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
-pub enum {{ enum_name }} {
+{% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
+{% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}
 {% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
 {% endif %}    {{ variant.name }},

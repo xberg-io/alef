@@ -70,10 +70,10 @@ pub(crate) fn emit_function(
         format!(
             "({}||error{{OutOfMemory}})!{}",
             error_type,
-            zig_return_type(&f.return_type)
+            zig_return_type(&f.return_type, struct_names)
         )
     } else {
-        zig_return_type(&f.return_type)
+        zig_return_type(&f.return_type, struct_names)
     };
 
     out.push_str(&crate::template_env::render(
@@ -135,7 +135,7 @@ pub(crate) fn emit_function(
         if matches!(f.return_type, TypeRef::Unit) {
             out.push_str("    return;\n");
         } else {
-            let ret_expr = unwrap_return_expr("_result", &f.return_type);
+            let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
                 minijinja::context! {
@@ -162,7 +162,7 @@ pub(crate) fn emit_function(
                     c_call => &c_call,
                 },
             ));
-            let ret_expr = unwrap_return_expr("_result", &f.return_type);
+            let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
                 minijinja::context! {
@@ -403,8 +403,11 @@ fn c_arg_names(p: &ParamDef, struct_names: &std::collections::HashSet<String>) -
 ///
 /// String/Path/Json/Vec/Map: copy the C string to an owned Zig slice, then free
 /// the FFI allocation via `_free_string`.
+/// Named struct (opaque handle): serialize to JSON via `<prefix>_<snake>_to_json`,
+/// copy the JSON string to an owned Zig slice, then free both the JSON string and
+/// the opaque handle.
 /// Everything else: pass through unchanged.
-fn unwrap_return_expr(raw: &str, ty: &TypeRef) -> String {
+fn unwrap_return_expr(raw: &str, ty: &TypeRef, prefix: &str, struct_names: &std::collections::HashSet<String>) -> String {
     match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Copy the null-terminated C string to an owned Zig allocation, then free the C copy.
@@ -427,17 +430,36 @@ fn unwrap_return_expr(raw: &str, ty: &TypeRef) -> String {
             s.push_str("    }");
             s
         }
+        TypeRef::Named(name) if struct_names.contains(name) => {
+            // The C function returned an opaque handle (*KREUZBERGFoo). Serialize
+            // it to JSON via the FFI `<prefix>_<snake>_to_json` helper, copy the
+            // JSON string into a Zig-owned buffer, then free both the JSON string
+            // and the opaque handle. The wrapper returns `[]u8` (JSON).
+            let snake = snake_case(name);
+            let mut s = String::new();
+            s.push_str("blk: {\n");
+            s.push_str(&format!("        const _json_ptr = c.{prefix}_{snake}_to_json({raw}.?);\n"));
+            s.push_str("        defer _free_string(_json_ptr);\n");
+            s.push_str(&format!("        c.{prefix}_{snake}_free({raw}.?);\n"));
+            s.push_str("        const slice = std.mem.sliceTo(_json_ptr, 0);\n");
+            s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
+            s.push_str("        break :blk owned;\n");
+            s.push_str("    }");
+            s
+        }
         _ => raw.to_string(),
     }
 }
 
 /// Build the Zig return type for a function (not for struct fields).
 ///
-/// Owned string/JSON/collection returns are `[]u8` (allocated slice); everything
-/// else matches the struct-field mapping.
-pub(crate) fn zig_return_type(ty: &TypeRef) -> String {
+/// Owned string/JSON/collection returns are `[]u8` (allocated slice).
+/// Named struct returns (opaque C handles) are also serialized to `[]u8` (JSON).
+/// Everything else matches the struct-field mapping.
+pub(crate) fn zig_return_type(ty: &TypeRef, struct_names: &std::collections::HashSet<String>) -> String {
     match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => "[]u8".to_string(),
+        TypeRef::Named(name) if struct_names.contains(name) => "[]u8".to_string(),
         other => zig_field_type(other, false),
     }
 }

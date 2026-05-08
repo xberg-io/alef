@@ -373,6 +373,170 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     for func in &path_candidates {
         emit_path_overload(func, &all_names, out);
     }
+
+    // Emit e2e-test-friendly wrappers. These accept file-path strings for bytes
+    // parameters and JSON strings for config/batch-item parameters. They are used
+    // exclusively by the generated e2e test layer so generated tests don't need to
+    // construct opaque swift-bridge types by hand.
+    emit_e2e_wrappers(out);
+}
+
+/// Emits the e2e-test helper wrappers:
+///
+/// - `extractBytesE2e` / `extractBytesSyncE2e` — accept file path + JSON config string
+/// - `extractFileE2e` / `extractFileSyncE2e` — accept JSON config string (file wrappers already exist)
+/// - `batchExtractBytesE2e` / `batchExtractBytesSyncE2e` — accept `[String]` JSON items
+/// - `batchExtractFilesE2e` / `batchExtractFilesSyncE2e` — accept `[String]` JSON items
+///
+/// These are deliberately separate from the stable public API so the generated e2e
+/// tests call a well-typed surface without breaking the primary library interface.
+fn emit_e2e_wrappers(out: &mut String) {
+    out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
+    out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n");
+    out.push_str("// Load file bytes from a fixture path relative to the resources bundle.\n\n");
+
+    // Helper: resolveFixturePath — looks up the fixture file next to the test bundle.
+    out.push_str("private func resolveFixturePath(_ name: String) -> URL {\n");
+    out.push_str("    // Check for an explicit FIXTURES_DIR env var first (set by CI / task runner).\n");
+    out.push_str("    if let dir = ProcessInfo.processInfo.environment[\"FIXTURES_DIR\"] {\n");
+    out.push_str("        return URL(fileURLWithPath: dir).appendingPathComponent(name)\n");
+    out.push_str("    }\n");
+    out.push_str("    // Fall back to the bundle's resource path.\n");
+    out.push_str("    if let res = Bundle.module.resourceURL {\n");
+    out.push_str("        return res.appendingPathComponent(name)\n");
+    out.push_str("    }\n");
+    out.push_str("    return URL(fileURLWithPath: name)\n");
+    out.push_str("}\n\n");
+
+    // extractBytesSync(filePath:mimeType:configJson:)
+    out.push_str("/// E2e wrapper: reads `filePath` into bytes, deserialises `configJson` → ExtractionConfig.\n");
+    out.push_str("public func extractBytesSync(\n");
+    out.push_str("    _ filePath: String,\n");
+    out.push_str("    _ mimeType: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let url = resolveFixturePath(filePath)\n");
+    out.push_str("    let data = try Data(contentsOf: url)\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractBytes(filePath:mimeType:configJson:) — async
+    out.push_str("/// E2e wrapper (async): reads `filePath` into bytes, deserialises `configJson` → ExtractionConfig.\n");
+    out.push_str("public func extractBytes(\n");
+    out.push_str("    _ filePath: String,\n");
+    out.push_str("    _ mimeType: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let url = resolveFixturePath(filePath)\n");
+    out.push_str("    let data = try Data(contentsOf: url)\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str("        try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
+    out.push_str("    }.value\n");
+    out.push_str("}\n\n");
+
+    // extractFileSync(path:mimeType:configJson:) — 3-arg form
+    out.push_str("/// E2e wrapper: deserialises `configJson` → ExtractionConfig, then calls extractFileSync.\n");
+    out.push_str("public func extractFileSync(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ mimeType: String?,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(path, mimeType, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFileSync(path:configJson:) — 2-arg form (no mimeType)
+    out.push_str("/// E2e wrapper: deserialises `configJson` → ExtractionConfig, then calls extractFileSync with nil mimeType.\n");
+    out.push_str("public func extractFileSync(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try extractFileSync(path, nil, config)\n");
+    out.push_str("}\n\n");
+
+    // extractFile(path:mimeType:configJson:) — async 3-arg form
+    out.push_str("/// E2e wrapper (async): deserialises `configJson` → ExtractionConfig, then calls extractFile.\n");
+    out.push_str("public func extractFile(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ mimeType: String?,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str("        try extractFileSync(path, mimeType, config)\n");
+    out.push_str("    }.value\n");
+    out.push_str("}\n\n");
+
+    // extractFile(path:configJson:) — async 2-arg form (no mimeType)
+    out.push_str("/// E2e wrapper (async): deserialises `configJson` → ExtractionConfig, nil mimeType.\n");
+    out.push_str("public func extractFile(\n");
+    out.push_str("    _ path: String,\n");
+    out.push_str("    _ configJson: String\n");
+    out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
+    out.push_str("    return try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str("        try extractFileSync(path, nil, config)\n");
+    out.push_str("    }.value\n");
+    out.push_str("}\n\n");
+
+    // batchExtractBytesSync(jsonItems:)
+    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` → BatchBytesItem.\n");
+    out.push_str("public func batchExtractBytesSync(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // batchExtractBytes(jsonItems:) — async
+    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` → BatchBytesItem.\n");
+    out.push_str("public func batchExtractBytes(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") async throws -> [ExtractionResult] {\n");
+    out.push_str("    var items = RustVec<BatchBytesItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str("        try batchExtractBytesSync(items, config).map { $0 }\n");
+    out.push_str("    }.value\n");
+    out.push_str("}\n\n");
+
+    // batchExtractFilesSync(jsonItems:)
+    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` → BatchFileItem.\n");
+    out.push_str("public func batchExtractFilesSync(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") throws -> [ExtractionResult] {\n");
+    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("}\n\n");
+
+    // batchExtractFiles(jsonItems:) — async
+    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` → BatchFileItem.\n");
+    out.push_str("public func batchExtractFiles(\n");
+    out.push_str("    _ jsonItems: [String]\n");
+    out.push_str(") async throws -> [ExtractionResult] {\n");
+    out.push_str("    var items = RustVec<BatchFileItem>()\n");
+    out.push_str("    for json in jsonItems {\n");
+    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
+    out.push_str("    }\n");
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
+    out.push_str("    return try await Task.detached(priority: .userInitiated) {\n");
+    out.push_str("        try batchExtractFilesSync(items, config).map { $0 }\n");
+    out.push_str("    }.value\n");
+    out.push_str("}\n");
 }
 
 /// Emits String and [UInt8] convenience overloads for a function whose first param

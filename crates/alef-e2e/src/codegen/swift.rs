@@ -526,8 +526,10 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
 
-    // Qualify function name with RustBridge module (Phase 2D: wrappers disabled).
-    let qualified_function_name = format!("RustBridge.{function_name}");
+    // Use unqualified function name — the Kreuzberg module (imported by the test)
+    // provides convenience overloads that accept plain Swift types (String,
+    // [String], JSON strings) and delegate to the RustBridge layer internally.
+    let qualified_function_name = function_name.clone();
 
     if is_async {
         let _ = writeln!(out, "    func test{method_name}() async throws {{");
@@ -668,10 +670,14 @@ fn render_assertion(
     };
 
     // For enum fields, use .rawValue to get the string value.
+    // For other fields: swift-bridge returns all Rust `String` fields as `RustString`.
+    // We add .toString() here so string assertions (contains, hasPrefix, etc.) work.
+    // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
+    // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
         format!("{field_expr}.rawValue")
     } else {
-        field_expr.clone()
+        format!("{field_expr}.toString()")
     };
 
     match assertion.assertion_type.as_str() {
@@ -680,13 +686,16 @@ fn render_assertion(
                 let swift_val = json_to_swift(expected);
                 if expected.is_string() {
                     // For optional strings (String?), use ?? to coalesce before trimming.
+                    // `.toString()` converts RustString → Swift String before calling
+                    // `.trimmingCharacters`, which requires a concrete String type.
                     let field_is_optional = assertion
                         .field
                         .as_deref()
                         .is_some_and(|f| field_resolver.is_optional(f));
                     let trim_expr = if field_is_optional {
-                        format!("({field_expr} ?? \"\").trimmingCharacters(in: .whitespaces)")
+                        format!("(({field_expr})?.toString() ?? \"\").trimmingCharacters(in: .whitespaces)")
                     } else {
+                        // string_expr already has .toString() appended; just trim.
                         format!("{string_expr}.trimmingCharacters(in: .whitespaces)")
                     };
                     let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
@@ -725,16 +734,41 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "        XCTAssertFalse({field_expr}.isEmpty, \"expected non-empty value\")"
-            );
+            // For optional fields (Optional<T>), check that the value is non-nil.
+            // For string fields, convert to Swift String and check .isEmpty.
+            let field_is_optional = assertion
+                .field
+                .as_deref()
+                .is_some_and(|f| field_resolver.is_optional(f));
+            if field_is_optional {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")"
+                );
+            } else {
+                // string_expr has .toString() appended; .isEmpty works on Swift String.
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
+                );
+            }
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "        XCTAssertTrue({field_expr}.isEmpty, \"expected empty value\")"
-            );
+            let field_is_optional = assertion
+                .field
+                .as_deref()
+                .is_some_and(|f| field_resolver.is_optional(f));
+            if field_is_optional {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertNil({field_expr}, \"expected nil value\")"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertTrue({string_expr}.isEmpty, \"expected empty value\")"
+                );
+            }
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -797,28 +831,35 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})");
+                    // Use string_expr.count: for RustString fields string_expr already has
+                    // .toString() appended, giving a Swift String whose .count is character count.
+                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({string_expr}.count, {n})");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        XCTAssertLessThanOrEqual({field_expr}.count, {n})");
+                    let _ = writeln!(out, "        XCTAssertLessThanOrEqual({string_expr}.count, {n})");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({field_expr}.count, {n})");
+                    // For fields nested inside an optional parent (e.g. document.nodes where
+                    // document is Optional), the accessor generates `result.document.nodes`
+                    // which doesn't compile in Swift.  Detect this and use optional chaining.
+                    let count_expr = swift_array_count_expr(assertion.field.as_deref(), &field_expr, field_resolver);
+                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({count_expr}, {n})");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        XCTAssertEqual({field_expr}.count, {n})");
+                    let count_expr = swift_array_count_expr(assertion.field.as_deref(), &field_expr, field_resolver);
+                    let _ = writeln!(out, "        XCTAssertEqual({count_expr}, {n})");
                 }
             }
         }
@@ -850,6 +891,64 @@ fn render_assertion(
             panic!("Swift e2e generator: unsupported assertion type: {other}");
         }
     }
+}
+
+/// Generate a `.count` expression for an array field that may be nested inside an optional parent.
+///
+/// Swift does not allow `.` chaining on `Optional<T>` — we must use `?.` chaining. When
+/// the assertion field has an ancestor that is marked optional in the e2e config (e.g.
+/// `document.nodes` where `document` is optional), the plain accessor `result.document.nodes`
+/// generated by the field resolver will not compile.  This function detects that case and
+/// emits `(result.document?.nodes ?? []).count` instead.
+fn swift_array_count_expr(
+    field: Option<&str>,
+    field_expr: &str,
+    field_resolver: &FieldResolver,
+) -> String {
+    // When there is no field (assertion is on the result directly), just use .count.
+    let Some(f) = field else {
+        return format!("{field_expr}.count");
+    };
+    // Walk each path prefix to detect an optional ancestor segment.
+    let parts: Vec<&str> = f.split('.').collect();
+    let mut optional_prefix_len: Option<usize> = None;
+    let mut prefix = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        if !prefix.is_empty() {
+            prefix.push('.');
+        }
+        prefix.push_str(part);
+        if field_resolver.is_optional(&prefix) {
+            optional_prefix_len = Some(i + 1);
+            break;
+        }
+    }
+    let Some(split_at) = optional_prefix_len else {
+        // No optional ancestor — plain .count.
+        return format!("{field_expr}.count");
+    };
+    // Reconstruct the field_expr with `?.` for the segment immediately after the optional parent.
+    // field_expr looks like `result_var.seg0.seg1...segN`; we need to insert `?` after seg{split_at-1}.
+    // The result_var prefix is the part before the first `.`.
+    let dot_parts: Vec<&str> = field_expr.splitn(2, '.').collect();
+    if dot_parts.len() < 2 {
+        return format!("{field_expr}.count");
+    }
+    let result_prefix = dot_parts[0];
+    let rest_parts: Vec<&str> = dot_parts[1].split('.').collect();
+    let mut out = result_prefix.to_string();
+    for (i, part) in rest_parts.iter().enumerate() {
+        if i == split_at - 1 {
+            // This is the last optional segment — use `?.` for the NEXT segment
+            out.push('.');
+            out.push_str(part);
+            out.push('?');
+        } else {
+            out.push('.');
+            out.push_str(part);
+        }
+    }
+    format!("({out} ?? []).count")
 }
 
 /// Normalise a path by resolving `..` components without hitting the filesystem.

@@ -88,6 +88,9 @@ fn emit_lib_rs(
     content.push_str("    clippy::type_complexity,\n");
     content.push_str(")]\n");
     content.push_str("use flutter_rust_bridge::frb;\n");
+    // DartFnFuture is re-exported so frb_generated.rs (which does `use crate::*`)
+    // can reference it by bare name in the generated closure types.
+    content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
 
     for ty in api
         .types
