@@ -64,7 +64,7 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
 [features]
-extension-module = ["pyo3/extension-module"]
+extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]
 
 "#,
         pkg_header = pkg_header,
