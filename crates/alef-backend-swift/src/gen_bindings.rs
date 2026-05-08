@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -85,12 +85,10 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        // Emit lightweight function wrappers for the most common extraction functions.
-        // These delegate to RustBridge equivalents, providing a Swift-idiomatic API surface
-        // for e2e tests and common use cases. Not all functions are wrapped due to
-        // swift-bridge's limitations with complex types, but the most frequently-used
-        // extraction methods (extract_file, extract_bytes, and their _sync variants) are.
-        emit_extraction_wrappers(&mut body);
+        // Emit lightweight convenience overloads for functions whose first parameter
+        // is TypeRef::Bytes or TypeRef::Path. Discovery is IR-driven: the emitter
+        // walks api.functions and detects candidates by signature shape, never by name.
+        emit_convenience_wrappers(api, &mut body);
 
         let _ = module_name;
 
@@ -252,79 +250,216 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
     }
 }
 
-/// Emits lightweight function wrappers for common extraction functions.
+/// Returns `true` if the first parameter of `func_def` has the given `TypeRef` shape.
+fn first_param_is(func_def: &FunctionDef, ty: &TypeRef) -> bool {
+    func_def.params.first().map(|p| &p.ty == ty).unwrap_or(false)
+}
+
+/// Emits Swift convenience overloads for functions whose first parameter is
+/// `TypeRef::Bytes` or `TypeRef::Path`.
 ///
-/// The wrappers expose a Swift-idiomatic surface (String / [UInt8] content) on top of
-/// RustBridge's `RustVec<UInt8>` + `ExtractionConfig` opaque types. They intentionally
-/// do NOT accept a JSON config string: `ExtractionConfig` is a swift-bridge proxy class
-/// (it has only `init(ptr:)` and the full positional initializer; `JSONDecoder` cannot
-/// decode it because it is not `Decodable`). Callers must construct an `ExtractionConfig`
-/// themselves via the generated initializer and pass it in.
+/// Detection is entirely IR-driven — no function names are hardcoded. The emitter
+/// scans `api.functions` for non-async functions that:
 ///
-/// Batch wrappers are not emitted because `BatchBytesItem` / `BatchFileItem` are exposed
-/// as getter-only proxies with no `#[swift_bridge(init)]` constructor — they cannot be
-/// instantiated from Swift code. Callers needing batch extraction must drive
-/// `RustBridge.batchExtract*Sync` from Rust-constructed input vectors.
-fn emit_extraction_wrappers(out: &mut String) {
-    out.push_str("// MARK: - Extraction Wrapper Functions\n");
+/// - Have `TypeRef::Bytes` as their first parameter → emit a `String` overload
+///   (UTF-8 encoded) and a `[UInt8]` overload, both delegating to the sync bridge
+///   function via `makeByteVec`.
+/// - Have `TypeRef::Path` as their first parameter → emit a `String` path overload
+///   with the remaining parameters forwarded unchanged.
+///
+/// The `makeByteVec` helper converts a Swift `[UInt8]` to `RustVec<UInt8>` using
+/// the push-based API that swift-bridge exposes at runtime.
+fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
+    // Collect the names of all functions in the surface for O(1) lookup.
+    let all_names: std::collections::HashSet<&str> = api.functions.iter().map(|f| f.name.as_str()).collect();
+
+    let bytes_candidates: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| first_param_is(f, &TypeRef::Bytes) && !f.is_async)
+        .collect();
+
+    let path_candidates: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| first_param_is(f, &TypeRef::Path) && !f.is_async)
+        .collect();
+
+    if bytes_candidates.is_empty() && path_candidates.is_empty() {
+        return;
+    }
+
+    out.push_str("// MARK: - Convenience Wrapper Functions\n");
     out.push_str("// These wrappers bridge String / [UInt8] inputs to RustBridge's\n");
-    out.push_str("// RustVec<UInt8> requirement. The `config` parameter must be a fully\n");
-    out.push_str("// constructed ExtractionConfig (built via the generated initializer);\n");
-    out.push_str("// JSON-config decoding is not available because ExtractionConfig is a\n");
-    out.push_str("// swift-bridge opaque proxy class, not a Codable Swift struct.\n\n");
+    out.push_str("// RustVec<UInt8> requirement. The config parameter must be a fully\n");
+    out.push_str("// constructed opaque type (built via the generated initializer);\n");
+    out.push_str("// JSON-config decoding is not available because swift-bridge opaque\n");
+    out.push_str("// proxy classes are not Codable Swift structs.\n\n");
 
-    // Helper for assembling RustVec<UInt8> from a Swift byte array.
-    out.push_str("/// Builds a `RustVec<UInt8>` from a Swift byte array by pushing each byte.\n");
-    out.push_str("/// `RustVec<T>` only exposes `init()` + `push(value:)` in swift-bridge's\n");
-    out.push_str("/// runtime; there is no array-init shorthand.\n");
-    out.push_str("private func makeByteVec(_ bytes: [UInt8]) -> RustVec<UInt8> {\n");
-    out.push_str("    let vec = RustVec<UInt8>()\n");
-    out.push_str("    for b in bytes { vec.push(value: b) }\n");
-    out.push_str("    return vec\n");
-    out.push_str("}\n\n");
+    // Only emit makeByteVec when there is at least one bytes candidate.
+    if !bytes_candidates.is_empty() {
+        out.push_str("/// Converts a Swift `[UInt8]` array to a `RustVec<UInt8>` by pushing each byte.\n");
+        out.push_str("/// swift-bridge's `RustVec<T>` runtime only exposes `init()` and `push(value:)`;\n");
+        out.push_str("/// no array-initializer shorthand exists.\n");
+        out.push_str("private func makeByteVec(_ bytes: [UInt8]) -> RustVec<UInt8> {\n");
+        out.push_str("    let vec = RustVec<UInt8>()\n");
+        out.push_str("    for b in bytes { vec.push(value: b) }\n");
+        out.push_str("    return vec\n");
+        out.push_str("}\n\n");
+    }
 
-    // extractBytes(String) wrapper.
-    out.push_str("/// Extract text from UTF-8 string content using the supplied configuration.\n");
-    out.push_str("/// - Parameters:\n");
-    out.push_str("///   - content: Document bytes as a UTF-8 encoded `String`\n");
-    out.push_str("///   - mimeType: MIME type (for example, `\"application/pdf\"`)\n");
-    out.push_str("///   - config: An `ExtractionConfig` constructed via the generated initializer\n");
-    out.push_str("/// - Returns: `ExtractionResult` with extracted text\n");
-    out.push_str("public func extractBytes(\n");
-    out.push_str("    content: String,\n");
-    out.push_str("    mimeType: String,\n");
-    out.push_str("    config: ExtractionConfig\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    return try extractBytesSync(makeByteVec(Array(content.utf8)), mimeType, config)\n");
-    out.push_str("}\n\n");
+    for func in &bytes_candidates {
+        emit_bytes_overloads(func, &all_names, out);
+    }
 
-    // extractBytes([UInt8]) overload.
-    out.push_str("/// Extract text from raw byte content using the supplied configuration.\n");
-    out.push_str("/// - Parameters:\n");
-    out.push_str("///   - content: Document bytes as `[UInt8]`\n");
-    out.push_str("///   - mimeType: MIME type\n");
-    out.push_str("///   - config: An `ExtractionConfig` constructed via the generated initializer\n");
-    out.push_str("/// - Returns: `ExtractionResult` with extracted text\n");
-    out.push_str("public func extractBytes(\n");
-    out.push_str("    content: [UInt8],\n");
-    out.push_str("    mimeType: String,\n");
-    out.push_str("    config: ExtractionConfig\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    return try extractBytesSync(makeByteVec(content), mimeType, config)\n");
-    out.push_str("}\n\n");
+    for func in &path_candidates {
+        emit_path_overload(func, &all_names, out);
+    }
+}
 
-    // extractFile wrapper.
-    out.push_str("/// Extract text from a file at the given path using the supplied configuration.\n");
-    out.push_str("/// - Parameters:\n");
-    out.push_str("///   - path: File path\n");
-    out.push_str("///   - mimeType: Optional MIME type; auto-detected when `nil`\n");
-    out.push_str("///   - config: An `ExtractionConfig` constructed via the generated initializer\n");
-    out.push_str("/// - Returns: `ExtractionResult` with extracted text\n");
-    out.push_str("public func extractFile(\n");
-    out.push_str("    path: String,\n");
-    out.push_str("    mimeType: String? = nil,\n");
-    out.push_str("    config: ExtractionConfig\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    return try extractFileSync(path, mimeType, config)\n");
-    out.push_str("}\n");
+/// Emits String and [UInt8] convenience overloads for a function whose first param
+/// is `TypeRef::Bytes`. The overloads delegate to the function itself via `makeByteVec`.
+///
+/// The wrapper function name is derived by stripping the `_sync` suffix from the
+/// function name (if present) and converting to camelCase. The inner call uses
+/// the camelCased name of the function directly (which swift-bridge exposes).
+fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    // Wrapper name: strip trailing "Sync" for the public-facing overload name.
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+
+    // Collect remaining params (everything after the first Bytes param).
+    let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
+
+    // Return type name (Named types are used as Swift type names directly).
+    let return_ty = swift_return_type(&func.return_type);
+    let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+
+    // ── String overload ──────────────────────────────────────────────────────
+    out.push_str("/// Convenience overload: accepts a UTF-8 `String` and converts it to bytes.\n");
+    out.push_str(&format!("public func {wrapper_name}(\n"));
+    out.push_str("    content: String");
+    emit_trailing_params(trailing_params.iter().copied(), out);
+    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
+    out.push_str(&format!(
+        "    return try {swift_inner}(makeByteVec(Array(content.utf8))"
+    ));
+    for p in &trailing_params {
+        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
+    }
+    out.push_str(")\n}\n\n");
+
+    // ── [UInt8] overload ─────────────────────────────────────────────────────
+    out.push_str("/// Convenience overload: accepts a `[UInt8]` byte array.\n");
+    out.push_str(&format!("public func {wrapper_name}(\n"));
+    out.push_str("    content: [UInt8]");
+    emit_trailing_params(trailing_params.iter().copied(), out);
+    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
+    out.push_str(&format!("    return try {swift_inner}(makeByteVec(content)"));
+    for p in &trailing_params {
+        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
+    }
+    out.push_str(")\n}\n\n");
+}
+
+/// Emits a String path convenience overload for a function whose first param is
+/// `TypeRef::Path`. The wrapper accepts `path: String` instead of a `URL` or `Path`
+/// and delegates to the camelCased bridge function directly.
+fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+
+    let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
+    let return_ty = swift_return_type(&func.return_type);
+    let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+
+    out.push_str("/// Convenience overload: accepts a file path as a `String`.\n");
+    out.push_str(&format!("public func {wrapper_name}(\n"));
+    out.push_str("    path: String");
+    emit_trailing_params_with_defaults(trailing_params.iter().copied(), out);
+    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
+    out.push_str(&format!("    return try {swift_inner}(path"));
+    for p in &trailing_params {
+        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
+    }
+    out.push_str(")\n}\n");
+}
+
+/// Emits trailing parameters (after the first) as `, paramName: Type` additions
+/// to the current function signature line, without default values.
+fn emit_trailing_params<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>, out: &mut String) {
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        let ty_str = if p.optional {
+            format!("{}?", swift_type_name(&p.ty))
+        } else {
+            swift_type_name(&p.ty)
+        };
+        out.push_str(&format!(",\n    {swift_name}: {ty_str}"));
+    }
+}
+
+/// Like `emit_trailing_params` but emits ` = nil` for optional parameters,
+/// producing Swift-idiomatic default arguments.
+fn emit_trailing_params_with_defaults<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>, out: &mut String) {
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        if p.optional {
+            let ty_str = swift_type_name(&p.ty);
+            out.push_str(&format!(",\n    {swift_name}: {ty_str}? = nil"));
+        } else {
+            let ty_str = swift_type_name(&p.ty);
+            out.push_str(&format!(",\n    {swift_name}: {ty_str}"));
+        }
+    }
+}
+
+/// Maps a `TypeRef` to its Swift type name string for use in function signatures.
+/// Only covers the subset of types that appear in convenience-overload signatures.
+fn swift_type_name(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String => "String".to_string(),
+        TypeRef::Bytes => "[UInt8]".to_string(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner)),
+        TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner)),
+        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k), swift_type_name(v)),
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "Bool",
+                PrimitiveType::U8 => "UInt8",
+                PrimitiveType::U16 => "UInt16",
+                PrimitiveType::U32 => "UInt32",
+                PrimitiveType::U64 => "UInt64",
+                PrimitiveType::I8 => "Int8",
+                PrimitiveType::I16 => "Int16",
+                PrimitiveType::I32 => "Int32",
+                PrimitiveType::I64 => "Int64",
+                PrimitiveType::Usize => "UInt",
+                PrimitiveType::Isize => "Int",
+                PrimitiveType::F32 => "Float",
+                PrimitiveType::F64 => "Double",
+            }
+            .to_string()
+        }
+        TypeRef::Unit => "Void".to_string(),
+        TypeRef::Json => "String".to_string(),
+        TypeRef::Duration => "Duration".to_string(),
+        TypeRef::Char => "Character".to_string(),
+    }
+}
+
+/// Maps a function's return `TypeRef` to the Swift return type string.
+fn swift_return_type(ty: &TypeRef) -> String {
+    swift_type_name(ty)
 }
