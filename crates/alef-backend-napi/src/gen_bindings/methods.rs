@@ -195,6 +195,11 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         fields.into_iter().collect()
     };
 
+    // Synthesized variant-data fields that the binding struct exposes for direct property access
+    // (e.g. `excel: Option<JsExcelMetadata>`). Each variant's From arm must initialize all of them
+    // so the struct literal is complete; the matching variant overrides its own slot to Some(...).
+    let synth_fields: Vec<String> = super::enums::variant_data_field_names(enum_def);
+
     let mut out = String::with_capacity(512);
     writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
@@ -215,9 +220,11 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                 .strip_prefix('_')
                 .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
             if is_tuple && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
-                // This variant has single-tuple Named field that should be exposed as optional property
+                // This variant has single-tuple Named field that should be exposed as optional property.
+                // For Box<T> variants the JsXxx From impl is over T, not Box<T>, so deref before .into().
                 let variant_name_snake = alef_codegen::naming::to_python_name(&variant.name);
-                vec![format!("{variant_name_snake}: Some(_0.into())")]
+                let inner_expr = if field.is_boxed { "(*_0).into()" } else { "_0.into()" };
+                vec![format!("{variant_name_snake}: Some({inner_expr})")]
             } else {
                 vec![]
             }
@@ -226,15 +233,16 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         };
 
         if variant.fields.is_empty() {
+            let inits: Vec<String> = all_fields
+                .iter()
+                .chain(synth_fields.iter())
+                .map(|f| format!("{f}: None"))
+                .collect();
             writeln!(
                 out,
                 "            {core_path}::{} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
                 variant.name,
-                all_fields
-                    .iter()
-                    .map(|f| format!("{f}: None"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                inits.join(", ")
             )
             .ok();
         } else {
@@ -312,8 +320,40 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                 })
                 .collect();
 
-            // Combine all field inits (base fields + variant-specific optional properties)
-            let all_inits: Vec<String> = field_inits.iter().chain(variant_data_inits.iter()).cloned().collect();
+            // For tagged enums where the binding struct also has synthesized variant-data
+            // properties (e.g. `excel: Option<JsExcelMetadata>`), every variant arm must
+            // initialize all of those: the matching variant slot is set by `variant_data_inits`,
+            // the rest must be set to `None`.
+            let matching_synth: std::collections::BTreeSet<String> = if variant.fields.len() == 1 {
+                let field = &variant.fields[0];
+                let is_tuple_pos = field
+                    .name
+                    .strip_prefix('_')
+                    .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+                if is_tuple_pos && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
+                    let mut set = std::collections::BTreeSet::new();
+                    set.insert(alef_codegen::naming::to_python_name(&variant.name));
+                    set
+                } else {
+                    std::collections::BTreeSet::new()
+                }
+            } else {
+                std::collections::BTreeSet::new()
+            };
+            let synth_none_inits: Vec<String> = synth_fields
+                .iter()
+                .filter(|f| !matching_synth.contains(f.as_str()))
+                .map(|f| format!("{f}: None"))
+                .collect();
+
+            // Combine all field inits (base fields + variant-specific optional properties +
+            // None for non-matching synthesized variant-data fields).
+            let all_inits: Vec<String> = field_inits
+                .iter()
+                .chain(variant_data_inits.iter())
+                .chain(synth_none_inits.iter())
+                .cloned()
+                .collect();
 
             if is_tuple {
                 writeln!(

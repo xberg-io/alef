@@ -3,6 +3,31 @@
 use crate::type_map::NapiMapper;
 use alef_core::ir::{EnumDef, TypeRef};
 
+/// Collect synthesized variant-data field names emitted on the binding struct for tagged enums
+/// where a variant carries a single-tuple Named field. These are the per-variant optional
+/// properties (e.g. `excel: Option<JsExcelMetadata>`) added on top of the discriminator and
+/// shared variant fields, enabling direct property access in TypeScript.
+pub(super) fn variant_data_field_names(enum_def: &EnumDef) -> Vec<String> {
+    let mut names = Vec::new();
+    for v in &enum_def.variants {
+        if v.fields.len() != 1 {
+            continue;
+        }
+        let field = &v.fields[0];
+        let is_tuple = field
+            .name
+            .strip_prefix('_')
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+        if !is_tuple {
+            continue;
+        }
+        if matches!(&field.ty, TypeRef::Named(_)) {
+            names.push(alef_codegen::naming::to_python_name(&v.name));
+        }
+    }
+    names
+}
+
 pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     let is_tagged_data_enum = enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
@@ -146,17 +171,21 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
 
     lines.push("}".to_string());
 
-    // Default impl
+    // Default impl — must include both shared variant fields and the synthesized variant-data
+    // properties so the struct literal is complete.
+    let synth_fields = variant_data_field_names(enum_def);
+    let default_inits: Vec<String> = seen_fields
+        .iter()
+        .cloned()
+        .chain(synth_fields.iter().cloned())
+        .map(|f| format!("{f}: None"))
+        .collect();
     lines.push(String::new());
     lines.push("#[allow(clippy::derivable_impls)]".to_string());
     lines.push(format!("impl Default for {prefix}{} {{", enum_def.name));
     lines.push(format!(
         "    fn default() -> Self {{ Self {{ {tag_field}_tag: String::new(), {} }} }}",
-        seen_fields
-            .iter()
-            .map(|f| format!("{f}: None"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        default_inits.join(", ")
     ));
     lines.push("}".to_string());
 

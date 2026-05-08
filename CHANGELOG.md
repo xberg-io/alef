@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi-backend): initialize all binding-struct fields in tagged-enum `From` and `Default` impls. The previous codegen only emitted the matching variant's slot plus shared fields, leaving the synthesized variant-data fields (e.g. `excel`, `docx`, `html` on `JsFormatMetadata`) unset and producing E0063 ("missing fields"). The struct-literal builders now initialize every variant-data field — `None` for non-matching variants, `Some(...)` only on the active variant. Boxed tuple variants (`FormatMetadata::Html(Box<HtmlMetadata>)`) now deref before calling `.into()` since `From<HtmlMetadata>` is derived for `JsHtmlMetadata`, not `Box<HtmlMetadata>`.
 - fix(csharp-backend): emit length parameters for byte slice and batch FFI calls. The C# P/Invoke signatures for `extract_bytes_sync` and related functions were missing `UIntPtr contentLen` and `UIntPtr itemsLen` parameters that the Rust FFI requires, causing host crashes. The codegen now expands `TypeRef::Bytes` parameters into two FFI arguments (pointer + length), and the wrapper methods pass `(UIntPtr)content.Length` when calling the native methods.
 
 ## [0.14.35] - 2026-05-08
