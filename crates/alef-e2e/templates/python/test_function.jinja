@@ -13,22 +13,22 @@
    - error_assertion_block: error assertion code (or empty string)
    - result_assertions: string containing result and all assertions
 #}
-{%- if skip_decorator %}
+{% if skip_decorator %}
 {{ skip_decorator }}
-{%- endif %}
-{%- if async_decorator %}
+{% endif %}
+{% if async_decorator %}
 {{ async_decorator }}
-{%- endif %}
-def test_{{ fn_name }}() -> None:
+{% endif %}
+{{ async_kw }}def test_{{ fn_name }}() -> None:
     """{{ docstring }}"""
-{%- if visitor_class %}
+{% if visitor_class %}
 {{ visitor_class }}
-{%- endif %}
-{%- if arg_bindings %}
+{% endif %}
+{% if arg_bindings %}
 {{ arg_bindings }}
-{%- endif %}
-{%- if is_error_assertion %}
+{% endif %}
+{% if is_error_assertion %}
 {{ error_assertion_block }}
-{%- else %}
+{% else %}
 {{ result_assertions }}
-{%- endif %}
+{% endif %}
