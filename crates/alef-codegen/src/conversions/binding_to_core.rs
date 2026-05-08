@@ -274,10 +274,8 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         }
     }
 
-    // Use ..Default::default() to fill cfg-gated fields stripped from the IR
-    if typ.has_stripped_cfg_fields && !optionalized {
-        fields.push("..Default::default()".to_string());
-    }
+    // Note: ..Default::default() for cfg-gated fields is emitted by the template
+    // via the has_stripped_cfg_fields context variable — do not push it here.
 
     crate::template_env::render(
         "conversions/binding_to_core_impl",
