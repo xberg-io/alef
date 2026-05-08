@@ -23,7 +23,7 @@ mod ffi {
     extern "Rust" {
         type Item;
         #[swift_bridge(init)]
-        fn new(id: u32) -> ;
+        fn new(id: u32) -> Item;
         fn id(&self) -> u32;
     }
 
@@ -41,7 +41,9 @@ impl Item {
             id,
         })
     }
+    pub fn id(&self) -> u32 {
         self.0.id.clone()
+    }
 }
 
 pub fn get_items() -> Vec<Item> {

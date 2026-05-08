@@ -23,7 +23,7 @@ mod ffi {
     extern "Rust" {
         type Output;
         #[swift_bridge(init)]
-        fn new(result: i32) -> ;
+        fn new(result: i32) -> Output;
         fn result(&self) -> i32;
     }
 
@@ -46,12 +46,16 @@ impl Output {
             result,
         })
     }
+    pub fn result(&self) -> i32 {
         self.0.result.clone()
+    }
 }
 
 pub struct Wrapper(pub demo::Wrapper);
 impl Wrapper {
+    pub fn output(&self) -> Output {
         Output(self.0.output.clone())
+    }
 }
 
 pub fn process_and_wrap(input: String) -> Wrapper {

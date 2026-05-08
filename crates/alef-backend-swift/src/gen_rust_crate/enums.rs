@@ -32,7 +32,7 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     for variant in &unit_variants {
         // Use the raw variant name from the IR — it is already a valid Rust identifier.
         out.push_str(&crate::template_env::render(
-            "enum_from_variant.jinja",
+            "enum_unit_variant.jinja",
             minijinja::context! {
                 variant_name => &variant.name,
             },

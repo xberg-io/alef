@@ -248,6 +248,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/enum_unit_header.jinja"),
     ),
     (
+        "enum_unit_variant.jinja",
+        include_str!("../templates/enum_unit_variant.jinja"),
+    ),
+    (
         "swift_enum_header.jinja",
         include_str!("../templates/swift_enum_header.jinja"),
     ),

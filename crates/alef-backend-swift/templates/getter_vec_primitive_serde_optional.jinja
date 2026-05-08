@@ -1,1 +1,3 @@
+    pub fn {{ getter_name }}(&self) -> {{ return_type }} {
         self.0.{{ name }}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok()))
+    }
