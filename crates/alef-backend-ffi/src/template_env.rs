@@ -346,6 +346,7 @@ pub(crate) fn make_env() -> Environment<'static> {
     let mut env = Environment::new();
     env.set_trim_blocks(true);
     env.set_lstrip_blocks(true);
+    env.set_keep_trailing_newline(true);
     for (name, src) in TEMPLATES {
         env.add_template(name, src).expect("built-in template is valid");
     }

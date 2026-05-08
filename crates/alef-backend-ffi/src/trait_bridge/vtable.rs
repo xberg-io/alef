@@ -74,10 +74,7 @@ impl FfiBridgeGenerator {
         }
 
         // free_user_data destructor and Send + Sync
-        out.push_str(
-            "}}
-",
-        );
+        out.push_str("\n}\n");
         let vtable = self.vtable_name(spec);
         out.push_str(&crate::template_env::render(
             "vtable_free_user_data.jinja",

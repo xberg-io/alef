@@ -8,4 +8,5 @@ pub unsafe extern "C" fn {{ prefix }}_{{ type_snake }}_{{ field_name }}({% if ne
     }
     // SAFETY: null check above guarantees ptr is a valid pointer.
     let obj = unsafe { &*ptr };
-{{ body }}}
+{{ body }}
+}

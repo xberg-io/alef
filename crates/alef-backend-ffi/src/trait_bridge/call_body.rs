@@ -20,7 +20,7 @@ impl FfiBridgeGenerator {
             },
         ));
         if has_error {
-            out.push_str("return Err(Box::from(\"vtable.{name} is null — bridge not initialised\"));\n");
+            out.push_str(&format!("return Err(Box::from(\"vtable.{name} is null — bridge not initialised\"));\n"));
         } else {
             // For infallible methods, return the Rust default value
             let default_expr = default_for_type(&method.return_type);
@@ -308,10 +308,9 @@ impl FfiBridgeGenerator {
                 "    let msg = if _out_error.is_null() {
 ",
             );
-            out.push_str(
-                "        format!(\"vtable.{name} returned error code {}\", _rc)
-",
-            );
+            out.push_str(&format!(
+                "        format!(\"vtable.{name} returned error code {{}}\", _rc)\n"
+            ));
             out.push_str(
                 "    } else {
 ",
@@ -372,7 +371,7 @@ impl FfiBridgeGenerator {
                         "if _out_result.is_null() {
 ",
                     );
-                    out.push_str("return Err(Box::from(\"vtable.{name} returned null out_result\"));\n");
+                    out.push_str(&format!("return Err(Box::from(\"vtable.{name} returned null out_result\"));\n"));
                     out.push_str(
                         "}
 ",
