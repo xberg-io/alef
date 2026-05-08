@@ -703,6 +703,9 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         if let TypeRef::Map(_k, v) = ty {
             if matches!(v.as_ref(), TypeRef::Json) {
+                if optional {
+                    return format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()");
+                }
                 return format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()");
             }
         }
