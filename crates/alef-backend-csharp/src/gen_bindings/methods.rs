@@ -226,6 +226,10 @@ fn gen_wrapper_function(
             let param_name = param.name.to_lower_camel_case();
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
             args_block.push_str(&format!("            {arg},\n"));
+            // For byte-slice input parameters, emit the length argument immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+            }
         }
         out.push_str(&render(
             "bytes_result_call.jinja",
@@ -333,11 +337,19 @@ fn gen_wrapper_function(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
+            let mut arg_parts: Vec<String> = Vec::new();
+            for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                arg_parts.push(arg.clone());
+                // For byte-slice input parameters, emit the length argument immediately after.
+                if matches!(param.ty, TypeRef::Bytes) {
+                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                }
+            }
+            for (i, arg) in arg_parts.iter().enumerate() {
                 out.push_str(render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
-                if i < visible_params.len() - 1 {
+                if i < arg_parts.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
@@ -388,11 +400,19 @@ fn gen_wrapper_function(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
+            let mut arg_parts: Vec<String> = Vec::new();
+            for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                arg_parts.push(arg.clone());
+                // For byte-slice input parameters, emit the length argument immediately after.
+                if matches!(param.ty, TypeRef::Bytes) {
+                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                }
+            }
+            for (i, arg) in arg_parts.iter().enumerate() {
                 out.push_str(render("indented_arg_sync.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
-                if i < visible_params.len() - 1 {
+                if i < arg_parts.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
@@ -548,6 +568,10 @@ fn gen_wrapper_method(
             let param_name = param.name.to_lower_camel_case();
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
             args_block.push_str(&format!("            {arg},\n"));
+            // For byte-slice input parameters, emit the length argument immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+            }
         }
         out.push_str(&render(
             "bytes_result_call.jinja",
@@ -595,29 +619,26 @@ fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            let total = if has_receiver {
-                visible_params.len() + 1
-            } else {
-                visible_params.len()
-            };
-            let mut idx = 0usize;
+            // Build all argument parts (including byte-length args)
+            let mut arg_parts: Vec<String> = Vec::new();
             if has_receiver {
-                out.push_str("                handle");
-                if total > 1 {
-                    out.push(',');
-                }
-                out.push('\n');
-                idx += 1;
+                arg_parts.push("handle".to_string());
             }
             for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                arg_parts.push(arg.clone());
+                // For byte-slice input parameters, emit the length argument immediately after.
+                if matches!(param.ty, TypeRef::Bytes) {
+                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                }
+            }
+            for (i, arg) in arg_parts.iter().enumerate() {
                 out.push_str(render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
-                if idx < total - 1 {
+                if i < arg_parts.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
-                idx += 1;
             }
             out.push_str("            );\n");
         }
@@ -651,29 +672,26 @@ fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            let total = if has_receiver {
-                visible_params.len() + 1
-            } else {
-                visible_params.len()
-            };
-            let mut idx = 0usize;
+            // Build all argument parts (including byte-length args)
+            let mut arg_parts: Vec<String> = Vec::new();
             if has_receiver {
-                out.push_str("            handle");
-                if total > 1 {
-                    out.push(',');
-                }
-                out.push('\n');
-                idx += 1;
+                arg_parts.push("handle".to_string());
             }
             for param in visible_params.iter() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                arg_parts.push(arg.clone());
+                // For byte-slice input parameters, emit the length argument immediately after.
+                if matches!(param.ty, TypeRef::Bytes) {
+                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                }
+            }
+            for (i, arg) in arg_parts.iter().enumerate() {
                 out.push_str(render("indented_arg_sync.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
-                if idx < total - 1 {
+                if i < arg_parts.len() - 1 {
                     out.push(',');
                 }
                 out.push('\n');
-                idx += 1;
             }
             out.push_str("        );\n");
         }

@@ -350,6 +350,11 @@ pub(super) fn gen_pinvoke_for_func(
                 render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
             );
             out.push_str(",\n");
+            // For byte-slice input parameters, emit the length parameter immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                let len_param_name = format!("{param_name}Len");
+                out.push_str(&format!("        UIntPtr {len_param_name},\n"));
+            }
         }
         if is_bytes_result {
             // Three trailing out-params for the byte-buffer out-param convention.
@@ -409,6 +414,11 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
                 render("pinvoke_param.jinja", minijinja::context! { pinvoke_ty, param_name }).trim_end_matches('\n'),
             );
             out.push_str(",\n");
+            // For byte-slice input parameters, emit the length parameter immediately after.
+            if matches!(param.ty, TypeRef::Bytes) {
+                let len_param_name = format!("{param_name}Len");
+                out.push_str(&format!("        UIntPtr {len_param_name},\n"));
+            }
         }
         if is_bytes_result {
             // Three trailing out-params for the byte-buffer out-param convention.
