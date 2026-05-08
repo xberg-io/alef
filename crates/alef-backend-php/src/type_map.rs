@@ -39,10 +39,11 @@ impl TypeMapper for PhpMapper {
         Cow::Borrowed("String")
     }
 
-    /// Map bytes type to String (PHP strings are binary-safe).
-    /// ext-php-rs will handle the String <-> PHP string conversion automatically.
+    /// Map bytes type to Vec<u8> (PHP strings are binary-safe).
+    /// ext-php-rs receives PHP binary strings and can work with them as Vec<u8>.
+    /// From impls will convert core bytes::Bytes → binding Vec<u8> seamlessly.
     fn bytes(&self) -> Cow<'static, str> {
-        Cow::Borrowed("String")
+        Cow::Borrowed("Vec<u8>")
     }
 
     /// Map enum types to their PHP representation.
