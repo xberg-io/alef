@@ -346,6 +346,12 @@ fn render_spec_file(
                     .and_then(|o| o.options_type.as_deref())
                     .or(options_type);
 
+                let fixture_extra_args: Vec<String> =
+                    fixture_call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+                // Use per-fixture-call result_is_simple so per-call overrides like
+                // `speech` (returns bytes) take precedence over the top-level call default.
+                let fixture_result_is_simple = fixture_call.result_is_simple
+                    || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
                 let example = render_example(
                     fixture,
                     &fixture_function_name,
@@ -355,9 +361,10 @@ fn render_spec_file(
                     field_resolver,
                     fixture_options_type,
                     enum_fields,
-                    result_is_simple,
+                    fixture_result_is_simple,
                     e2e_config,
                     fixture_client_factory,
+                    &fixture_extra_args,
                 );
                 examples.push(example);
             }
@@ -636,6 +643,7 @@ fn render_example(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     client_factory: Option<&str>,
+    extra_args: &[String],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -666,18 +674,13 @@ fn render_example(
         format!("{args_str}, {visitor_arg}")
     };
 
-    // Append per-language extra_args (e.g. trailing `nil` for `list_files(purpose)`).
-    let ruby_extra_args: Vec<String> = e2e_config
-        .call
-        .overrides
-        .get("ruby")
-        .map(|o| o.extra_args.iter().cloned().collect())
-        .unwrap_or_default();
-    if !ruby_extra_args.is_empty() {
+    // Append per-fixture extra_args (e.g. trailing `nil` for `list_files(purpose)`).
+    if !extra_args.is_empty() {
+        let extra_str = extra_args.join(", ");
         if final_args.is_empty() {
-            final_args = ruby_extra_args.join(", ");
+            final_args = extra_str;
         } else {
-            final_args = format!("{final_args}, {}", ruby_extra_args.join(", "));
+            final_args = format!("{final_args}, {extra_str}");
         }
     }
 
@@ -991,6 +994,45 @@ fn render_assertion(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
 ) {
+    // For simple-result methods (e.g. `speech` returning bytes), every field-based
+    // assertion targets the result itself — there's no struct to access. Drop
+    // length-only assertions onto the result directly and skip anything else.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() {
+                match assertion.assertion_type.as_str() {
+                    "not_empty" => {
+                        out.push_str(&format!("    expect({result_var}.to_s).not_to be_empty\n"));
+                        return;
+                    }
+                    "is_empty" => {
+                        out.push_str(&format!("    expect({result_var}.to_s).to be_empty\n"));
+                        return;
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            out.push_str(&format!("    expect({result_var}.length).to eq({rb_val})\n"));
+                        }
+                        return;
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            out.push_str(&format!("    expect({result_var}.length).to be >= {rb_val}\n"));
+                        }
+                        return;
+                    }
+                    _ => {
+                        out.push_str(&format!(
+                            "    # skipped: field '{f}' not applicable for simple result type\n"
+                        ));
+                        return;
+                    }
+                }
+            }
+        }
+    }
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {
@@ -1161,14 +1203,10 @@ fn render_assertion(
     // For string equality, strip trailing whitespace to handle trailing newlines
     // from the converter. Ruby enum fields (Magnus binds Rust enums as Symbols),
     // are coerced to String via .to_s so `eq("stop")` matches `:stop`.
-    let field_is_enum = assertion
-        .field
-        .as_deref()
-        .filter(|f| !f.is_empty())
-        .is_some_and(|f| {
-            let resolved = field_resolver.resolve(f);
-            e2e_config.fields_enum.contains(f) || e2e_config.fields_enum.contains(resolved)
-        });
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        e2e_config.fields_enum.contains(f) || e2e_config.fields_enum.contains(resolved)
+    });
     let stripped_field_expr = if result_is_simple {
         format!("{field_expr}.to_s.strip")
     } else if field_is_enum {

@@ -275,34 +275,13 @@ fn render_test_file(
         // test_documents.
         let _ = writeln!(out, "    override class func setUp() {{");
         let _ = writeln!(out, "        super.setUp()");
-        let _ = writeln!(
-            out,
-            "        let _testDocs = URL(fileURLWithPath: #filePath)"
-        );
-        let _ = writeln!(
-            out,
-            "            .deletingLastPathComponent() // <Module>Tests/"
-        );
-        let _ = writeln!(
-            out,
-            "            .deletingLastPathComponent() // Tests/"
-        );
-        let _ = writeln!(
-            out,
-            "            .deletingLastPathComponent() // swift/"
-        );
-        let _ = writeln!(
-            out,
-            "            .deletingLastPathComponent() // packages/"
-        );
-        let _ = writeln!(
-            out,
-            "            .deletingLastPathComponent() // <repo root>"
-        );
-        let _ = writeln!(
-            out,
-            "            .appendingPathComponent(\"test_documents\")"
-        );
+        let _ = writeln!(out, "        let _testDocs = URL(fileURLWithPath: #filePath)");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // <Module>Tests/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // Tests/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // swift/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // packages/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // <repo root>");
+        let _ = writeln!(out, "            .appendingPathComponent(\"test_documents\")");
         let _ = writeln!(
             out,
             "        if FileManager.default.fileExists(atPath: _testDocs.path) {{"
