@@ -15,9 +15,9 @@ fn {{ name }}({{ sig }}) -> {{ ret_ty }} {
     };
 
     let args = js_sys::Array::new();
-{%- for param in params %}
+{% for param in params %}
     args.push(&{{ param }});
-{%- endfor %}
+{% endfor %}
 
     let result = func.apply(&self.js_obj, &args);
 
