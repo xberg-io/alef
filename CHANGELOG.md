@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(csharp-backend): rename tagged-union variant accessor properties from
+  `{Pascal}` to `As{Pascal}` in `variant_accessor_property.jinja`. C# 12
+  records cannot have a property whose name matches a nested type, so
+  emitting both `public sealed record Pdf(string Value) : FormatMetadata`
+  and `public string? Pdf => …` produced CS0102 ("type already contains a
+  definition for 'Pdf'") for every variant. `AsPdf` is the idiomatic C#
+  pattern-matching helper convention and avoids the collision.
+
+- fix(e2e/php): handle `arg_type = "bytes"` in
+  `crates/alef-e2e/src/codegen/php.rs::build_args_and_setup`. Previously
+  bytes args fell through to the default render and passed the raw
+  fixture-relative path string to `extractBytesSync()`, which ext-php-rs
+  rejected with `Invalid value given for argument content`. Mirror the
+  go/python convention: emit a setup line that calls
+  `file_get_contents()` to load the file at runtime and binds a local
+  variable to the resulting binary string. Inline byte arrays are
+  encoded as `\xNN` escape strings.
+
 ## [0.15.1] - 2026-05-08
 
 ### Fixed
