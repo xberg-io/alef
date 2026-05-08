@@ -35,6 +35,10 @@ dependencies:
 dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'
+  # Required by flutter_rust_bridge_codegen 2.x for sealed classes.
+  freezed: '^2.5.0'
+  build_runner: '^2.4.0'
+  json_serializable: '^6.8.0'
 "#,
         name = pubspec_name,
         description = meta.description,
