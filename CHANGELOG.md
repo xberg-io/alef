@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(adapters/php): emit lowerCamelCase parameter names in `async_method`
+  PHP body (`call_args_cloned`). PHP signatures camelCase param names via
+  `gen_php_function_params`, so the body must reference the camelCased
+  identifier. Adapter methods with `String` params (e.g. `file_id` →
+  `fileId`) previously emitted `file_id.as_str()` against a parameter
+  named `fileId`, producing E0425 "cannot find value `file_id` in this
+  scope".
+
+- fix(adapters/node): wrap `bytes::Bytes` adapter return in
+  `napi::bindgen_prelude::Buffer::from(b.to_vec())` instead of bare
+  `.to_vec()`. The function signature returns `Result<Buffer, Error>`,
+  so `Vec<u8>` produced an E0308 type mismatch.
+
+- fix(ffi-backend): convert via `Vec::<u8>::from(val).into_raw_parts()`
+  in `bytes_result_match.jinja` so the bytes return path works for both
+  `Vec<u8>` and `bytes::Bytes` (and any other type implementing
+  `Into<Vec<u8>>`). `bytes::Bytes` does not have `into_raw_parts`.
+
 - fix(csharp-backend): rename tagged-union variant accessor properties from
   `{Pascal}` to `As{Pascal}` in `variant_accessor_property.jinja`. C# 12
   records cannot have a property whose name matches a nested type, so

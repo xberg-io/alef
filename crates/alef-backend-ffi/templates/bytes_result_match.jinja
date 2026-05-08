@@ -1,6 +1,8 @@
     match result {
         Ok(val) => {
-            let (ptr, len, cap) = val.into_raw_parts();
+            // Convert via Vec<u8> so the path works for both Vec<u8> and bytes::Bytes
+            // (and any other type that implements Into<Vec<u8>>).
+            let (ptr, len, cap) = Vec::<u8>::from(val).into_raw_parts();
             // SAFETY: out_ptr/out_len/out_cap were null-checked above.
             unsafe { *out_ptr = ptr; *out_len = len; *out_cap = cap; }
             0
