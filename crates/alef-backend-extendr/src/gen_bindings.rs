@@ -1159,7 +1159,7 @@ fn gen_extendr_json_bridged_function(
 ) -> String {
     use alef_codegen::generators::binding_helpers::gen_call_args_cfg;
 
-    let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
+    let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
     let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
 
     // Build the parameter list. For Vec<Struct> params (extendr-incompatible),
