@@ -636,6 +636,21 @@ pub struct CallOverride {
     /// receives `java.nio.file.Path.of("/tmp/dir")` instead of a plain string.
     #[serde(default)]
     pub path_fields: Vec<String>,
+    /// Trait name for the visitor pattern (Rust e2e tests only).
+    ///
+    /// When a fixture declares a `visitor` block, the Rust e2e generator emits
+    /// `impl <trait_name> for _TestVisitor { ... }` and imports the trait from
+    /// `{module}::visitor`. When unset, no visitor block is emitted and fixtures
+    /// that declare a visitor will cause a codegen error.
+    ///
+    /// E.g., `"HtmlVisitor"` generates:
+    /// ```rust,ignore
+    /// use html_to_markdown_rs::visitor::{HtmlVisitor, NodeContext, VisitResult};
+    /// // ...
+    /// impl HtmlVisitor for _TestVisitor { ... }
+    /// ```
+    #[serde(default)]
+    pub visitor_trait: Option<String>,
 }
 
 fn default_true() -> bool {

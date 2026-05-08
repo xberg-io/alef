@@ -577,10 +577,7 @@ mod tests {
             assertion_type: assertion_type.to_string(),
             field: field.map(|s| s.to_string()),
             value,
-            values: None,
-            method: None,
-            args: None,
-            check: None,
+            ..Default::default()
         }
     }
 

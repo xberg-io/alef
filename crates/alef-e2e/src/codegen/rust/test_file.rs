@@ -157,11 +157,19 @@ pub fn render_test_file(
 
     // Import the visitor trait, result enum, and node context when any fixture
     // in this file declares a `visitor` block. Without these, the inline
-    // `impl HtmlVisitor for _TestVisitor` block fails to resolve.
+    // `impl <visitor_trait> for _TestVisitor` block fails to resolve.
     // Visitor types live in the `visitor` sub-module of the crate, not the crate root.
+    // The trait name is read from `[e2e.call.overrides.rust] visitor_trait`; omitting it
+    // while a fixture declares a visitor is a configuration error.
     let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
     if file_needs_visitor {
-        let visitor_trait = resolve_visitor_trait(&module);
+        let visitor_trait = resolve_visitor_trait(rust_call_override).unwrap_or_else(|| {
+            panic!(
+                "category '{}': fixture declares a visitor block but \
+                 `[e2e.call.overrides.rust] visitor_trait` is not configured",
+                category
+            )
+        });
         let _ = writeln!(
             out,
             "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};"
@@ -411,10 +419,14 @@ pub fn render_test_function(
 
     // Emit visitor if present in fixture.
     if let Some(visitor_spec) = &fixture.visitor {
-        // HtmlVisitor requires `std::fmt::Debug`; derive it on the inline struct.
+        // The visitor trait name must be configured via
+        // `[e2e.call.overrides.rust] visitor_trait`; we propagate the error to the caller.
+        let visitor_trait = resolve_visitor_trait(rust_overrides)
+            .expect("visitor_trait must be set in [e2e.call.overrides.rust] when a fixture declares a visitor block");
+        // The visitor trait requires `std::fmt::Debug`; derive it on the inline struct.
         let _ = writeln!(out, "    #[derive(Debug)]");
         let _ = writeln!(out, "    struct _TestVisitor;");
-        let _ = writeln!(out, "    impl {} for _TestVisitor {{", resolve_visitor_trait(&module));
+        let _ = writeln!(out, "    impl {visitor_trait} for _TestVisitor {{");
         for (method_name, action) in &visitor_spec.callbacks {
             emit_rust_visitor_method(out, method_name, action);
         }

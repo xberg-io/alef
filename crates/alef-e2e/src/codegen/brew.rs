@@ -403,7 +403,7 @@ fn render_test_function(
 
     // Emit assertions.
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, field_resolver);
+        render_assertion(out, assertion, binary_name, field_resolver);
     }
 
     let _ = writeln!(out, "}}");
@@ -493,68 +493,37 @@ fn field_to_jq_path(resolved: &str) -> String {
 
 /// Build a CLI command for a method_result assertion.
 ///
-/// Maps method names to the appropriate tree-sitter-language-pack CLI commands.
-/// The result is returned as a command string (not quoted) to be captured in a variable.
-fn build_brew_method_call(method_name: &str, args: Option<&serde_json::Value>) -> String {
-    match method_name {
-        "root_child_count" => "tree_sitter_language_pack tree-root-child-count \"$output\"".to_string(),
-        "root_node_type" => "tree_sitter_language_pack tree-root-node-type \"$output\"".to_string(),
-        "named_children_count" => "tree_sitter_language_pack tree-named-children-count \"$output\"".to_string(),
-        "has_error_nodes" => "tree_sitter_language_pack tree-has-error-nodes \"$output\"".to_string(),
-        "error_count" | "tree_error_count" => "tree_sitter_language_pack tree-error-count \"$output\"".to_string(),
-        "tree_to_sexp" => "tree_sitter_language_pack tree-to-sexp \"$output\"".to_string(),
-        "contains_node_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("tree_sitter_language_pack tree-contains-node-type \"$output\" '{node_type}'")
-        }
-        "find_nodes_by_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("tree_sitter_language_pack tree-find-nodes-by-type \"$output\" '{node_type}'")
-        }
-        "run_query" => {
-            let query_source = args
-                .and_then(|a| a.get("query_source"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let language = args
-                .and_then(|a| a.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("tree_sitter_language_pack tree-run-query \"$output\" '{language}' '{query_source}'")
-        }
-        _ => {
-            if let Some(args_val) = args {
-                let arg_str = args_val
-                    .as_object()
-                    .map(|obj| {
-                        obj.iter()
-                            .map(|(k, v)| {
-                                let val_str = match v {
-                                    serde_json::Value::String(s) => format!("'{}'", escape_shell(s)),
-                                    other => other.to_string(),
-                                };
-                                format!("--{k} {val_str}")
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
+/// Uses generic dispatch: `{binary_name} {kebab-method} "$output" args...`.
+/// The method name is converted from snake_case to kebab-case for the CLI subcommand.
+/// Args from the fixture JSON object are emitted as positional shell arguments in
+/// insertion order, using best-effort shell quoting.
+fn build_brew_method_call(binary_name: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
+    let subcommand = method_name.replace('_', "-");
+    if let Some(args_val) = args {
+        let arg_str = args_val
+            .as_object()
+            .map(|obj| {
+                obj.values()
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => format!("'{}'", escape_shell(s)),
+                        other => other.to_string(),
                     })
-                    .unwrap_or_default();
-                format!("tree_sitter_language_pack {method_name} \"$output\" {arg_str}")
-            } else {
-                format!("tree_sitter_language_pack {method_name} \"$output\"")
-            }
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+        if arg_str.is_empty() {
+            format!("{binary_name} {subcommand} \"$output\"")
+        } else {
+            format!("{binary_name} {subcommand} \"$output\" {arg_str}")
         }
+    } else {
+        format!("{binary_name} {subcommand} \"$output\"")
     }
 }
 
 /// Render a single assertion as shell code.
-fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &FieldResolver) {
+fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, field_resolver: &FieldResolver) {
     // Skip assertions on fields not available on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -771,7 +740,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
         "method_result" => {
             if let Some(method_name) = &assertion.method {
                 let check = assertion.check.as_deref().unwrap_or("is_true");
-                let cmd = build_brew_method_call(method_name, assertion.args.as_ref());
+                let cmd = build_brew_method_call(binary_name, method_name, assertion.args.as_ref());
                 // For is_error, skip capturing the result — just run the command and check
                 // the exit code so we don't execute the method twice.
                 if check == "is_error" {

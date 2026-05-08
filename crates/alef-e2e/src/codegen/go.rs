@@ -3069,12 +3069,7 @@ mod tests {
             http: None,
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
-                field: None,
-                value: None,
-                values: None,
-                method: None,
-                args: None,
-                check: None,
+                ..Default::default()
             }],
             visitor: None,
         }

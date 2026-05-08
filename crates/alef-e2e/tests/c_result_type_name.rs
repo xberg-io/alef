@@ -78,6 +78,7 @@ fn build_simple_fixture() -> FixtureGroup {
                 method: None,
                 check: None,
                 args: None,
+                return_type: None,
             }],
             source: "test.json".to_string(),
             http: None,

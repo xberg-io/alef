@@ -249,15 +249,13 @@ pub fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String
     }
 }
 
-/// Resolve the visitor trait name based on module.
-pub fn resolve_visitor_trait(module: &str) -> String {
-    // For html_to_markdown modules, use HtmlVisitor
-    if module.contains("html_to_markdown") {
-        "HtmlVisitor".to_string()
-    } else {
-        // Default fallback for other modules
-        "Visitor".to_string()
-    }
+/// Resolve the visitor trait name from the Rust e2e call override config.
+///
+/// Returns `Some(trait_name)` when `visitor_trait` is configured in the Rust
+/// override, or `None` when unconfigured. Callers must treat `None` as a
+/// codegen error when a fixture declares a `visitor` block.
+pub fn resolve_visitor_trait(rust_override: Option<&crate::config::CallOverride>) -> Option<String> {
+    rust_override.and_then(|o| o.visitor_trait.clone())
 }
 
 /// Emit a Rust visitor method for a callback action.
@@ -438,8 +436,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_visitor_trait_html_to_markdown() {
-        assert_eq!(resolve_visitor_trait("html_to_markdown"), "HtmlVisitor");
-        assert_eq!(resolve_visitor_trait("other_module"), "Visitor");
+    fn resolve_visitor_trait_uses_config() {
+        use crate::config::CallOverride;
+
+        let override_with_trait = CallOverride {
+            visitor_trait: Some("HtmlVisitor".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_visitor_trait(Some(&override_with_trait)),
+            Some("HtmlVisitor".to_string())
+        );
+
+        let override_without_trait = CallOverride::default();
+        assert_eq!(resolve_visitor_trait(Some(&override_without_trait)), None);
+
+        assert_eq!(resolve_visitor_trait(None), None);
     }
 }

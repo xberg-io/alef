@@ -64,6 +64,79 @@ impl ResolvedCrateConfig {
             .cloned()
             .unwrap_or_else(|| format!("{}.h", self.ffi_prefix()))
     }
+
+    /// Get the relative path to the FFI crate from the e2e test directory.
+    ///
+    /// Used by C e2e tests to locate the compiled FFI library when building
+    /// against a local checkout rather than a downloaded release.
+    ///
+    /// Resolution order:
+    /// 1. Directory name of the user-supplied `[crates.output] ffi` path,
+    ///    skipping trailing `src`/`lib`/`include` components, prefixed with
+    ///    `../../` so the path resolves from `e2e/c/` back to the repo root.
+    ///    E.g. `crates/my-lib-ffi/src/` → `../../crates/my-lib-ffi`.
+    /// 2. `../../crates/{name}-ffi` fallback derived from the crate name.
+    pub fn ffi_crate_path(&self) -> String {
+        if let Some(ffi_path) = self.explicit_output.ffi.as_ref() {
+            // Walk path components from the end, skipping src/lib/include.
+            let components: Vec<&str> = ffi_path
+                .components()
+                .filter_map(|c| {
+                    if let std::path::Component::Normal(s) = c {
+                        s.to_str()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            // Find the crate directory component (first non-leaf from the right
+            // after skipping src/lib/include).
+            if let Some(idx) = components
+                .iter()
+                .rposition(|&s| s != "src" && s != "lib" && s != "include")
+            {
+                // Reconstruct the path up to and including this component.
+                let meaningful = &components[..=idx];
+                return format!("../../{}", meaningful.join("/"));
+            }
+        }
+        format!("../../crates/{}-ffi", self.name)
+    }
+
+    /// Get the relative path to the WASM crate's `pkg/` directory from the
+    /// e2e test directory.
+    ///
+    /// Used by WASM e2e tests to import the wasm-pack build output when
+    /// working against a local checkout rather than a published npm package.
+    ///
+    /// Resolution order:
+    /// 1. Directory name of the user-supplied `[crates.output] wasm` path,
+    ///    skipping trailing `src`/`lib`/`include` components, prefixed with
+    ///    `../../` and suffixed with `/pkg`.
+    ///    E.g. `crates/my-lib-wasm/src/` → `../../crates/my-lib-wasm/pkg`.
+    /// 2. `../../crates/{name}-wasm/pkg` fallback derived from the crate name.
+    pub fn wasm_crate_path(&self) -> String {
+        if let Some(wasm_path) = self.explicit_output.wasm.as_ref() {
+            let components: Vec<&str> = wasm_path
+                .components()
+                .filter_map(|c| {
+                    if let std::path::Component::Normal(s) = c {
+                        s.to_str()
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if let Some(idx) = components
+                .iter()
+                .rposition(|&s| s != "src" && s != "lib" && s != "include")
+            {
+                let meaningful = &components[..=idx];
+                return format!("../../{}/pkg", meaningful.join("/"));
+            }
+        }
+        format!("../../crates/{}-wasm/pkg", self.name)
+    }
 }
 
 #[cfg(test)]

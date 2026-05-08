@@ -1686,58 +1686,38 @@ fn render_assertion(
     }
 }
 
-/// Build a PHP call expression for a `method_result` assertion on a tree-sitter `Tree`.
+/// Build a PHP call expression for a `method_result` assertion.
 ///
-/// Maps method names to the appropriate PHP static function calls on the
-/// `TreeSitterLanguagePack` class (using the ext-php-rs snake_case method names).
+/// Uses generic instance method dispatch: `$result_var->method_name(args...)`.
+/// Args from the fixture JSON object are emitted as positional PHP arguments in
+/// insertion order, using best-effort type conversion (strings → PHP string literals,
+/// numbers and booleans → verbatim literals).
 fn build_php_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
-    match method_name {
-        "root_child_count" => {
-            format!("count(TreeSitterLanguagePack::named_children_info(${result_var}))")
-        }
-        "root_node_type" => {
-            format!("TreeSitterLanguagePack::root_node_info(${result_var})->kind")
-        }
-        "named_children_count" => {
-            format!("count(TreeSitterLanguagePack::named_children_info(${result_var}))")
-        }
-        "has_error_nodes" => {
-            format!("TreeSitterLanguagePack::tree_has_error_nodes(${result_var})")
-        }
-        "error_count" | "tree_error_count" => {
-            format!("TreeSitterLanguagePack::tree_error_count(${result_var})")
-        }
-        "tree_to_sexp" => {
-            format!("TreeSitterLanguagePack::tree_to_sexp(${result_var})")
-        }
-        "contains_node_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("TreeSitterLanguagePack::tree_contains_node_type(${result_var}, \"{node_type}\")")
-        }
-        "find_nodes_by_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("TreeSitterLanguagePack::find_nodes_by_type(${result_var}, \"{node_type}\")")
-        }
-        "run_query" => {
-            let query_source = args
-                .and_then(|a| a.get("query_source"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let language = args
-                .and_then(|a| a.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("TreeSitterLanguagePack::run_query(${result_var}, \"{language}\", \"{query_source}\", $source)")
-        }
-        _ => {
-            format!("${result_var}->{method_name}()")
-        }
+    let extra_args = if let Some(args_val) = args {
+        args_val
+            .as_object()
+            .map(|obj| {
+                obj.values()
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+                        serde_json::Value::Bool(true) => "true".to_string(),
+                        serde_json::Value::Bool(false) => "false".to_string(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Null => "null".to_string(),
+                        other => format!("\"{}\"", other.to_string().replace('\\', "\\\\").replace('"', "\\\"")),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    if extra_args.is_empty() {
+        format!("${result_var}->{method_name}()")
+    } else {
+        format!("${result_var}->{method_name}({extra_args})")
     }
 }
 

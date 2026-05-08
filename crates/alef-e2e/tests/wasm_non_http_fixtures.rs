@@ -69,6 +69,7 @@ fn smoke_fixture() -> FixtureGroup {
                 method: None,
                 check: None,
                 args: None,
+                return_type: None,
             }],
             source: "smoke/smoke_basic.json".to_string(),
             http: None,

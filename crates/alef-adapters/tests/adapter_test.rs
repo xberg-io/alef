@@ -46,6 +46,7 @@ fn test_sync_function_python() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -85,6 +86,7 @@ fn test_sync_function_node() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -130,6 +132,7 @@ fn test_async_method_python() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -172,6 +175,7 @@ fn test_async_method_node() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -206,6 +210,7 @@ fn test_callback_bridge_python() {
         trait_name: Some("EventHandler".to_string()),
         trait_method: Some("handle_event".to_string()),
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -264,6 +269,7 @@ fn test_callback_bridge_node() {
         trait_name: Some("RequestHandler".to_string()),
         trait_method: Some("handle".to_string()),
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -305,6 +311,7 @@ fn test_streaming_python() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -357,6 +364,7 @@ fn test_streaming_node() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -397,6 +405,7 @@ fn test_sync_function_ffi() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ffi).expect("build failed");
@@ -438,6 +447,7 @@ fn test_sync_function_go() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Go).expect("build failed");
@@ -481,6 +491,7 @@ fn test_sync_function_java() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Java).expect("build failed");
@@ -522,6 +533,7 @@ fn test_sync_function_csharp() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Csharp).expect("build failed");
@@ -563,6 +575,7 @@ fn test_sync_function_ruby() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ruby).expect("build failed");
@@ -603,6 +616,7 @@ fn test_sync_function_php() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Php).expect("build failed");
@@ -639,6 +653,7 @@ fn test_async_method_elixir() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Elixir).expect("build failed");
@@ -679,6 +694,7 @@ fn test_sync_function_wasm() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Wasm).expect("build failed");
@@ -715,6 +731,7 @@ fn test_sync_function_r() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::R).expect("build failed");
@@ -758,6 +775,7 @@ fn test_sync_function_optional_params() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -797,6 +815,7 @@ fn test_multiple_adapters() {
             trait_name: None,
             trait_method: None,
             detect_async: false,
+            request_type: None,
         },
         AdapterConfig {
             name: "destroy".to_string(),
@@ -815,6 +834,7 @@ fn test_multiple_adapters() {
             trait_name: None,
             trait_method: None,
             detect_async: false,
+            request_type: None,
         },
     ];
 
@@ -853,6 +873,7 @@ fn test_async_method_optional_params() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Node).expect("build failed");
@@ -886,6 +907,7 @@ fn test_sync_function_python_gil_release() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -939,6 +961,7 @@ fn test_python_string_params() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
@@ -976,6 +999,7 @@ fn test_ffi_string_conversion() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Ffi).expect("build failed");
@@ -1018,6 +1042,7 @@ fn test_go_numeric_params() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
+        request_type: None,
     }];
 
     let bodies = build_adapter_bodies(&config, Language::Go).expect("build failed");

@@ -159,6 +159,7 @@ fn build_fixture() -> FixtureGroup {
                 method: None,
                 check: None,
                 args: None,
+                return_type: None,
             }],
             source: "test.json".to_string(),
             http: None,
@@ -258,6 +259,7 @@ fn bug_a_optional_vec_string_unwrap_fallback_is_empty_slice() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -288,6 +290,7 @@ fn bug_b_optional_numeric_greater_than_or_equal_wraps_unwrap_or() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -319,6 +322,7 @@ fn bug_c_optional_string_equals_in_vec_result_uses_as_deref_unwrap_or() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(
@@ -349,6 +353,7 @@ fn bug_d_field_named_result_refers_to_whole_result_not_struct_field() {
         method: None,
         check: None,
         args: None,
+        return_type: None,
     }];
     let rendered = render_smoke_test(&config, assertions);
     assert!(

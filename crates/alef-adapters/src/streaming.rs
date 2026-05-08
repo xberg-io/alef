@@ -12,24 +12,23 @@ pub fn generate_body(
     language: Language,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<(String, Option<String>)> {
-    let result = match language {
-        Language::Python => gen_python_body(adapter, config),
-        Language::Node => gen_node_body(adapter, config),
-        Language::Ruby => gen_ruby_body(adapter, config),
-        Language::Php => gen_php_body(adapter, config),
-        Language::Elixir => gen_elixir_body(adapter, config),
-        Language::Wasm => gen_wasm_body(adapter, config),
-        Language::Ffi => gen_ffi_body(adapter),
-        Language::Go => gen_go_body(adapter),
-        Language::Java => gen_java_body(adapter),
-        Language::Csharp => gen_csharp_body(adapter),
-        Language::R => gen_r_body(adapter, config),
+    match language {
+        Language::Python => Ok(gen_python_body(adapter, config)),
+        Language::Node => Ok(gen_node_body(adapter, config)),
+        Language::Ruby => Ok(gen_ruby_body(adapter, config)),
+        Language::Php => Ok(gen_php_body(adapter, config)),
+        Language::Elixir => Ok(gen_elixir_body(adapter, config)),
+        Language::Wasm => Ok(gen_wasm_body(adapter, config)),
+        Language::Ffi => gen_ffi_body(adapter, config),
+        Language::Go => Ok(gen_go_body(adapter)),
+        Language::Java => Ok(gen_java_body(adapter)),
+        Language::Csharp => Ok(gen_csharp_body(adapter)),
+        Language::R => Ok(gen_r_body(adapter, config)),
         Language::Rust | Language::C => anyhow::bail!("Rust/C do not need generated binding adapters"),
         Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
             anyhow::bail!("Phase 1: {language} backend not yet implemented")
         }
-    };
-    Ok(result)
+    }
 }
 
 /// Build the call arguments referencing `_core` locals created by the method codegen.
@@ -386,17 +385,25 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
 // FFI (C ABI) -- Callback-based streaming
 // ---------------------------------------------------------------------------
 
-fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
+fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> anyhow::Result<(String, Option<String>)> {
     let core_path = &adapter.core_path;
+    let prefix = config.ffi_prefix();
+    let request_type = adapter.request_type.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "streaming adapter '{}': `request_type` is required for FFI body generation \
+             (e.g. request_type = \"my_crate::MyRequest\")",
+            adapter.name,
+        )
+    })?;
 
     let body = format!(
         "clear_last_error();\n\n    \
          if client.is_null() {{\n        \
-             set_last_error(99, \"literllm_{name}: client must not be NULL\");\n        \
+             set_last_error(99, \"{prefix}_{name}: client must not be NULL\");\n        \
              return -1;\n    \
          }}\n    \
          if request_json.is_null() {{\n        \
-             set_last_error(99, \"literllm_{name}: request_json must not be NULL\");\n        \
+             set_last_error(99, \"{prefix}_{name}: request_json must not be NULL\");\n        \
              return -1;\n    \
          }}\n\n    \
          // SAFETY: caller guarantees `client` and `request_json` are non-null and valid.\n    \
@@ -404,14 +411,14 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
          let json_str = match unsafe {{ std::ffi::CStr::from_ptr(request_json) }}.to_str() {{\n        \
              Ok(s) => s,\n        \
              Err(e) => {{\n            \
-                 set_last_error(99, &format!(\"literllm_{name}: request_json is not valid UTF-8: {{e}}\"));\n            \
+                 set_last_error(99, &format!(\"{prefix}_{name}: request_json is not valid UTF-8: {{e}}\"));\n            \
                  return -1;\n        \
              }}\n    \
          }};\n\n    \
-         let request: liter_llm::ChatCompletionRequest = match serde_json::from_str(json_str) {{\n        \
+         let request: {request_type} = match serde_json::from_str(json_str) {{\n        \
              Ok(r) => r,\n        \
              Err(e) => {{\n            \
-                 set_last_error(99, &format!(\"literllm_{name}: failed to parse request JSON: {{e}}\"));\n            \
+                 set_last_error(99, &format!(\"{prefix}_{name}: failed to parse request JSON: {{e}}\"));\n            \
                  return -1;\n        \
              }}\n    \
          }};\n\n    \
@@ -420,16 +427,16 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
              use futures_util::StreamExt;\n\n        \
              let mut stream = match client_ref.{core_path}(request).await {{\n            \
                  Ok(s) => s,\n            \
-                 Err(e) => return Err(format!(\"literllm_{name}: failed to open stream: {{e}}\")),\n        \
+                 Err(e) => return Err(format!(\"{prefix}_{name}: failed to open stream: {{e}}\")),\n        \
              }};\n\n        \
              loop {{\n            \
                  match stream.next().await {{\n                \
                      None => break,\n                \
-                     Some(Err(e)) => return Err(format!(\"literllm_{name}: stream error: {{e}}\")),\n                \
+                     Some(Err(e)) => return Err(format!(\"{prefix}_{name}: stream error: {{e}}\")),\n                \
                      Some(Ok(chunk)) => {{\n                    \
                          let chunk_json = match serde_json::to_string(&chunk) {{\n                        \
                              Ok(s) => s,\n                        \
-                             Err(e) => return Err(format!(\"literllm_{name}: failed to serialise chunk: {{e}}\")),\n                    \
+                             Err(e) => return Err(format!(\"{prefix}_{name}: failed to serialise chunk: {{e}}\")),\n                    \
                          }};\n                    \
                          match std::ffi::CString::new(chunk_json) {{\n                        \
                              Ok(c_str) => {{\n                            \
@@ -438,7 +445,7 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
                                  // `user_data` is forwarded as-is; ownership stays with the caller.\n                            \
                                  unsafe {{ callback(c_str.as_ptr(), user_data) }};\n                        \
                              }}\n                        \
-                             Err(e) => return Err(format!(\"literllm_{name}: chunk JSON contained NUL byte: {{e}}\")),\n                    \
+                             Err(e) => return Err(format!(\"{prefix}_{name}: chunk JSON contained NUL byte: {{e}}\")),\n                    \
                          }}\n                \
                      }}\n            \
                  }}\n        \
@@ -453,10 +460,12 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
              }}\n    \
          }}",
         name = adapter.name,
+        prefix = prefix,
         core_path = core_path,
+        request_type = request_type,
     );
 
-    (body, None)
+    Ok((body, None))
 }
 
 // ---------------------------------------------------------------------------

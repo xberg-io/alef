@@ -100,4 +100,10 @@ pub struct AdapterConfig {
     /// For callback_bridge: whether to detect async callbacks at construction time
     #[serde(default)]
     pub detect_async: bool,
+    /// For streaming (FFI backend): full Rust type path of the request payload
+    /// deserialised from JSON (e.g. `"my_crate::ChatCompletionRequest"`).
+    /// Required when generating FFI streaming bodies — codegen will hard-fail
+    /// with a clear error if this field is absent on a streaming adapter.
+    #[serde(default)]
+    pub request_type: Option<String>,
 }

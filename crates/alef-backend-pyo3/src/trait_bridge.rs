@@ -601,7 +601,8 @@ fn gen_visitor_bridge(
     let core_crate = trait_path
         .split("::")
         .next()
-        .unwrap_or("html_to_markdown_rs")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure the crate name in alef.toml"))
         .to_string();
 
     // Emit a helper function for converting NodeContext to a Python dict.

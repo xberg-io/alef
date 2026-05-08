@@ -279,7 +279,6 @@ pub(crate) fn is_rust_code_block(content: &str) -> bool {
                 || line.contains("Default::default()")
                 || line.contains("::new(")
                 || line.contains(".to_string()")
-                || line.contains("html_to_markdown")
                 || line.contains("r#\"")
             {
                 return true;

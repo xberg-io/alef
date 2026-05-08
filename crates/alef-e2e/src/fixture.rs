@@ -327,7 +327,7 @@ impl SkipDirective {
 }
 
 /// A single assertion in a fixture.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Assertion {
     /// Assertion type (equals, contains, not_empty, error, etc.).
     #[serde(rename = "type")]
@@ -350,6 +350,16 @@ pub struct Assertion {
     /// Arguments to pass to the method call (for method_result assertions).
     #[serde(default)]
     pub args: Option<serde_json::Value>,
+    /// Return type hint for C method_result codegen.
+    ///
+    /// Supported values:
+    /// - `"string"` — the method returns a heap-allocated `char*` that must be
+    ///   freed with `free()` after the assertion.  The generator emits
+    ///   `char* _r = call(); assert(...); free(_r);`.
+    ///
+    /// Defaults to primitive integer dispatch when absent.
+    #[serde(default)]
+    pub return_type: Option<String>,
 }
 
 /// A group of fixtures sharing the same category.
