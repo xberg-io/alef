@@ -766,6 +766,11 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
+    // ext-php-rs binds async Rust methods with an `_async` suffix (mirroring Magnus).
+    // Append it before camelCasing so e.g. `chat` becomes `chatAsync`.
+    if !has_override && call_config.r#async && !function_name.ends_with("_async") {
+        function_name = format!("{function_name}_async");
+    }
     if !has_override {
         function_name = function_name.to_lower_camel_case();
     }
@@ -844,8 +849,21 @@ fn render_test_method(
         format!("{class_name}::{function_name}({final_args})")
     };
 
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_factory = if let Some(factory) = php_client_factory {
-        format!("$client = \\{namespace}\\{class_name}::{factory}('test-key');")
+        let fixture_id = &fixture.id;
+        if has_mock {
+            format!(
+                "$client = \\{namespace}\\{class_name}::{factory}('test-key', getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}');"
+            )
+        } else if let Some(var) = api_key_var {
+            format!(
+                "$apiKey = getenv('{var}');\n        if (!$apiKey) {{ $this->markTestSkipped('{var} not set'); return; }}\n        $client = \\{namespace}\\{class_name}::{factory}($apiKey);"
+            )
+        } else {
+            format!("$client = \\{namespace}\\{class_name}::{factory}('test-key');")
+        }
     } else {
         String::new()
     };
@@ -1402,7 +1420,14 @@ fn render_assertion(
     // Prepare template context.
     let assertion_type = assertion.assertion_type.as_str();
     let has_php_val = assertion.value.is_some();
-    let php_val = assertion.value.as_ref().map(json_to_php).unwrap_or_default();
+    // serde collapses `"value": null` to `None`, but `equals` against null is a real
+    // assertion (e.g. `result.message.content == null`). Default to PHP `null` in that
+    // case so the rendered code compiles instead of producing `assertEquals(, ...)`.
+    let php_val = match assertion.value.as_ref() {
+        Some(v) => json_to_php(v),
+        None if assertion_type == "equals" => "null".to_string(),
+        None => String::new(),
+    };
     let trimmed_field_expr = trimmed_field_expr_for(assertion.value.as_ref().unwrap_or(&serde_json::Value::Null));
     let is_string_val = assertion.value.as_ref().is_some_and(|v| v.is_string());
     let values_php: Vec<String> = assertion
