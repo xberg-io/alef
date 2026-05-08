@@ -10,7 +10,7 @@
 {%- else %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
 {%- endif %}
 {% else %}    {{ variant.name }},
-{% endif %}{% endfor %}
+{% endif %}{% endfor %}}
 
 impl Default for {{ enum_name }} {
     fn default() -> Self { Self::{{ first_variant }}{{ first_variant_default }} }
