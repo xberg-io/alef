@@ -29,12 +29,14 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
             throw new JsonException("Discriminator field is null");
         }
 
-        // Wrap the remaining fields under "Value" so the variant record (which has a
-        // single Value field holding the inner type) deserializes correctly.
+        // Tuple-variant records (`Variant(InnerStruct value)`) expect a single
+        // "Value" field holding the inner struct's JSON, so wrap the remaining
+        // fields under "Value". Struct-variant records (`Variant { field1,
+        // field2 }`) have positional record components annotated with
+        // [JsonPropertyName(...)] for each named field, so pass the remaining
+        // fields through directly without the wrap.
         using var ms = new MemoryStream();
         using var writer = new Utf8JsonWriter(ms);
-        writer.WriteStartObject();
-        writer.WritePropertyName("Value");
         writer.WriteStartObject();
         foreach (var prop in root.EnumerateObject())
         {
@@ -45,17 +47,36 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
             }
         }
         writer.WriteEndObject();
-        writer.WriteEndObject();
         writer.Flush();
         ms.Position = 0;
+        var flatJson = ms.ToArray();
 
-        var variantJson = ms.ToArray();
+        using var msWrapped = new MemoryStream();
+        using var writerWrapped = new Utf8JsonWriter(msWrapped);
+        writerWrapped.WriteStartObject();
+        writerWrapped.WritePropertyName("Value");
+        writerWrapped.WriteStartObject();
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Name != "{{ tag_field }}")
+            {
+                writerWrapped.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writerWrapped);
+            }
+        }
+        writerWrapped.WriteEndObject();
+        writerWrapped.WriteEndObject();
+        writerWrapped.Flush();
+        msWrapped.Position = 0;
+        var wrappedJson = msWrapped.ToArray();
+
         return tagValue switch
         {
             {%- for variant in variants %}
             "{{ variant.discriminator }}" =>
                 {%- if variant.is_unit %} new {{ class_name }}.{{ variant.pascal }}(),
-                {%- else %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(variantJson, options) ?? throw new JsonException("Failed to deserialize variant"),
+                {%- elif variant.is_tuple %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(wrappedJson, options) ?? throw new JsonException("Failed to deserialize variant"),
+                {%- else %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(flatJson, options) ?? throw new JsonException("Failed to deserialize variant"),
                 {%- endif %}
             {%- endfor %}
             _ => throw new JsonException($"Unknown {{ class_name }} discriminator: {tagValue}")
