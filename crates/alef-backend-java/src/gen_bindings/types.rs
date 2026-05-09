@@ -1556,14 +1556,28 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             }
         };
 
-        // When the core field has an explicit `#[serde(rename = "...")]` (e.g. `tool_type`
-        // → wire `"type"`), emit `@JsonProperty(<wire-name>)` so Jackson's
-        // BuilderBasedDeserializer matches the wire key to this builder field. Without
-        // this, deserializing a chunk like `{"type":"function"}` into StreamToolCallBuilder
-        // fails with "Unrecognized field 'type'".
-        if let Some(rename) = &field.serde_rename {
+        // Emit `@JsonProperty(<wire-name>)` so Jackson's BuilderBasedDeserializer matches
+        // the wire key to this builder field. Required in two cases:
+        //   1. Explicit `#[serde(rename = "...")]` (e.g. `tool_type` → wire `"type"`).
+        //   2. The Rust source name does not roundtrip cleanly through Jackson's
+        //      `PropertyNamingStrategies.SNAKE_CASE` from the camelCase Java field name.
+        //      For example `x_robots_tag` (Rust) becomes `xRobotsTag` (Java) which Jackson
+        //      converts back as `xrobots_tag` (no underscore between single-letter prefix
+        //      and the next token), causing `Unrecognized field "x_robots_tag"`. Emitting
+        //      the explicit annotation for every snake_cased Rust name makes the builder
+        //      tolerant of any `PropertyNamingStrategy` (or none) on the consuming
+        //      ObjectMapper. Without this, deserializing a chunk like `{"type":"function"}`
+        //      into StreamToolCallBuilder fails with "Unrecognized field 'type'".
+        let wire_name: Option<String> = if let Some(rename) = &field.serde_rename {
+            Some(rename.clone())
+        } else if field.name.contains('_') {
+            Some(field.name.clone())
+        } else {
+            None
+        };
+        if let Some(wire) = wire_name {
             body.push_str("    @JsonProperty(\"");
-            body.push_str(rename);
+            body.push_str(&wire);
             body.push_str("\")\n");
         }
         body.push_str("    private ");
