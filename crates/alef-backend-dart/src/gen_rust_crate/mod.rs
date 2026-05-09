@@ -209,7 +209,7 @@ fn emit_lib_rs(
         }
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
             content.push('\n');
-            emit_trait_bridge(&mut content, trait_def, api, source_crate_name, &type_paths);
+            emit_trait_bridge(&mut content, trait_def, bridge_cfg, api, source_crate_name, &type_paths);
         }
     }
 

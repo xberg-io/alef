@@ -1,3 +1,4 @@
+use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
@@ -25,6 +26,7 @@ use super::trait_types::{
 pub(crate) fn emit_trait_bridge(
     out: &mut String,
     trait_def: &TypeDef,
+    bridge_config: &TraitBridgeConfig,
     api: &ApiSurface,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
@@ -203,6 +205,97 @@ pub(crate) fn emit_trait_bridge(
         ));
     }
     out.push_str("    }\n");
+    out.push_str("}\n");
+
+    // --- 5. register_*/unregister_* forwarder functions ---
+    // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`).
+    // FRB auto-bridges these `pub fn` items so Dart sees them as `Future<void> registerOcrBackend(...)`
+    // / `Future<void> unregisterOcrBackend(...)`.
+    emit_register_forwarder(out, bridge_config, &struct_name, source_crate_name);
+    emit_unregister_forwarder(out, bridge_config, source_crate_name);
+}
+
+/// Emit a Dart-side `register_*` forwarder for a configured trait bridge.
+///
+/// Wraps the user's `{Trait}DartImpl` in `std::sync::Arc::new(...)` and registers
+/// it directly via the configured `registry_getter` (mirroring the PyO3/NAPI
+/// approach). Going through the registry handle — rather than the host crate's
+/// `register_*` free function — sidesteps the host's `pub(crate)` / `#[cfg(test)]`
+/// restrictions on those wrappers (notably for `EmbeddingBackend`).
+///
+/// The forwarder returns `Result<(), String>` because FRB requires owned, FFI-
+/// safe error types — the host's typed error is stringified for transport.
+///
+/// When `register_fn` is unset on the bridge config, no code is emitted.
+fn emit_register_forwarder(
+    out: &mut String,
+    bridge_config: &TraitBridgeConfig,
+    struct_name: &str,
+    source_crate_name: &str,
+) {
+    let Some(register_fn) = bridge_config.register_fn.as_deref() else {
+        return;
+    };
+    let Some(registry_getter) = bridge_config.registry_getter.as_deref() else {
+        return;
+    };
+    let extra_args = bridge_config
+        .register_extra_args
+        .as_deref()
+        .map(|a| format!(", {a}"))
+        .unwrap_or_default();
+    let trait_path = format!("{source_crate_name}::plugins::{}", bridge_config.trait_name);
+
+    out.push('\n');
+    out.push_str(&format!(
+        "/// Register a Dart implementation as a `{}` plugin.\n",
+        bridge_config.trait_name
+    ));
+    out.push_str("///\n");
+    out.push_str(&format!(
+        "/// Wraps `impl_` in an `Arc` and inserts it into `{registry_getter}()`.\n"
+    ));
+    out.push_str("/// Errors from the host registry are stringified for FRB transport.\n");
+    out.push_str(&format!(
+        "pub fn {register_fn}(impl_: {struct_name}) -> Result<(), String> {{\n"
+    ));
+    out.push_str(&format!(
+        "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(impl_);\n"
+    ));
+    out.push_str(&format!("    let registry = {registry_getter}();\n"));
+    out.push_str("    let mut registry = registry.write();\n");
+    out.push_str(&format!(
+        "    registry.register(arc{extra_args}).map_err(|e| e.to_string())\n"
+    ));
+    out.push_str("}\n");
+}
+
+/// Emit a Dart-side `unregister_*` forwarder for a configured trait bridge.
+///
+/// Removes a previously-registered plugin by name via the configured `registry_getter`.
+/// Stringifies the host error. No-op when `unregister_fn` is unset on the bridge config.
+fn emit_unregister_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _source_crate_name: &str) {
+    let Some(unregister_fn) = bridge_config.unregister_fn.as_deref() else {
+        return;
+    };
+    let Some(registry_getter) = bridge_config.registry_getter.as_deref() else {
+        return;
+    };
+
+    out.push('\n');
+    out.push_str(&format!(
+        "/// Unregister a previously-registered `{}` plugin by name.\n",
+        bridge_config.trait_name
+    ));
+    out.push_str(&format!(
+        "/// Removes the plugin from `{registry_getter}()` and stringifies any host error.\n"
+    ));
+    out.push_str(&format!(
+        "pub fn {unregister_fn}(name: String) -> Result<(), String> {{\n"
+    ));
+    out.push_str(&format!("    let registry = {registry_getter}();\n"));
+    out.push_str("    let mut registry = registry.write();\n");
+    out.push_str("    registry.remove(&name).map_err(|e| e.to_string())\n");
     out.push_str("}\n");
 }
 

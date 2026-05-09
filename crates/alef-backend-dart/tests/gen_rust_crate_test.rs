@@ -570,6 +570,161 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
     assert!(lib.contains("fn extract_text("), "missing extract_text impl: {lib}");
 }
 
+/// When the bridge config sets `register_fn` + `registry_getter`, the codegen
+/// must emit a `pub fn register_<trait>(...) -> Result<(), String>` forwarder
+/// that wraps the user's `{Trait}DartImpl` in `Arc::new(...)` and inserts it
+/// into the configured registry. FRB auto-bridges this `pub fn` for Dart.
+#[test]
+fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "supports_language",
+            vec![make_param("lang", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Register forwarder takes the FRB-bridged opaque struct and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn register_ocr_backend(impl_: OcrBackendDartImpl) -> Result<(), String>"),
+        "missing register forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("std::sync::Arc<dyn demo_crate::plugins::OcrBackend>"),
+        "register forwarder must wrap impl_ as Arc<dyn Trait>: {lib}"
+    );
+    assert!(
+        lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
+        "register forwarder must call the configured registry getter: {lib}"
+    );
+    assert!(
+        lib.contains("registry.register(arc).map_err(|e| e.to_string())"),
+        "register forwarder must register the Arc and stringify errors: {lib}"
+    );
+
+    // Unregister forwarder takes the plugin name and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn unregister_ocr_backend(name: String) -> Result<(), String>"),
+        "missing unregister forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("registry.remove(&name).map_err(|e| e.to_string())"),
+        "unregister forwarder must call registry.remove(&name) and stringify errors: {lib}"
+    );
+}
+
+/// When `register_fn` is unset, no forwarder is emitted — the bridge keeps
+/// only the wrapper struct, trait impl, and factory.
+#[test]
+fn lib_rs_does_not_emit_register_forwarder_without_register_fn() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    // make_config_with_bridge() leaves register_fn = None.
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains("pub fn register_"),
+        "no register forwarder should be emitted when register_fn is unset: {lib}"
+    );
+    assert!(
+        !lib.contains("pub fn unregister_"),
+        "no unregister forwarder should be emitted when unregister_fn is unset: {lib}"
+    );
+}
+
+/// `register_extra_args` must be appended to the `registry.register(arc)` call.
+#[test]
+fn lib_rs_register_forwarder_appends_register_extra_args() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "Validator".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_validator_registry".to_string()),
+        register_fn: Some("register_validator".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: Some("0".to_string()),
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("registry.register(arc, 0)"),
+        "register forwarder must append register_extra_args: {lib}"
+    );
+}
+
 #[test]
 fn cargo_toml_has_license_field() {
     use alef_core::config::ScaffoldConfig;
