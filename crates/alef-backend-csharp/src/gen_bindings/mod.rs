@@ -3,8 +3,20 @@ use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_o
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
 use heck::ToPascalCase;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+
+/// Metadata for a streaming adapter, used to drive emission of an
+/// `IAsyncEnumerable<Item>` method over the FFI iterator-handle protocol
+/// (`_start` / `_next` / `_free`).
+#[derive(Debug, Clone)]
+pub(super) struct StreamingMethodMeta {
+    /// Owner type (e.g. `DefaultClient`). Retained for future routing decisions even when the
+    /// current emitter derives the receiver type from the enclosing class.
+    #[allow(dead_code)]
+    pub owner_type: String,
+    pub item_type: String,
+}
 
 pub(super) mod enums;
 pub(super) mod errors;
@@ -58,13 +70,25 @@ impl Backend for CsharpBackend {
         // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
-        // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
-        // directly. Skip them in all generated method loops.
+        // Streaming adapter methods are emitted via the iterator-handle FFI protocol
+        // (`{prefix}_{owner}_{name}_start` / `_next` / `_free`) — not as direct P/Invoke calls
+        // of the callback-based variant. The set is still used to skip the default
+        // method-emission path; the parallel meta map drives the `IAsyncEnumerable` emitters.
         let streaming_methods: HashSet<String> = config
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
             .map(|a| a.name.clone())
+            .collect();
+        let streaming_methods_meta: HashMap<String, StreamingMethodMeta> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner_type = a.owner_type.clone()?;
+                let item_type = a.item_type.clone()?;
+                Some((a.name.clone(), StreamingMethodMeta { owner_type, item_type }))
+            })
             .collect();
 
         // Functions explicitly excluded from C# bindings (e.g., not present in the C FFI layer).
@@ -96,6 +120,7 @@ impl Backend for CsharpBackend {
                 has_visitor_callbacks,
                 &config.trait_bridges,
                 &streaming_methods,
+                &streaming_methods_meta,
                 &exclude_functions,
             )),
             generated_header: true,
@@ -149,6 +174,7 @@ impl Backend for CsharpBackend {
                 &bridge_type_aliases,
                 has_visitor_callbacks,
                 &streaming_methods,
+                &streaming_methods_meta,
                 &exclude_functions,
             )),
             generated_header: true,
@@ -222,6 +248,7 @@ impl Backend for CsharpBackend {
                         &exception_class_name,
                         &enum_names,
                         &streaming_methods,
+                        &streaming_methods_meta,
                         &all_opaque_type_names,
                     )),
                     generated_header: true,

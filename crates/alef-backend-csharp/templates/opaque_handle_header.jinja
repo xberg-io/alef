@@ -14,6 +14,10 @@ using System.Collections.Generic;
 {%- if needs_async %}
 using System.Threading.Tasks;
 {%- endif %}
+{%- if needs_streaming %}
+using System.Threading;
+using System.Runtime.CompilerServices;
+{%- endif %}
 
 namespace {{ namespace }};
 

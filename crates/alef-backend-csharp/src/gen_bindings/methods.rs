@@ -5,15 +5,15 @@ use super::errors::{
 };
 use super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::{
-    emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented, is_bridge_param,
-    native_call_arg, returns_ptr,
+    StreamingMethodMeta, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
+    is_bridge_param, native_call_arg, returns_ptr,
 };
 use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_wrapper_class(
@@ -26,6 +26,7 @@ pub(super) fn gen_wrapper_class(
     bridge_type_aliases: &HashSet<String>,
     has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
+    _streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
