@@ -351,7 +351,8 @@ fn gen_struct_methods_impl(
                     })
                     .collect();
 
-                let param_lines = super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+                let param_lines =
+                    super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();
@@ -450,23 +451,22 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
-                    .map(|f| {
-                        alef_core::ir::ParamDef {
-                            name: f.name.clone(),
-                            ty: f.ty.clone(),
-                            optional: f.optional,
-                            default: None,
-                            is_ref: false,
-                            is_mut: false,
-                            newtype_wrapper: None,
-                            sanitized: false,
-                            original_type: None,
-                            typed_default: None,
-                        }
+                    .map(|f| alef_core::ir::ParamDef {
+                        name: f.name.clone(),
+                        ty: f.ty.clone(),
+                        optional: f.optional,
+                        default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        sanitized: false,
+                        original_type: None,
+                        typed_default: None,
                     })
                     .collect();
 
-                let param_lines = super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+                let param_lines =
+                    super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();

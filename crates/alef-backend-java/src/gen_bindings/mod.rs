@@ -2,7 +2,7 @@ use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ use facade::gen_facade_class;
 use ffi_class::gen_main_class;
 use helpers::{gen_exception_class, gen_infrastructure_exception_class};
 use native_lib::gen_native_lib;
-use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
+use types::{gen_builder_class, gen_byte_array_serializer, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
 pub struct JavaBackend;
 
@@ -209,6 +209,20 @@ impl Backend for JavaBackend {
                     });
                 }
             }
+        }
+
+        // 4a. Utility serializer for byte[] → JSON int-array (needed when any record
+        // has a non-optional Bytes field). Jackson's default byte[] serialiser emits
+        // base64, which Rust's serde Vec<u8> cannot accept. Emit the class once.
+        let needs_bytes_serializer = api.types.iter().any(|t| {
+            !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes))
+        });
+        if needs_bytes_serializer {
+            files.push(GeneratedFile {
+                path: base_path.join("ByteArrayToIntArraySerializer.java"),
+                content: gen_byte_array_serializer(&package),
+                generated_header: true,
+            });
         }
 
         // Collect builder class names generated from record types with defaults,

@@ -806,7 +806,6 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "bytes" {
             // bytes args must be passed as byte[] in C#.
-            // Treat the fixture value as a UTF-8 string and convert to bytes.
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
             match val {
@@ -817,8 +816,18 @@ fn build_args_and_setup(
                     parts.push("System.Array.Empty<byte>()".to_string());
                 }
                 Some(v) => {
-                    let cs_str = json_to_csharp(v);
-                    parts.push(format!("System.Text.Encoding.UTF8.GetBytes({cs_str})"));
+                    // Classify the value to determine how to interpret it:
+                    // - File paths (like "pdf/fake.pdf") → File.ReadAllBytes(path)
+                    // - Inline text → System.Text.Encoding.UTF8.GetBytes()
+                    // - Base64 → Convert.FromBase64String()
+                    if let Some(s) = v.as_str() {
+                        let bytes_code = classify_bytes_value_csharp(s);
+                        parts.push(bytes_code);
+                    } else {
+                        // Literal arrays or other non-string types: use as-is
+                        let cs_str = json_to_csharp(v);
+                        parts.push(format!("System.Text.Encoding.UTF8.GetBytes({cs_str})"));
+                    }
                 }
             }
             continue;
@@ -2343,4 +2352,36 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
     // so any function name makes a callable available.
     cs_override.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty()
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+/// Determines whether to treat it as a file path, inline text, or base64-encoded data.
+fn classify_bytes_value_csharp(s: &str) -> String {
+    // File paths: start with alphanumeric/underscore, contain "/" with extension
+    // e.g., "pdf/fake.pdf", "images/test.png"
+    if let Some(first) = s.chars().next() {
+        if first.is_ascii_alphanumeric() || first == '_' {
+            if let Some(slash_pos) = s.find('/') {
+                if slash_pos > 0 {
+                    let after_slash = &s[slash_pos + 1..];
+                    if after_slash.contains('.') && !after_slash.is_empty() {
+                        // File path: use File.ReadAllBytes(path)
+                        return format!("System.IO.File.ReadAllBytes(\"{}\")", s);
+                    }
+                }
+            }
+        }
+    }
+
+    // Inline text: starts with markup or contains spaces
+    // e.g., "<html>...", "{...}", "[...]", "text with spaces"
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        // Inline text: use System.Text.Encoding.UTF8.GetBytes()
+        return format!("System.Text.Encoding.UTF8.GetBytes(\"{}\")", escape_csharp(s));
+    }
+
+    // Base64: base64-like pattern (uppercase/lowercase letters, digits, +, /, =)
+    // e.g., "/9j/4AAQ", "SGVsbG8gV29ybGQ="
+    // Use Convert.FromBase64String()
+    format!("System.Convert.FromBase64String(\"{}\")", s)
 }

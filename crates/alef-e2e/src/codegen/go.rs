@@ -298,6 +298,13 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "\t\tif err != nil {{");
     let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\t// Keep a writable pipe to the mock-server's stdin so the");
+    let _ = writeln!(out, "\t\t// server does not see EOF and exit immediately. The mock-server");
+    let _ = writeln!(out, "\t\t// blocks reading stdin until the parent closes the pipe.");
+    let _ = writeln!(out, "\t\tstdin, err := cmd.StdinPipe()");
+    let _ = writeln!(out, "\t\tif err != nil {{");
+    let _ = writeln!(out, "\t\t\tpanic(err)");
+    let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tif err := cmd.Start(); err != nil {{");
     let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
@@ -314,6 +321,7 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
     let _ = writeln!(out, "\t\tcode := m.Run()");
+    let _ = writeln!(out, "\t\t_ = stdin.Close()");
     let _ = writeln!(out, "\t\t_ = cmd.Process.Signal(os.Interrupt)");
     let _ = writeln!(out, "\t\t_ = cmd.Wait()");
     let _ = writeln!(out, "\t\tos.Exit(code)");

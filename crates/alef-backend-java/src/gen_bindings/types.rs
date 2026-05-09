@@ -52,6 +52,13 @@ pub(crate) fn gen_record_type(
         // Rust fall back to its serde `default` (empty vec, default value, etc.).
         let needs_non_null = !f.optional && matches!(&f.ty, TypeRef::Vec(_));
 
+        // Non-optional Bytes fields (byte[]) must be serialised as a JSON array of
+        // integers, not as a base64 string. Jackson's default serialiser for byte[]
+        // produces base64, but Rust's serde for Vec<u8> expects [n, n, …].
+        // @JsonSerialize(using = ByteArrayToIntArraySerializer.class) overrides the
+        // default Jackson behaviour for this field only.
+        let needs_bytes_int_serialize = !f.optional && matches!(&f.ty, TypeRef::Bytes);
+
         // When the language convention is camelCase but the JSON wire format uses
         // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
         // so Jackson serialises/deserialises using the correct snake_case key.
@@ -63,6 +70,12 @@ pub(crate) fn gen_record_type(
         // Visitor field is transient and not serialized to JSON.
         if is_visitor_field {
             decl.push_str("@JsonIgnore ");
+        }
+
+        // byte[] fields in input DTOs must round-trip as JSON int arrays so Rust's
+        // serde Vec<u8> deserialiser accepts them.
+        if needs_bytes_int_serialize {
+            decl.push_str("@JsonSerialize(using = ByteArrayToIntArraySerializer.class) ");
         }
 
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)
@@ -226,6 +239,7 @@ pub(crate) fn gen_record_type(
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
     let needs_json_deserialize = record_block.contains("@JsonDeserialize(");
+    let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     let needs_nullable = fields_joined.contains("@Nullable");
     // Note: @Transient is not used in record classes — records have no bean-style getters,
@@ -252,6 +266,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_deserialize {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
+    }
+    if needs_json_serialize {
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonSerialize");
     }
     // No `import java.beans.Transient;` is needed: records have no fields to mark
     // `transient` and the `@Transient` annotation is meaningful only on JavaBean
@@ -404,7 +421,8 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     let needs_optional =
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
     // Newtype/tuple variants (field name is a numeric index like "0") are flattened
-    // into the parent JSON object using @JsonUnwrapped.
+    // into the parent JSON object. We use a custom deserializer instead of @JsonUnwrapped
+    // because Jackson 2.18 doesn't support @JsonUnwrapped on record creator parameters.
     let needs_unwrapped = enum_def
         .variants
         .iter()
@@ -426,7 +444,12 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         imports.push("java.util.Optional");
     }
     if needs_unwrapped {
-        imports.push("com.fasterxml.jackson.annotation.JsonUnwrapped");
+        imports.push("com.fasterxml.jackson.databind.JsonDeserializer");
+        imports.push("com.fasterxml.jackson.databind.deser.std.StdDeserializer");
+        imports.push("com.fasterxml.jackson.core.JsonParser");
+        imports.push("com.fasterxml.jackson.databind.DeserializationContext");
+        imports.push("com.fasterxml.jackson.databind.node.ObjectNode");
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
     }
     if has_data_variants {
         imports.push("org.jspecify.annotations.Nullable");
@@ -465,6 +488,11 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     // Allow unknown properties at the interface level so Jackson doesn't fail when
     // encountering flattened inner-type fields.
     out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
+    if needs_unwrapped {
+        out.push_str("@JsonDeserialize(using = ");
+        out.push_str(&enum_def.name);
+        out.push_str("Deserializer.class)\n");
+    }
     out.push_str("public sealed interface ");
     out.push_str(&enum_def.name);
     out.push_str(" {\n");
@@ -517,9 +545,9 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     };
                     // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
                     // These are not real JSON keys — serde flattens the inner type's fields
-                    // alongside the tag. Use @JsonUnwrapped so Jackson does the same.
+                    // alongside the tag. The custom deserializer handles unwrapping.
                     if is_tuple_field_name(&f.name) {
-                        format!("@JsonUnwrapped {ftype} value")
+                        format!("{ftype} value")
                     } else {
                         let json_name = f.name.trim_start_matches('_');
                         let jname = safe_java_field_name(json_name);
@@ -600,6 +628,13 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     }
 
     out.push_str("}\n");
+
+    // Generate custom deserializer for sealed interfaces with unwrapped variants
+    if needs_unwrapped {
+        out.push('\n');
+        gen_sealed_union_deserializer(&mut out, package, enum_def, tag_field);
+    }
+
     out
 }
 
@@ -891,3 +926,143 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     out.push_str(&body);
     out
 }
+
+/// Generate a custom deserializer for sealed interfaces with tuple/newtype variants.
+///
+/// This deserializer handles the case where Jackson encounters a @JsonTypeInfo with
+/// a discriminator tag but one or more variants have flattened/unwrapped fields.
+/// Jackson 2.18 doesn't support @JsonUnwrapped on record creator parameters,
+/// so we manually deserialize the JSON object, extract the tag, and reconstruct
+/// the variant record.
+/// Generate a `ByteArrayToIntArraySerializer` class for a given Java package.
+///
+/// Jackson serialises `byte[]` as base64 by default, but Rust's serde for `Vec<u8>`
+/// expects a JSON array of integers `[72, 101, 108, …]`. This class overrides that
+/// behaviour so that `BatchBytesItem.content` and any other `byte[]` field annotated
+/// with `@JsonSerialize(using = ByteArrayToIntArraySerializer.class)` serialises
+/// correctly at the FFI boundary.
+pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let imports = [
+        "com.fasterxml.jackson.core.JsonGenerator",
+        "com.fasterxml.jackson.databind.SerializerProvider",
+        "com.fasterxml.jackson.databind.ser.std.StdSerializer",
+    ];
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
+    out.push_str("/**\n");
+    out.push_str(" * Serialises {@code byte[]} as a JSON array of integers.\n");
+    out.push_str(" *\n");
+    out.push_str(" * <p>Jackson's default serialiser encodes {@code byte[]} as a base64 string, but\n");
+    out.push_str(" * Rust's {@code serde} for {@code Vec<u8>} expects {@code [72, 101, 108, ...]}.\n");
+    out.push_str(" * Annotate any {@code byte[]} field sent to the FFI layer with\n");
+    out.push_str(" * {@code @JsonSerialize(using = ByteArrayToIntArraySerializer.class)}.\n");
+    out.push_str(" */\n");
+    out.push_str("public class ByteArrayToIntArraySerializer extends StdSerializer<byte[]> {\n");
+    out.push_str("    /** Default constructor required by Jackson. */\n");
+    out.push_str("    public ByteArrayToIntArraySerializer() {\n");
+    out.push_str("        super(byte[].class);\n");
+    out.push_str("    }\n\n");
+    out.push_str("    @Override\n");
+    out.push_str("    public void serialize(final byte[] value, final JsonGenerator gen,\n");
+    out.push_str("            final SerializerProvider provider) throws java.io.IOException {\n");
+    out.push_str("        gen.writeStartArray();\n");
+    out.push_str("        for (byte b : value) {\n");
+    out.push_str("            gen.writeNumber(b & 0xFF);\n");
+    out.push_str("        }\n");
+    out.push_str("        gen.writeEndArray();\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out
+}
+
+fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &EnumDef, tag_field: &str) {
+    // Generate the deserializer class inline in the same file
+    // Start indentation at class level (not nested in the interface)
+    out.push_str("// Custom deserializer for sealed interface with unwrapped variants\n");
+    out.push_str("class ");
+    out.push_str(&enum_def.name);
+    out.push_str("Deserializer extends StdDeserializer<");
+    out.push_str(&enum_def.name);
+    out.push_str("> {\n");
+    out.push_str("    public ");
+    out.push_str(&enum_def.name);
+    out.push_str("Deserializer() {\n");
+    out.push_str("        super(");
+    out.push_str(&enum_def.name);
+    out.push_str(".class);\n");
+    out.push_str("    }\n\n");
+
+    out.push_str("    @Override\n");
+    out.push_str("    public ");
+    out.push_str(&enum_def.name);
+    out.push_str(" deserialize(JsonParser parser, DeserializationContext ctx)\n");
+    out.push_str("            throws java.io.IOException {\n");
+    out.push_str("        ObjectNode node = parser.getCodec().readTree(parser);\n");
+    out.push_str("        String tagValue = node.get(\"");
+    out.push_str(tag_field);
+    out.push_str("\").asText(null);\n");
+    out.push_str("        if (tagValue == null) {\n");
+    out.push_str("            throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+    out.push_str("                parser, \"Missing discriminator field: ");
+    out.push_str(tag_field);
+    out.push_str("\");\n");
+    out.push_str("        }\n\n");
+
+    // Generate a switch/case based on the tag value
+    out.push_str("        return switch (tagValue) {\n");
+    for variant in &enum_def.variants {
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| {
+                let name = &variant.name;
+                // Apply the same naming convention as the Rust enum
+                enum_def.serde_rename_all.as_deref()
+                    .map(|strategy| java_apply_rename_all(name, Some(strategy)))
+                    .unwrap_or_else(|| java_apply_rename_all(name, None))
+            });
+
+        out.push_str("            case \"");
+        out.push_str(&discriminator);
+        out.push_str("\" -> ");
+
+        if variant.fields.is_empty() {
+            // Unit variant
+            out.push_str("new ");
+            out.push_str(&enum_def.name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("();\n");
+        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Newtype/tuple variant - deserialize the inner type from the whole object
+            let field = &variant.fields[0];
+            let inner_type = java_type(&field.ty);
+            out.push_str("new ");
+            out.push_str(&enum_def.name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("(ctx.readTreeAsValue(node, ");
+            out.push_str(inner_type.as_ref());
+            out.push_str(".class));\n");
+        } else {
+            // Named field variant - deserialize using Jackson's normal deserialization
+            out.push_str("ctx.readTreeAsValue(node, ");
+            out.push_str(&enum_def.name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(".class);\n");
+        }
+    }
+    out.push_str("            default -> throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+    out.push_str("                parser, \"Unknown ");
+    out.push_str(&enum_def.name);
+    out.push_str(" discriminator: \" + tagValue);\n");
+    out.push_str("        };\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
