@@ -1,11 +1,11 @@
 //! C# NativeMethods (P/Invoke) code generation.
 
-use super::{is_bridge_param, pinvoke_param_type, pinvoke_return_type};
+use super::{StreamingMethodMeta, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
 use alef_codegen::naming::to_csharp_name;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_native_methods(
@@ -18,6 +18,7 @@ pub(super) fn gen_native_methods(
     has_visitor_callbacks: bool,
     trait_bridges: &[TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
+    streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
@@ -64,6 +65,19 @@ pub(super) fn gen_native_methods(
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if streaming_methods.contains(&method.name) {
+                // Streaming methods have no plain P/Invoke entry but the request payload still
+                // needs `from_json` / `free`, and the item type needs `to_json` / `free`, so
+                // the wrapper can serialize the request and deserialize each chunk.
+                for param in &method.params {
+                    if let TypeRef::Named(name) = &param.ty {
+                        opaque_param_types.insert(name.clone());
+                    }
+                }
+                if let Some(meta) = streaming_methods_meta.get(&method.name) {
+                    if !enum_names.contains(&meta.item_type) {
+                        opaque_return_types.insert(meta.item_type.clone());
+                    }
+                }
                 continue;
             }
             for param in &method.params {
@@ -195,7 +209,8 @@ pub(super) fn gen_native_methods(
     }
 
     // Generate P/Invoke declarations for type methods.
-    // Skip streaming adapter methods — their FFI signature uses callbacks that P/Invoke can't call.
+    // Skip streaming adapter methods — the callback-based variant cannot be called from
+    // P/Invoke; streaming is exposed instead via the iterator-handle entry points emitted below.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         let type_snake = typ.name.to_snake_case();
         for method in &typ.methods {
@@ -212,6 +227,58 @@ pub(super) fn gen_native_methods(
             }
         }
     }
+
+    // Emit P/Invoke declarations for streaming iterator-handle entry points:
+    //   {prefix}_{owner_snake}_{name}_start(client*, req*) -> stream handle (IntPtr)
+    //   {prefix}_{owner_snake}_{name}_next(handle*)        -> chunk pointer or IntPtr.Zero
+    //   {prefix}_{owner_snake}_{name}_free(handle*)        -> void
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        let type_snake = typ.name.to_snake_case();
+        for method in &typ.methods {
+            if !streaming_methods.contains(&method.name) {
+                continue;
+            }
+            let cs_type = typ.name.to_pascal_case();
+            let cs_method = to_csharp_name(&method.name);
+
+            let start_entry = format!("{}_{}_{}_start", prefix, type_snake, method.name.to_lowercase());
+            let start_cs = format!("{cs_type}{cs_method}Start");
+            if emitted.insert(start_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &start_entry },
+                ));
+                out.push_str(&format!(
+                    "    internal static extern IntPtr {start_cs}(IntPtr client, IntPtr req);\n\n"
+                ));
+            }
+
+            let next_entry = format!("{}_{}_{}_next", prefix, type_snake, method.name.to_lowercase());
+            let next_cs = format!("{cs_type}{cs_method}Next");
+            if emitted.insert(next_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &next_entry },
+                ));
+                out.push_str(&format!(
+                    "    internal static extern IntPtr {next_cs}(IntPtr handle);\n\n"
+                ));
+            }
+
+            let free_entry = format!("{}_{}_{}_free", prefix, type_snake, method.name.to_lowercase());
+            let free_cs = format!("{cs_type}{cs_method}Free");
+            if emitted.insert(free_entry.clone()) {
+                out.push_str(&render(
+                    "dll_import_attr.jinja",
+                    minijinja::context! { entry_point => &free_entry },
+                ));
+                out.push_str(&format!(
+                    "    internal static extern void {free_cs}(IntPtr handle);\n\n"
+                ));
+            }
+        }
+    }
+    let _ = streaming_methods_meta;
 
     // Add error handling functions with PascalCase names
     let last_error_code_entry = format!("{prefix}_last_error_code");

@@ -4,14 +4,14 @@ use super::errors::{
     emit_return_marshalling, emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented,
 };
 use super::{
-    csharp_file_header, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
-    is_tuple_field, returns_ptr,
+    StreamingMethodMeta, csharp_file_header, emit_named_param_setup, emit_named_param_teardown,
+    emit_named_param_teardown_indented, is_tuple_field, returns_ptr,
 };
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub(super) fn gen_opaque_handle(
     typ: &TypeDef,
@@ -19,27 +19,36 @@ pub(super) fn gen_opaque_handle(
     exception_name: &str,
     enum_names: &HashSet<String>,
     streaming_methods: &HashSet<String>,
+    streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     all_opaque_type_names: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
 
-    // Determine which additional using directives are needed
-    let has_methods = typ.methods.iter().any(|m| !streaming_methods.contains(&m.name));
+    // Determine which additional using directives are needed.
+    // Streaming methods reuse the JSON / async / generics / pinvoke machinery, so they count
+    // toward `has_methods`, `needs_async`, and `needs_list` regardless of the non-streaming set.
+    let has_streaming = typ
+        .methods
+        .iter()
+        .any(|m| streaming_methods.contains(&m.name) && streaming_methods_meta.contains_key(&m.name));
+    let has_methods = has_streaming || typ.methods.iter().any(|m| !streaming_methods.contains(&m.name));
     let uses_list = |tr: &TypeRef| -> bool {
         matches!(tr, TypeRef::Vec(_))
             || matches!(tr, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)))
     };
-    let needs_list = has_methods
-        && typ
-            .methods
-            .iter()
-            .any(|m| uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty)));
-    let needs_async = has_methods
-        && typ
-            .methods
-            .iter()
-            .any(|m| m.is_async && !streaming_methods.contains(&m.name));
+    let needs_list = has_streaming
+        || (has_methods
+            && typ
+                .methods
+                .iter()
+                .any(|m| uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty))));
+    let needs_async = has_streaming
+        || (has_methods
+            && typ
+                .methods
+                .iter()
+                .any(|m| m.is_async && !streaming_methods.contains(&m.name)));
 
     let class_name = typ.name.to_pascal_case();
     let free_method = format!("{}Free", class_name);
@@ -60,6 +69,7 @@ pub(super) fn gen_opaque_handle(
             "has_methods": has_methods,
             "needs_list": needs_list,
             "needs_async": needs_async,
+            "needs_streaming": has_streaming,
             "doc": !typ.doc.is_empty(),
             "doc_lines": doc_lines,
         })),
@@ -72,7 +82,19 @@ pub(super) fn gen_opaque_handle(
     // types (e.g., LanguageRegistry::get_language → Language) are wrapped directly
     // as `new Language(ptr)` rather than being incorrectly JSON-serialized.
     let true_opaque_types = all_opaque_type_names;
-    for method in typ.methods.iter().filter(|m| !streaming_methods.contains(&m.name)) {
+    for method in &typ.methods {
+        if streaming_methods.contains(&method.name) {
+            if let Some(meta) = streaming_methods_meta.get(&method.name) {
+                out.push('\n');
+                out.push_str(&gen_opaque_streaming_method(
+                    method,
+                    &class_name,
+                    exception_name,
+                    meta,
+                ));
+            }
+            continue;
+        }
         out.push('\n');
         out.push_str(&gen_opaque_method(
             method,
@@ -84,6 +106,131 @@ pub(super) fn gen_opaque_handle(
     }
 
     out.push_str("}\n");
+
+    out
+}
+
+/// Generate a streaming method on an opaque handle class as `IAsyncEnumerable<Item>` driven by
+/// the FFI iterator-handle protocol (`{type}{method}Start` / `Next` / `Free`).
+///
+/// The body:
+/// 1. Serializes the request to JSON and obtains a `{Request}FromJson` handle.
+/// 2. Calls `{type}{method}Start(this.Handle, requestHandle)` to obtain the stream handle.
+/// 3. In a `try` block, repeatedly calls `{type}{method}Next(streamHandle)`:
+///    - Non-null pointer → deserialize chunk via `{Item}ToJson` + `JsonSerializer`, yield it.
+///    - Null pointer → check `LastErrorCode()`: 0 = clean end-of-stream, non-zero = error.
+/// 4. In `finally`, frees both the stream handle and the request handle.
+fn gen_opaque_streaming_method(
+    method: &MethodDef,
+    class_name: &str,
+    exception_name: &str,
+    meta: &StreamingMethodMeta,
+) -> String {
+    let cs_method_name = to_csharp_name(&method.name);
+    let cs_type_name = class_name.to_string();
+    let item_pascal = meta.item_type.to_pascal_case();
+
+    // Resolve the request parameter: first Named parameter is the JSON-serialised request payload.
+    // (Streaming adapters in liter-llm pass exactly one `req: ChatCompletionRequest` argument.)
+    let req_param = method.params.iter().find(|p| matches!(&p.ty, TypeRef::Named(_)));
+    let (req_pascal, req_param_name) = match req_param {
+        Some(p) => match &p.ty {
+            TypeRef::Named(n) => (n.to_pascal_case(), p.name.to_lower_camel_case()),
+            _ => (item_pascal.clone(), "req".to_string()),
+        },
+        None => (item_pascal.clone(), "req".to_string()),
+    };
+    let req_param_type = req_pascal.clone();
+
+    let start_native = format!("{cs_type_name}{cs_method_name}Start");
+    let next_native = format!("{cs_type_name}{cs_method_name}Next");
+    let free_native = format!("{cs_type_name}{cs_method_name}Free");
+    let req_from_json = format!("{req_pascal}FromJson");
+    let req_free = format!("{req_pascal}Free");
+    let item_to_json = format!("{item_pascal}ToJson");
+    let item_free = format!("{item_pascal}Free");
+
+    let mut out = String::with_capacity(2048);
+
+    if !method.doc.is_empty() {
+        out.push_str("    /// <summary>\n");
+        for line in method.doc.lines() {
+            out.push_str(&format!("    /// {line}\n"));
+        }
+        out.push_str("    /// </summary>\n");
+    } else {
+        out.push_str("    /// <summary>\n");
+        out.push_str(&format!(
+            "    /// Streaming variant of {cs_method_name}. Returns chunks as an asynchronous sequence.\n"
+        ));
+        out.push_str("    /// </summary>\n");
+    }
+
+    out.push_str(&format!(
+        "    public async IAsyncEnumerable<{item_pascal}> {cs_method_name}(\n"
+    ));
+    out.push_str(&format!("        {req_param_type} {req_param_name},\n"));
+    out.push_str("        [EnumeratorCancellation] CancellationToken cancellationToken = default)\n");
+    out.push_str("    {\n");
+
+    out.push_str(&format!(
+        "        var {req_param_name}Json = JsonSerializer.Serialize({req_param_name}, JsonOptions);\n"
+    ));
+    out.push_str(&format!(
+        "        var {req_param_name}Handle = NativeMethods.{req_from_json}({req_param_name}Json);\n"
+    ));
+
+    out.push_str(&format!(
+        "        var streamHandle = NativeMethods.{start_native}(Handle, {req_param_name}Handle);\n"
+    ));
+    out.push_str("        if (streamHandle == IntPtr.Zero)\n");
+    out.push_str("        {\n");
+    out.push_str(&format!("            NativeMethods.{req_free}({req_param_name}Handle);\n"));
+    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
+    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
+    out.push_str("            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
+    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
+    out.push_str("        }\n");
+
+    // `yield return` is incompatible with `try`/`catch`, but `try`/`finally` is fine.
+    out.push_str("        try\n");
+    out.push_str("        {\n");
+    out.push_str("            while (true)\n");
+    out.push_str("            {\n");
+    out.push_str("                cancellationToken.ThrowIfCancellationRequested();\n");
+    out.push_str(&format!(
+        "                var chunkPtr = NativeMethods.{next_native}(streamHandle);\n"
+    ));
+    out.push_str("                if (chunkPtr == IntPtr.Zero)\n");
+    out.push_str("                {\n");
+    out.push_str("                    var ec = NativeMethods.LastErrorCode();\n");
+    out.push_str("                    if (ec != 0)\n");
+    out.push_str("                    {\n");
+    out.push_str("                        var ctxPtr = NativeMethods.LastErrorContext();\n");
+    out.push_str("                        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
+    out.push_str(&format!("                        throw new {exception_name}(ec, msg);\n"));
+    out.push_str("                    }\n");
+    out.push_str("                    yield break;\n");
+    out.push_str("                }\n");
+    out.push_str(&format!(
+        "                var jsonPtr = NativeMethods.{item_to_json}(chunkPtr);\n"
+    ));
+    out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+    out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
+    out.push_str(&format!("                NativeMethods.{item_free}(chunkPtr);\n"));
+    out.push_str(&format!(
+        "                var chunk = JsonSerializer.Deserialize<{item_pascal}>(json ?? \"null\", JsonOptions)!;\n"
+    ));
+    out.push_str("                yield return chunk;\n");
+    out.push_str("                await Task.Yield();\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("        finally\n");
+    out.push_str("        {\n");
+    out.push_str(&format!("            NativeMethods.{free_native}(streamHandle);\n"));
+    out.push_str(&format!("            NativeMethods.{req_free}({req_param_name}Handle);\n"));
+    out.push_str("        }\n");
+    out.push_str("    }\n");
 
     out
 }
