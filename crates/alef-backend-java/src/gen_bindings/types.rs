@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
 use alef_core::config::{AdapterConfig, AdapterPattern};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 
 use super::helpers::{
@@ -701,12 +701,30 @@ pub(crate) fn gen_opaque_handle_class(
         .collect();
     let has_streaming = !streaming_adapters.is_empty();
 
+    // Instance methods on this opaque handle (skip static and any method whose name
+    // collides with a streaming adapter — those are emitted by the streaming codegen).
+    let streaming_method_names: AHashSet<String> = streaming_adapters
+        .iter()
+        .map(|a| a.name.to_snake_case())
+        .collect();
+    let instance_methods: Vec<&MethodDef> = typ
+        .methods
+        .iter()
+        .filter(|m| !m.is_static)
+        .filter(|m| !streaming_method_names.contains(&m.name.to_snake_case()))
+        .collect();
+    let has_instance_methods = !instance_methods.is_empty();
+    let needs_helpers = has_streaming || has_instance_methods;
+
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
-    if has_streaming {
+    if needs_helpers {
         imports.push("java.lang.foreign.Arena");
+        imports.push("java.lang.foreign.ValueLayout");
+        imports.push("com.fasterxml.jackson.databind.ObjectMapper");
+    }
+    if has_streaming {
         imports.push("java.util.Iterator");
         imports.push("java.util.NoSuchElementException");
-        imports.push("com.fasterxml.jackson.databind.ObjectMapper");
     }
     let mut out = crate::template_env::render(
         "java_file_header.jinja",
@@ -737,6 +755,11 @@ pub(crate) fn gen_opaque_handle_class(
         gen_streaming_method(&mut out, adapter, prefix, &type_snake, main_class);
     }
 
+    // Emit non-streaming instance methods (chat, embed, moderate, …).
+    for method in &instance_methods {
+        gen_instance_method(&mut out, method, prefix, &type_snake, main_class);
+    }
+
     out.push_str("    @Override\n");
     out.push_str("    public void close() {\n");
     out.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
@@ -754,13 +777,308 @@ pub(crate) fn gen_opaque_handle_class(
     out.push_str("        }\n");
     out.push_str("    }\n");
 
-    if has_streaming {
+    if needs_helpers {
         gen_streaming_helpers(&mut out, prefix, main_class);
     }
 
     out.push_str("}\n");
 
     out
+}
+
+/// Emit a non-streaming instance method on an opaque-handle owner.
+fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner_snake: &str, main_class: &str) {
+    let method_name = method.name.to_lower_camel_case();
+    let prefix_upper = prefix.to_uppercase();
+    let owner_upper = owner_snake.to_uppercase();
+    let method_upper = method.name.to_snake_case().to_uppercase();
+    let exception_class = format!("{main_class}Exception");
+    let ffi_handle = format!("NativeLib.{prefix_upper}_{owner_upper}_{method_upper}");
+
+    let params_sig: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty).to_string()
+            } else {
+                java_type(&p.ty).to_string()
+            };
+            format!("final {} {}", ptype, p.name.to_lower_camel_case())
+        })
+        .collect();
+
+    let is_bytes_result = method.error_type.is_some()
+        && (matches!(method.return_type, TypeRef::Bytes)
+            || matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes)));
+
+    let (is_optional_return, dispatch_return) = match &method.return_type {
+        TypeRef::Optional(inner) => (true, (**inner).clone()),
+        other => (false, other.clone()),
+    };
+
+    let return_type_java = if is_bytes_result {
+        if is_optional_return {
+            "java.util.Optional<byte[]>"
+        } else {
+            "byte[]"
+        }
+        .to_string()
+    } else {
+        java_type(&method.return_type).to_string()
+    };
+
+    out.push_str("    public ");
+    out.push_str(&return_type_java);
+    out.push(' ');
+    out.push_str(&method_name);
+    out.push('(');
+    out.push_str(&params_sig.join(", "));
+    out.push_str(") throws ");
+    out.push_str(&exception_class);
+    out.push_str(" {\n");
+
+    for p in &method.params {
+        if !p.optional && param_needs_null_check(&p.ty) {
+            let pname = p.name.to_lower_camel_case();
+            out.push_str(&format!(
+                "        java.util.Objects.requireNonNull({pname}, \"{pname} must not be null\");\n"
+            ));
+        }
+    }
+
+    out.push_str("        try (var arena = Arena.ofConfined()) {\n");
+
+    let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
+    let mut call_args: Vec<String> = Vec::new();
+
+    for p in &method.params {
+        let pname = p.name.to_lower_camel_case();
+        let cname = format!("c{}", to_class_name(&p.name));
+        match &p.ty {
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+                out.push_str(&format!(
+                    "            var {cname} = arena.allocateFrom({pname});\n"
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Optional(inner)
+                if matches!(
+                    inner.as_ref(),
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
+                ) =>
+            {
+                out.push_str(&format!(
+                    "            MemorySegment {cname} = ({pname} == null) ? MemorySegment.NULL : arena.allocateFrom({pname});\n"
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Named(type_name) => {
+                let req_snake = type_name.to_snake_case();
+                let req_upper = req_snake.to_uppercase();
+                let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
+                let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
+                out.push_str(&format!(
+                    "            String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
+                ));
+                out.push_str(&format!(
+                    "            var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
+                ));
+                out.push_str(&format!(
+                    "            MemorySegment {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
+                ));
+                out.push_str(&format!(
+                    "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\"); }}\n"
+                ));
+                named_ptr_frees.push((cname.clone(), req_free));
+                call_args.push(cname);
+            }
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                let type_name = match inner.as_ref() {
+                    TypeRef::Named(n) => n,
+                    _ => unreachable!(),
+                };
+                let req_snake = type_name.to_snake_case();
+                let req_upper = req_snake.to_uppercase();
+                let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
+                let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
+                out.push_str(&format!("            MemorySegment {cname};\n"));
+                out.push_str(&format!(
+                    "            if ({pname} == null) {{ {cname} = MemorySegment.NULL; }} else {{\n"
+                ));
+                out.push_str(&format!(
+                    "                String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
+                ));
+                out.push_str(&format!(
+                    "                var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
+                ));
+                out.push_str(&format!(
+                    "                {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
+                ));
+                out.push_str(&format!(
+                    "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\"); }}\n"
+                ));
+                out.push_str("            }\n");
+                named_ptr_frees.push((cname.clone(), req_free));
+                call_args.push(cname);
+            }
+            TypeRef::Primitive(_) | TypeRef::Duration => {
+                call_args.push(pname);
+            }
+            _ => {
+                out.push_str(&format!(
+                    "            // TODO unsupported parameter type for {pname}\n"
+                ));
+                out.push_str(&format!(
+                    "            throw new {exception_class}(\"{method_name}: unsupported parameter shape\");\n"
+                ));
+                out.push_str("        } catch (Throwable e) {\n");
+                out.push_str(&format!(
+                    "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
+                ));
+                out.push_str(&format!(
+                    "            throw new {exception_class}(\"{method_name}: failed\", e);\n"
+                ));
+                out.push_str("        }\n");
+                out.push_str("    }\n\n");
+                return;
+            }
+        }
+    }
+
+    let emit_named_frees = |out: &mut String, indent: &str| {
+        for (cname, free_handle) in &named_ptr_frees {
+            out.push_str(&format!(
+                "{indent}if (!{cname}.equals(MemorySegment.NULL)) {{ try {{ {free_handle}.invoke({cname}); }} catch (Throwable ignore) {{}} }}\n"
+            ));
+        }
+    };
+
+    let mut call_args_full = vec!["this.handle".to_string()];
+    call_args_full.extend(call_args);
+    let args_joined = call_args_full.join(", ");
+
+    if is_bytes_result {
+        let free_bytes = format!("NativeLib.{prefix_upper}_FREE_BYTES");
+        out.push_str("            var outPtrHolder = arena.allocate(ValueLayout.ADDRESS);\n");
+        out.push_str("            var outLenHolder = arena.allocate(ValueLayout.JAVA_LONG);\n");
+        out.push_str("            var outCapHolder = arena.allocate(ValueLayout.JAVA_LONG);\n");
+        out.push_str(&format!(
+            "            int rc = (int) {ffi_handle}.invoke({args_joined}, outPtrHolder, outLenHolder, outCapHolder);\n"
+        ));
+        emit_named_frees(out, "            ");
+        out.push_str("            if (rc != 0) {\n");
+        out.push_str("                checkLastFfiError();\n");
+        out.push_str(&format!(
+            "                {}\n",
+            if is_optional_return {
+                "return java.util.Optional.empty();"
+            } else {
+                "return null;"
+            }
+        ));
+        out.push_str("            }\n");
+        out.push_str("            var outPtr = outPtrHolder.get(ValueLayout.ADDRESS, 0);\n");
+        out.push_str("            long outLen = outLenHolder.get(ValueLayout.JAVA_LONG, 0);\n");
+        out.push_str("            long outCap = outCapHolder.get(ValueLayout.JAVA_LONG, 0);\n");
+        out.push_str("            if (outPtr.equals(MemorySegment.NULL)) {\n");
+        out.push_str("                checkLastFfiError();\n");
+        out.push_str(&format!(
+            "                {}\n",
+            if is_optional_return {
+                "return java.util.Optional.empty();"
+            } else {
+                "return null;"
+            }
+        ));
+        out.push_str("            }\n");
+        out.push_str("            byte[] result = outPtr.reinterpret(outLen).toArray(ValueLayout.JAVA_BYTE);\n");
+        out.push_str(&format!("            {free_bytes}.invoke(outPtr, outLen, outCap);\n"));
+        out.push_str(&format!(
+            "            return {};\n",
+            if is_optional_return {
+                "java.util.Optional.of(result)"
+            } else {
+                "result"
+            }
+        ));
+    } else if matches!(dispatch_return, TypeRef::Named(_)) {
+        let return_type_name = match &dispatch_return {
+            TypeRef::Named(n) => n.clone(),
+            _ => unreachable!(),
+        };
+        let ret_snake = return_type_name.to_snake_case();
+        let ret_upper = ret_snake.to_uppercase();
+        let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
+        let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
+
+        out.push_str(&format!(
+            "            MemorySegment resultPtr = (MemorySegment) {ffi_handle}.invoke({args_joined});\n"
+        ));
+        emit_named_frees(out, "            ");
+        out.push_str("            if (resultPtr.equals(MemorySegment.NULL)) {\n");
+        out.push_str("                checkLastFfiError();\n");
+        out.push_str("                return null;\n");
+        out.push_str("            }\n");
+        out.push_str("            try {\n");
+        out.push_str(&format!(
+            "                MemorySegment jsonPtr = (MemorySegment) {ret_to_json}.invoke(resultPtr);\n"
+        ));
+        out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
+        out.push_str("                    checkLastFfiError();\n");
+        out.push_str(&format!(
+            "                    throw new {exception_class}(\"{method_name}: failed to serialize response\");\n"
+        ));
+        out.push_str("                }\n");
+        out.push_str("                String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
+        out.push_str(&format!(
+            "                NativeLib.{prefix_upper}_FREE_STRING.invoke(jsonPtr);\n"
+        ));
+        out.push_str(&format!(
+            "                return STREAM_MAPPER.readValue(json, {return_type_name}.class);\n"
+        ));
+        out.push_str("            } finally {\n");
+        out.push_str(&format!("                {ret_free}.invoke(resultPtr);\n"));
+        out.push_str("            }\n");
+    } else if matches!(dispatch_return, TypeRef::Unit) {
+        out.push_str(&format!("            {ffi_handle}.invoke({args_joined});\n"));
+        emit_named_frees(out, "            ");
+        out.push_str("            checkLastFfiError();\n");
+    } else {
+        emit_named_frees(out, "            ");
+        out.push_str(&format!(
+            "            // TODO unsupported return shape for {method_name}\n"
+        ));
+        out.push_str(&format!(
+            "            throw new {exception_class}(\"{method_name}: unsupported return shape\");\n"
+        ));
+    }
+
+    out.push_str("        } catch (Throwable e) {\n");
+    out.push_str(&format!(
+        "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
+    ));
+    out.push_str(&format!(
+        "            throw new {exception_class}(\"{method_name}: failed\", e);\n"
+    ));
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+}
+
+/// True when the given `TypeRef` is a reference type whose Java representation may
+/// be null (so we should `Objects.requireNonNull` it for non-optional params).
+fn param_needs_null_check(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::String
+            | TypeRef::Char
+            | TypeRef::Path
+            | TypeRef::Json
+            | TypeRef::Named(_)
+            | TypeRef::Bytes
+            | TypeRef::Vec(_)
+            | TypeRef::Map(_, _)
+    )
 }
 
 /// Emit a streaming iterator method body for an opaque-handle owner.

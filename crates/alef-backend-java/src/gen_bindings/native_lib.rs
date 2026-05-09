@@ -1,10 +1,20 @@
 use ahash::AHashSet;
 use alef_core::config::{AdapterPattern, ResolvedCrateConfig};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, TypeRef};
+use alef_core::ir::{ApiSurface, MethodDef, TypeRef};
 use heck::ToSnakeCase;
 
 use super::marshal::{gen_ffi_layout, gen_function_descriptor, is_bytes_result};
+
+/// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
+/// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
+fn is_bytes_result_method(method: &MethodDef) -> bool {
+    if method.error_type.is_none() {
+        return false;
+    }
+    matches!(method.return_type, TypeRef::Bytes)
+        || matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
+}
 
 pub(crate) fn gen_native_lib(
     api: &ApiSurface,
@@ -485,6 +495,138 @@ pub(crate) fn gen_native_lib(
                     ffi_name => item_free_ffi,
                 },
             ));
+        }
+    }
+
+    // Method handles for instance methods on opaque types (chat, embed, moderate, …).
+    //
+    // Each FFI export is named `{prefix}_{owner_snake}_{method_snake}` and takes the
+    // opaque receiver pointer as its first argument. Streaming-adapter methods are
+    // excluded — those use the (`_start`, `_next`, `_free`) iterator-handle trio above.
+    // Bytes-result methods use the (out_ptr, out_len, out_cap) triple convention,
+    // mirroring `is_bytes_result` for free functions.
+    let streaming_adapter_method_keys: AHashSet<(String, String)> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter_map(|a| {
+            let owner = a.owner_type.clone()?;
+            Some((owner, a.name.to_snake_case()))
+        })
+        .collect();
+    for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
+        for method in &typ.methods {
+            if method.is_static {
+                continue;
+            }
+            if streaming_adapter_method_keys.contains(&(typ.name.clone(), method.name.to_snake_case())) {
+                continue;
+            }
+            let owner_snake = typ.name.to_snake_case();
+            let owner_upper = owner_snake.to_uppercase();
+            let method_snake = method.name.to_snake_case();
+            let method_upper = method_snake.to_uppercase();
+            let handle_name = format!("{}_{}_{}", prefix.to_uppercase(), owner_upper, method_upper);
+            let ffi_name = format!("{}_{}_{}", prefix, owner_snake, method_snake);
+
+            let mut param_layouts: Vec<String> = vec!["ValueLayout.ADDRESS".to_string()];
+            for p in &method.params {
+                param_layouts.push(gen_ffi_layout(&p.ty));
+            }
+            let return_layout = if is_bytes_result_method(method) {
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
+                param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap
+                "ValueLayout.JAVA_INT".to_string()
+            } else {
+                gen_ffi_layout(&method.return_type)
+            };
+            let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
+
+            let handle_code = crate::template_env::render(
+                "method_handle_normal.jinja",
+                minijinja::context! {
+                    handle_name => handle_name,
+                    ffi_name => ffi_name,
+                    layout => layout_str,
+                },
+            );
+            function_handles.push(handle_code);
+
+            // For Named return types, ensure the response struct's `_to_json` and `_free`
+            // helpers are registered so the instance-method body can deserialize and free.
+            let return_named = match &method.return_type {
+                TypeRef::Named(n) => Some(n.clone()),
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) => Some(n.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(name) = return_named {
+                let type_snake = name.to_snake_case();
+                let type_upper = type_snake.to_uppercase();
+                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+                if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                    accessor_handles.push(crate::template_env::render(
+                        "method_handle_to_json.jinja",
+                        minijinja::context! {
+                            handle_name => to_json_handle,
+                            ffi_name => to_json_ffi,
+                        },
+                    ));
+                }
+                let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                if emitted_free_handles.insert(free_handle.clone()) {
+                    accessor_handles.push(crate::template_env::render(
+                        "method_handle_free.jinja",
+                        minijinja::context! {
+                            handle_name => free_handle,
+                            ffi_name => free_ffi,
+                        },
+                    ));
+                }
+            }
+
+            // For Named param types, register their `_from_json` + `_free` helpers.
+            for p in &method.params {
+                let param_named = match &p.ty {
+                    TypeRef::Named(n) => Some(n.clone()),
+                    TypeRef::Optional(inner) => match inner.as_ref() {
+                        TypeRef::Named(n) => Some(n.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(name) = param_named {
+                    let type_snake = name.to_snake_case();
+                    let type_upper = type_snake.to_uppercase();
+                    let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
+                    let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
+                    if emitted_from_json_handles.insert(from_json_handle.clone()) {
+                        accessor_handles.push(crate::template_env::render(
+                            "method_handle_from_json.jinja",
+                            minijinja::context! {
+                                handle_name => from_json_handle,
+                                ffi_name => from_json_ffi,
+                            },
+                        ));
+                    }
+                    let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                    let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                    if emitted_free_handles.insert(free_handle.clone()) {
+                        accessor_handles.push(crate::template_env::render(
+                            "method_handle_free.jinja",
+                            minijinja::context! {
+                                handle_name => free_handle,
+                                ffi_name => free_ffi,
+                            },
+                        ));
+                    }
+                }
+            }
         }
     }
 
