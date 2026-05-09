@@ -3,7 +3,7 @@ mod methods;
 pub(super) mod types;
 
 use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
-use methods::gen_method_wrapper;
+use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
     gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
@@ -106,13 +106,21 @@ impl Backend for GoBackend {
         // These are independent of visitor_callbacks and generate trait_bridges.go.
         let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
 
-        // Collect streaming adapter method names — their FFI signature uses callbacks
-        // which Go's CGO wrappers can't call directly.
-        let streaming_methods: HashSet<String> = config
+        // Map streaming adapter (owner_type, method_name) → item_type. The callback-based
+        // FFI export (`<prefix>_<type>_<method>`) cannot be driven from CGO, but the
+        // companion iterator-handle exports (`_start`, `_next`, `_free`) can — we emit a
+        // dedicated Go method that drives them and returns a typed channel.
+        // Adapters missing `owner_type` or `item_type` are skipped (treated as "no Go
+        // streaming method emitted") rather than producing broken code.
+        let streaming_methods: std::collections::HashMap<(String, String), String> = config
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
-            .map(|a| a.name.clone())
+            .filter_map(|a| {
+                let owner = a.owner_type.clone()?;
+                let item = a.item_type.clone()?;
+                Some(((owner, a.name.clone()), item))
+            })
             .collect();
 
         // Collect functions excluded from FFI generation. Go bindings call C symbols directly
@@ -316,7 +324,7 @@ fn gen_go_file(
     go_output_dir: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    streaming_methods: &HashSet<String>,
+    streaming_methods: &std::collections::HashMap<(String, String), String>,
     ffi_exclude_functions: &HashSet<String>,
     has_options_field_bridge: bool,
 ) -> String {
@@ -566,7 +574,17 @@ fn gen_go_file(
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
             }
-            if streaming_methods.contains(&method.name) {
+            if let Some(item_type) = streaming_methods.get(&(typ.name.clone(), method.name.clone())) {
+                // Streaming method: drive the FFI iterator-handle exports and surface a typed
+                // Go channel instead of calling the callback-based wrapper directly.
+                out.push_str(&gen_streaming_method_wrapper(
+                    typ,
+                    method,
+                    ffi_prefix,
+                    item_type,
+                    &opaque_names,
+                ));
+                out.push_str("\n\n");
                 continue;
             }
             if ffi_exclude_functions.contains(&method.name) {

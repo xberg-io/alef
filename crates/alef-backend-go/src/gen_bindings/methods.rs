@@ -6,6 +6,169 @@ use alef_core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
+/// Generate a streaming wrapper for a method decorated with the `Streaming` adapter pattern.
+///
+/// The returned Go method consumes the FFI iterator-handle exports
+/// (`<prefix>_<type>_<method>_start`, `_next`, `_free`) and exposes a typed
+/// `<-chan <ItemType>` to Go callers. A goroutine drives `_next` until null
+/// (clean end-of-stream) or an error is signalled, then frees the handle.
+pub(super) fn gen_streaming_method_wrapper(
+    typ: &TypeDef,
+    method: &MethodDef,
+    ffi_prefix: &str,
+    item_type: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
+    let mut out = String::with_capacity(2048);
+
+    let method_go_name = to_go_name(&method.name);
+    emit_type_doc(&mut out, &method_go_name, &method.doc, "is a streaming method.");
+
+    // Receiver name follows the pattern used by gen_method_wrapper: opaque -> "h", non-opaque -> "r".
+    let receiver_name = if typ.is_opaque { "h" } else { "r" };
+    let go_receiver_type = go_type_name(&typ.name);
+    let item_go_type = go_type_name(item_type);
+
+    // Build the parameter list mirroring gen_method_wrapper. We do not honour
+    // bridge stripping here because streaming adapters never use trait bridges.
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let param_type: String = if p.optional {
+                go_optional_type(&p.ty).into_owned()
+            } else if let TypeRef::Named(name) = &p.ty {
+                if opaque_names.contains(name.as_str()) {
+                    format!("*{}", go_type(&p.ty))
+                } else {
+                    go_type(&p.ty).into_owned()
+                }
+            } else {
+                go_type(&p.ty).into_owned()
+            };
+            format!("{} {}", go_param_name(&p.name), param_type)
+        })
+        .collect();
+
+    // Function signature: receiver, name, params, return type.
+    writeln!(
+        out,
+        "func ({} *{}) {}({}) (<-chan {}, error) {{",
+        receiver_name,
+        go_receiver_type,
+        method_go_name,
+        params.join(", "),
+        item_go_type,
+    )
+    .ok();
+
+    // Marshal each parameter exactly like gen_method_wrapper does for the
+    // synchronous case. The start function's signature accepts the same C
+    // request handle as the regular `chat` method, so reuse the existing
+    // gen_param_to_c emitter (returning `(value, error)`-shape).
+    for param in &method.params {
+        write!(
+            out,
+            "{}",
+            gen_param_to_c(
+                param,
+                /* returns_value_and_error = */ true,
+                /* can_return_error = */ true,
+                ffi_prefix,
+                opaque_names,
+            )
+        )
+        .ok();
+    }
+
+    // Build the C parameter list (e.g. `cReq`) — same as gen_method_wrapper.
+    let c_params: Vec<String> = method
+        .params
+        .iter()
+        .flat_map(|p| -> Vec<String> {
+            let c_name = go_param_name(&format!("c_{}", p.name));
+            if matches!(p.ty, TypeRef::Bytes) {
+                vec![c_name.clone(), format!("{}Len", c_name)]
+            } else {
+                vec![c_name]
+            }
+        })
+        .collect();
+
+    let type_snake = typ.name.to_snake_case();
+    let method_snake = method.name.to_snake_case();
+    let item_snake = item_type.to_snake_case();
+    let upper_prefix = ffi_prefix.to_uppercase();
+
+    // Start the stream. Non-static streaming methods always have a non-null
+    // opaque receiver — cast `h.ptr` like other opaque-receiver methods do.
+    let c_receiver = format!("(*C.{}{})(unsafe.Pointer({}.ptr))", upper_prefix, typ.name, receiver_name);
+    let start_call = if c_params.is_empty() {
+        format!(
+            "C.{}_{}_{}_start({})",
+            ffi_prefix, type_snake, method_snake, c_receiver
+        )
+    } else {
+        format!(
+            "C.{}_{}_{}_start({}, {})",
+            ffi_prefix,
+            type_snake,
+            method_snake,
+            c_receiver,
+            c_params.join(", "),
+        )
+    };
+
+    // Body: open the handle, spawn a goroutine, deliver chunks on the channel.
+    write!(
+        out,
+        "\thandle := {start_call}\n\
+         \tif handle == nil {{\n\
+         \t\tif err := lastError(); err != nil {{\n\
+         \t\t\treturn nil, err\n\
+         \t\t}}\n\
+         \t\treturn nil, fmt.Errorf(\"failed to start {method_snake} stream\")\n\
+         \t}}\n\
+         \tch := make(chan {item_go_type})\n\
+         \tgo func() {{\n\
+         \t\tdefer close(ch)\n\
+         \t\tdefer C.{ffi_prefix}_{type_snake}_{method_snake}_free(handle)\n\
+         \t\tfor {{\n\
+         \t\t\tchunkPtr := C.{ffi_prefix}_{type_snake}_{method_snake}_next(handle)\n\
+         \t\t\tif chunkPtr == nil {{\n\
+         \t\t\t\t// Null = clean end-of-stream (errno 0) or stream error (errno != 0).\n\
+         \t\t\t\t// In either case there are no more chunks; close the channel.\n\
+         \t\t\t\treturn\n\
+         \t\t\t}}\n\
+         \t\t\tjsonPtr := C.{ffi_prefix}_{item_snake}_to_json(chunkPtr)\n\
+         \t\t\tif jsonPtr == nil {{\n\
+         \t\t\t\tC.{ffi_prefix}_{item_snake}_free(chunkPtr)\n\
+         \t\t\t\treturn\n\
+         \t\t\t}}\n\
+         \t\t\tvar chunk {item_go_type}\n\
+         \t\t\tunmarshalErr := json.Unmarshal([]byte(C.GoString(jsonPtr)), &chunk)\n\
+         \t\t\tC.{ffi_prefix}_free_string(jsonPtr)\n\
+         \t\t\tC.{ffi_prefix}_{item_snake}_free(chunkPtr)\n\
+         \t\t\tif unmarshalErr != nil {{\n\
+         \t\t\t\treturn\n\
+         \t\t\t}}\n\
+         \t\t\tch <- chunk\n\
+         \t\t}}\n\
+         \t}}()\n\
+         \treturn ch, nil\n\
+         }}\n",
+        start_call = start_call,
+        ffi_prefix = ffi_prefix,
+        type_snake = type_snake,
+        method_snake = method_snake,
+        item_snake = item_snake,
+        item_go_type = item_go_type,
+    )
+    .ok();
+
+    out
+}
+
 /// Generate a wrapper method for a struct method.
 pub(super) fn gen_method_wrapper(
     typ: &TypeDef,
