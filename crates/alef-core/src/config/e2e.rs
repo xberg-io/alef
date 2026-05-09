@@ -656,6 +656,25 @@ pub struct CallOverride {
     /// Defaults to `{prefix}_free_string` when unset and `raw_c_result_type == "char*"`.
     #[serde(default)]
     pub c_free_fn: Option<String>,
+    /// C FFI engine factory pattern (C only).
+    ///
+    /// When set, the C generator wraps each test call in a
+    /// `{prefix}_create_engine(config)` / `{prefix}_crawl_engine_handle_free(engine)`
+    /// prologue/epilogue using the named config type as the "arg 0" handle type.
+    ///
+    /// The value is the PascalCase config type name (without prefix), e.g.
+    /// `"CrawlConfig"`. The generator will emit:
+    /// ```c
+    /// KCRAWLCrawlConfig* config_handle = kcrawl_crawl_config_from_json("{json}");
+    /// KCRAWLCrawlEngineHandle* engine = kcrawl_create_engine(config_handle);
+    /// kcrawl_crawl_config_free(config_handle);
+    /// KCRAWLScrapeResult* result = kcrawl_scrape(engine, url);
+    /// // ... assertions ...
+    /// kcrawl_scrape_result_free(result);
+    /// kcrawl_crawl_engine_handle_free(engine);
+    /// ```
+    #[serde(default)]
+    pub c_engine_factory: Option<String>,
     /// Fields in a `json_object` arg that must be wrapped in `java.nio.file.Path.of()`
     /// (Java generator only).
     ///

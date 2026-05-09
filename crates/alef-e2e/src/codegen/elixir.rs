@@ -93,7 +93,10 @@ impl E2eCodegen for ElixirCodegen {
         // Resolve package reference (path or version) for the NIF dependency.
         let pkg_ref = e2e_config.resolve_package(lang);
         let pkg_path = if has_nif_tests {
-            pkg_ref.as_ref().and_then(|p| p.path.as_deref()).unwrap_or("")
+            pkg_ref
+                .as_ref()
+                .and_then(|p| p.path.as_deref())
+                .unwrap_or("../../packages/elixir")
         } else {
             ""
         };
