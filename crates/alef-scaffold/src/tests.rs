@@ -1364,6 +1364,13 @@ fn test_scaffold_kotlin() {
         "ktlint filter block missing or incomplete; got:\n{}",
         files[0].content
     );
+    // ktlint must skip the alef-emitted binding-class file (pascal-cased crate name).
+    // The `my-lib` test crate becomes `MyLib.kt`.
+    assert!(
+        files[0].content.contains(r#"endsWith("/MyLib.kt")"#),
+        "ktlint filter must exclude alef-emitted binding-class file; got:\n{}",
+        files[0].content
+    );
     // Maven artifactId override disambiguates Kotlin module from sibling Java module.
     assert!(
         files[0].content.contains("artifactId = \"my-lib-kotlin\""),
