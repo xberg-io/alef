@@ -94,6 +94,18 @@ pub fn generate_e2e(
 
     let all_groups = group_fixtures(&fixtures);
 
+    // Drop categories that are explicitly excluded from cross-language e2e
+    // codegen. These fixtures stay on disk for Rust integration tests but
+    // never reach binding generators.
+    let all_groups: Vec<_> = if e2e_config.exclude_categories.is_empty() {
+        all_groups
+    } else {
+        all_groups
+            .into_iter()
+            .filter(|g| !e2e_config.exclude_categories.contains(&g.category))
+            .collect()
+    };
+
     // In registry mode with a non-empty category filter, keep only the listed
     // categories so the generated test apps contain a curated subset.
     let groups: Vec<_> =

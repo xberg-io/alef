@@ -138,6 +138,11 @@ pub fn validate_fixtures_semantic(
     if !languages.is_empty() {
         let groups = group_fixtures(fixtures);
         for group in &groups {
+            // Categories explicitly excluded from cross-language codegen are
+            // expected to produce 0 test functions; do not warn.
+            if e2e_config.exclude_categories.contains(&group.category) {
+                continue;
+            }
             let has_any_non_skipped = group.fixtures.iter().any(|f| {
                 match &f.skip {
                     None => true, // no skip → will generate

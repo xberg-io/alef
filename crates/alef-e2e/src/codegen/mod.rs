@@ -46,12 +46,19 @@ use anyhow::Result;
 /// Check if a fixture should be included for the given language.
 ///
 /// Returns false if:
+/// - The fixture's resolved category is in `e2e_config.exclude_categories`
+///   (fixture is excluded from every language's cross-language e2e codegen)
 /// - The fixture has a skip condition that applies to this language
 /// - The fixture's call has no resolvable function for this language (no base
 ///   `function` set and no override for the language). Calls that share a base
 ///   function but only carry per-language type/arg overrides are still emitted
 ///   for languages without an explicit override.
 pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_config: &E2eConfig) -> bool {
+    if !e2e_config.exclude_categories.is_empty()
+        && e2e_config.exclude_categories.contains(&fixture.resolved_category())
+    {
+        return false;
+    }
     if let Some(skip) = &fixture.skip {
         if skip.should_skip(language) {
             return false;
