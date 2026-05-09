@@ -306,10 +306,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Set up Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.0"
+      - name: Show Swift version
+        run: swift --version
       - name: Build {binding_crate} Rust crate
         run: cargo build -p {binding_crate}
       - name: Copy swift-bridge generated sources
