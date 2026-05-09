@@ -975,8 +975,12 @@ fn build_args_and_setup(
             // The NIF now accepts config as an optional JSON string (not a NifStruct/NifMap)
             // so that partial maps work: serde_json::from_str respects #[serde(default)].
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let config_value = if arg.field == "input" {
+                input
+            } else {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                input.get(field).unwrap_or(&serde_json::Value::Null)
+            };
             let name = &arg.name;
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
@@ -996,8 +1000,12 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let val = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Elixir functions have fixed positional arity — pass nil for optional args

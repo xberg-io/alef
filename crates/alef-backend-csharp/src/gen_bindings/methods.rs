@@ -184,7 +184,9 @@ fn gen_wrapper_function(
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
-        if param.optional && !param_type.ends_with('?') {
+        // Config parameters are optional in practice (callers often omit them and expect defaults)
+        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
+        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
@@ -210,8 +212,10 @@ fn gen_wrapper_function(
     out.push_str(")\n    {\n");
 
     // Null checks for required string/object parameters
+    // Skip config parameters — they are optional by convention and will be defaulted
     for param in &visible_params {
-        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
+        if !param.optional && !is_optional_by_convention && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }
@@ -528,7 +532,9 @@ fn gen_wrapper_method(
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
-        if param.optional && !param_type.ends_with('?') {
+        // Config parameters are optional in practice (callers often omit them and expect defaults)
+        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
+        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
@@ -554,8 +560,10 @@ fn gen_wrapper_method(
     out.push_str(")\n    {\n");
 
     // Null checks for required string/object parameters
+    // Skip config parameters — they are optional by convention and will be defaulted
     for param in &visible_params {
-        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
+        if !param.optional && !is_optional_by_convention && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }

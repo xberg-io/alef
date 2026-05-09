@@ -1004,7 +1004,7 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
     out
 }
 
-fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &EnumDef, tag_field: &str) {
+fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &EnumDef, tag_field: &str) {
     // Generate the deserializer class inline in the same file
     // Start indentation at class level (not nested in the interface)
     out.push_str("// Custom deserializer for sealed interface with unwrapped variants\n");
@@ -1027,15 +1027,16 @@ fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &Enu
     out.push_str(" deserialize(JsonParser parser, DeserializationContext ctx)\n");
     out.push_str("            throws java.io.IOException {\n");
     out.push_str("        ObjectNode node = parser.getCodec().readTree(parser);\n");
-    out.push_str("        String tagValue = node.get(\"");
+    out.push_str("        com.fasterxml.jackson.databind.JsonNode tagNode = node.get(\"");
     out.push_str(tag_field);
-    out.push_str("\").asText(null);\n");
-    out.push_str("        if (tagValue == null) {\n");
+    out.push_str("\");\n");
+    out.push_str("        if (tagNode == null || tagNode.isNull()) {\n");
     out.push_str("            throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
     out.push_str("                parser, \"Missing discriminator field: ");
     out.push_str(tag_field);
     out.push_str("\");\n");
-    out.push_str("        }\n\n");
+    out.push_str("        }\n");
+    out.push_str("        String tagValue = tagNode.asText();\n\n");
 
     // Generate a switch/case based on the tag value
     out.push_str("        return switch (tagValue) {\n");

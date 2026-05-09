@@ -182,10 +182,10 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     }
     let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
-    // It lives in the FRB-generated frb_generated.dart inside the kreuzberg package.
+    // It lives in the FRB-generated frb_generated.dart inside kreuzberg_bridge_generated/.
     let _ = writeln!(
         out,
-        "import 'package:kreuzberg/src/frb/frb_generated.dart' show RustLib;"
+        "import 'package:kreuzberg/src/kreuzberg_bridge_generated/frb_generated.dart' show RustLib;"
     );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
