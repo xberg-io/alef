@@ -587,9 +587,15 @@ fn render_test_function(
 
         for arg in args {
             if arg.arg_type == "json_object" {
-                // Derive request type from result type: strip "Response", append "Request".
-                // E.g. "ChatCompletionResponse" -> "ChatCompletionRequest".
-                let request_type_pascal = if let Some(stripped) = result_type_name.strip_suffix("Response") {
+                // Prefer options_type from the C override when set, since the result
+                // type isn't always a clean strip-Response/append-Request transform
+                // (e.g. transcribe -> Create**Transcription**Request, not TranscriptionRequest).
+                // Fall back to deriving from result_type for backward-compat cases.
+                let request_type_pascal = if !options_type_name.is_empty()
+                    && options_type_name != "ConversionOptions"
+                {
+                    options_type_name.to_string()
+                } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
                     format!("{}Request", stripped)
                 } else {
                     format!("{result_type_name}Request")
