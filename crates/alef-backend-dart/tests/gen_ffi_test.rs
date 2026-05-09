@@ -241,6 +241,7 @@ fn unit_enum_emits_dart_enum() {
         ],
         serde_rename_all: None,
         serde_tag: None,
+        serde_untagged: false,
         cfg: None,
         is_copy: false,
         has_serde: false,

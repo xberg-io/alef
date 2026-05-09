@@ -1042,6 +1042,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
             rust_path: "test_lib::Message".to_string(),
             original_rust_path: String::new(),
             serde_tag: Some("role".to_string()),
+            serde_untagged: false,
             serde_rename_all: None,
             doc: String::new(),
             cfg: None,

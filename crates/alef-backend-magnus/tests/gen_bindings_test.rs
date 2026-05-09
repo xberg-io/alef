@@ -1347,6 +1347,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             is_copy: false,
             has_serde: false,
             serde_tag: Some("type".to_string()),
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],

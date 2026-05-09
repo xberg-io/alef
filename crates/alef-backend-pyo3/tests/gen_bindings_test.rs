@@ -2849,6 +2849,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
             is_copy: false,
             has_serde: true,
             serde_tag: Some("type".to_string()),
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],

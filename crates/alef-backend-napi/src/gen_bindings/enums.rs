@@ -31,7 +31,7 @@ pub(super) fn variant_data_field_names(enum_def: &EnumDef) -> Vec<String> {
 pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
     let is_tagged_data_enum = enum_def.serde_tag.is_some() && has_data_variants;
-    let is_untagged_data_enum = enum_def.serde_tag.is_none() && has_data_variants;
+    let is_untagged_data_enum = enum_def.serde_untagged && has_data_variants;
 
     if is_tagged_data_enum {
         return gen_tagged_enum_as_object(enum_def, prefix, has_serde);

@@ -170,13 +170,14 @@ impl Backend for JavaBackend {
             });
         }
 
-        // Collect complex enums (enums with data variants and no serde tag) — use Object for these fields.
+        // Collect complex enums (untagged enums with data variants) — use Object for these fields.
         // Tagged unions (serde_tag is set) are now generated as proper sealed interfaces
         // and can be deserialized as their concrete types, so they are NOT complex_enums.
+        // Externally-tagged enums (the serde default) are string enums — also NOT complex.
         let complex_enums: AHashSet<String> = api
             .enums
             .iter()
-            .filter(|e| e.serde_tag.is_none() && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .filter(|e| e.serde_untagged && e.variants.iter().any(|v| !v.fields.is_empty()))
             .map(|e| e.name.clone())
             .collect();
 

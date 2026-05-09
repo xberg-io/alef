@@ -378,7 +378,7 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
 fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(2048);
     let go_enum_name = go_type_name(&enum_def.name);
-    let is_untagged = enum_def.serde_tag.is_none();
+    let is_untagged = enum_def.serde_untagged;
 
     // Collect variant names for the doc comment
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();

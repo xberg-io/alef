@@ -395,7 +395,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         for e in &api.enums {
             let has_data_variants = e.variants.iter().any(|v| !v.fields.is_empty());
             let is_tagged_data_enum = e.serde_tag.is_some() && has_data_variants;
-            let is_untagged_data_enum = e.serde_tag.is_none() && has_data_variants;
+            let is_untagged_data_enum = e.serde_untagged && has_data_variants;
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
                 builder.add_item(&methods::gen_tagged_enum_binding_to_core(

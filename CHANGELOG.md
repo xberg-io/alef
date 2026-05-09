@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.5] - 2026-05-09
+
+### Fixed
+
+- fix(napi-backend): only treat enums as untagged when they have `#[serde(untagged)]`, not just any enum without `#[serde(tag = "...")]` — was misclassifying `VisitResult` and similar externally-tagged enums as untagged, emitting an unusable `serde_json::Value` wrapper instead of a `#[napi(string_enum)]`.
+- fix(go-backend): same untagged-enum heuristic fix applied to the Go backend.
+- fix(csharp-backend): same untagged-enum heuristic fix applied to the C# complex_enums filter.
+- fix(java-backend): same untagged-enum heuristic fix applied to the Java complex_enums filter.
+- feat(core/ir): add `serde_untagged: bool` field to `EnumDef` (with `#[serde(default)]`) so backends can correctly distinguish `#[serde(untagged)]` from the default externally-tagged serialization.
+- feat(extract): parse `#[serde(untagged)]` attribute on enum definitions and populate `EnumDef::serde_untagged`.
+
 ## [0.15.4] - 2026-05-09
 
 ### Fixed

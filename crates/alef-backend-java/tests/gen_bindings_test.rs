@@ -454,6 +454,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             rust_path: "test_lib::Message".to_string(),
             original_rust_path: String::new(),
             serde_tag: Some("role".to_string()),
+            serde_untagged: false,
             serde_rename_all: Some("snake_case".to_string()),
             doc: String::new(),
             cfg: None,

@@ -865,6 +865,7 @@ mod tests {
             is_copy: false,
             has_serde: false,
             serde_tag: Some("format_type".into()),
+            serde_untagged: false,
             serde_rename_all: None,
         };
 

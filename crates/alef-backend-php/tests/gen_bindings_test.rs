@@ -1595,6 +1595,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         is_copy: false,
         has_serde: true,
         serde_tag: Some("role".to_string()),
+        serde_untagged: false,
         serde_rename_all: None,
     };
 
@@ -1727,6 +1728,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         is_copy: false,
         has_serde: true,
         serde_tag: Some("type".to_string()),
+        serde_untagged: false,
         serde_rename_all: Some("lowercase".to_string()),
     };
 

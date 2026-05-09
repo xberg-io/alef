@@ -279,6 +279,11 @@ pub struct EnumDef {
     /// Serde tag property name for internally tagged enums (from `#[serde(tag = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_tag: Option<String>,
+    /// True when the enum has `#[serde(untagged)]`.
+    /// Absence of `serde_tag` does NOT imply untagged — it means externally-tagged (the serde
+    /// default). Only set this when the attribute is explicitly present on the Rust type.
+    #[serde(default)]
+    pub serde_untagged: bool,
     /// Serde rename strategy for enum variants (from `#[serde(rename_all = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_rename_all: Option<String>,
