@@ -584,3 +584,184 @@ fn test_output_path_no_doubling() {
         "Should append package path when not already present"
     );
 }
+
+/// Streaming-adapter emission: when a `[[crates.adapters]]` entry has
+/// pattern = "streaming" and owner_type = an opaque handle, the Java backend
+/// must emit (a) the three FFI iterator-handle MethodHandles in NativeLib and
+/// (b) a public `chatStream(req)` instance method on the opaque handle that
+/// returns `Iterator<ChatCompletionChunk>` driven by those handles.
+#[test]
+fn test_streaming_adapter_emits_iterator_method_on_opaque_handle() {
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "tl"
+
+[crates.java]
+package = "com.example.test"
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+error_type = "TestError"
+request_type = "test_lib::ChatCompletionRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatCompletionRequest"
+"#,
+    );
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "DefaultClient".to_string(),
+                rust_path: "test_lib::DefaultClient".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "chat_stream".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: true,
+                    is_static: false,
+                    error_type: Some("TestError".to_string()),
+                    doc: String::new(),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    receiver: Some(ReceiverKind::Ref),
+                    trait_source: None,
+                    has_default_impl: false,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+            TypeDef {
+                name: "ChatCompletionRequest".to_string(),
+                rust_path: "test_lib::ChatCompletionRequest".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+            TypeDef {
+                name: "ChatCompletionChunk".to_string(),
+                rust_path: "test_lib::ChatCompletionChunk".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let backend = JavaBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // 1. NativeLib must include the three iterator-handle MethodHandles.
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.ends_with("NativeLib.java"))
+        .expect("NativeLib.java must be generated");
+    for needle in [
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_START",
+        "tl_default_client_chat_stream_start",
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_NEXT",
+        "tl_default_client_chat_stream_next",
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_FREE",
+        "tl_default_client_chat_stream_free",
+        "TL_CHAT_COMPLETION_REQUEST_FROM_JSON",
+        "TL_CHAT_COMPLETION_CHUNK_TO_JSON",
+    ] {
+        assert!(
+            native_lib.content.contains(needle),
+            "NativeLib must contain `{needle}`. Got:\n{}",
+            &native_lib.content[..native_lib.content.len().min(2000)]
+        );
+    }
+
+    // 2. DefaultClient.java must expose a public `chatStream(...)` returning Iterator<ChatCompletionChunk>.
+    let client = files
+        .iter()
+        .find(|f| f.path.ends_with("DefaultClient.java"))
+        .expect("DefaultClient.java must be generated");
+    assert!(
+        client
+            .content
+            .contains("public Iterator<ChatCompletionChunk> chatStream(final ChatCompletionRequest"),
+        "DefaultClient must emit `chatStream` returning Iterator<ChatCompletionChunk>. Got:\n{}",
+        client.content
+    );
+    assert!(
+        client.content.contains("import java.util.Iterator;"),
+        "DefaultClient must import java.util.Iterator"
+    );
+    assert!(
+        client.content.contains("import java.util.NoSuchElementException;"),
+        "DefaultClient must import NoSuchElementException for the iterator hasNext/next contract"
+    );
+    // Iteration body must call all three FFI handles.
+    for needle in [
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_START.invoke",
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_NEXT.invoke",
+        "TL_DEFAULT_CLIENT_CHAT_STREAM_FREE.invoke",
+        "TL_CHAT_COMPLETION_CHUNK_TO_JSON.invoke",
+        "TL_CHAT_COMPLETION_CHUNK_FREE.invoke",
+    ] {
+        assert!(
+            client.content.contains(needle),
+            "DefaultClient body must invoke `{needle}`"
+        );
+    }
+}
