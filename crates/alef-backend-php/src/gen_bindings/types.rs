@@ -605,9 +605,17 @@ fn gen_struct_methods_impl(
             // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
             // Emit a JSON-string getter (Option<String>) so PHP can introspect the serialized
             // form, while the actual round-trip through `from_json` uses the Value field directly.
-            let is_json_field = matches!(field.ty, TypeRef::Json)
-                || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json))
-                || matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
+            // Map<_, Json> and Optional<Map<_, Json>> are caught here too — ext-php-rs 0.15.12+
+            // tightened HashMap IntoZval bounds to require V: IntoZval, which Value does not impl.
+            fn ty_is_or_wraps_json(t: &TypeRef) -> bool {
+                match t {
+                    TypeRef::Json => true,
+                    TypeRef::Optional(inner) | TypeRef::Vec(inner) => ty_is_or_wraps_json(inner),
+                    TypeRef::Map(_, v) => matches!(v.as_ref(), TypeRef::Json),
+                    _ => false,
+                }
+            }
+            let is_json_field = ty_is_or_wraps_json(&field.ty);
             if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
                 let body = if field.optional {
                     format!(
