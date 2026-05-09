@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(php-backend): map `TypeRef::Bytes` params to PHP `String` and convert to `Vec<u8>` via `into_bytes()` at constructor / call sites (PHP strings are binary-safe). Avoids the missing `FromZval for Vec<u8>` in ext-php-rs that previously surfaced as compile errors on speech / file-content endpoints.
+
 ## [0.15.5] - 2026-05-09
 
 ### Fixed
