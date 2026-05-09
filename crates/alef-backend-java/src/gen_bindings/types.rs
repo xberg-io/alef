@@ -64,7 +64,11 @@ pub(crate) fn gen_record_type(
         // When the language convention is camelCase but the JSON wire format uses
         // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
         // so Jackson serialises/deserialises using the correct snake_case key.
-        let has_json_property = lang_rename_all == "camelCase" && f.name.contains('_');
+        // Also emit @JsonProperty when an explicit `#[serde(rename = "...")]` is set on
+        // the core field, so the Java field can be named ergonomically (e.g. `tool_type`)
+        // while serializing as the wire name (e.g. `"type"`).
+        let has_json_property = (lang_rename_all == "camelCase" && f.name.contains('_')) || f.serde_rename.is_some();
+        let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
         let has_nullable = f.optional;
 
         let mut decl = String::new();
@@ -117,7 +121,7 @@ pub(crate) fn gen_record_type(
         }
         if has_json_property && !is_visitor_field {
             decl.push_str("@JsonProperty(\"");
-            decl.push_str(&f.name);
+            decl.push_str(&json_property_name);
             decl.push_str("\") ");
         }
         if has_nullable && !nullable_at_leading_pos {
