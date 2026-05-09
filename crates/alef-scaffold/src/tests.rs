@@ -1431,7 +1431,9 @@ fn test_scaffold_zig() {
 
     let workflow = &files[7];
     assert_eq!(workflow.path, PathBuf::from(".github/workflows/zig.yml"));
-    assert!(workflow.content.contains("mlugg/setup-zig"));
+    assert!(workflow.content.contains("kreuzberg-dev/actions/setup-zig"));
+    assert!(workflow.content.contains("cargo build -p my-lib-ffi"));
+    assert!(workflow.content.contains(r#"version: "0.16.0""#));
 }
 
 // ---------------------------------------------------------------------------
