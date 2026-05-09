@@ -1,7 +1,27 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 use std::path::PathBuf;
+
+fn type_has_json(t: &TypeRef) -> bool {
+    match t {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_has_json(inner),
+        TypeRef::Map(k, v) => type_has_json(k) || type_has_json(v),
+        _ => false,
+    }
+}
+
+fn api_has_json_field(api: &ApiSurface) -> bool {
+    api.types
+        .iter()
+        .flat_map(|t| t.fields.iter())
+        .any(|f| type_has_json(&f.ty))
+        || api
+            .functions
+            .iter()
+            .any(|f| f.params.iter().any(|p| type_has_json(&p.ty)) || type_has_json(&f.return_type))
+}
 
 pub(crate) fn emit_cargo_toml(
     rust_dir: &str,
@@ -74,10 +94,12 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{}\n", workspace_dep_lines.join("\n"))
     };
-    // serde_json is always required: the generated From<kreuzberg::T> impls use
+    // serde_json is required only when the generated From<kreuzberg::T> impls use
     // serde_json::to_string() to convert Json-typed fields (serde_json::Value,
     // ProcessResult, InternalDocument, etc.) to String for the FRB-friendly mirror.
-    let serde_json_dep = "serde_json = \"1\"\n";
+    // Detect by scanning the API surface for any TypeRef::Json (recursively).
+    let needs_serde_json = api_has_json_field(api);
+    let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
     let extra_deps = format!("{serde_json_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
@@ -144,9 +166,9 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
     // FRB v2 schema: `rust_root` points at the Rust crate dir (not a single file),
-    // `rust_input` specifies which crate modules FRB should process,
     // and `dart_output` is the directory where Dart bindings are written.
-    let content = format!("rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
+    // The v1 keys `rust_input` / `rust_output` were removed in FRB 2.x.
+    let content = format!("rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,

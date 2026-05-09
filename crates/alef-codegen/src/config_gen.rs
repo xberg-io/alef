@@ -1814,7 +1814,7 @@ mod tests {
     #[test]
     fn test_gen_magnus_kwargs_constructor_positional_basic() {
         let typ = make_test_type();
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
 
         assert!(output.contains("fn new("), "should have fn new");
         // All params are Option<T>
@@ -1859,7 +1859,7 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
         });
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // Optional field param is Option<String> and assigned directly
         assert!(output.contains("extra,"), "optional field should be assigned directly");
         assert!(!output.contains("extra.unwrap"), "optional field should not use unwrap");
@@ -1885,7 +1885,7 @@ mod tests {
             newtype_wrapper: None,
             serde_rename: None,
         });
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         assert!(
             output.contains("count: count.unwrap_or_default(),"),
             "plain primitive with no default should use unwrap_or_default"
@@ -2425,7 +2425,7 @@ mod tests {
             has_serde: false,
             super_traits: vec![],
         };
-        let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+        let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // simple_type_mapper maps Usize → "i64", so Optional(Usize) → "Option<i64>"
         // The param must be Option<i64>, never Option<Option<i64>>.
         assert!(

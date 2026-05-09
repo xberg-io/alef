@@ -662,7 +662,13 @@ fn render_test_method(
     // Pull `result_is_simple` from the per-call config first (call-level value
     // wins, then per-language override, then the top-level call's value).
     let per_call_result_is_simple = call_config.result_is_simple || cs_overrides.is_some_and(|o| o.result_is_simple);
-    let effective_result_is_simple = result_is_simple || per_call_result_is_simple;
+    // result_is_bytes: when set, the call returns a raw byte[] in C# (not a
+    // struct with named fields). Mirrors the C codegen flag added in 50e1d309.
+    // Treat byte-buffer returns like result_is_simple (no struct accessors) and
+    // emit byte-specific assertions for `not_empty`/`is_empty`.
+    let per_call_result_is_bytes = call_config.result_is_bytes || cs_overrides.is_some_and(|o| o.result_is_bytes);
+    let effective_result_is_simple = result_is_simple || per_call_result_is_simple || per_call_result_is_bytes;
+    let effective_result_is_bytes = per_call_result_is_bytes;
     let returns_void = call_config.returns_void;
     let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());
     // options_type: prefer per-call override, fall back to top-level csharp override.
@@ -794,6 +800,7 @@ fn render_test_method(
                 effective_result_is_simple,
                 call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec),
                 call_config.result_is_array,
+                effective_result_is_bytes,
                 &e2e_config.fields_enum,
             );
         }
@@ -1528,8 +1535,47 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_vec: bool,
     result_is_array: bool,
+    result_is_bytes: bool,
     fields_enum: &std::collections::HashSet<String>,
 ) {
+    // Byte-buffer returns: emit length-based assertions instead of struct-field
+    // accessors. The result is a `byte[]` and has no named fields like
+    // `result.Audio` or `result.Content`.
+    if result_is_bytes {
+        match assertion.assertion_type.as_str() {
+            "not_empty" => {
+                let _ = writeln!(out, "        Assert.NotEmpty({result_var});");
+                return;
+            }
+            "is_empty" => {
+                let _ = writeln!(out, "        Assert.Empty({result_var});");
+                return;
+            }
+            "count_equals" | "length_equals" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.Equal({n}, {result_var}.Length);");
+                }
+                return;
+            }
+            "count_min" | "length_min" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.True({result_var}.Length >= {n});");
+                }
+                return;
+            }
+            _ => {
+                // Other assertion types are not meaningful on raw byte buffers;
+                // emit a comment so the test still compiles but flags unsupported
+                // assertion types for fixture authors.
+                let _ = writeln!(
+                    out,
+                    "        // skipped: assertion type '{}' not supported on byte[] result",
+                    assertion.assertion_type
+                );
+                return;
+            }
+        }
+    }
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
     if let Some(f) = &assertion.field {
