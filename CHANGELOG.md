@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(release-metadata): recognise `dart`, `swift`, `gleam`, `zig`, and `kotlin` as release targets. They join the existing 14 targets in `ALL_RELEASE_TARGETS`, are emitted as `release_dart` / `release_swift` / `release_gleam` / `release_zig` / `release_kotlin` boolean fields in the JSON output, and are accepted by `--targets`. Aliases: `flutter`/`pub` → `dart`, `spm` → `swift`, `kt` → `kotlin`. Required for kreuzberg's publish workflow which now ships these languages.
+
 ## [0.15.7] - 2026-05-09
 
 ### Fixed
