@@ -332,8 +332,10 @@ pub mod toolchain {
     // version range; manual bump required
     pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
 
-    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required
-    pub const JVM_TARGET: &str = "21";
+    // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required.
+    // 25 is required because the Foreign Function & Memory API (used by the alef-emitted
+    // Java facade) was finalized in JDK 22 and is no longer available as a preview.
+    pub const JVM_TARGET: &str = "25";
 
     // minimum macOS deployment target for swift-bridge bindings; manual bump required
     pub const SWIFT_MIN_MACOS: &str = "13.0";

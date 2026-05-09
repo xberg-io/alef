@@ -18,6 +18,7 @@ pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let jna = maven::JNA;
     let junit_legacy = maven::JUNIT_LEGACY;
     let jvm_target = toolchain::JVM_TARGET;
+    let kotlin_artifact_id = format!("{}-kotlin", config.name);
 
     // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
     // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
@@ -45,6 +46,10 @@ dependencies {{
     api("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
     api("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
+    // jspecify ships the `@Nullable` / `@NonNull` annotations referenced by the
+    // alef-emitted Java facade; it must be on the api configuration so Kotlin
+    // consumers see the annotations on cross-language types.
+    api("org.jspecify:jspecify:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{kotlinx_coroutines}")
     testImplementation("org.jetbrains.kotlin:kotlin-test:{kotlin_plugin}")
     testImplementation("junit:junit:{junit_legacy}")
@@ -62,6 +67,8 @@ java {{
 sourceSets {{
     main {{
         java {{
+            // Pull in the Java facade emitted by the alef Java backend so the
+            // Kotlin module compiles against the same on-disk sources.
             srcDir("../java/src/main/java")
         }}
     }}
@@ -73,11 +80,19 @@ kotlin {{
     }}
 }}
 
-// ktlint configuration — see .editorconfig for details
+// ktlint configuration — see .editorconfig for details. We deliberately exclude
+// the Java facade (which lives under `packages/java/`) and any build/generated
+// directories: ktlint cannot lint pure-Java files, and the FFM/Panama bindings
+// are kept in their own module.
 ktlint {{
     version.set("1.4.1")
     outputToConsole.set(true)
     ignoreFailures.set(false)
+    filter {{
+        exclude {{ entry -> entry.file.toString().contains("/packages/java/") }}
+        exclude("**/build/**")
+        exclude("**/generated/**")
+    }}
 }}
 
 // JNA needs the native lib on java.library.path; default to the workspace
@@ -89,9 +104,12 @@ tasks.withType<Test>().configureEach {{
     useJUnit()
 }}
 
+// Publish under a Kotlin-specific artifactId so consumers can disambiguate
+// the Kotlin module from the sibling Java facade in the same Maven group.
 publishing {{
     publications {{
         create<MavenPublication>("maven") {{
+            artifactId = "{kotlin_artifact_id}"
             from(components["java"])
         }}
     }}
@@ -100,6 +118,7 @@ publishing {{
         package = kotlin_package,
         version = version,
         jackson = JACKSON_VERSION,
+        kotlin_artifact_id = kotlin_artifact_id,
     );
 
     let settings_gradle = format!("rootProject.name = \"{project_name}\"\n");
@@ -163,7 +182,8 @@ object Sample {{
         project_name = project_name,
     );
 
-    let github_workflow = r#"name: Kotlin
+    let github_workflow = format!(
+        r#"name: Kotlin
 
 on:
   push:
@@ -182,7 +202,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: "21"
+          java-version: "{jvm_target}"
           distribution: temurin
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -190,8 +210,9 @@ jobs:
         run: gradle build
       - name: Run Gradle tests
         run: gradle test
-"#
-    .to_string();
+"#,
+        jvm_target = jvm_target,
+    );
 
     Ok(vec![
         GeneratedFile {
