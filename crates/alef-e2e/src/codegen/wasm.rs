@@ -122,9 +122,6 @@ impl E2eCodegen for WasmCodegen {
 
         let any_fixtures = active_per_group.iter().flat_map(|g| g.iter());
         let has_http_fixtures = any_fixtures.clone().any(|f| f.is_http_test());
-        let has_non_http_fixtures = any_fixtures
-            .clone()
-            .any(|f| !f.is_http_test() && !f.assertions.is_empty());
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
         let has_file_fixtures = active_per_group.iter().flatten().any(|f| {
@@ -150,7 +147,7 @@ impl E2eCodegen for WasmCodegen {
         // Function-call e2e tests construct request URLs via
         // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
         // be running and the env var set even when no raw HTTP fixtures exist.
-        let needs_global_setup = has_http_fixtures || has_non_http_fixtures;
+        let needs_global_setup = has_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
             content: render_vitest_config(needs_global_setup, has_file_fixtures),
@@ -186,9 +183,6 @@ impl E2eCodegen for WasmCodegen {
             content: render_tsconfig(),
             generated_header: false,
         });
-
-        // Suppress the unused-variable warning when no non-HTTP fixtures exist.
-        // has_non_http_fixtures is consumed via `needs_global_setup` above.
 
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
         let options_type = overrides.and_then(|o| o.options_type.clone());

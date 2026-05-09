@@ -51,12 +51,12 @@
 {% endif %}
 {% elif assertion_type == "not_empty" %}
 {% if field_is_optional %}
-    expect({{ field_expr }}).toBeTruthy();
+    expect(({{ field_expr }} ?? "").length).toBeGreaterThan(0);
 {% else %}
-    expect({{ field_expr }}).toBeTruthy();
+    expect({{ field_expr }}.length).toBeGreaterThan(0);
 {% endif %}
 {% elif assertion_type == "is_empty" %}
-    expect({{ field_expr }}).toBeFalsy();
+    expect(({{ field_expr }} ?? "").length).toBe(0);
 {% elif assertion_type == "contains_any" %}
 {% if field_is_array and is_string_val %}
     expect([{{ values_js|join(", ") }}].some((v) => {{ field_expr }}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes(v))))).toBe(true);

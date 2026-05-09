@@ -71,7 +71,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
 
         // Render headers map as a Vec<(String, String)> literal for stable iteration order.
         let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
-        header_entries.sort_by(|a, b| a.0.cmp(&b.0));
+        header_entries.sort_by(|a, b| a.0.cmp(b.0));
         let header_tuples: Vec<(String, String)> = header_entries
             .into_iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -375,6 +375,17 @@ struct Fixture {
     mock_response: Option<MockResponse>,
     #[serde(default)]
     http: Option<HttpFixture>,
+    /// Array-form fixture schema. `input.mock_responses[i] = { path?, status_code, headers, body_inline | body_file }`.
+    /// Used by kreuzcrawl-style fixtures that mock multiple URLs per fixture (e.g. a page +
+    /// `/robots.txt` + `/sitemap.xml`).
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+}
+
+/// A single resolved mock response with its serving path.
+struct ResolvedRoute {
+    path: String,
+    response: MockResponse,
 }
 
 impl Fixture {
@@ -397,6 +408,87 @@ impl Fixture {
             });
         }
         None
+    }
+
+    /// Resolve every mock response this fixture defines.
+    ///
+    /// Returns single-element output for the legacy `mock_response` / `http` schemas, and one
+    /// element per array entry for the kreuzcrawl-style `input.mock_responses` schema. For the
+    /// array schema, each element may declare its own `path` (defaulting to `/fixtures/{id}`),
+    /// and the body source can be either `body_inline` (string) or `body_file` (path relative
+    /// to the fixtures dir, loaded at startup).
+    fn as_routes(&self, fixtures_dir: &Path) -> Vec<ResolvedRoute> {
+        let mut routes = Vec::new();
+        let default_path = format!("/fixtures/{}", self.id);
+
+        if let Some(mock) = self.as_mock_response() {
+            routes.push(ResolvedRoute {
+                path: default_path.clone(),
+                response: mock,
+            });
+        }
+
+        if let Some(input) = &self.input {
+            if let Some(arr) = input.get("mock_responses").and_then(|v| v.as_array()) {
+                for entry in arr {
+                    let path = entry
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| default_path.clone());
+                    let status: u16 = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
+                    let headers: HashMap<String, String> = entry
+                        .get("headers")
+                        .and_then(|v| v.as_object())
+                        .map(|h| {
+                            h.iter()
+                                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let body: Option<serde_json::Value> = if let Some(inline) = entry.get("body_inline") {
+                        Some(inline.clone())
+                    } else if let Some(file) = entry.get("body_file").and_then(|v| v.as_str()) {
+                        // body_file is resolved relative to `<fixtures>/responses/` first,
+                        // falling back to `<fixtures>/` for projects that store body assets at
+                        // the fixtures root rather than under a `responses/` subdir.
+                        let candidates = [fixtures_dir.join("responses").join(file), fixtures_dir.join(file)];
+                        let mut loaded = None;
+                        for abs in &candidates {
+                            if let Ok(s) = std::fs::read_to_string(abs) {
+                                loaded = Some(s);
+                                break;
+                            }
+                        }
+                        match loaded {
+                            Some(s) => Some(serde_json::Value::String(s)),
+                            None => {
+                                eprintln!(
+                                    "warning: cannot read body_file {} (tried {} and {})",
+                                    file,
+                                    candidates[0].display(),
+                                    candidates[1].display()
+                                );
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    routes.push(ResolvedRoute {
+                        path,
+                        response: MockResponse {
+                            status,
+                            body,
+                            stream_chunks: None,
+                            headers,
+                        },
+                    });
+                }
+            }
+        }
+
+        routes
     }
 }
 
@@ -532,11 +624,11 @@ fn rand_u48() -> u64 {
 
 fn load_routes(fixtures_dir: &Path) -> HashMap<String, MockRoute> {
     let mut routes = HashMap::new();
-    load_routes_recursive(fixtures_dir, &mut routes);
+    load_routes_recursive(fixtures_dir, fixtures_dir, &mut routes);
     routes
 }
 
-fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
+fn load_routes_recursive(dir: &Path, fixtures_root: &Path, routes: &mut HashMap<String, MockRoute>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(err) => {
@@ -550,7 +642,7 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
 
     for path in paths {
         if path.is_dir() {
-            load_routes_recursive(&path, routes);
+            load_routes_recursive(&path, fixtures_root, routes);
         } else if path.extension().is_some_and(|ext| ext == "json") {
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if filename == "schema.json" || filename.starts_with('_') {
@@ -582,8 +674,8 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
             };
 
             for fixture in fixtures {
-                if let Some(mock) = fixture.as_mock_response() {
-                    let route_path = format!("/fixtures/{}", fixture.id);
+                for resolved in fixture.as_routes(fixtures_root) {
+                    let mock = resolved.response;
                     let body = mock
                         .body
                         .as_ref()
@@ -604,10 +696,17 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
                             other => serde_json::to_string(&other).unwrap_or_default(),
                         })
                         .collect();
-                    let mut headers: Vec<(String, String)> =
-                        mock.headers.into_iter().collect();
+                    let mut headers: Vec<(String, String)> = mock.headers.into_iter().collect();
                     headers.sort_by(|a, b| a.0.cmp(&b.0));
-                    routes.insert(route_path, MockRoute { status: mock.status, body, stream_chunks, headers });
+                    routes.insert(
+                        resolved.path,
+                        MockRoute {
+                            status: mock.status,
+                            body,
+                            stream_chunks,
+                            headers,
+                        },
+                    );
                 }
             }
         }

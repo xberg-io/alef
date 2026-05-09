@@ -858,7 +858,10 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
     let files = language_files(&all_files);
-    let fixer = files.iter().find(|f| f.path.ends_with("php-cs-fixer.php")).unwrap();
+    let fixer = files
+        .iter()
+        .find(|f| f.path.ends_with(".php-cs-fixer.dist.php"))
+        .unwrap();
     assert!(
         fixer.content.contains("declare(strict_types=1);"),
         "php-cs-fixer config should be fixer-clean; content:\n{}",

@@ -255,6 +255,26 @@ fn render_test_file(
                 all_options_types.insert(t.clone());
             }
         }
+        // Auto-fallback: when the Java override does not declare an options_type
+        // but another non-prefixed binding (csharp/c/go/php/python) does, mirror
+        // that name into the import set so the auto-emitted `Type.fromJson(json)`
+        // expression compiles. The Java POJO class name matches the Rust source
+        // type name for these backends.
+        let java_has_type = call_cfg
+            .overrides
+            .get(lang_for_om)
+            .and_then(|o| o.options_type.as_deref())
+            .is_some();
+        if !java_has_type {
+            for cand in ["csharp", "c", "go", "php", "python"] {
+                if let Some(o) = call_cfg.overrides.get(cand) {
+                    if let Some(t) = &o.options_type {
+                        all_options_types.insert(t.clone());
+                        break;
+                    }
+                }
+            }
+        }
         // Detect batch item types used in this fixture
         for arg in &call_cfg.args {
             if let Some(elem_type) = &arg.element_type {
@@ -758,11 +778,40 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
+    // Resolve per-fixture options_type: prefer the java call override, fall back to
+    // class-level, then to any other language's options_type for the same call (the
+    // generated Java POJO class name matches the Rust type name across bindings, so
+    // mirroring the C/csharp/go option lets us auto-emit `Type.fromJson(json)` without
+    // requiring an explicit Java override per call).
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
-        .or_else(|| options_type.map(|s| s.to_string()));
+        .or_else(|| options_type.map(|s| s.to_string()))
+        .or_else(|| {
+            // Borrow from any other backend's options_type. Prefer non-language-prefixed
+            // names (csharp/c/go/php/python) over wasm or ruby which use prefixed types
+            // like `WasmCreateBatchRequest` or `LiterLlm::CreateBatchRequest`.
+            for cand in ["csharp", "c", "go", "php", "python"] {
+                if let Some(o) = call_config.overrides.get(cand) {
+                    if let Some(t) = &o.options_type {
+                        return Some(t.clone());
+                    }
+                }
+            }
+            None
+        });
     let effective_options_type = effective_options_type.as_deref();
+    // When options_type is resolvable but no explicit options_via is given for Java,
+    // default to "from_json" so the typed-request arg is emitted as
+    // `Type.fromJson(json)` rather than the raw JSON string. The Java backend exposes
+    // a static `fromJson(String)` factory on every record type (Stage A).
+    let auto_from_json = effective_options_type.is_some()
+        && call_overrides.and_then(|o| o.options_via.as_deref()).is_none()
+        && e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.options_via.as_deref())
+            .is_none();
 
     // Resolve client_factory: prefer call-level java override, fall back to file-level java override.
     let client_factory: Option<String> = call_overrides.and_then(|o| o.client_factory.clone()).or_else(|| {
@@ -774,10 +823,19 @@ fn render_test_method(
     });
 
     // Resolve options_via: "kwargs" (default), "from_json", "json", "dict".
+    // Auto-default to "from_json" when an options_type is resolvable and no explicit
+    // options_via is configured — this lets typed-request args emit `Type.fromJson(json)`
+    // even when alef.toml only declares the type in another binding's override block.
     let options_via: String = call_overrides
         .and_then(|o| o.options_via.clone())
         .or_else(|| e2e_config.call.overrides.get(lang).and_then(|o| o.options_via.clone()))
-        .unwrap_or_else(|| "kwargs".to_string());
+        .unwrap_or_else(|| {
+            if auto_from_json {
+                "from_json".to_string()
+            } else {
+                "kwargs".to_string()
+            }
+        });
 
     // Resolve per-fixture result_is_simple and result_is_bytes from the call override.
     let effective_result_is_simple =
@@ -832,6 +890,12 @@ fn render_test_method(
     let (mut setup_lines, args_str) =
         build_args_and_setup(&fixture.input, args, class_name, effective_options_type, &fixture.id);
 
+    // Per-language `extra_args` from call overrides — verbatim trailing
+    // expressions appended after the configured args (e.g. `null` for an
+    // optional trailing parameter the fixture cannot supply). Mirrors the
+    // TypeScript and C# implementations.
+    let extra_args_slice: &[String] = call_overrides.map_or(&[], |o| o.extra_args.as_slice());
+
     // Build visitor if present and add to setup
     let mut visitor_var = String::new();
     let mut has_visitor_fixture = false;
@@ -841,7 +905,7 @@ fn render_test_method(
     }
 
     // When visitor is present, attach it to the options parameter
-    let final_args = if has_visitor_fixture {
+    let mut final_args = if has_visitor_fixture {
         if args_str.is_empty() {
             format!("new ConversionOptions().withVisitor({})", visitor_var)
         } else if args_str.contains("new ConversionOptions")
@@ -865,6 +929,15 @@ fn render_test_method(
     } else {
         args_str
     };
+
+    if !extra_args_slice.is_empty() {
+        let extra_str = extra_args_slice.join(", ");
+        final_args = if final_args.is_empty() {
+            extra_str
+        } else {
+            format!("{final_args}, {extra_str}")
+        };
+    }
 
     // Render assertions_body
     let mut assertions_body = String::new();
@@ -1084,6 +1157,48 @@ fn render_assertion(
     result_is_bytes: bool,
     enum_fields: &std::collections::HashMap<String, String>,
 ) {
+    // Byte-buffer returns: emit length-based assertions instead of struct-field
+    // accessors. The result is `byte[]`, which has no `isEmpty()`/struct-field methods.
+    // Field paths on byte-buffer results (e.g. `audio`, `content`) are pseudo-fields
+    // referencing the buffer itself — treat them the same as no-field assertions.
+    if result_is_bytes {
+        match assertion.assertion_type.as_str() {
+            "not_empty" => {
+                out.push_str(&format!(
+                    "        assertTrue({result_var}.length > 0, \"expected non-empty value\");\n"
+                ));
+                return;
+            }
+            "is_empty" => {
+                out.push_str(&format!(
+                    "        assertEquals(0, {result_var}.length, \"expected empty value\");\n"
+                ));
+                return;
+            }
+            "count_equals" | "length_equals" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    out.push_str(&format!("        assertEquals({n}, {result_var}.length);\n"));
+                }
+                return;
+            }
+            "count_min" | "length_min" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    out.push_str(&format!(
+                        "        assertTrue({result_var}.length >= {n}, \"expected length >= {n}\");\n"
+                    ));
+                }
+                return;
+            }
+            _ => {
+                out.push_str(&format!(
+                    "        // skipped: assertion type '{}' not supported on byte[] result\n",
+                    assertion.assertion_type
+                ));
+                return;
+            }
+        }
+    }
+
     // Handle synthetic/virtual fields that are computed rather than direct record accessors.
     if let Some(f) = &assertion.field {
         match f.as_str() {
