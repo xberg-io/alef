@@ -651,11 +651,27 @@ fn render_test_method(
         .and_then(|o| o.options_type.as_deref())
         .or(top_level_options_type);
 
+    // options_via: how to construct the options object. Supported values:
+    //   "kwargs" (default) — emit a C# object initializer (`new T { ... }`).
+    //   "from_json"        — emit `JsonSerializer.Deserialize<T>(json, ConfigOptions)!`,
+    //                        sidestepping per-field type ambiguity for fields like
+    //                        `JsonElement?` (untagged unions) or `List<NamedRecord>`
+    //                        (where the codegen would otherwise default to `List<string>`).
+    let top_level_options_via = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_via.as_deref());
+    let effective_options_via = cs_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .or(top_level_options_via);
+
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         class_name,
         effective_options_type,
+        effective_options_via,
         enum_fields,
         nested_types,
         &fixture.id,
@@ -787,11 +803,13 @@ fn render_test_method(
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     class_name: &str,
     options_type: Option<&str>,
+    options_via: Option<&str>,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     fixture_id: &str,
@@ -909,6 +927,22 @@ fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" {
+                    // `options_via = "from_json"`: deserialize the entire value (object,
+                    // array, or scalar) as the options type. This sidesteps per-field
+                    // type ambiguity — e.g. `JsonElement?` (untagged unions) or
+                    // `List<NamedRecord>` whose element type cannot be inferred from
+                    // JSON shape alone — by delegating to System.Text.Json.
+                    if options_via == Some("from_json")
+                        && let Some(opts_type) = options_type
+                    {
+                        let sorted = sort_discriminator_first(v.clone());
+                        let json_str = serde_json::to_string(&sorted).unwrap_or_default();
+                        let escaped = escape_csharp(&json_str);
+                        parts.push(format!(
+                            "JsonSerializer.Deserialize<{opts_type}>(\"{escaped}\", ConfigOptions)!",
+                        ));
+                        continue;
+                    }
                     // Array value: generate a typed List<T> based on element_type.
                     if let Some(arr) = v.as_array() {
                         parts.push(json_array_to_csharp_list(arr, arg.element_type.as_deref()));
