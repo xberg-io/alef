@@ -826,6 +826,34 @@ fn ts_builder_expression_inner(
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
             }
+        } else if let serde_json::Value::Array(items) = val {
+            // wasm-bindgen rejects plain object literals where it expects class
+            // instances. When the array element type is a known binding class
+            // (registered in `nested_types`), wrap each object element via the
+            // same builder-expression emitter; primitive elements pass through
+            // as JS literals.
+            if let Some(elem_type) = nested_types.get(key.as_str()) {
+                let element_exprs: Vec<String> = items
+                    .iter()
+                    .map(|item| {
+                        if let serde_json::Value::Object(item_obj) = item {
+                            ts_builder_expression_inner(
+                                item_obj,
+                                elem_type,
+                                nested_types,
+                                lang,
+                                enum_fields,
+                                bigint_fields,
+                            )
+                        } else {
+                            json_to_js(item)
+                        }
+                    })
+                    .collect();
+                stmts.push(format!("_u.{camel_key} = [{}];", element_exprs.join(", ")));
+            } else {
+                stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
+            }
         } else if let Some(enum_type) = enum_fields.get(key.as_str()) {
             // This is an enum field — generate EnumType.EnumValue
             if let serde_json::Value::String(s) = val {
