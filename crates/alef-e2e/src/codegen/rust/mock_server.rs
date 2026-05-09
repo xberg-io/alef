@@ -10,58 +10,73 @@ use crate::fixture::Fixture;
 
 /// Emit mock server setup lines into a test function body.
 ///
-/// Builds `MockRoute` objects from the fixture's `mock_response` and starts
-/// the server.  The resulting `mock_server` variable is in scope for the rest
-/// of the test function.
+/// Builds `MockRoute` objects from the fixture's `mock_response` (single-response schema)
+/// or `input.mock_responses` (array schema for multiple responses per fixture).
+/// The resulting `mock_server` variable is in scope for the rest of the test function.
 pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig) {
-    let mock = match fixture.mock_response.as_ref() {
-        Some(m) => m,
-        None => return,
-    };
+    // Try array schema first: input.mock_responses
+    let mut routes = Vec::new();
 
-    // Resolve the HTTP path and method from the call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let path = call_config.path.as_deref().unwrap_or("/");
-    let method = call_config.method.as_deref().unwrap_or("POST");
+    if let Some(mock_responses) = fixture.input.get("mock_responses").and_then(|v| v.as_array()) {
+        // Array schema: input.mock_responses[{ path, status_code, headers, body_inline, ... }]
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let default_path = call_config.path.as_deref().unwrap_or("/");
+        let default_method = call_config.method.as_deref().unwrap_or("POST");
 
-    let status = mock.status;
+        for response in mock_responses {
+            if let Ok(obj) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(response.clone()) {
+                let path = obj
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default_path)
+                    .to_string();
+                let method = obj
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default_method)
+                    .to_string();
+                let status: u16 = obj.get("status_code").and_then(|v| v.as_u64()).unwrap_or(200) as u16;
 
-    // Render headers map as a Vec<(String, String)> literal for stable iteration order.
-    let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
-    header_entries.sort_by(|a, b| a.0.cmp(b.0));
-    let render_headers = |out: &mut String| {
-        let _ = writeln!(out, "        headers: vec![");
-        for (name, value) in &header_entries {
-            let n = rust_raw_string(name);
-            let v = rust_raw_string(value);
-            let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+                let headers: Vec<(String, String)> = obj
+                    .get("headers")
+                    .and_then(|v| v.as_object())
+                    .map(|h| {
+                        let mut entries: Vec<_> = h
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                            .collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        entries
+                    })
+                    .unwrap_or_default();
+
+                let body_str = if let Some(body_inline) = obj.get("body_inline").and_then(|v| v.as_str()) {
+                    rust_raw_string(body_inline)
+                } else {
+                    // Note: body_file support would require fixture-dir context at codegen time.
+                    // For now, we emit a placeholder; the standalone binary handles body_file.
+                    rust_raw_string("{}")
+                };
+
+                routes.push((path, method, status, body_str, headers));
+            }
         }
-        let _ = writeln!(out, "        ],");
-    };
+    } else if let Some(mock) = fixture.mock_response.as_ref() {
+        // Single-response schema: mock_response { status, body, stream_chunks, headers }
+        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let path = call_config.path.as_deref().unwrap_or("/");
+        let method = call_config.method.as_deref().unwrap_or("POST");
 
-    if let Some(chunks) = &mock.stream_chunks {
-        // Streaming SSE response.
-        let _ = writeln!(out, "    let mock_route = MockRoute {{");
-        let _ = writeln!(out, "        path: \"{path}\",");
-        let _ = writeln!(out, "        method: \"{method}\",");
-        let _ = writeln!(out, "        status: {status},");
-        let _ = writeln!(out, "        body: String::new(),");
-        let _ = writeln!(out, "        stream_chunks: vec![");
-        for chunk in chunks {
-            let chunk_str = match chunk {
-                serde_json::Value::String(s) => rust_raw_string(s),
-                other => {
-                    let s = serde_json::to_string(other).unwrap_or_default();
-                    rust_raw_string(&s)
-                }
-            };
-            let _ = writeln!(out, "            {chunk_str}.to_string(),");
-        }
-        let _ = writeln!(out, "        ],");
-        render_headers(out);
-        let _ = writeln!(out, "    }};");
-    } else {
-        // Non-streaming JSON response.
+        let status = mock.status;
+
+        // Render headers map as a Vec<(String, String)> literal for stable iteration order.
+        let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
+        header_entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let header_tuples: Vec<(String, String)> = header_entries
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
         let body_str = match &mock.body {
             Some(b) => {
                 let s = serde_json::to_string(b).unwrap_or_default();
@@ -69,17 +84,83 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             }
             None => rust_raw_string("{}"),
         };
+
+        // Handle streaming separately within the single-response case.
+        if let Some(chunks) = &mock.stream_chunks {
+            // Streaming SSE response.
+            let _ = writeln!(out, "    let mock_route = MockRoute {{");
+            let _ = writeln!(out, "        path: \"{path}\",");
+            let _ = writeln!(out, "        method: \"{method}\",");
+            let _ = writeln!(out, "        status: {status},");
+            let _ = writeln!(out, "        body: String::new(),");
+            let _ = writeln!(out, "        stream_chunks: vec![");
+            for chunk in chunks {
+                let chunk_str = match chunk {
+                    serde_json::Value::String(s) => rust_raw_string(s),
+                    other => {
+                        let s = serde_json::to_string(other).unwrap_or_default();
+                        rust_raw_string(&s)
+                    }
+                };
+                let _ = writeln!(out, "            {chunk_str}.to_string(),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        headers: vec![");
+            for (name, value) in &header_tuples {
+                let n = rust_raw_string(name);
+                let v = rust_raw_string(value);
+                let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "    }};");
+            let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+            return;
+        }
+
+        routes.push((path.to_string(), method.to_string(), status, body_str, header_tuples));
+    } else {
+        return;
+    }
+
+    // Emit all routes (array schema produces multiple; single schema produces one).
+    if routes.len() == 1 {
+        let (path, method, status, body_str, header_entries) = routes.pop().unwrap();
         let _ = writeln!(out, "    let mock_route = MockRoute {{");
         let _ = writeln!(out, "        path: \"{path}\",");
         let _ = writeln!(out, "        method: \"{method}\",");
         let _ = writeln!(out, "        status: {status},");
         let _ = writeln!(out, "        body: {body_str}.to_string(),");
         let _ = writeln!(out, "        stream_chunks: vec![],");
-        render_headers(out);
+        let _ = writeln!(out, "        headers: vec![");
+        for (name, value) in &header_entries {
+            let n = rust_raw_string(name);
+            let v = rust_raw_string(value);
+            let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+        }
+        let _ = writeln!(out, "        ],");
         let _ = writeln!(out, "    }};");
+        let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
+    } else {
+        // Multiple routes from array schema.
+        let _ = writeln!(out, "    let mut mock_routes = vec![];");
+        for (path, method, status, body_str, header_entries) in routes {
+            let _ = writeln!(out, "    mock_routes.push(MockRoute {{");
+            let _ = writeln!(out, "        path: \"{path}\",");
+            let _ = writeln!(out, "        method: \"{method}\",");
+            let _ = writeln!(out, "        status: {status},");
+            let _ = writeln!(out, "        body: {body_str}.to_string(),");
+            let _ = writeln!(out, "        stream_chunks: vec![],");
+            let _ = writeln!(out, "        headers: vec![");
+            for (name, value) in &header_entries {
+                let n = rust_raw_string(name);
+                let v = rust_raw_string(value);
+                let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+            }
+            let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "    }});");
+        }
+        let _ = writeln!(out, "    let mock_server = MockServer::start(mock_routes).await;");
     }
-
-    let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
 }
 
 /// Generate the complete `mock_server.rs` module source.
