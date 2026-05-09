@@ -460,10 +460,22 @@ impl Backend for PhpBackend {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
         }
 
-        // Serde default helpers for bool fields whose core default is `true`.
-        // Referenced by #[serde(default = "crate::serde_defaults::bool_true")] on struct fields.
+        // Serde default helpers for bool fields whose core default is `true`,
+        // and for SecurityLimits fields which use struct-level defaults.
+        // Referenced by #[serde(default = "crate::serde_defaults::...")] on struct fields.
         if has_serde {
-            builder.add_item("mod serde_defaults {\n    pub fn bool_true() -> bool { true }\n}");
+            let serde_module = "mod serde_defaults {\n    pub fn bool_true() -> bool { true }\n\
+                   pub fn max_archive_size() -> i64 { 500 * 1024 * 1024 }\n\
+                   pub fn max_compression_ratio() -> i64 { 100 }\n\
+                   pub fn max_files_in_archive() -> i64 { 10_000 }\n\
+                   pub fn max_nesting_depth() -> i64 { 1024 }\n\
+                   pub fn max_entity_length() -> i64 { 1024 * 1024 }\n\
+                   pub fn max_content_size() -> i64 { 100 * 1024 * 1024 }\n\
+                   pub fn max_iterations() -> i64 { 10_000_000 }\n\
+                   pub fn max_xml_depth() -> i64 { 1024 }\n\
+                   pub fn max_table_cells() -> i64 { 100_000 }\n\
+                }";
+            builder.add_item(serde_module);
         }
 
         // Always enable abi_vectorcall on Windows — ext-php-rs requires the
@@ -603,12 +615,16 @@ impl Backend for PhpBackend {
 
         // Generate wrapper methods for functions
         for func in &api.functions {
-            // PHP method names mirror the Rust source name verbatim (camelCased).
-            // Async-vs-sync disambiguation comes from the Rust source itself
-            // (e.g. `extract_file` vs `extract_file_sync`), so no extra suffix
-            // is needed — and adding one would break parity with the alef.toml
-            // call overrides.
-            let method_name = func.name.to_lower_camel_case();
+            // PHP method names are based on the Rust source name (camelCased).
+            // Async functions get an "Async" suffix to disambiguate from sync variants.
+            // For example: `extract_bytes` (async) → `extractBytesAsync()`,
+            // `extract_bytes_sync` (sync) → `extractBytesSync()`.
+            let base_name = func.name.to_lower_camel_case();
+            let method_name = if func.is_async && !func.name.ends_with("_async") {
+                format!("{}Async", base_name)
+            } else {
+                base_name
+            };
             let return_php_type = php_type(&func.return_type);
 
             // Visible params exclude bridge params (not surfaced to PHP callers).

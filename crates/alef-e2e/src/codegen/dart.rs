@@ -401,10 +401,21 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .cloned()
         .unwrap_or_else(|| "KreuzbergBridge".to_string());
 
-    let _ = writeln!(
-        out,
-        "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
-    );
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    if expects_error {
+        // Wrap the call in expect(..., throwsA(anything())) so the test asserts
+        // that the API throws an exception rather than silently failing.
+        let _ = writeln!(
+            out,
+            "    await expectLater(() async => await {receiver_class}.{function_name}({args_str}), throwsA(anything()));"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
+        );
+    }
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);

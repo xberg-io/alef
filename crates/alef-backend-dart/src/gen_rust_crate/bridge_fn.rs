@@ -8,6 +8,7 @@ pub(crate) fn emit_bridge_fn(
     f: &FunctionDef,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    types_needing_from_conversion: &std::collections::HashSet<String>,
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
@@ -55,11 +56,15 @@ pub(crate) fn emit_bridge_fn(
 
     // Build call-site arguments. Named types (structs/enums declared with
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
-    // expects `kreuzberg::T`. Transmute is sound because the layouts are identical.
+    // expects `kreuzberg::T`. For types without sanitized fields, transmute is sound
+    // because the layouts are identical. For types with sanitized fields (e.g.
+    // ExtractionConfig which has cancel_token and concurrency as sanitized Option<String>
+    // fields that differ in size from the core types), we use From<MirrorT> for CoreT
+    // to avoid undefined behavior from layout mismatches.
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths))
+        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths, types_needing_from_conversion))
         .collect();
 
     let call = format!("{resolved_path}({})", call_args.join(", "));
@@ -110,13 +115,19 @@ fn frb_rust_type_mirror_inner(ty: &TypeRef) -> String {
 
 /// Build call-site expression for one parameter, transmuting Named mirror types to core types.
 ///
-/// For Named types, the bridge fn receives the local mirror type (`crate::T`) but the core
-/// function expects `kreuzberg::T`. Since `#[frb(mirror(T))]` guarantees identical layout,
-/// `unsafe { std::mem::transmute }` is sound and zero-cost.
+/// For Named types without sanitized fields, the bridge fn receives the local mirror type
+/// (`crate::T`) but the core function expects `kreuzberg::T`. Since `#[frb(mirror(T))]`
+/// guarantees identical layout for non-sanitized structs, `unsafe { std::mem::transmute }`
+/// is sound and zero-cost for those.
+///
+/// For Named types with sanitized fields (e.g. ExtractionConfig, which has cancel_token
+/// and concurrency as `Option<String>` in the mirror but different-sized types in core),
+/// we use `kreuzberg::T::from(name)` instead to avoid UB from layout mismatches.
 fn dart_call_arg_with_mirror_transmute(
     p: &ParamDef,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    types_needing_from_conversion: &std::collections::HashSet<String>,
 ) -> String {
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
@@ -196,16 +207,27 @@ fn dart_call_arg_with_mirror_transmute(
         }
     }
 
-    // Named type: transmute from local mirror to core type.
+    // Named type: use From conversion for types with sanitized fields (layout differs),
+    // or transmute for types with identical mirror/core layout.
     if let TypeRef::Named(type_name) = &p.ty {
         let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+        if types_needing_from_conversion.contains(type_name.as_str()) {
+            return build_named_in_from(name, type_name, &core_ty, p.is_ref, p.optional);
+        }
         return build_named_in_transmute(name, type_name, &core_ty, p.is_ref, p.optional);
     }
 
-    // Vec<Named>: transmute the whole Vec.
+    // Vec<Named>: use From or transmute depending on whether the element type has sanitized fields.
     if let TypeRef::Vec(inner) = &p.ty {
         if let TypeRef::Named(type_name) = inner.as_ref() {
             let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+            if types_needing_from_conversion.contains(type_name.as_str()) {
+                // Use From conversion for each element.
+                if p.optional {
+                    return format!("{name}.map(|v| v.into_iter().map({core_ty}::from).collect::<Vec<_>>())");
+                }
+                return format!("{name}.into_iter().map({core_ty}::from).collect::<Vec<_>>()");
+            }
             if p.optional {
                 return format!(
                     "{name}.map(|v| unsafe {{ std::mem::transmute::<Vec<{type_name}>, Vec<{core_ty}>>(v) }})"
@@ -221,10 +243,13 @@ fn dart_call_arg_with_mirror_transmute(
         }
     }
 
-    // Option<Named>.
+    // Option<Named>: use From or transmute depending on whether the type has sanitized fields.
     if let TypeRef::Optional(inner) = &p.ty {
         if let TypeRef::Named(type_name) = inner.as_ref() {
             let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
+            if types_needing_from_conversion.contains(type_name.as_str()) {
+                return format!("{name}.map({core_ty}::from)");
+            }
             return format!("{name}.map(|v| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(v) }})");
         }
     }
@@ -242,6 +267,22 @@ fn resolve_core_type(
         Some(path) => path.clone(),
         None => format!("{source_crate_name}::{type_name}"),
     }
+}
+
+/// Emit a From-based conversion for a single Named parameter going INTO the core fn.
+///
+/// Used when the mirror type has sanitized fields that make transmute unsound.
+/// Relies on the generated `From<MirrorT> for CoreT` impl from `emit_from_mirror_to_core_struct`.
+fn build_named_in_from(name: &str, _mirror_name: &str, core_ty: &str, is_ref: bool, optional: bool) -> String {
+    if optional {
+        return format!("{name}.map({core_ty}::from)");
+    }
+    if is_ref {
+        // Cannot take a reference to a temporary value — convert to owned then borrow.
+        // The calling convention becomes by-value and is re-borrowed at the call site.
+        return format!("&{core_ty}::from({name})");
+    }
+    format!("{core_ty}::from({name})")
 }
 
 /// Emit the transmute call for a single Named parameter going INTO the core fn.

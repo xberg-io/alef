@@ -173,6 +173,25 @@ pub(crate) fn gen_php_struct(
                 }
             }
         }
+        // SecurityLimits fields need custom serde defaults to match the Rust struct's Default impl.
+        // When JSON is missing a field, we want the security limit (e.g., 500MB) not 0.
+        if cfg.has_serde && typ.name == "SecurityLimits" && !field.optional {
+            match field.name.as_str() {
+                "max_archive_size"
+                | "max_compression_ratio"
+                | "max_files_in_archive"
+                | "max_nesting_depth"
+                | "max_entity_length"
+                | "max_content_size"
+                | "max_iterations"
+                | "max_xml_depth"
+                | "max_table_cells" => {
+                    let serde_attr = format!("serde(default = \"crate::serde_defaults::{}\")", field.name);
+                    attrs.push(serde_attr);
+                }
+                _ => {}
+            }
+        }
         attrs
     };
 
