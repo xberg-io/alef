@@ -299,10 +299,36 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
 // Elixir (Rustler)
 // ---------------------------------------------------------------------------
 
+/// Streaming adapter for Rustler/Elixir.
+///
+/// Emits a pair of standalone `#[rustler::nif]` functions plus a per-adapter
+/// handle resource. The pair is `{owner_lc}_{name}_start` (returns the resource)
+/// and `{owner_lc}_{name}_next` (returns chunk JSON or `nil` on end-of-stream).
+/// The Elixir wrapper drives the pair via `Stream.unfold/2`.
+///
+/// The corresponding method on the owner type is suppressed in `mod.rs` to avoid
+/// double-emitting a NIF for the same method name.
 fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let error_type = adapter.error_type.as_deref().unwrap_or("anyhow::Error");
     let core_import = config.core_import_name();
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+    let owner_lc = owner_type.to_lowercase();
+    let adapter_name = &adapter.name;
+    let handle_struct = format!("{}{}Handle", to_pascal_case(owner_type), to_pascal_case(adapter_name));
+    let start_fn = format!("{owner_lc}_{adapter_name}_start");
+    let next_fn = format!("{owner_lc}_{adapter_name}_next");
+    let req_param_name = adapter
+        .params
+        .first()
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "req".to_string());
+    let req_param_type = adapter
+        .params
+        .first()
+        .map(|p| p.ty.clone())
+        .unwrap_or_else(|| "rustler::Term".to_string());
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -314,25 +340,81 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    // Stub method body — never used because the rustler backend skips streaming
+    // methods. We keep something compilable in case the suppression is bypassed.
     let body = format!(
-        "use futures_util::StreamExt;\n    \
-         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
-         {bindings_block}\
-         rt.block_on(async {{\n        \
-             let stream = resource.inner.{core_path}({call_str}).await\n            \
-                 .map_err(|e| e.to_string())?;\n        \
-             let chunks: Vec<{item_type}> = stream\n            \
-                 .collect::<Vec<_>>().await\n            \
-                 .into_iter()\n            \
-                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
-                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
-                 .map_err(|e| e.to_string())?;\n        \
-             serde_json::to_string(&chunks)\n            \
-                 .map_err(|e| e.to_string())\n    \
-         }})"
+        "Err::<String, String>(\"streaming method emitted as standalone NIFs ({start_fn}/{next_fn})\".to_string())"
     );
 
-    (body, None)
+    let struct_def = format!(
+        "/// Streaming handle for `{owner_type}::{core_path}` — owns a Tokio runtime\n\
+         /// plus the live `BoxStream`. Each call to `{next_fn}` blocks the dirty-CPU\n\
+         /// scheduler thread on a single `stream.next()` poll.\n\
+         pub struct {handle_struct} {{\n    \
+             runtime: std::sync::Arc<tokio::runtime::Runtime>,\n    \
+             stream: std::sync::Mutex<Option<futures_util::stream::BoxStream<'static, std::result::Result<{core_import}::{item_type}, {core_import}::{error_type}>>>>,\n\
+         }}\n\
+         \n\
+         #[rustler::resource_impl()]\n\
+         impl rustler::Resource for {handle_struct} {{}}\n\
+         \n\
+         /// Open a streaming `{core_path}` request. Returns an opaque iterator\n\
+         /// resource which the Elixir wrapper drives via `Stream.unfold/2`.\n\
+         #[rustler::nif(schedule = \"DirtyCpu\")]\n\
+         pub fn {start_fn}(\n    \
+             resource: rustler::ResourceArc<{owner_type}>,\n    \
+             {req_param_name}: {req_param_type},\n\
+         ) -> std::result::Result<rustler::ResourceArc<{handle_struct}>, String> {{\n    \
+             {bindings_block}\
+             let runtime = std::sync::Arc::new(\n        \
+                 tokio::runtime::Builder::new_multi_thread()\n            \
+                     .enable_all()\n            \
+                     .build()\n            \
+                     .map_err(|e| e.to_string())?,\n    \
+             );\n    \
+             let inner = resource.inner.clone();\n    \
+             let stream = runtime\n        \
+                 .block_on(async move {{ inner.{core_path}({call_str}).await }})\n        \
+                 .map_err(|e| e.to_string())?;\n    \
+             let handle = {handle_struct} {{\n        \
+                 runtime,\n        \
+                 stream: std::sync::Mutex::new(Some(stream)),\n    \
+             }};\n    \
+             Ok(rustler::ResourceArc::new(handle))\n\
+         }}\n\
+         \n\
+         /// Pull the next chunk from a streaming handle. Returns the chunk JSON\n\
+         /// (decoded by the Elixir wrapper via `Jason.decode!/1`) or `nil` to\n\
+         /// signal end-of-stream. After end-of-stream the inner stream is dropped.\n\
+         #[rustler::nif(schedule = \"DirtyCpu\")]\n\
+         pub fn {next_fn}(\n    \
+             handle: rustler::ResourceArc<{handle_struct}>,\n\
+         ) -> std::result::Result<Option<String>, String> {{\n    \
+             use futures_util::StreamExt;\n    \
+             let runtime = handle.runtime.clone();\n    \
+             let mut guard = handle.stream.lock().map_err(|e| e.to_string())?;\n    \
+             let stream_ref = match guard.as_mut() {{\n        \
+                 Some(s) => s,\n        \
+                 None => return Ok(None),\n    \
+             }};\n    \
+             match runtime.block_on(stream_ref.next()) {{\n        \
+                 Some(Ok(chunk)) => {{\n            \
+                     let json = serde_json::to_string(&chunk).map_err(|e| e.to_string())?;\n            \
+                     Ok(Some(json))\n        \
+                 }}\n        \
+                 Some(Err(e)) => {{\n            \
+                     *guard = None;\n            \
+                     Err(e.to_string())\n        \
+                 }}\n        \
+                 None => {{\n            \
+                     *guard = None;\n            \
+                     Ok(None)\n        \
+                 }}\n    \
+             }}\n\
+         }}"
+    );
+
+    (body, Some(struct_def))
 }
 
 // ---------------------------------------------------------------------------

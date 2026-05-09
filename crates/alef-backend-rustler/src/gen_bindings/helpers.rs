@@ -183,6 +183,19 @@ pub(super) fn gen_native_ex(
         );
     }
 
+    // Streaming-adapter method keys are emitted as start/next pairs below — skip
+    // them in the regular method-stub loop.
+    let streaming_method_keys: AHashSet<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        .filter_map(|a| {
+            a.owner_type
+                .as_deref()
+                .map(|owner| format!("{owner}.{}", a.name))
+        })
+        .collect();
+
     // Stubs for type methods
     for typ in api
         .types
@@ -193,6 +206,7 @@ pub(super) fn gen_native_ex(
             .methods
             .iter()
             .filter(|m| !exclude_functions.contains(m.name.as_str()))
+            .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
         {
             let nif_fn_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -210,6 +224,27 @@ pub(super) fn gen_native_ex(
 
             last_was_multiline = write_nif_stub(&mut out, &nif_fn_name, &underscored_params, last_was_multiline);
         }
+    }
+
+    // Stubs for streaming-adapter NIF pairs: `{owner_lc}_{name}_start(_obj, _req)`
+    // and `{owner_lc}_{name}_next(_handle)`. Both NIFs are scheduled on DirtyCpu.
+    for adapter in config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+    {
+        let Some(owner) = adapter.owner_type.as_deref() else {
+            continue;
+        };
+        let owner_lc = owner.to_lowercase();
+        let start_fn = format!("{owner_lc}_{}_start", adapter.name);
+        let next_fn = format!("{owner_lc}_{}_next", adapter.name);
+        let mut start_params = vec!["_obj".to_string()];
+        for p in &adapter.params {
+            start_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
+        }
+        last_was_multiline = write_nif_stub(&mut out, &start_fn, &start_params, last_was_multiline);
+        last_was_multiline = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], last_was_multiline);
     }
 
     out.push_str(&template_env::render(
