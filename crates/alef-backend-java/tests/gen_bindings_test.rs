@@ -512,9 +512,25 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         "should be sealed interface:\n{content}"
     );
 
+    // Newtype-variant tagged unions now use a custom Jackson deserializer
+    // (StdDeserializer) instead of @JsonUnwrapped because the latter does not
+    // round-trip cleanly with sealed interfaces. Verify the deserializer is
+    // wired up via @JsonDeserialize and that its body reads/strips the tag.
     assert!(
-        content.contains("@JsonUnwrapped"),
-        "should use @JsonUnwrapped for newtype fields:\n{content}"
+        content.contains("@JsonDeserialize(using = MessageDeserializer.class)"),
+        "should wire MessageDeserializer via @JsonDeserialize:\n{content}"
+    );
+    assert!(
+        content.contains("class MessageDeserializer extends StdDeserializer<Message>"),
+        "should emit a custom StdDeserializer for the sealed interface:\n{content}"
+    );
+    assert!(
+        content.contains("node.get(\"role\")"),
+        "deserializer should read the `role` discriminator:\n{content}"
+    );
+    assert!(
+        content.contains("node.remove(\"role\")"),
+        "deserializer should strip the tag before delegating to the variant type:\n{content}"
     );
     assert!(
         !content.contains("\"0\""),
@@ -536,16 +552,6 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
     assert!(
         content.contains("AssistantMessage value"),
         "Assistant variant should have `value` field:\n{content}"
-    );
-
-    assert!(
-        content.contains("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"role\""),
-        "should emit @JsonTypeInfo with role tag:\n{content}"
-    );
-
-    assert!(
-        content.contains("import com.fasterxml.jackson.annotation.JsonUnwrapped;"),
-        "should import JsonUnwrapped:\n{content}"
     );
 }
 

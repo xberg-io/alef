@@ -494,10 +494,16 @@ fn test_methods_generation() {
         "Should define static method as package-level function"
     );
 
-    // Verify instance method with error return
+    // Verify instance method with error return.
+    // Long signatures may be wrapped across lines (`Process(\n\tdata string) error`),
+    // so check for the receiver/name and the trailing `error` separately.
     assert!(
-        content.contains("func (r *Handler) Process(data string) error"),
-        "Should define Process method with error return"
+        content.contains("func (r *Handler) Process("),
+        "Should define Process method receiver with name"
+    );
+    assert!(
+        content.contains("data string) error"),
+        "Process should take data string and return error"
     );
     assert!(
         content.contains("return lastError()"),

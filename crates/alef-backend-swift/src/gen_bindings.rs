@@ -374,22 +374,16 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
         emit_path_overload(func, &all_names, out);
     }
 
-    // Emit e2e-test-friendly wrappers. These accept file-path strings for bytes
-    // parameters and JSON strings for config/batch-item parameters. They are used
-    // exclusively by the generated e2e test layer so generated tests don't need to
-    // construct opaque swift-bridge types by hand.
-    emit_e2e_wrappers(out);
 }
 
-/// Emits the e2e-test helper wrappers:
+/// Emits the e2e-test helper wrappers (kreuzberg-specific, retained for reference).
 ///
-/// - `extractBytesE2e` / `extractBytesSyncE2e` — accept file path + JSON config string
-/// - `extractFileE2e` / `extractFileSyncE2e` — accept JSON config string (file wrappers already exist)
-/// - `batchExtractBytesE2e` / `batchExtractBytesSyncE2e` — accept `[String]` JSON items
-/// - `batchExtractFilesE2e` / `batchExtractFilesSyncE2e` — accept `[String]` JSON items
-///
-/// These are deliberately separate from the stable public API so the generated e2e
-/// tests call a well-typed surface without breaking the primary library interface.
+/// NOTE: this helper is hardcoded for kreuzberg-only symbols (`extractBytes`,
+/// `extractFile`, `batchExtract*`, `extractionConfigFromJson`) and is no longer wired
+/// into the Swift backend pipeline. Generic IR-driven wrappers are emitted by
+/// `emit_bytes_overloads` / `emit_path_overload`. Kept behind `#[allow(dead_code)]`
+/// so existing fix history is not lost; safe to delete in a follow-up cleanup.
+#[allow(dead_code)]
 fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
     out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n\n");

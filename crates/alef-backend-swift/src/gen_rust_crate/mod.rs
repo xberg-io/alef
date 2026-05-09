@@ -229,19 +229,6 @@ fn emit_lib_rs(
     for block in &extern_blocks {
         out.push_str(block);
     }
-    // JSON factory extern declarations — always emitted so the e2e test layer
-    // can deserialise fixture JSON into opaque swift-bridge types.
-    out.push_str(concat!(
-        "    extern \"Rust\" {\n",
-        "\n",
-        "        #[swift_bridge(swift_name = \"extractionConfigFromJson\")]\n",
-        "        fn extraction_config_from_json(json: String) -> Result<ExtractionConfig, String>;\n",
-        "        #[swift_bridge(swift_name = \"batchBytesItemFromJson\")]\n",
-        "        fn batch_bytes_item_from_json(json: String) -> Result<BatchBytesItem, String>;\n",
-        "        #[swift_bridge(swift_name = \"batchFileItemFromJson\")]\n",
-        "        fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String>;\n",
-        "    }\n",
-    ));
     out.push_str("}\n\n");
 
     for ty in &visible_types {
@@ -278,26 +265,14 @@ fn emit_lib_rs(
         out.push('\n');
     }
 
-    // Emit JSON-factory shims for types that are serde-compatible but cannot be
-    // constructed from the e2e test layer using the swift-bridge init() path.
-    // These are used by the generated e2e tests to deserialize JSON fixture
-    // values into their opaque swift-bridge wrapper types.
-    emit_json_factory_shims(&source_crate, &mut out);
-
     out
 }
 
-/// Emits JSON factory functions for the opaque swift-bridge types that
-/// the e2e test layer needs to construct from JSON strings.
-///
-/// Functions emitted:
-///   - `extraction_config_from_json(json: String) -> Result<ExtractionConfig, String>`
-///   - `batch_bytes_item_from_json(json: String) -> Result<BatchBytesItem, String>`
-///   - `batch_file_item_from_json(json: String) -> Result<BatchFileItem, String>`
-///
-/// These are declared in a separate `extern "Rust"` block (appended after code
-/// generation) so they appear in the swift-bridge ffi module and are callable
-/// from Swift as free functions.
+/// Emits JSON factory functions for kreuzberg-specific opaque swift-bridge types
+/// (`extraction_config_from_json`, `batch_bytes_item_from_json`, `batch_file_item_from_json`).
+/// No longer wired into `emit_lib_rs` because the symbols are hardcoded and pollute
+/// every generated bridge crate. Retained behind `#[allow(dead_code)]` for reference.
+#[allow(dead_code)]
 fn emit_json_factory_shims(source_crate: &str, out: &mut String) {
     out.push_str("// JSON factory shims for e2e test layer.\n");
     out.push_str("// These let generated tests deserialise fixture JSON into opaque swift-bridge types.\n\n");
