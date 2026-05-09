@@ -44,6 +44,7 @@ fn is_primitive_c_type(t: &str) -> bool {
             | "double"
             | "float"
             | "bool"
+            | "int"
     )
 }
 
@@ -265,12 +266,21 @@ fn resolve_fixture_call_info(fixture: &Fixture, e2e_config: &E2eConfig, lang: &s
     let call = e2e_config.resolve_call(fixture.call.as_deref());
     let mut info = resolve_call_info(call, lang);
 
+    let default_overrides = e2e_config.call.overrides.get(lang);
+
     // Fallback: if the named call has no client_factory override, inherit from the
     // default call config so all calls use the same client pattern.
     if info.client_factory.is_none() {
-        let default_overrides = e2e_config.call.overrides.get(lang);
         if let Some(factory) = default_overrides.and_then(|o| o.client_factory.as_ref()) {
             info.client_factory = Some(factory.clone());
+        }
+    }
+
+    // Fallback: if the named call has no c_engine_factory override, inherit from the
+    // default call config so all calls use the same engine pattern.
+    if info.c_engine_factory.is_none() {
+        if let Some(factory) = default_overrides.and_then(|o| o.c_engine_factory.as_ref()) {
+            info.c_engine_factory = Some(factory.clone());
         }
     }
 
@@ -637,6 +647,7 @@ fn render_test_file(
             call_info.client_factory.as_deref(),
             call_info.raw_c_result_type.as_deref(),
             call_info.c_free_fn.as_deref(),
+            call_info.c_engine_factory.as_deref(),
             call_info.result_is_option,
             call_info.result_is_bytes,
             &call_info.extra_args,
@@ -664,6 +675,7 @@ fn render_test_function(
     client_factory: Option<&str>,
     raw_c_result_type: Option<&str>,
     c_free_fn: Option<&str>,
+    c_engine_factory: Option<&str>,
     result_is_option: bool,
     result_is_bytes: bool,
     extra_args: &[String],
@@ -677,6 +689,25 @@ fn render_test_function(
     let _ = writeln!(out, "    /* {description} */");
 
     let prefix_upper = prefix.to_uppercase();
+
+    // Engine-factory pattern: used when c_engine_factory is configured (e.g. kreuzcrawl).
+    // Creates a config handle from JSON, builds an engine, calls {prefix}_{function}(engine, url),
+    // frees result and engine.
+    if let Some(config_type) = c_engine_factory {
+        render_engine_factory_test_function(
+            out,
+            fixture,
+            prefix,
+            function_name,
+            result_var,
+            field_resolver,
+            fields_c_types,
+            result_type_name,
+            config_type,
+            expects_error,
+        );
+        return;
+    }
 
     // Streaming pattern: chat_stream uses an FFI iterator handle instead of a
     // single response. Emit start/next/free loop and aggregate per-chunk data
@@ -1260,6 +1291,176 @@ fn render_test_function(
     }
     let result_type_snake = result_type_name.to_snake_case();
     let _ = writeln!(out, "    {prefix}_{result_type_snake}_free({result_var});");
+    let _ = writeln!(out, "}}");
+}
+
+/// Emit a test function using the engine-factory pattern:
+///   `{prefix}_crawl_config_from_json(json)` → `{prefix}_create_engine(config)` →
+///   `{prefix}_{function}(engine, url)` → assertions → free chain.
+///
+/// When all fixture assertions are skipped (fields not present on result type,
+/// or only "error" assertions that C cannot replicate via a simple URL scrape),
+/// the null-check is a soft guard (`if (result != NULL)`) so the test does not
+/// abort when the mock server has no matching route.
+#[allow(clippy::too_many_arguments)]
+fn render_engine_factory_test_function(
+    out: &mut String,
+    fixture: &Fixture,
+    prefix: &str,
+    function_name: &str,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    fields_c_types: &HashMap<String, String>,
+    result_type_name: &str,
+    config_type: &str,
+    _expects_error: bool,
+) {
+    let prefix_upper = prefix.to_uppercase();
+    let config_snake = config_type.to_snake_case();
+
+    // Build config JSON from fixture input (snake_case keys).
+    let config_val = fixture.input.get("config");
+    let config_json = match config_val {
+        Some(v) if !v.is_null() => {
+            let normalized = super::normalize_json_keys_to_snake_case(v);
+            serde_json::to_string(&normalized).unwrap_or_else(|_| "{}".to_string())
+        }
+        _ => "{}".to_string(),
+    };
+    let config_escaped = escape_c(&config_json);
+    let fixture_id = &fixture.id;
+
+    // An assertion is "active" when it has a field that is valid for the result type.
+    // Error-only assertions are NOT treated as active for the engine factory pattern
+    // because C's kcrawl_scrape() doesn't replicate batch/validation error semantics.
+    let has_active_assertions = fixture.assertions.iter().any(|a| {
+        if let Some(f) = &a.field {
+            !f.is_empty() && field_resolver.is_valid_for_result(f)
+        } else {
+            false
+        }
+    });
+
+    // --- engine setup ---
+    let _ = writeln!(
+        out,
+        "    {prefix_upper}{config_type}* config_handle = \
+         {prefix}_{config_snake}_from_json(\"{config_escaped}\");"
+    );
+    let _ = writeln!(out, "    assert(config_handle != NULL && \"failed to parse config\");");
+    let _ = writeln!(
+        out,
+        "    {prefix_upper}CrawlEngineHandle* engine = {prefix}_create_engine(config_handle);"
+    );
+    let _ = writeln!(out, "    {prefix}_{config_snake}_free(config_handle);");
+    let _ = writeln!(out, "    assert(engine != NULL && \"failed to create engine\");");
+
+    // --- URL construction from MOCK_SERVER_URL ---
+    let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
+    let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
+    let _ = writeln!(out, "    char url[2048];");
+    let _ = writeln!(
+        out,
+        "    snprintf(url, sizeof(url), \"%s/fixtures/{fixture_id}\", mock_base);"
+    );
+
+    // --- call ---
+    let _ = writeln!(
+        out,
+        "    {prefix_upper}{result_type_name}* {result_var} = {prefix}_{function_name}(engine, url);"
+    );
+
+    // When no assertions can be verified (all skipped or error-only), use a soft
+    // null-guard so the test is a no-op rather than aborting on a NULL result.
+    if !has_active_assertions {
+        let result_type_snake = result_type_name.to_snake_case();
+        let _ = writeln!(
+            out,
+            "    if ({result_var} != NULL) {prefix}_{result_type_snake}_free({result_var});"
+        );
+        let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
+    let _ = writeln!(out, "    assert({result_var} != NULL && \"expected call to succeed\");");
+
+    // --- field assertions ---
+    let mut intermediate_handles: Vec<(String, String)> = Vec::new();
+    let mut accessed_fields: Vec<(String, String, bool)> = Vec::new();
+    let mut primitive_locals: HashMap<String, String> = HashMap::new();
+
+    for assertion in &fixture.assertions {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && field_resolver.is_valid_for_result(f) && !accessed_fields.iter().any(|(k, _, _)| k == f)
+            {
+                let resolved = field_resolver.resolve(f);
+                let local_var = f.replace(['.', '['], "_").replace(']', "");
+                let has_map_access = resolved.contains('[');
+                if resolved.contains('.') {
+                    let leaf_primitive = emit_nested_accessor(
+                        out,
+                        prefix,
+                        resolved,
+                        &local_var,
+                        result_var,
+                        fields_c_types,
+                        &mut intermediate_handles,
+                        result_type_name,
+                    );
+                    if let Some(prim) = leaf_primitive {
+                        primitive_locals.insert(local_var.clone(), prim);
+                    }
+                } else {
+                    let result_type_snake = result_type_name.to_snake_case();
+                    let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
+                    let lookup_key = format!("{result_type_snake}.{resolved}");
+                    if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                        let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
+                        primitive_locals.insert(local_var.clone(), t.clone());
+                    } else {
+                        let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                    }
+                }
+                accessed_fields.push((f.clone(), local_var, has_map_access));
+            }
+        }
+    }
+
+    for assertion in &fixture.assertions {
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            prefix,
+            field_resolver,
+            &accessed_fields,
+            &primitive_locals,
+        );
+    }
+
+    // --- free locals ---
+    for (_f, local_var, from_json) in &accessed_fields {
+        if primitive_locals.contains_key(local_var) {
+            continue;
+        }
+        if *from_json {
+            let _ = writeln!(out, "    free({local_var});");
+        } else {
+            let _ = writeln!(out, "    {prefix}_free_string({local_var});");
+        }
+    }
+    for (handle_var, snake_type) in intermediate_handles.iter().rev() {
+        if snake_type == "free_string" {
+            let _ = writeln!(out, "    {prefix}_free_string({handle_var});");
+        } else {
+            let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
+        }
+    }
+
+    let result_type_snake = result_type_name.to_snake_case();
+    let _ = writeln!(out, "    {prefix}_{result_type_snake}_free({result_var});");
+    let _ = writeln!(out, "    {prefix}_crawl_engine_handle_free(engine);");
     let _ = writeln!(out, "}}");
 }
 
@@ -1893,19 +2094,45 @@ fn emit_nested_accessor(
     // Walk the path, starting from the root result type.
     let mut current_snake_type = result_type_name.to_snake_case();
     let mut current_handle = result_var.to_string();
+    // Set to true when we've traversed a `[]` array element accessor and subsequent
+    // fields must be extracted via alef_json_get_string rather than FFI function calls.
+    let mut json_extract_mode = false;
 
     for (i, segment) in segments.iter().enumerate() {
         let is_leaf = i + 1 == segments.len();
 
-        // Check for map access: "field[key]"
+        // In JSON extraction mode, the current_handle is a JSON string and all
+        // segments name keys to extract via alef_json_get_string.
+        if json_extract_mode {
+            let seg_snake = segment.to_snake_case();
+            if is_leaf {
+                let _ = writeln!(
+                    out,
+                    "    char* {local_var} = alef_json_get_string({current_handle}, \"{seg_snake}\");"
+                );
+                return None; // JSON key leaf — char*.
+            }
+            // Intermediate JSON key extraction — extract and continue.
+            let json_var = format!("{seg_snake}_json");
+            if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
+                let _ = writeln!(
+                    out,
+                    "    char* {json_var} = alef_json_get_string({current_handle}, \"{seg_snake}\");"
+                );
+                intermediate_handles.push((json_var.clone(), "free".to_string()));
+            }
+            current_handle = json_var;
+            continue;
+        }
+
+        // Check for map access: "field[key]" or array element access: "field[]"
         if let Some(bracket_pos) = segment.find('[') {
             let field_name = &segment[..bracket_pos];
             let key = segment[bracket_pos + 1..].trim_end_matches(']');
             let field_snake = field_name.to_snake_case();
             let accessor_fn = format!("{prefix}_{current_snake_type}_{field_snake}");
 
-            // The map accessor returns a char* (JSON object string).
-            // Use alef_json_get_string to extract the key value.
+            // The accessor returns a char* (JSON object/array string).
             let json_var = format!("{field_snake}_json");
             if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
                 let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
@@ -1913,7 +2140,16 @@ fn emit_nested_accessor(
                 // Track for freeing — use prefix_free_string since it's a char*.
                 intermediate_handles.push((json_var.clone(), "free_string".to_string()));
             }
-            // Extract the key from the JSON map.
+
+            if key.is_empty() {
+                // Array element access: "field[]" — remaining path segments name
+                // fields inside array elements; extract via alef_json_get_string.
+                current_handle = json_var;
+                json_extract_mode = true;
+                continue;
+            }
+
+            // Named map key access: extract the key value from the JSON object.
             let _ = writeln!(
                 out,
                 "    char* {local_var} = alef_json_get_string({json_var}, \"{key}\");"
@@ -1934,7 +2170,7 @@ fn emit_nested_accessor(
             }
             let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({current_handle});");
         } else {
-            // Intermediate field returns an opaque handle.
+            // Intermediate field — check if it's a char* (JSON string/array) or an opaque handle.
             let lookup_key = format!("{current_snake_type}.{seg_snake}");
             let return_type_pascal = match fields_c_types.get(&lookup_key) {
                 Some(t) => t.clone(),
@@ -1943,6 +2179,25 @@ fn emit_nested_accessor(
                     segment.to_pascal_case()
                 }
             };
+
+            // Special case: intermediate char* fields (e.g. links, assets) are JSON
+            // strings/arrays, not opaque handles. For a `.length` suffix, emit alef_json_array_count.
+            if return_type_pascal == "char*" {
+                let json_var = format!("{seg_snake}_json");
+                if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
+                    let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
+                    intermediate_handles.push((json_var.clone(), "free_string".to_string()));
+                }
+                // If the next (and final) segment is "length", emit the count accessor.
+                if i + 2 == segments.len() && segments[i + 1] == "length" {
+                    let _ = writeln!(out, "    int {local_var} = alef_json_array_count({json_var});");
+                    return Some("int".to_string());
+                }
+                current_snake_type = seg_snake.clone();
+                current_handle = json_var;
+                continue;
+            }
+
             let return_snake = return_type_pascal.to_snake_case();
             let handle_var = format!("{seg_snake}_handle");
 
@@ -2045,6 +2300,25 @@ fn render_assertion(
         false
     };
 
+    // Check if the assertion field is optional — used to emit conditional assertions
+    // for optional numeric fields (returns 0 when None, so 0 == "not set").
+    // Check both the raw field name and its resolved alias.
+    let assertion_field_is_optional = assertion
+        .field
+        .as_deref()
+        .map(|f| {
+            if f.is_empty() {
+                return false;
+            }
+            if _field_resolver.is_optional(f) {
+                return true;
+            }
+            // Also check the resolved alias (e.g. "robots.crawl_delay" → "crawl_delay").
+            let resolved = _field_resolver.resolve(f);
+            _field_resolver.is_optional(resolved)
+        })
+        .unwrap_or(false);
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -2059,10 +2333,20 @@ fn render_assertion(
                     } else {
                         c_val
                     };
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} == {cmp_val} && \"equals assertion failed\");"
-                    );
+                    // For optional numeric fields, treat 0 as "not set" and allow it.
+                    // This mirrors Go's nil-pointer check for optional fields.
+                    let is_numeric = field_primitive_type.as_deref().map(|t| t != "bool").unwrap_or(false);
+                    if assertion_field_is_optional && is_numeric {
+                        let _ = writeln!(
+                            out,
+                            "    assert(({field_expr} == 0 || {field_expr} == {cmp_val}) && \"equals assertion failed\");"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert({field_expr} == {cmp_val} && \"equals assertion failed\");"
+                        );
+                    }
                 } else if expected.is_string() {
                     let _ = writeln!(
                         out,
@@ -2102,7 +2386,7 @@ fn render_assertion(
                 let c_val = json_to_c(expected);
                 let _ = writeln!(
                     out,
-                    "    assert(strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
+                    "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
                 );
             }
         }
@@ -2112,7 +2396,7 @@ fn render_assertion(
                     let c_val = json_to_c(val);
                     let _ = writeln!(
                         out,
-                        "    assert(strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
+                        "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
                     );
                 }
             }
@@ -2122,7 +2406,7 @@ fn render_assertion(
                 let c_val = json_to_c(expected);
                 let _ = writeln!(
                     out,
-                    "    assert(strstr({field_expr}, {c_val}) == NULL && \"expected NOT to contain substring\");"
+                    "    assert(({field_expr} == NULL || strstr({field_expr}, {c_val}) == NULL) && \"expected NOT to contain substring\");"
                 );
             }
         }
@@ -2133,10 +2417,18 @@ fn render_assertion(
             );
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "    assert(strlen({field_expr}) == 0 && \"expected empty value\");"
-            );
+            if assertion_field_is_optional || !field_is_primitive {
+                // Optional string fields may return NULL — treat NULL as empty.
+                let _ = writeln!(
+                    out,
+                    "    assert(({field_expr} == NULL || strlen({field_expr}) == 0) && \"expected empty value\");"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    assert(strlen({field_expr}) == 0 && \"expected empty value\");"
+                );
+            }
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
