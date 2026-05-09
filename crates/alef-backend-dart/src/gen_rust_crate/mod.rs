@@ -3,6 +3,7 @@ use alef_codegen::generators::type_paths::build_type_path_lookup;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
+use std::collections::HashSet;
 
 mod bridge_fn;
 mod cargo;
@@ -130,6 +131,42 @@ fn emit_lib_rs(
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
 
+    // Compute the set of types that have sanitized fields — these cannot be safely
+    // transmuted from the mirror struct to the core struct because sanitized fields
+    // may have different memory sizes (e.g. `Option<String>` vs `Option<CancellationToken>`).
+    // For these types, bridge functions use `From<MirrorT> for kreuzberg::T` instead of
+    // `std::mem::transmute`.
+    let types_needing_from_conversion: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| t.fields.iter().any(|f| f.sanitized))
+        .map(|t| t.name.clone())
+        .collect();
+
+    // Compute the transitive closure of all struct/enum types reachable from types that
+    // have sanitized fields via non-sanitized field references. These are the types that
+    // need From<MirrorT> for kreuzberg::T impls so that `.into()` calls work in the
+    // generated From impls for sanitized-field types.
+    let types_needing_from_impl = compute_types_needing_from_impl(api, &types_needing_from_conversion, exclude_types);
+
+    // Emit From<T> for kreuzberg::T impls (mirror-to-core direction) for types in the
+    // transitive closure. Only those types (not all types) get this impl, avoiding
+    // Default::default() issues for output-only types that don't implement Default.
+    content.push_str("\n// From<T> for kreuzberg::T conversions (mirror-to-core direction).\n");
+    content.push_str("// Used in bridge functions for types with sanitized fields, and by\n");
+    content.push_str("// nested conversions within those types.\n");
+    for ty in api.types.iter().filter(|t| types_needing_from_impl.contains(&t.name)) {
+        content.push('\n');
+        emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
+    }
+    // Emit From<MirrorEnum> for kreuzberg::Enum so that enum-typed struct fields
+    // can use `.into()` in the mirror-to-core From impls above.
+    for en in api.enums.iter().filter(|e| types_needing_from_impl.contains(&e.name)) {
+        content.push('\n');
+        emit_from_mirror_to_core_enum(&mut content, en, source_crate_name);
+    }
+
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
     for f in api
         .functions
@@ -138,7 +175,13 @@ fn emit_lib_rs(
         .filter(|f| !has_unbridgeable_param(f))
     {
         content.push('\n');
-        emit_bridge_fn(&mut content, f, source_crate_name, &type_paths);
+        emit_bridge_fn(
+            &mut content,
+            f,
+            source_crate_name,
+            &type_paths,
+            &types_needing_from_conversion,
+        );
     }
 
     // Emit FRB trait bridge wrappers for each configured [[trait_bridges]] entry.
@@ -165,6 +208,70 @@ fn emit_lib_rs(
 
 fn dart_module_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
+}
+
+/// Compute the transitive closure of all struct/enum types reachable from
+/// `seed_types` (types with sanitized fields) via non-sanitized field references.
+///
+/// These are the types that need `From<MirrorT> for kreuzberg::T` impls so that
+/// `.into()` calls in the generated From impls for sanitized-field types work.
+/// Output-only types (e.g. result structs with sanitized fields) are excluded
+/// from the seed set — they're never passed as function inputs.
+fn compute_types_needing_from_impl(
+    api: &ApiSurface,
+    seed_types: &HashSet<String>,
+    exclude_types: &HashSet<String>,
+) -> HashSet<String> {
+    // Build lookup maps for quick access by name.
+    let struct_by_name: std::collections::HashMap<&str, &TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .map(|t| (t.name.as_str(), t))
+        .collect();
+    let enum_names: HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name))
+        .map(|e| e.name.as_str())
+        .collect();
+
+    let mut result: HashSet<String> = seed_types.clone();
+    let mut worklist: Vec<String> = seed_types.iter().cloned().collect();
+
+    while let Some(type_name) = worklist.pop() {
+        if let Some(ty) = struct_by_name.get(type_name.as_str()) {
+            for field in &ty.fields {
+                if field.sanitized {
+                    continue; // sanitized fields are not converted via From
+                }
+                // Collect all Named type references from this field.
+                for named in collect_named_types(&field.ty) {
+                    if !result.contains(&named)
+                        && (struct_by_name.contains_key(named.as_str()) || enum_names.contains(named.as_str())) {
+                            result.insert(named.clone());
+                            worklist.push(named);
+                        }
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Collect all Named type names referenced (possibly nested) in a TypeRef.
+fn collect_named_types(ty: &TypeRef) -> Vec<String> {
+    match ty {
+        TypeRef::Named(name) => vec![name.clone()],
+        TypeRef::Vec(inner) | TypeRef::Optional(inner) => collect_named_types(inner),
+        TypeRef::Map(k, v) => {
+            let mut names = collect_named_types(k);
+            names.extend(collect_named_types(v));
+            names
+        }
+        _ => vec![],
+    }
 }
 
 /// Emit a `From<kreuzberg::T> for T` implementation for a mirror struct.
@@ -395,6 +502,326 @@ fn vec_inner_from_expr(
         format!("v.{name}.map(|vec| vec.into_iter().map({item_conv}).collect())")
     } else {
         format!("v.{name}.into_iter().map({item_conv}).collect()")
+    }
+}
+
+/// Emit `From<MirrorT> for kreuzberg::T` for types with sanitized fields.
+///
+/// This is the mirror-to-core direction, required by bridge functions that accept a
+/// `MirrorT` parameter and need to call the core function with `kreuzberg::T`.
+/// Transmute is unsound for these types because sanitized fields (e.g. `Option<String>`
+/// substituted for `Option<CancellationToken>`) have different memory sizes than the
+/// corresponding core field, making the transmute layout assumption false.
+///
+/// Non-sanitized fields use field_from_expr_to_core (the inverse of field_from_expr).
+/// Sanitized fields use `Default::default()` since they represent types that cannot
+/// be meaningfully passed from Dart (e.g. CancellationToken, ConcurrencyConfig).
+fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
+    let name = &ty.name;
+    let core_ty = if ty.rust_path.is_empty() {
+        format!("{source_crate_name}::{name}")
+    } else {
+        ty.rust_path.replace('-', "_")
+    };
+
+    out.push_str(&format!(
+        "impl From<{name}> for {core_ty} {{\n    fn from(v: {name}) -> Self {{\n        {core_ty} {{\n"
+    ));
+
+    for field in &ty.fields {
+        if let Some(cfg) = &field.cfg {
+            out.push_str(&format!("            #[cfg({cfg})]\n"));
+        }
+        if field.sanitized {
+            // Sanitized fields have an unknown core type simplified in the IR.
+            // Only types in the transitive closure from input-parameter types get this
+            // impl generated, and those core types implement Default (e.g. ExtractionConfig
+            // has cancel_token: Option<CancellationToken> which implements Default).
+            out.push_str(&format!("            {}: Default::default(),\n", field.name));
+        } else {
+            let expr = field_from_expr_to_core(field, source_crate_name);
+            out.push_str(&format!("            {}: {expr},\n", field.name));
+        }
+    }
+
+    // Use ..Default::default() only when the core struct has cfg-gated fields that
+    // are absent from the IR (and therefore absent from the mirror struct). Without
+    // this guard, types that don't implement Default would fail to compile.
+    if ty.has_stripped_cfg_fields {
+        out.push_str("            ..Default::default()\n");
+    }
+    out.push_str("        }\n    }\n}\n");
+}
+
+/// Emit a `From<MirrorEnum> for kreuzberg::Enum` implementation.
+///
+/// Unit-only enums: simple variant match. Data enums: reconstruct each variant.
+fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_name: &str) {
+    let name = &en.name;
+    let core_ty = if en.rust_path.is_empty() {
+        format!("{source_crate_name}::{name}")
+    } else {
+        en.rust_path.replace('-', "_")
+    };
+
+    out.push_str(&format!(
+        "impl From<{name}> for {core_ty} {{\n    fn from(v: {name}) -> Self {{\n        match v {{\n"
+    ));
+
+    for variant in &en.variants {
+        let vname = &variant.name;
+        if variant.fields.is_empty() {
+            // Unit variant: straightforward.
+            out.push_str(&format!("            {name}::{vname} => {core_ty}::{vname},\n"));
+        } else if variant.is_tuple {
+            // Mirror uses struct syntax (FRB converts tuple variants to named struct variants).
+            // Core uses tuple syntax.
+            let mirror_bindings: Vec<String> = (0..variant.fields.len()).map(|i| format!("field{i}")).collect();
+            let core_args: Vec<String> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, field)| enum_variant_field_conv_to_core(&format!("field{i}"), field))
+                .collect();
+            out.push_str(&format!(
+                "            {name}::{vname} {{ {} }} => {core_ty}::{vname}({}),\n",
+                mirror_bindings.join(", "),
+                core_args.join(", ")
+            ));
+        } else {
+            // Struct variant: named fields on both sides.
+            let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
+            let core_args: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|field| {
+                    let fname = &field.name;
+                    let conv = enum_variant_field_conv_to_core(fname, field);
+                    format!("{fname}: {conv}")
+                })
+                .collect();
+            out.push_str(&format!(
+                "            {name}::{vname} {{ {} }} => {core_ty}::{vname} {{ {} }},\n",
+                field_names.join(", "),
+                core_args.join(", ")
+            ));
+        }
+    }
+
+    out.push_str("        }\n    }\n}\n");
+}
+
+/// Build conversion expression for one enum variant field in the mirror-to-core direction.
+fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
+    if field.sanitized {
+        // Sanitized enum variant fields can't be mapped — use a safe default.
+        return "Default::default()".to_string();
+    }
+    match &field.ty {
+        TypeRef::Named(_) => {
+            if field.optional {
+                format!("{binding}.map(Into::into)")
+            } else {
+                format!("{binding}.into()")
+            }
+        }
+        TypeRef::String | TypeRef::Char => {
+            if field.optional {
+                format!("{binding}.map(Into::into)")
+            } else {
+                format!("{binding}.into()")
+            }
+        }
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(_) => format!("{binding}.into_iter().map(Into::into).collect()"),
+            _ => format!("{binding}.into_iter().map(|x| x as _).collect()"),
+        },
+        TypeRef::Primitive(_) => {
+            if field.optional {
+                format!("{binding}.map(|x| x as _)")
+            } else {
+                format!("{binding} as _")
+            }
+        }
+        _ => {
+            if field.optional {
+                format!("{binding}.map(Into::into)")
+            } else {
+                format!("{binding}.into()")
+            }
+        }
+    }
+}
+
+/// Build the conversion expression for one struct field in the mirror-to-core direction.
+/// This is the inverse of `field_from_expr` (which handles core-to-mirror).
+fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String {
+    let name = &field.name;
+    match &field.ty {
+        TypeRef::String | TypeRef::Char => {
+            if field.optional {
+                format!("v.{name}.map(Into::into)")
+            } else {
+                format!("v.{name}.into()")
+            }
+        }
+        TypeRef::Path => {
+            if field.optional {
+                format!("v.{name}.map(std::path::PathBuf::from)")
+            } else {
+                format!("std::path::PathBuf::from(v.{name})")
+            }
+        }
+        TypeRef::Bytes => {
+            if field.optional {
+                format!("v.{name}.map(Into::into)")
+            } else {
+                format!("v.{name}.into()")
+            }
+        }
+        TypeRef::Json => {
+            // Mirror has String; core has serde_json::Value.
+            if field.optional {
+                format!("v.{name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
+            } else {
+                format!("serde_json::from_str(&v.{name}).unwrap_or_default()")
+            }
+        }
+        TypeRef::Named(_) => {
+            // Handle Arc core wrapper: mirror has bare T but core has Arc<T>.
+            // Handle is_boxed: mirror has bare T but core has Box<T>.
+            match field.core_wrapper {
+                CoreWrapper::Arc | CoreWrapper::ArcMutex => {
+                    if field.optional {
+                        format!("v.{name}.map(|x| std::sync::Arc::new(x.into()))")
+                    } else {
+                        format!("std::sync::Arc::new(v.{name}.into())")
+                    }
+                }
+                _ if field.is_boxed => {
+                    if field.optional {
+                        format!("v.{name}.map(|x| Box::new(x.into()))")
+                    } else {
+                        format!("Box::new(v.{name}.into())")
+                    }
+                }
+                _ => {
+                    if field.optional {
+                        format!("v.{name}.map(Into::into)")
+                    } else {
+                        format!("v.{name}.into()")
+                    }
+                }
+            }
+        }
+        TypeRef::Vec(inner) => {
+            match inner.as_ref() {
+                TypeRef::Named(_) => {
+                    // Handle Arc core wrapper on Vec element types.
+                    match field.vec_inner_core_wrapper {
+                        CoreWrapper::Arc | CoreWrapper::ArcMutex => {
+                            if field.optional {
+                                format!(
+                                    "v.{name}.map(|vec| vec.into_iter().map(|x| std::sync::Arc::new(x.into())).collect())"
+                                )
+                            } else {
+                                format!("v.{name}.into_iter().map(|x| std::sync::Arc::new(x.into())).collect()")
+                            }
+                        }
+                        _ => {
+                            if field.optional {
+                                format!("v.{name}.map(|vec| vec.into_iter().map(Into::into).collect())")
+                            } else {
+                                format!("v.{name}.into_iter().map(Into::into).collect()")
+                            }
+                        }
+                    }
+                }
+                TypeRef::Vec(inner_inner) => {
+                    // Vec<Vec<T>>: FRB uses f64 for f32 primitives — need explicit cast.
+                    match inner_inner.as_ref() {
+                        TypeRef::Primitive(_) => {
+                            if field.optional {
+                                format!(
+                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect())"
+                                )
+                            } else {
+                                format!(
+                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect()"
+                                )
+                            }
+                        }
+                        _ => {
+                            if field.optional {
+                                format!(
+                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect())"
+                                )
+                            } else {
+                                format!(
+                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect()"
+                                )
+                            }
+                        }
+                    }
+                }
+                TypeRef::Primitive(_) => {
+                    if field.optional {
+                        format!("v.{name}.map(|vec| vec.into_iter().map(|x| x as _).collect())")
+                    } else {
+                        format!("v.{name}.into_iter().map(|x| x as _).collect()")
+                    }
+                }
+                _ => {
+                    if field.optional {
+                        format!("v.{name}.map(|vec| vec.into_iter().map(Into::into).collect())")
+                    } else {
+                        format!("v.{name}.into_iter().map(Into::into).collect()")
+                    }
+                }
+            }
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(_) => format!("v.{name}.map(Into::into)"),
+            TypeRef::String | TypeRef::Char => format!("v.{name}.map(Into::into)"),
+            TypeRef::Path => format!("v.{name}.map(std::path::PathBuf::from)"),
+            _ => format!("v.{name}"),
+        },
+        TypeRef::Primitive(_) => {
+            if let Some(nw) = &field.newtype_wrapper {
+                if field.optional {
+                    format!("v.{name}.map(|x| {nw}(x as _))")
+                } else {
+                    format!("{nw}(v.{name} as _)")
+                }
+            } else if field.optional {
+                format!("v.{name}.map(|x| x as _)")
+            } else {
+                format!("v.{name} as _")
+            }
+        }
+        TypeRef::Duration => {
+            // Mirror i64 → core Duration (stored as millis).
+            if field.optional {
+                format!("v.{name}.map(|ms| std::time::Duration::from_millis(ms as u64))")
+            } else {
+                format!("std::time::Duration::from_millis(v.{name} as u64)")
+            }
+        }
+        TypeRef::Map(_, v_ty) => {
+            // HashMap: convert via iterator. Keys are always String→String.
+            // Values may be primitives (use `as _` cast) or Named types (use Into).
+            let val_conv = match v_ty.as_ref() {
+                TypeRef::Primitive(_) => "v as _",
+                TypeRef::Named(_) => "v.into()",
+                _ => "v.into()",
+            };
+            if field.optional {
+                format!("v.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect())")
+            } else {
+                format!("v.{name}.into_iter().map(|(k, v)| (k.into(), {val_conv})).collect()")
+            }
+        }
+        TypeRef::Unit => "()".to_string(),
     }
 }
 
