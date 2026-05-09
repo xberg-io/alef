@@ -204,7 +204,7 @@ impl E2eCodegen for WasmCodegen {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let mut content = super::typescript::render_test_file(
+            let content = super::typescript::render_test_file(
                 lang,
                 &group.category,
                 active,
@@ -218,20 +218,14 @@ impl E2eCodegen for WasmCodegen {
                 e2e_config,
             );
 
-            // Inject WASM initialization code for Node.js environments.
-            // Derive the wasm crate name from pkg_path by finding the path component
-            // that ends with "-wasm" or "_wasm" (e.g. "html-to-markdown-wasm" from
-            // "../../crates/html-to-markdown-wasm"). Falls back to "{config.name}-wasm".
-            let wasm_crate_name = std::path::Path::new(&pkg_path)
-                .components()
-                .filter_map(|c| match c {
-                    std::path::Component::Normal(s) => s.to_str(),
-                    _ => None,
-                })
-                .find(|s| s.ends_with("-wasm") || s.ends_with("_wasm"))
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("{}-wasm", config.name));
-            content = inject_wasm_init(&content, &pkg_name, &wasm_crate_name);
+            // The local `pkg/` directory produced by `wasm-pack build --target nodejs`
+            // is already a Node-friendly self-initializing CJS module — `pkg/package.json`
+            // sets `"main"` to the JS entry, so test files can import the package by name
+            // (`from "<pkg_name>"`) with no subpath. The historical `dist-node` rewrite
+            // assumed a multi-distribution layout (`dist/`, `dist-node/`, `dist-web/`)
+            // that the alef-managed `wasm-pack build` does not produce; it is therefore
+            // intentionally absent here.
+            let _ = (&pkg_path, &config.name); // keep variables alive for future use
 
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -329,60 +323,8 @@ fn render_tsconfig() -> String {
     crate::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
 }
 
-/// Redirect the WASM package import to the `dist-node` sub-path for Node.js
-/// test environments (vitest).
-///
-/// The published npm package exposes three distributions:
-/// - `dist/`      — bundler target (requires Vite/webpack WASM plugin; used by browsers)
-/// - `dist-node/` — Node.js CJS target (self-initializing; no explicit init call needed)
-/// - `dist-web/`  — plain-web target
-///
-/// Vitest runs tests in a Node.js process. When the `dist/` bundler entry is
-/// imported, the WASM initialization promise fails because the Node.js runtime
-/// has no bundler to resolve the `.wasm` binary. Importing from `dist-node`
-/// avoids this: the module uses `__dirname` + `readFileSync` to load and
-/// instantiate the binary synchronously at module evaluation time.
-///
-/// # Arguments
-/// * `content`    — the generated TypeScript test file content
-/// * `pkg_name`   — the npm package name (e.g., `"@kreuzberg/html-to-markdown-wasm"`)
-/// * `_crate_name` — unused; retained for API stability
-fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String {
-    // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
-    let from_marker_sq = format!("}} from '{pkg_name}';");
-    let from_marker_dq = format!("}} from \"{pkg_name}\";");
-    let (from_marker, quote_char) = if content.contains(&from_marker_sq) {
-        (from_marker_sq, '\'')
-    } else {
-        (from_marker_dq, '"')
-    };
-
-    // Find the closing `} from "pkg_name";` import that belongs to the wasm package,
-    // then search backward for the opening `import {` that started it.
-    if let Some(from_pos) = content.find(&from_marker) {
-        let full_from_pos = from_pos + from_marker.len();
-        let before_from = &content[..from_pos];
-        if let Some(import_pos) = before_from
-            .rfind("import {")
-            .or_else(|| before_from.rfind("import init, {"))
-        {
-            let import_section = &content[import_pos..full_from_pos];
-
-            // Already patched — nothing to do.
-            if import_section.contains("/dist-node") {
-                return content.to_string();
-            }
-
-            // Replace the import path with the Node.js-specific sub-package.
-            // `dist-node` is a CJS module that loads and instantiates the WASM
-            // binary synchronously at module evaluation time, requiring no
-            // explicit init call and no top-level await.
-            let dist_node_from = format!("}} from {q}{pkg_name}/dist-node{q};", q = quote_char);
-            let patched_section = import_section.replace(&from_marker, &dist_node_from);
-
-            return content[..import_pos].to_string() + &patched_section + &content[full_from_pos..];
-        }
-    }
-
-    content.to_string()
-}
+// The historical `inject_wasm_init` post-processor rewrote test imports to a
+// `<pkg>/dist-node` subpath. It was removed because the alef-managed
+// `wasm-pack build --target nodejs` artifact is a flat self-initializing CJS
+// module — its `package.json` already sets `"main"` to the JS entry, so the
+// emitted `import … from "<pkg>"` resolves directly.

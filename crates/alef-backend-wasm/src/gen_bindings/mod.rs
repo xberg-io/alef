@@ -41,28 +41,81 @@ pub(super) fn field_references_excluded_type(ty: &TypeRef, exclude_types: &[Stri
 
 /// Check if an item is gated behind a disabled feature.
 ///
-/// Parses cfg strings like `feature = "api"` and checks if the feature
-/// is in the enabled features list.
+/// Evaluates cfg condition strings against the enabled feature list.
+/// Returns `true` when the cfg condition is *not* satisfied (i.e. the item
+/// must be excluded from generation).  Handles:
+/// - `feature = "name"`
+/// - `any(feature = "a", feature = "b", ...)`
+/// - `all(feature = "a", feature = "b", ...)`
+/// - `not(<inner>)`
+///
+/// The IR encodes cfgs via `proc_macro2::TokenStream::to_string()`, which
+/// inserts whitespace between tokens (e.g. `any (feature = "a" , ...)`); the
+/// evaluator normalises that before parsing.
 fn is_gated_behind_disabled_feature(cfg: &Option<String>, enabled_features: &[String]) -> bool {
     let Some(cfg_str) = cfg else {
         return false;
     };
+    !cfg_condition_enabled(cfg_str, enabled_features)
+}
 
-    // Parse simple feature gates like `feature = "api"`
-    if let Some(start) = cfg_str.find("feature") {
-        let rest = &cfg_str[start..];
-        if let Some(eq_pos) = rest.find('=') {
-            let after_eq = rest[eq_pos + 1..].trim();
-            if let Some(start_quote) = after_eq.find('"') {
-                let after_quote = &after_eq[start_quote + 1..];
-                if let Some(end_quote) = after_quote.find('"') {
-                    let feature_name = &after_quote[..end_quote];
-                    return !enabled_features.iter().any(|f| f == feature_name);
-                }
+fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) -> bool {
+    let normalized = cfg_str.trim().replace(" (", "(");
+    let cfg_str = normalized.as_str();
+
+    if let Some(feature) = cfg_str
+        .strip_prefix("feature = \"")
+        .and_then(|s| s.strip_suffix('"'))
+    {
+        return enabled_features.iter().any(|ef| ef == feature);
+    }
+    if let Some(inner) = cfg_str.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
+        return parse_cfg_list(inner)
+            .iter()
+            .any(|cond| cfg_condition_enabled(cond, enabled_features));
+    }
+    if let Some(inner) = cfg_str.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
+        return parse_cfg_list(inner)
+            .iter()
+            .all(|cond| cfg_condition_enabled(cond, enabled_features));
+    }
+    if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
+        return !cfg_condition_enabled(inner.trim(), enabled_features);
+    }
+    // Unknown pattern → treat as enabled (no exclusion). Preserves prior behaviour
+    // for cfgs the WASM backend has never inspected (target_arch, target_os, ...).
+    true
+}
+
+fn parse_cfg_list(s: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for ch in s.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
             }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    result.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
         }
     }
-    false
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        result.push(trimmed);
+    }
+    result
 }
 
 impl Backend for WasmBackend {
