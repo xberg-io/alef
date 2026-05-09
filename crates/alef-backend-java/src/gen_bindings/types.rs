@@ -68,23 +68,13 @@ pub(crate) fn gen_record_type(
 
         let mut decl = String::new();
 
-        // Visitor field is transient and not serialized to JSON.
-        if is_visitor_field {
-            decl.push_str("@JsonIgnore ");
-        }
-
-        // byte[] fields in input DTOs must round-trip as JSON int arrays so Rust's
-        // serde Vec<u8> deserialiser accepts them.
-        if needs_bytes_int_serialize {
-            decl.push_str("@JsonSerialize(using = ByteArrayToIntArraySerializer.class) ");
-        }
-
         // Fields referencing sealed unions with unwrapped variants need a custom deserializer.
         // When deserializing through a builder, Jackson needs this annotation to use the
-        // custom deserializer for the field type.
+        // custom deserializer for the field type. This must come early to be properly
+        // recognized by Jackson's polymorphic deserialization.
         let field_type_name = match &f.ty {
             TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Option(inner) => {
+            TypeRef::Optional(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref() {
                     Some(n.as_str())
                 } else {
@@ -99,6 +89,17 @@ pub(crate) fn gen_record_type(
                 decl.push_str(type_name);
                 decl.push_str("Deserializer.class) ");
             }
+        }
+
+        // Visitor field is transient and not serialized to JSON.
+        if is_visitor_field {
+            decl.push_str("@JsonIgnore ");
+        }
+
+        // byte[] fields in input DTOs must round-trip as JSON int arrays so Rust's
+        // serde Vec<u8> deserialiser accepts them.
+        if needs_bytes_int_serialize {
+            decl.push_str("@JsonSerialize(using = ByteArrayToIntArraySerializer.class) ");
         }
 
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)

@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the trigger from `is_http_test()` to `needs_mock_server()` to match the
   Ruby/Python behavior; otherwise `MOCK_SERVER_URL` was unset and reqwest
   failed with "builder error" on every call.
+- fix(e2e/go): keep the mock-server stdin pipe open so the server does not
+  exit on EOF. Go's `exec.Command` with `Stdin == nil` connects the child
+  to /dev/null, so the mock-server (which blocks on `stdin.lock().lines()`)
+  exited immediately and every HTTP fixture failed with "error sending
+  request for url". Now opens a `StdinPipe` like Python's `stdin=PIPE`.
+- fix(e2e/go): honor `fixture.env.api_key_var` by emitting a `t.Skipf` when
+  the named env var is unset, and threading the env value as the api_key
+  with a nil base_url for live-API fixtures. Previously every `smoke_*`
+  live-API fixture failed with "no mock route" because Go always pointed
+  at `MOCK_SERVER_URL/fixtures/<id>` regardless of `api_key_var`.
 
 ## [0.15.2] - 2026-05-09
 

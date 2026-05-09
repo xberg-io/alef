@@ -896,6 +896,17 @@ fn render_test_function(
     let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
     let _ = writeln!(out, "\t// {description}");
 
+    // Live-API fixtures use `env.api_key_var` to mark the env var that
+    // supplies the real API key. Skip the test when the env var is unset
+    // (mirrors Python's pytest.skip and Node's early-return pattern).
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    if let Some(var) = api_key_var {
+        let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
+        let _ = writeln!(out, "\tif apiKey == \"\" {{");
+        let _ = writeln!(out, "\t\tt.Skipf(\"{var} not set\")");
+        let _ = writeln!(out, "\t}}");
+    }
+
     for line in &setup_lines {
         let _ = writeln!(out, "\t{line}");
     }
@@ -906,13 +917,21 @@ fn render_test_function(
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
         let fixture_id = &fixture.id;
+        // Live-API tests bypass the mock server: pass apiKey + nil baseURL so
+        // the binding hits the real provider. Mock-driven tests pass a
+        // mock-server fixture URL and a fixed "test-key" instead.
+        let (api_key_expr, base_url_expr) = if api_key_var.is_some() {
+            ("apiKey".to_string(), "nil".to_string())
+        } else {
+            let _ = writeln!(
+                out,
+                "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            ("\"test-key\"".to_string(), "&mockURL".to_string())
+        };
         let _ = writeln!(
             out,
-            "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
-        );
-        let _ = writeln!(
-            out,
-            "\tclient, clientErr := {import_alias}.{factory_name}(\"test-key\", &mockURL, nil, nil, nil)"
+            "\tclient, clientErr := {import_alias}.{factory_name}({api_key_expr}, {base_url_expr}, nil, nil, nil)"
         );
         let _ = writeln!(out, "\tif clientErr != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"create client failed: %v\", clientErr)");
