@@ -45,9 +45,37 @@ pub fn render_test_file(
     let nested_types = override_config.map(|o| o.nested_types.clone()).unwrap_or_default();
     let enum_fields = override_config.map(|o| o.enum_fields.clone()).unwrap_or_default();
 
-    let needs_options_import = options_type.is_some()
+    // Per-fixture wasm/node overrides may add their own options_type / nested_types /
+    // enum_fields (each call exposes a different request struct in WASM, e.g.
+    // `WasmEmbeddingRequest` vs `WasmChatCompletionRequest`). Aggregate every class
+    // referenced across this file's fixtures so the import line covers them all.
+    // The global `options_type` parameter remains the default fallback when a
+    // per-call override is absent.
+    let mut all_options_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut all_nested_types: std::collections::HashMap<String, String> = nested_types.clone();
+    let mut all_enum_fields: std::collections::HashMap<String, String> = enum_fields.clone();
+    if let Some(opts) = options_type {
+        all_options_types.insert(opts.to_string());
+    }
+    for fixture in fixtures.iter() {
+        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        if let Some(o) = cc.overrides.get(lang) {
+            if let Some(opts) = &o.options_type {
+                all_options_types.insert(opts.clone());
+            }
+            for (k, v) in &o.nested_types {
+                all_nested_types.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+            for (k, v) in &o.enum_fields {
+                all_enum_fields.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+    }
+
+    let needs_options_import = !all_options_types.is_empty()
         && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.args.iter().any(|arg| {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                 let val = if field == "input" {
                     Some(&f.input)
@@ -120,11 +148,13 @@ pub fn render_test_file(
         }
 
         let _ = module_path; // retained in signature for potential future use
-        if let (true, Some(opts_type)) = (needs_options_import, options_type) {
+        if needs_options_import {
             if lang == "node" {
                 // ConversionOptions is a TypeScript interface — type-only import.
                 // No Update class exists; options are constructed as plain object literals.
-                imports.push(format!("type {opts_type}"));
+                for opts_type in &all_options_types {
+                    imports.push(format!("type {opts_type}"));
+                }
             } else {
                 // WASM: value import needed for runtime construction. The
                 // alef-backend-wasm codegen does not emit `*Update` builder
@@ -132,14 +162,18 @@ pub fn render_test_file(
                 // all-optional positional constructor and then assign each
                 // present field through generated setters. Nested types use
                 // the same pattern. See `ts_builder_expression_inner`.
-                imports.push(opts_type.to_string());
-                for nested_type in nested_types.values() {
+                for opts_type in &all_options_types {
+                    if !imports.contains(opts_type) {
+                        imports.push(opts_type.clone());
+                    }
+                }
+                for nested_type in all_nested_types.values() {
                     if !imports.contains(nested_type) {
                         imports.push(nested_type.clone());
                     }
                 }
                 // Also import enum types referenced in this test file
-                for enum_type in enum_fields.values() {
+                for enum_type in all_enum_fields.values() {
                     if !imports.contains(enum_type) {
                         imports.push(enum_type.clone());
                     }
@@ -414,6 +448,40 @@ fn render_test_case(
     let result_is_simple =
         call_config.result_is_simple || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
 
+    // Resolve per-fixture wasm/node override fields (options_type, bigint_fields,
+    // nested_types, enum_fields). Per-call overrides win over the file-level
+    // default; missing fields fall back to the file-level default. WASM/wasm-bindgen
+    // is the primary consumer of `bigint_fields` (u64/i64 setters reject Number).
+    let per_call_override = call_config.overrides.get(lang);
+    let effective_options_type: Option<String> = per_call_override
+        .and_then(|o| o.options_type.clone())
+        .or_else(|| options_type.map(|s| s.to_string()));
+    let mut effective_nested_types: std::collections::HashMap<String, String> = nested_types.clone();
+    if let Some(o) = per_call_override {
+        for (k, v) in &o.nested_types {
+            effective_nested_types.insert(k.clone(), v.clone());
+        }
+    }
+    let mut effective_enum_fields: std::collections::HashMap<String, String> = enum_fields.clone();
+    if let Some(o) = per_call_override {
+        for (k, v) in &o.enum_fields {
+            effective_enum_fields.insert(k.clone(), v.clone());
+        }
+    }
+    let global_bigint_fields: Vec<String> = e2e_config
+        .call
+        .overrides
+        .get(lang)
+        .map(|o| o.bigint_fields.clone())
+        .unwrap_or_default();
+    let mut effective_bigint_fields: std::collections::BTreeSet<String> =
+        global_bigint_fields.into_iter().collect();
+    if let Some(o) = per_call_override {
+        for f in &o.bigint_fields {
+            effective_bigint_fields.insert(f.clone());
+        }
+    }
+
     // Force test to async if we need to read files for bytes args
     let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args);
 
@@ -425,11 +493,12 @@ fn render_test_case(
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
-        options_type,
+        effective_options_type.as_deref(),
         &fixture.id,
-        nested_types,
+        &effective_nested_types,
         lang,
-        enum_fields,
+        &effective_enum_fields,
+        &effective_bigint_fields,
     );
 
     let mut visitor_arg = String::new();
@@ -630,8 +699,26 @@ fn ts_builder_expression(
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
+    bigint_fields: &std::collections::BTreeSet<String>,
 ) -> String {
-    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields)
+    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields, bigint_fields)
+}
+
+/// Convert a JS numeric literal expression to a BigInt-compatible literal
+/// (`123n`, `-7n`) for wasm-bindgen `u64`/`i64` setters which reject Number.
+/// Non-integer or non-numeric expressions are wrapped in `BigInt(...)` so the
+/// runtime conversion still happens.
+fn to_bigint_literal(value_expr: &str) -> String {
+    let trimmed = value_expr.trim();
+    if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return format!("{trimmed}n");
+    }
+    if let Some(rest) = trimmed.strip_prefix('-') {
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return format!("-{rest}n");
+        }
+    }
+    format!("BigInt({trimmed})")
 }
 
 fn ts_builder_expression_inner(
@@ -640,6 +727,7 @@ fn ts_builder_expression_inner(
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
+    bigint_fields: &std::collections::BTreeSet<String>,
 ) -> String {
     if lang == "node" {
         let mut fields = Vec::new();
@@ -662,9 +750,17 @@ fn ts_builder_expression_inner(
     let mut stmts: Vec<String> = vec![format!("const _u = new {type_name}();")];
     for (key, val) in obj {
         let camel_key = snake_to_camel(key);
+        let is_bigint = bigint_fields.contains(&camel_key) || bigint_fields.contains(key);
         if let serde_json::Value::Object(nested_obj) = val {
             if let Some(nested_type) = nested_types.get(key.as_str()) {
-                let nested_expr = ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields);
+                let nested_expr = ts_builder_expression_inner(
+                    nested_obj,
+                    nested_type,
+                    nested_types,
+                    lang,
+                    enum_fields,
+                    bigint_fields,
+                );
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
@@ -677,6 +773,12 @@ fn ts_builder_expression_inner(
                 // Non-string enum value, just use json_to_js
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
             }
+        } else if is_bigint {
+            // wasm-bindgen u64/i64 setters require BigInt. Plain numeric
+            // literals must be suffixed with `n`; non-literal numeric
+            // values are wrapped in `BigInt(...)`.
+            let raw = json_to_js(val);
+            stmts.push(format!("_u.{camel_key} = {};", to_bigint_literal(&raw)));
         } else {
             stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
         }
@@ -687,6 +789,7 @@ fn ts_builder_expression_inner(
     format!("(() => {{ {body} }})()")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[ArgMapping],
@@ -695,6 +798,7 @@ fn build_args_and_setup(
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
+    bigint_fields: &std::collections::BTreeSet<String>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), json_to_js(input));
@@ -813,7 +917,14 @@ fn build_args_and_setup(
                         } else if let Some(obj) = v.as_object() {
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
-                            let ts_code = ts_builder_expression(obj, opts_type, nested_types, lang, enum_fields);
+                            let ts_code = ts_builder_expression(
+                                obj,
+                                opts_type,
+                                nested_types,
+                                lang,
+                                enum_fields,
+                                bigint_fields,
+                            );
                             parts.push(ts_code);
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));

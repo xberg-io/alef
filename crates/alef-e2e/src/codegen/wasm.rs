@@ -145,16 +145,23 @@ impl E2eCodegen for WasmCodegen {
         });
 
         // Generate vitest.config.ts — needs vite-plugin-wasm + topLevelAwait, plus
-        // optional globalSetup (for HTTP fixtures) and setupFiles (for chdir).
+        // optional globalSetup (for HTTP fixtures and any function-call test that
+        // hits the mock server via MOCK_SERVER_URL) and setupFiles (for chdir).
+        // Function-call e2e tests construct request URLs via
+        // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
+        // be running and the env var set even when no raw HTTP fixtures exist.
+        let needs_global_setup = has_http_fixtures || has_non_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
-            content: render_vitest_config(has_http_fixtures, has_file_fixtures),
+            content: render_vitest_config(needs_global_setup, has_file_fixtures),
             generated_header: true,
         });
 
-        // Generate globalSetup.ts only when at least one HTTP fixture is in scope —
-        // it spawns the rust mock-server.
-        if has_http_fixtures {
+        // Generate globalSetup.ts when any fixture requires the mock server —
+        // either an HTTP fixture (the original consumer) or any function-call
+        // fixture that interpolates `${process.env.MOCK_SERVER_URL}` into a
+        // base URL. It spawns the rust mock-server binary.
+        if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
                 content: render_global_setup(),
@@ -181,7 +188,7 @@ impl E2eCodegen for WasmCodegen {
         });
 
         // Suppress the unused-variable warning when no non-HTTP fixtures exist.
-        let _ = has_non_http_fixtures;
+        // has_non_http_fixtures is consumed via `needs_global_setup` above.
 
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
         let options_type = overrides.and_then(|o| o.options_type.clone());
