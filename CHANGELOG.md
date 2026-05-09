@@ -7,9 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-05-09
+
 ### Fixed
 
-- fix(e2e/php): bootstrap.php now spawns the mock HTTP server when fixtures
+- fix(codegen): silence `dead_code` lint on `gen_magnus_positional_constructor`,
+  intentionally retained even though `gen_magnus_kwargs_constructor` always
+  delegates to the hash-based form. Without `#[allow(dead_code)]` the publish
+  workflow's `RUSTFLAGS="-D warnings"` failed `cargo publish`'s package verify
+  step and all CLI binary builds, blocking the v0.15.2 release.
+- fix(php-backend): pass `opaque_types` to all `field_can_be_param` call sites
+  that were missed when the parameter was added.
+- fix(php-backend): exclude `Vec<NonOpaqueCustomType>` from constructor params.
+- fix(php-backend): emit `Vec<u8>` as slice and `Vec<T>` with manual `FromZval`
+  conversion.
+- fix(e2e/go): keep mock-server stdin pipe open so it does not exit on EOF.
+- fix(e2e/go): honor `fixture.env.api_key_var` for live-API skips.
+- fix(e2e/php): bootstrap.php spawns the mock HTTP server when fixtures use
+  the `mock_response` schema.
+
+### Added
+
+- feat(e2e/go): support `api_key_var` skip + tweak liter-llm skip lists.
+
+## [0.15.2] - 2026-05-09
+
+### Fixed
+
+- fix(rustler-backend): remove `{%- raw %}` whitespace strippers from Elixir
   use the `mock_response` schema (in addition to the `http` schema). Switched
   the trigger from `is_http_test()` to `needs_mock_server()` to match the
   Ruby/Python behavior; otherwise `MOCK_SERVER_URL` was unset and reqwest
