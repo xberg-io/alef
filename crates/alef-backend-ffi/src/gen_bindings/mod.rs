@@ -220,6 +220,25 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
              pub type LiterLlmStreamCallback =\n    \
              unsafe extern \"C\" fn(chunk_json: *const std::ffi::c_char, user_data: *mut std::ffi::c_void);",
         );
+
+        // Also emit iterator-handle functions for each streaming adapter.
+        // These provide a pull-based alternative to the callback-based wrappers so that
+        // language bindings without native async (Go, Ruby, Java, C#, Elixir, C) can drive
+        // the stream in a simple while loop without holding a C function pointer.
+        for adapter in config.adapters.iter().filter(|a| matches!(a.pattern, AdapterPattern::Streaming)) {
+            let Some(owner_type) = adapter.owner_type.as_deref() else { continue; };
+            let Some(item_type) = adapter.item_type.as_deref() else { continue; };
+            let Some(request_type) = adapter.request_type.as_deref() else { continue; };
+            builder.add_item(&helpers::gen_stream_handle_functions(
+                prefix,
+                owner_type,
+                &adapter.name,
+                &adapter.core_path,
+                item_type,
+                request_type,
+                &core_import,
+            ));
+        }
     }
 
     // Collect the set of type names excluded via [ffi] exclude_types.
@@ -1479,6 +1498,146 @@ core_import = "my_custom_lib"
         assert!(
             lib.content.contains("Vec::from_raw_parts(ptr, len, cap)"),
             "free_bytes must reconstruct and drop the Vec via Vec::from_raw_parts"
+        );
+    }
+
+    /// Verify that a `Streaming` adapter causes codegen to emit the three iterator-handle
+    /// functions (`_start`, `_next`, `_free`) plus the opaque handle struct.
+    #[test]
+    fn test_streaming_adapter_emits_iterator_handle_functions() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatChunk"
+error_type = "MyError"
+request_type = "my_lib::ChatRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatRequest"
+"#,
+        );
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "DefaultClient".to_string(),
+                rust_path: "my_lib::DefaultClient".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "chat_stream".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: true,
+                    is_static: false,
+                    error_type: Some("MyError".to_string()),
+                    doc: String::new(),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    receiver: Some(ReceiverKind::Ref),
+                    trait_source: None,
+                    has_default_impl: false,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Opaque handle struct must be present
+        assert!(
+            lib.content.contains("MlDefaultClientChatStreamStreamHandle"),
+            "handle struct must be emitted: got\n{}",
+            &lib.content[..lib.content.len().min(3000)]
+        );
+
+        // All three exported functions must be present
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_start("),
+            "_start function must be emitted"
+        );
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_next("),
+            "_next function must be emitted"
+        );
+        assert!(
+            lib.content.contains("fn ml_default_client_chat_stream_free("),
+            "_free function must be emitted"
+        );
+
+        // Functions must be #[unsafe(no_mangle)] extern "C"
+        assert!(
+            lib.content.contains("#[unsafe(no_mangle)]"),
+            "functions must be marked #[unsafe(no_mangle)]"
+        );
+        assert!(
+            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_start"),
+            "_start must be pub unsafe extern C"
+        );
+        assert!(
+            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_next"),
+            "_next must be pub unsafe extern C"
+        );
+        assert!(
+            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_free"),
+            "_free must be pub unsafe extern C"
+        );
+
+        // _next must return a pointer to the item type
+        assert!(
+            lib.content.contains("-> *mut my_lib::ChatChunk"),
+            "_next must return *mut my_lib::ChatChunk"
+        );
+
+        // _free must be null-safe
+        assert!(
+            lib.content.contains("if !handle.is_null()"),
+            "_free must check for null before dropping"
+        );
+
+        // SAFETY comments must be present
+        assert!(
+            lib.content.contains("// SAFETY:"),
+            "generated code must include SAFETY comments on unsafe blocks"
+        );
+
+        // Error protocol: _next sets last_error on stream errors
+        assert!(
+            lib.content.contains("set_last_error"),
+            "_next must call set_last_error on error"
         );
     }
 }

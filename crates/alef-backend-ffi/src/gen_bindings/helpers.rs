@@ -464,3 +464,220 @@ pub unsafe extern "C" fn {prefix}_free_bytes(ptr: *mut u8, len: usize, cap: usiz
 pub(super) fn gen_ffi_tokio_runtime() -> String {
     crate::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
 }
+
+// ---------------------------------------------------------------------------
+// Stream handle (iterator-based streaming for FFI consumers)
+// ---------------------------------------------------------------------------
+
+/// Generate the three iterator-handle functions for a streaming adapter:
+///
+/// - `{prefix}_{type_snake}_{name}_start` — create handle from client + request
+/// - `{prefix}_{type_snake}_{name}_next`  — advance stream, return boxed chunk or null
+/// - `{prefix}_{type_snake}_{name}_free`  — drop handle
+///
+/// Also emits the opaque handle struct that owns the tokio runtime + BoxStream.
+///
+/// The handle name is derived as `{PascalPrefix}{PascalOwnerType}{PascalName}StreamHandle`.
+/// The function prefix is `{prefix}_{owner_type_snake}_{adapter_name}`.
+///
+/// Error protocol: `_next` returns null on both clean end-of-stream AND error.
+/// After null, caller checks `{prefix}_last_error_code()` — 0 is clean end, non-zero is error.
+pub(super) fn gen_stream_handle_functions(
+    prefix: &str,
+    owner_type: &str,
+    adapter_name: &str,
+    core_path: &str,
+    item_type: &str,
+    request_type: &str,
+    core_import: &str,
+) -> String {
+    use heck::{ToPascalCase, ToSnakeCase};
+
+    let pascal_prefix = prefix.to_pascal_case();
+    let pascal_owner = owner_type.to_pascal_case();
+    let pascal_name = adapter_name.to_pascal_case();
+    let owner_snake = owner_type.to_snake_case();
+
+    let handle_name = format!("{pascal_prefix}{pascal_owner}{pascal_name}StreamHandle");
+    let fn_start = format!("{prefix}_{owner_snake}_{adapter_name}_start");
+    let fn_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
+    let fn_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
+
+    // Full item type path for the BoxStream generic
+    let core_item = format!("{core_import}::{item_type}");
+    // Error type is the Rust stream item error — we use anyhow::Error as the broadest
+    // common type since the core returns BoxStream<Result<Item, impl Error>>.
+    // We erase the error type to anyhow::Error to keep the handle type stable.
+    let stream_ty = format!(
+        "futures::stream::BoxStream<'static, Result<{core_item}, anyhow::Error>>"
+    );
+    let owner_ty = format!("{core_import}::{owner_type}");
+
+    format!(
+        r#"/// Opaque handle owning a tokio runtime and a boxed chat-stream for iterator-style consumption.
+///
+/// Created by `{fn_start}`, advanced by `{fn_next}`, destroyed by `{fn_free}`.
+/// The handle is NOT thread-safe — callers must ensure only one thread calls `_next` at a time.
+pub struct {handle_name} {{
+    rt: tokio::runtime::Runtime,
+    stream: std::sync::Mutex<Option<{stream_ty}>>,
+}}
+
+/// Start a streaming chat completion and return an opaque iterator handle.
+///
+/// Returns null and sets `{prefix}_last_error_code` on failure (null pointers or stream-open error).
+/// On success the caller owns the returned pointer and MUST call `{fn_free}` when done.
+///
+/// # Safety
+/// `client` must be a non-null valid pointer to a live `{owner_ty}` produced by this library.
+/// `req` must be a non-null valid pointer to a live `{request_type}` produced by this library.
+/// Both pointers must remain valid until this function returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_start}(
+    client: *const {owner_ty},
+    req: *const {request_type},
+) -> *mut {handle_name} {{
+    clear_last_error();
+
+    if client.is_null() {{
+        set_last_error(99, "{fn_start}: client must not be NULL");
+        return std::ptr::null_mut();
+    }}
+    if req.is_null() {{
+        set_last_error(99, "{fn_start}: req must not be NULL");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: caller guarantees `client` is a non-null, valid, aligned pointer to a live
+    // `{owner_ty}` value. The reference does not outlive this function.
+    let client_ref = unsafe {{ &*client }};
+
+    // SAFETY: caller guarantees `req` is a non-null, valid, aligned pointer to a live
+    // `{request_type}` value. We clone it to obtain an owned request independent of the
+    // caller's lifetime.
+    let req_owned = unsafe {{ (*req).clone() }};
+
+    let rt = match tokio::runtime::Runtime::new() {{
+        Ok(r) => r,
+        Err(e) => {{
+            set_last_error(99, &format!("{fn_start}: failed to create tokio runtime: {{e}}"));
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let stream_result = rt.block_on(async {{ client_ref.{core_path}(req_owned).await }});
+
+    let raw_stream = match stream_result {{
+        Ok(s) => s,
+        Err(e) => {{
+            set_last_error(99, &format!("{fn_start}: failed to open stream: {{e}}"));
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    // Map the stream's concrete error type to anyhow::Error to erase it from the handle type.
+    let mapped: {stream_ty} = {{
+        use futures::StreamExt;
+        Box::pin(raw_stream.map(|r| r.map_err(anyhow::Error::from)))
+    }};
+
+    let handle = Box::new({handle_name} {{
+        rt,
+        stream: std::sync::Mutex::new(Some(mapped)),
+    }});
+
+    Box::into_raw(handle)
+}}
+
+/// Advance the stream and return a heap-allocated chunk, or null.
+///
+/// Returns null in two cases:
+/// - Clean end-of-stream: `{prefix}_last_error_code()` returns 0.
+/// - Stream error: `{prefix}_last_error_code()` returns non-zero.
+///
+/// The returned pointer is heap-allocated and the caller MUST free it by calling
+/// `{prefix}_{owner_snake}_{item_type}_free` (or the appropriate type-free function).
+///
+/// # Safety
+/// `handle` must be a non-null valid pointer previously returned by `{fn_start}` and not yet
+/// freed. Calling `_next` after `_free` is undefined behaviour. The handle must not be shared
+/// across threads without external synchronisation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_next}(
+    handle: *mut {handle_name},
+) -> *mut {core_item} {{
+    clear_last_error();
+
+    if handle.is_null() {{
+        set_last_error(99, "{fn_next}: handle must not be NULL");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: caller guarantees `handle` is a non-null valid pointer produced by `{fn_start}`
+    // and not yet freed. We take a shared reference for the duration of this call.
+    let h = unsafe {{ &*handle }};
+
+    let mut guard = match h.stream.lock() {{
+        Ok(g) => g,
+        Err(_) => {{
+            set_last_error(99, "{fn_next}: stream mutex is poisoned");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let stream = match guard.as_mut() {{
+        Some(s) => s,
+        None => {{
+            // Stream already exhausted or taken.
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    use futures::StreamExt;
+    match h.rt.block_on(stream.next()) {{
+        Some(Ok(chunk)) => {{
+            // SAFETY: We box the chunk and transfer ownership to the caller via raw pointer.
+            // The caller must free it via the appropriate type-free function.
+            Box::into_raw(Box::new(chunk))
+        }}
+        Some(Err(e)) => {{
+            set_last_error(99, &format!("{fn_next}: stream error: {{e}}"));
+            std::ptr::null_mut()
+        }}
+        None => {{
+            // Clean end-of-stream — error code remains 0 (cleared at top of function).
+            *guard = None;
+            std::ptr::null_mut()
+        }}
+    }}
+}}
+
+/// Free a stream handle created by `{fn_start}`.
+///
+/// Safe to call with a null pointer (no-op). After this call the handle pointer is invalid.
+///
+/// # Safety
+/// `handle` must either be null or a valid pointer previously returned by `{fn_start}` and
+/// not yet freed. Double-free is undefined behaviour.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_free}(handle: *mut {handle_name}) {{
+    if !handle.is_null() {{
+        // SAFETY: `handle` was produced by Box::into_raw in `{fn_start}` and has not been freed.
+        // Reconstructing the Box transfers ownership back to Rust, which drops it at end of scope.
+        unsafe {{ drop(Box::from_raw(handle)); }}
+    }}
+}}"#,
+        handle_name = handle_name,
+        fn_start = fn_start,
+        fn_next = fn_next,
+        fn_free = fn_free,
+        prefix = prefix,
+        owner_ty = owner_ty,
+        request_type = request_type,
+        core_path = core_path,
+        stream_ty = stream_ty,
+        core_item = core_item,
+        owner_snake = owner_snake,
+        item_type = item_type,
+    )
+}
