@@ -529,8 +529,7 @@ fn render_test_case(
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
-    let handle_config_type = per_call_override
-        .and_then(|o| o.handle_config_type.clone());
+    let handle_config_type = per_call_override.and_then(|o| o.handle_config_type.clone());
 
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
@@ -944,15 +943,15 @@ fn build_args_and_setup(
                 // WASM: if handle_config_type is set, use factory pattern + setters
                 if let Some(config_type) = handle_config_type {
                     // Construct config object with setters
-                    setup_lines.push(format!("const {name}Config = {config_type}.default();", name = arg.name));
+                    setup_lines.push(format!(
+                        "const {name}Config = {config_type}.default();",
+                        name = arg.name
+                    ));
                     if let Some(obj) = config_value.as_object() {
                         for (key, val) in obj {
                             let camel_key = snake_to_camel(key);
                             let value_expr = json_to_js_camel(val);
-                            setup_lines.push(format!(
-                                "{name}Config.{camel_key} = {value_expr};",
-                                name = arg.name
-                            ));
+                            setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));
                         }
                     }
                 } else {

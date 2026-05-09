@@ -84,8 +84,9 @@ impl E2eCodegen for JavaCodegen {
         let options_type = overrides.and_then(|o| o.options_type.clone());
 
         // Resolve enum_fields and nested_types from Java override config.
-        static EMPTY_ENUM_FIELDS: std::sync::LazyLock<std::collections::HashMap<String, String>> = std::sync::LazyLock::new(std::collections::HashMap::new);
-        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
+        static EMPTY_ENUM_FIELDS: std::sync::LazyLock<std::collections::HashMap<String, String>> =
+            std::sync::LazyLock::new(std::collections::HashMap::new);
+        let _enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
 
         // Build effective nested_types by merging defaults with configured overrides.
         let mut effective_nested_types = default_java_nested_types();
