@@ -257,7 +257,10 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
     let _ = writeln!(out, "\treturn []byte(e), nil");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
-    let _ = writeln!(out, "// UnmarshalJSON stores the raw bytes for round-trip serialization.");
+    let _ = writeln!(
+        out,
+        "// UnmarshalJSON stores the raw bytes for round-trip serialization."
+    );
     let _ = writeln!(out, "func (e *{}) UnmarshalJSON(data []byte) error {{", go_enum_name);
     let _ = writeln!(out, "\tif e == nil {{");
     let _ = writeln!(out, "\t\treturn nil");
