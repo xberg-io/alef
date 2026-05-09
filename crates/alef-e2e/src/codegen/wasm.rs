@@ -329,7 +329,7 @@ fn render_tsconfig() -> String {
 /// * `content` — the generated TypeScript test file content
 /// * `pkg_name` — the npm package name (e.g., "kreuzberg" or "@org/kreuzberg")
 /// * `_crate_name` — the Rust crate name (unused in async init pattern)
-fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String {
+fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
     // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
     let from_marker_sq = format!("}} from '{pkg_name}';");
     let from_marker_dq = format!("}} from \"{pkg_name}\";");
@@ -358,6 +358,9 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
 
             // For Node.js test environments (vitest), use initSync with the bundled WASM
             // binary. Use import.meta.resolve to locate the bundled WASM file reliably.
+            // wasm-pack derives the bg.wasm filename from the crate name with dashes
+            // replaced by underscores (e.g. "liter-llm-wasm" -> "liter_llm_wasm_bg.wasm").
+            let bg_wasm_name = format!("{}_bg.wasm", crate_name.replace('-', "_"));
             let init_code = format!("import {{ initSync }} from '{pkg_name}';\n", pkg_name = pkg_name);
             let setup_code = format!(
                 "import {{ fileURLToPath }} from \"url\";\n\
@@ -367,11 +370,12 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                 const __dirname = dirname(__filename);\n\
                 const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n\
                 globalThis.process.chdir(testDocumentsDir);\n\
-                const wasmUrl = await import.meta.resolve('{pkg_name}/kreuzberg_wasm_bg.wasm');\n\
+                const wasmUrl = await import.meta.resolve('{pkg_name}/{bg_wasm_name}');\n\
                 const wasmPath = fileURLToPath(wasmUrl);\n\
                 const wasmBuffer = readFileSync(wasmPath);\n\
                 initSync(wasmBuffer);\n",
-                pkg_name = pkg_name
+                pkg_name = pkg_name,
+                bg_wasm_name = bg_wasm_name
             );
 
             return init_code + &content[..full_from_pos] + "\n" + &setup_code + &content[full_from_pos..];

@@ -619,15 +619,16 @@ pub(super) fn emit_named_param_setup(
                 }
                 let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
 
-                // Config parameters with optional declaration: default null to new instance
-                let param_to_serialize = if param.name == "config" && param.optional {
+                // Config parameters: always treat as optional and default null to new instance
+                let is_config_param = param.name == "config";
+                let param_to_serialize = if is_config_param {
                     let type_pascal = type_name.to_pascal_case();
                     format!("({} ?? new {}())", param_name, type_pascal)
                 } else {
                     param_name.to_string()
                 };
 
-                if param.optional && param.name != "config" {
+                if param.optional && !is_config_param {
                     out.push_str(&crate::template_env::render(
                         "named_param_json_optional.jinja",
                         minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
