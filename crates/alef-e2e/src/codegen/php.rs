@@ -1408,11 +1408,11 @@ fn render_assertion(
     }
 
     let field_expr = match &assertion.field {
+        // When result_is_simple, the result is a scalar (bytes/string/etc.) — any
+        // field access on it would fail. Treat all assertions as referring to the
+        // result itself.
+        _ if result_is_simple => format!("${result_var}"),
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
-        _ if result_is_simple => {
-            // When result_is_simple, default to accessing the 'content' field
-            field_resolver.accessor("content", "php", &format!("${result_var}"))
-        }
         _ => format!("${result_var}"),
     };
 
