@@ -102,6 +102,16 @@ pub(crate) fn gen_php_function_params(
                         }
                     }
                 }
+                TypeRef::Bytes => {
+                    // ext-php-rs has no FromZval for Vec<u8> in function/constructor params.
+                    // PHP strings are binary-safe — accept as String, convert to bytes via
+                    // `.into_bytes()` at the call site.
+                    if p.optional {
+                        "Option<String>".to_string()
+                    } else {
+                        "String".to_string()
+                    }
+                }
                 _ => {
                     if p.optional {
                         format!("Option<{base_ty}>")
@@ -185,17 +195,18 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     }
                 }
                 TypeRef::Bytes => {
-                    // Bytes maps to String in PHP. Convert String to &[u8] via as_bytes().
+                    // PHP-side param is String (binary-safe). Convert to &[u8] / Vec<u8>
+                    // when passing to core.
                     if p.optional {
                         if p.is_ref {
                             format!("{php_name}.as_ref().map(|s| s.as_bytes())")
                         } else {
-                            php_name
+                            format!("{php_name}.map(String::into_bytes)")
                         }
                     } else if p.is_ref {
                         format!("{php_name}.as_bytes()")
                     } else {
-                        php_name
+                        format!("{php_name}.into_bytes()")
                     }
                 }
                 TypeRef::Vec(inner) => {
@@ -385,17 +396,18 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     }
                 }
                 TypeRef::Bytes => {
-                    // Bytes maps to String in PHP. Convert String to &[u8] via as_bytes().
+                    // PHP-side param is String (binary-safe). Convert to &[u8] / Vec<u8>
+                    // when passing to core.
                     if p.optional {
                         if p.is_ref {
                             format!("{php_name}.as_ref().map(|s| s.as_bytes())")
                         } else {
-                            php_name
+                            format!("{php_name}.map(String::into_bytes)")
                         }
                     } else if p.is_ref {
                         format!("{php_name}.as_bytes()")
                     } else {
-                        php_name
+                        format!("{php_name}.into_bytes()")
                     }
                 }
                 TypeRef::Vec(inner) => {
@@ -495,11 +507,11 @@ pub(crate) fn php_wrap_return(
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
-            // Core returns Vec<u8> or Bytes, PHP binding expects String
+            // Core returns Vec<u8> or Bytes; PHP binding expects Vec<u8>.
             if returns_ref {
-                format!("String::from_utf8_lossy({expr}).into_owned()")
+                format!("{expr}.to_vec()")
             } else {
-                format!("String::from_utf8_lossy(&{expr}).into_owned()")
+                format!("Vec::<u8>::from({expr})")
             }
         }
         TypeRef::Primitive(p) if needs_i64_cast(p) => {
@@ -686,7 +698,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         }
                     }
                     TypeRef::String | TypeRef::Char => format!("self.{name}.clone()"),
-                    TypeRef::Bytes => format!("self.{name}.clone().into_bytes()"),
+                    TypeRef::Bytes => format!("self.{name}.clone().into()"),
                     TypeRef::Path => {
                         if field.optional {
                             format!("self.{name}.clone().map(Into::into)")
@@ -952,13 +964,11 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         } else if matches!(field.ty, TypeRef::Bytes)
             || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
         {
-            // PHP binding Bytes fields are String (not Vec<u8>). Convert via .into_bytes().
-            // This handles the binding->core conversion where the binding has String
-            // but the core type expects Vec<u8> or Bytes.
+            // PHP binding Bytes fields are Vec<u8>. Convert via .into() to core Bytes type.
             let conversion = if field.optional {
-                format!("val.{name}.map(|s| s.into_bytes().into())")
+                format!("val.{name}.map(|v| v.into())")
             } else {
-                format!("val.{name}.into_bytes().into()")
+                format!("val.{name}.into()")
             };
             out.push_str(&crate::template_env::render(
                 "php_struct_field_assignment.jinja",

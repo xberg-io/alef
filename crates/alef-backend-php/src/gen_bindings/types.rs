@@ -450,6 +450,15 @@ fn gen_struct_methods_impl(
                                     }
                                 }
                             }
+                            // Bytes: param is String (PHP-side); field is Vec<u8>. Convert.
+                            let is_bytes = matches!(&f.ty, TypeRef::Bytes)
+                                || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
+                            if is_bytes {
+                                if f.optional {
+                                    return format!("{}: {}.map(String::into_bytes)", f.name, php_param_name);
+                                }
+                                return format!("{}: {}.into_bytes()", f.name, php_param_name);
+                            }
                             // Params that are in the constructor
                             format!("{}: {}", f.name, php_param_name)
                         } else {
