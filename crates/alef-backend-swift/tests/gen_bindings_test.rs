@@ -543,11 +543,15 @@ fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
 }
 
 #[test]
-fn bytes_first_param_emits_string_and_uint8_overloads() {
+fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
     // IR: analyze_bytes(content: Bytes, config: AnalyzeConfig) -> AnalyzeResult
-    // Should emit String + [UInt8] overloads named `analyzeBytes` delegating to
-    // `analyzeBytes` (unqualified — Swift overload resolution disambiguates by
-    // argument label inclusion: convenience uses `content:`, bridge is unlabeled).
+    // The convenience wrapper name (`analyzeBytes`) collides with the bridge
+    // function name (`analyzeBytes`) because there is no `_sync` suffix to
+    // strip. Swift overload resolution would resolve the unlabeled inner
+    // positional call to the wrapper itself (recursive shadow), and module-
+    // prefix qualification of free functions is rejected by the compiler. We
+    // therefore skip emitting the convenience overload entirely; users call
+    // the bridge function directly with `makeByteVec(...)`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -567,57 +571,71 @@ fn bytes_first_param_emits_string_and_uint8_overloads() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // The wrapper name is `analyzeBytes` (no `_sync` suffix to strip here).
-    // The inner call is unqualified `analyzeBytes(...)` — the bridge function's
-    // unlabeled first parameter disambiguates against the convenience overload's
-    // labeled `content:` parameter.
-
-    // String overload present using the IR-derived name — not "extractBytes"
+    // No convenience overload for `analyzeBytes` — the only function in the
+    // surface would shadow itself.
     assert!(
-        content.contains("public func analyzeBytes(\n    content: String"),
-        "missing String overload for analyzeBytes: {content}"
-    );
-    // [UInt8] overload present
-    assert!(
-        content.contains("public func analyzeBytes(\n    content: [UInt8]"),
-        "missing [UInt8] overload for analyzeBytes: {content}"
-    );
-    // Inner call must NOT be qualified with `RustBridge.` — Swift rejects
-    // module-prefix qualification of free functions imported from another module.
-    assert!(
-        content.contains("return try analyzeBytes(makeByteVec("),
-        "inner call should be unqualified analyzeBytes: {content}"
+        !content.contains("public func analyzeBytes(\n    content: String"),
+        "shadowing String overload must be skipped: {content}"
     );
     assert!(
-        !content.contains("return try RustBridge.analyzeBytes(makeByteVec("),
-        "inner call must not be qualified with RustBridge. (Swift rejects this for free functions): {content}"
-    );
-    // IR-derived type names used — not extraction-specific names
-    assert!(
-        content.contains("AnalyzeConfig"),
-        "AnalyzeConfig should appear in generated output: {content}"
-    );
-    assert!(
-        content.contains("AnalyzeResult"),
-        "AnalyzeResult should appear as return type: {content}"
+        !content.contains("public func analyzeBytes(\n    content: [UInt8]"),
+        "shadowing [UInt8] overload must be skipped: {content}"
     );
 
-    // Hardcoded kreuzberg names must NOT appear in non-test code paths
+    // Since this is the only candidate, no convenience-wrapper section header
+    // should be emitted at all.
     assert!(
-        !content.contains("ExtractionConfig"),
-        "ExtractionConfig must not be hardcoded: {content}"
+        !content.contains("// MARK: - Convenience Wrapper Functions"),
+        "wrapper section must not appear when all candidates shadow: {content}"
     );
     assert!(
-        !content.contains("ExtractionResult"),
-        "ExtractionResult must not be hardcoded: {content}"
+        !content.contains("makeByteVec"),
+        "makeByteVec must not appear when all candidates shadow: {content}"
     );
+}
+
+#[test]
+fn bytes_overload_with_string_return_does_not_append_to_string() {
+    // IR: detect_mime_type_from_bytes_sync(content: Bytes) -> String
+    //
+    // Bug regression: prior versions appended `.toString()` to the inner call,
+    // assuming swift-bridge mapped Rust `String` returns to `RustString`. In
+    // fact swift-bridge maps `String` (and `Result<String, _>`) directly to a
+    // Swift-native `String` — `.toString()` is a no-op at best and a compile
+    // error against the actual Swift `String` type. The convenience overload
+    // must return the bridge result verbatim.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![make_sync_fn(
+            "detect_mime_sync",
+            vec![make_param("content", TypeRef::Bytes)],
+            TypeRef::String,
+        )],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Wrapper exists (no shadow: `detectMime` ≠ `detectMimeSync`).
     assert!(
-        !content.contains("extractBytes"),
-        "extractBytes must not be hardcoded: {content}"
+        content.contains("public func detectMime(\n    content: String"),
+        "missing detectMime String overload: {content}"
     );
+
+    // Bridge result is returned verbatim — no `.toString()` suffix.
     assert!(
-        !content.contains("extractFile"),
-        "extractFile must not be hardcoded: {content}"
+        !content.contains(".toString()"),
+        "must not append .toString() to a Swift `String` return: {content}"
+    );
+
+    // Inner call delegates to the suffixed bridge name without conversion.
+    assert!(
+        content.contains("return try detectMimeSync(makeByteVec(Array(content.utf8)))\n"),
+        "inner call should return verbatim without conversion: {content}"
     );
 }
 

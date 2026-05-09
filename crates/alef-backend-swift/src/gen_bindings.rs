@@ -327,6 +327,17 @@ fn first_param_is(func_def: &FunctionDef, ty: &TypeRef) -> bool {
 ///
 /// The `makeByteVec` helper converts a Swift `[UInt8]` to `RustVec<UInt8>` using
 /// the push-based API that swift-bridge exposes at runtime.
+///
+/// ## Skipped emissions
+///
+/// A convenience overload is skipped when the public wrapper name would collide
+/// with the bridge function name (`wrapper_name == swift_inner`). Swift overload
+/// resolution prefers the labeled overload from the *current* file when looking
+/// up the inner positional call, so the wrapper would recursively resolve to
+/// itself instead of the unlabeled bridge function. There is no clean way to
+/// disambiguate (module-prefix qualification of free functions is rejected by
+/// the Swift compiler). Users needing a `String`/`[UInt8]` ergonomic flavor for
+/// these functions can call the bridge function directly with `makeByteVec`.
 fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     // Collect the names of all functions in the surface for O(1) lookup.
     let all_names: std::collections::HashSet<&str> = api.functions.iter().map(|f| f.name.as_str()).collect();
@@ -334,13 +345,13 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     let bytes_candidates: Vec<&FunctionDef> = api
         .functions
         .iter()
-        .filter(|f| first_param_is(f, &TypeRef::Bytes) && !f.is_async)
+        .filter(|f| first_param_is(f, &TypeRef::Bytes) && !f.is_async && !convenience_name_shadows_bridge(f))
         .collect();
 
     let path_candidates: Vec<&FunctionDef> = api
         .functions
         .iter()
-        .filter(|f| first_param_is(f, &TypeRef::Path) && !f.is_async)
+        .filter(|f| first_param_is(f, &TypeRef::Path) && !f.is_async && !convenience_name_shadows_bridge(f))
         .collect();
 
     if bytes_candidates.is_empty() && path_candidates.is_empty() {
@@ -710,20 +721,46 @@ fn swift_return_type(ty: &TypeRef) -> String {
 }
 
 /// Returns the conversion suffix needed to bridge swift-bridge's runtime return
-/// types (`RustString`, `RustVec<T>`) to the Swift-native types declared in the
-/// convenience-wrapper signatures.
+/// types to the Swift-native types declared in the convenience-wrapper
+/// signatures.
 ///
-/// - `String` and `Json` returns: append `.toString()` to convert `RustString`.
-/// - `Bytes` and `Vec<primitive>` returns: append `.map { $0 }` to convert
-///   `RustVec<T>` to a Swift array via its `Sequence` conformance.
+/// swift-bridge maps a Rust `String` return (bare or inside `Result<String, _>`)
+/// directly to a Swift-native `String` — no `RustString` wrapping. Likewise, a
+/// `Result<T, _>` return is unwrapped through `try`, leaving the bare Swift
+/// type. The only conversions we need to apply are for `RustVec<T>` returns
+/// (Bytes, `Vec<primitive>`), which are exposed as a `Sequence` of native
+/// elements but not as a Swift `Array` — we use `.map { $0 }` to materialise.
 ///
-/// Returns the empty string for return types that need no conversion (opaque
-/// `Named` types, primitives, `Void`).
+/// Returns the empty string for return types that need no conversion (Swift
+/// `String`, opaque `Named` types, primitives, `Void`).
 fn swift_return_conversion_suffix(ty: &TypeRef) -> String {
     match ty {
-        TypeRef::String | TypeRef::Json => ".toString()".to_string(),
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(_)) => ".map { $0 }".to_string(),
         _ => String::new(),
     }
+}
+
+/// Returns true when emitting a convenience overload for `func` would produce a
+/// public wrapper whose name collides with the bridge function name (i.e. the
+/// camelCased function name without a `_sync` suffix to strip). When that
+/// happens, the unlabeled positional inner call inside the wrapper resolves to
+/// the wrapper itself (Swift's overload resolution prefers in-file declarations
+/// over imports, and the convenience overload's labels do not disambiguate
+/// against unlabeled candidates because Swift treats labeled-vs-unlabeled as
+/// the same overload key when no exact label match exists). The result is a
+/// "no exact matches in call to global function" compile error.
+///
+/// Module-prefix qualification (`RustBridge.fn(...)`) is rejected by the Swift
+/// compiler for free functions imported from another module. We therefore skip
+/// emitting the convenience overload entirely; the bridge function is still
+/// callable directly with `makeByteVec(...)`.
+fn convenience_name_shadows_bridge(func: &FunctionDef) -> bool {
+    let swift_inner = swift_ident(&func.name.to_lower_camel_case());
+    let wrapper_name = if swift_inner.ends_with("Sync") {
+        swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    wrapper_name == swift_inner
 }
