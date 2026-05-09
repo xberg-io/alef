@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e/rust): support array-form `input.mock_responses` schema in mock-server template. The Rust e2e test template's `render_mock_server_setup` only recognized the single-response schema (`mock_response: { status, body, stream_chunks, headers }`), silently discarding the multi-response array schema (`input.mock_responses: [{ path, status_code, headers, body_inline, body_file }, ...]`) used by kreuzcrawl and other fixture-heavy projects. The kreuzcrawl standalone mock-server (`tools/mock-server/src/main.rs`) correctly loaded 452 routes from 246 fixture files, but the alef-generated `e2e/rust/src/main.rs` loaded only 20, because the template never examined `fixture.input.get("mock_responses")`. The fix extends `render_mock_server_setup` to first check for the array schema (extracting `path`, `status_code`, `headers`, and `body_inline` from each element; defaulting path to "/" and status to 200), fall back to the single-response schema if absent, emit multiple `MockRoute` objects when the array contains multiple elements, and emit a single route when either schema produces exactly one response. The standalone binary's `load_routes_recursive` function continues to handle both schemas including `body_file` (fixture-relative file loading), while the test-function template (which lacks fixture-dir context) emits placeholder bodies for `body_file` entries — the binaries will be tested separately against the real file paths. Restores e2e fixture coverage for array-based mock-response projects.
 
+## [0.15.22] - 2026-05-09
+
+### Fixed
+
+- fix(backend-swift): re-wire `emit_e2e_wrappers` and `emit_json_factory_shims` so the kreuzberg-style e2e helpers (`extractionConfigFromJson`, `batchBytesItemFromJson`, `batchFileItemFromJson`) are emitted again. Emission is gated structurally on the api surface exposing all three serde-enabled types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`) — this keeps the helper out of binding crates that don't expose those types while restoring the symbols the alef-e2e Swift codegen still calls (`crates/alef-e2e/src/codegen/swift.rs:762`). Without the helpers, every kreuzberg-derived Swift test suite failed at compile with `cannot find 'extractionConfigFromJson' in scope`. Also drops the broken multi-line `out.push_str` in `batchExtractBytesSync` that produced stray indentation.
+
 ## [0.15.21] - 2026-05-09
 
 ### Fixed
