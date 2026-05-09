@@ -140,6 +140,9 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     let ns = namespace;
 
     let mut out = csharp_file_header();
+    out.push_str("using System;\n");
+    out.push_str("using System.IO;\n");
+    out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
     out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
     out.push('\n');
@@ -148,8 +151,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     let variant_names: std::collections::HashSet<String> =
         enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
 
-    // Precompute discriminator values for each variant
-    let discriminators: Vec<(String, String)> = enum_def
+    // Precompute discriminator values for each variant (used for [JsonDerivedType] when not using custom converter)
+    let _discriminators: Vec<(String, String)> = enum_def
         .variants
         .iter()
         .map(|v| {
@@ -171,18 +174,13 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    // [JsonPolymorphic] + [JsonDerivedType] attributes must ALL be on the base type,
-    // not on the nested records — System.Text.Json resolves polymorphism from the base type.
+    // Apply custom converter for sealed unions with flattened variant fields
+    // This allows System.Text.Json to properly deserialize discriminator + flattened fields
+    // The json_converter_attr.jinja template adds "JsonConverter" suffix, so pass just the base name
     out.push_str(&render(
-        "json_polymorphic_attr.jinja",
-        minijinja::context! { tag_field },
+        "json_converter_attr.jinja",
+        minijinja::context! { base => enum_pascal },
     ));
-    for (pascal, discriminator) in &discriminators {
-        out.push_str(&render(
-            "json_derived_type_attr.jinja",
-            minijinja::context! { pascal, discriminator },
-        ));
-    }
     out.push_str(&render(
         "abstract_record_header.jinja",
         minijinja::context! { enum_pascal },
@@ -315,5 +313,155 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     out.push_str("}\n");
 
+    // Generate custom converter for sealed unions with flattened variant fields
+    out.push('\n');
+    gen_sealed_union_converter(&mut out, namespace, enum_def, tag_field);
+
     out
+}
+
+/// Generate a custom JsonConverter for sealed unions with flattened (unwrapped) variant fields.
+///
+/// This converter handles tagged unions where the discriminator field (`format_type`, etc.)
+/// is followed by variant-specific fields all at the same JSON level:
+///
+/// ```json
+/// {
+///   "format_type": "excel",
+///   "sheet_count": 2,
+///   "sheet_names": ["Sheet1", "Sheet2"]
+/// }
+/// ```
+///
+/// System.Text.Json's [JsonPolymorphic] + [JsonDerivedType] cannot handle this layout directly
+/// because the variant's nested record expects its fields as JSON members but doesn't know to
+/// ignore the discriminator. This converter manually parses the JSON, reads the discriminator,
+/// removes it, and deserializes the remaining fields into the appropriate variant type.
+fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &EnumDef, tag_field: &str) {
+    let enum_pascal = enum_def.name.to_pascal_case();
+    // The converter class name matches the template expectation: base + "JsonConverter" suffix
+    let converter_class_name = format!("{}JsonConverter", enum_pascal);
+
+    out.push_str("/// <summary>\n");
+    out.push_str("/// Custom converter for ");
+    out.push_str(&enum_pascal);
+    out.push_str(" sealed union with flattened variant fields.\n");
+    out.push_str("/// </summary>\n");
+    out.push_str("/// <remarks>\n");
+    out.push_str("/// Handles JSON objects with a discriminator field (");
+    out.push_str(tag_field);
+    out.push_str(") and variant-specific\n");
+    out.push_str("/// fields at the same level. System.Text.Json's [JsonPolymorphic] cannot handle\n");
+    out.push_str("/// this layout, so we manually deserialize here.\n");
+    out.push_str("/// </remarks>\n");
+    out.push_str("public sealed class ");
+    out.push_str(&converter_class_name);
+    out.push_str(" : JsonConverter<");
+    out.push_str(&enum_pascal);
+    out.push_str(">\n");
+    out.push_str("{\n");
+
+    // Read method
+    out.push_str("    public override ");
+    out.push_str(&enum_pascal);
+    out.push_str(" Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)\n");
+    out.push_str("    {\n");
+    out.push_str("        if (reader.TokenType != JsonTokenType.StartObject)\n");
+    out.push_str("        {\n");
+    out.push_str("            throw new JsonException($\"Expected JSON object, got {reader.TokenType}\");\n");
+    out.push_str("        }\n\n");
+
+    out.push_str("        using var doc = JsonDocument.ParseValue(ref reader);\n");
+    out.push_str("        var root = doc.RootElement;\n\n");
+
+    out.push_str("        if (!root.TryGetProperty(\"");
+    out.push_str(tag_field);
+    out.push_str("\", out var tagElement))\n");
+    out.push_str("        {\n");
+    out.push_str("            throw new JsonException($\"Missing discriminator field: ");
+    out.push_str(tag_field);
+    out.push_str("\");\n");
+    out.push_str("        }\n\n");
+
+    out.push_str("        var tagValue = tagElement.GetString();\n");
+    out.push_str("        if (tagValue == null)\n");
+    out.push_str("        {\n");
+    out.push_str("            throw new JsonException(\"Discriminator field is null\");\n");
+    out.push_str("        }\n\n");
+
+    // Create a new object wrapping variant fields in a "Value" property
+    // The variant record has a single field `Value` containing the inner type,
+    // so we wrap the remaining fields in a {"Value": {...}} structure.
+    out.push_str("        // Create a new object wrapping variant fields in a \"Value\" property\n");
+    out.push_str("        using var ms = new MemoryStream();\n");
+    out.push_str("        using var writer = new Utf8JsonWriter(ms);\n");
+    out.push_str("        writer.WriteStartObject();\n");
+    out.push_str("        writer.WritePropertyName(\"Value\");\n");
+    out.push_str("        writer.WriteStartObject();\n");
+    out.push_str("        foreach (var prop in root.EnumerateObject())\n");
+    out.push_str("        {\n");
+    out.push_str("            if (prop.Name != \"");
+    out.push_str(tag_field);
+    out.push_str("\")\n");
+    out.push_str("            {\n");
+    out.push_str("                writer.WritePropertyName(prop.Name);\n");
+    out.push_str("                prop.Value.WriteTo(writer);\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("        writer.WriteEndObject();\n");
+    out.push_str("        writer.WriteEndObject();\n");
+    out.push_str("        writer.Flush();\n");
+    out.push_str("        ms.Position = 0;\n\n");
+
+    // Dispatch based on discriminator
+    out.push_str("        var variantJson = ms.ToArray();\n");
+    out.push_str("        return tagValue switch\n");
+    out.push_str("        {\n");
+
+    for variant in &enum_def.variants {
+        let pascal = variant.name.to_pascal_case();
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+
+        out.push_str("            \"");
+        out.push_str(&discriminator);
+        out.push_str("\" => ");
+
+        if variant.fields.is_empty() {
+            // Unit variant - create directly
+            out.push_str("new ");
+            out.push_str(&enum_pascal);
+            out.push('.');
+            out.push_str(&pascal);
+            out.push_str("()");
+        } else {
+            // Data variant - deserialize the variant record type which has a Value field
+            out.push_str("JsonSerializer.Deserialize<");
+            out.push_str(&enum_pascal);
+            out.push('.');
+            out.push_str(&pascal);
+            out.push_str(">(variantJson, options) ?? throw new JsonException(\"Failed to deserialize variant\")");
+        }
+
+        out.push_str(",\n");
+    }
+
+    out.push_str("            _ => throw new JsonException($\"Unknown ");
+    out.push_str(&enum_pascal);
+    out.push_str(" discriminator: {tagValue}\")\n");
+    out.push_str("        };\n");
+    out.push_str("    }\n\n");
+
+    // Write method - just throw NotSupportedException
+    out.push_str("    public override void Write(Utf8JsonWriter writer, ");
+    out.push_str(&enum_pascal);
+    out.push_str(" value, JsonSerializerOptions options)\n");
+    out.push_str("    {\n");
+    out.push_str("        throw new NotSupportedException(\"");
+    out.push_str(&enum_pascal);
+    out.push_str(" serialization is not supported\");\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
 }
