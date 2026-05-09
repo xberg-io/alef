@@ -474,8 +474,7 @@ fn render_test_case(
         .get(lang)
         .map(|o| o.bigint_fields.clone())
         .unwrap_or_default();
-    let mut effective_bigint_fields: std::collections::BTreeSet<String> =
-        global_bigint_fields.into_iter().collect();
+    let mut effective_bigint_fields: std::collections::BTreeSet<String> = global_bigint_fields.into_iter().collect();
     if let Some(o) = per_call_override {
         for f in &o.bigint_fields {
             effective_bigint_fields.insert(f.clone());
@@ -917,14 +916,8 @@ fn build_args_and_setup(
                         } else if let Some(obj) = v.as_object() {
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
-                            let ts_code = ts_builder_expression(
-                                obj,
-                                opts_type,
-                                nested_types,
-                                lang,
-                                enum_fields,
-                                bigint_fields,
-                            );
+                            let ts_code =
+                                ts_builder_expression(obj, opts_type, nested_types, lang, enum_fields, bigint_fields);
                             parts.push(ts_code);
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));

@@ -148,11 +148,23 @@ pub(super) fn gen_nif_function(
                 if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
                         let core_ty = format!("{core_import}::{n}");
-                        // Optional JSON string → Option<CoreType> via serde
-                        deser_lines.push(format!(
-                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                            p.name, core_ty
-                        ));
+                        // Optional JSON string → Option<CoreType> via serde.
+                        // For Result-returning fns we use `?` to surface deser errors;
+                        // for non-Result fns (e.g. `from`/`default` static helpers) we
+                        // fall back to `.ok().flatten()` so a malformed JSON yields
+                        // None instead of an unrecoverable panic from `?`.
+                        let deser_line = if func.error_type.is_some() {
+                            format!(
+                                "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                                p.name, core_ty
+                            )
+                        } else {
+                            format!(
+                                "let {0}_core: Option<{1}> = {0}.and_then(|s| serde_json::from_str::<{1}>(&s).ok());",
+                                p.name, core_ty
+                            )
+                        };
+                        deser_lines.push(deser_line);
                         // Handle based on whether core function expects reference or option
                         if p.optional {
                             // Core expects Option<T> → pass as-is
@@ -691,7 +703,8 @@ pub(super) fn gen_nif_method(
     let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
 
     // Build deserialization preamble for default-typed (JSON-string) params.
-    let deser_preamble = build_default_deser_preamble(&method.params, default_types, core_import);
+    let deser_preamble =
+        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some());
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
@@ -722,10 +735,13 @@ pub(super) fn gen_nif_method(
             // Named (non-opaque) params use `.into()` which can be ambiguous when multiple
             // From impls exist. Emit explicit let bindings with annotated core types so
             // Rust can resolve the conversion without ambiguity.
+            // Skip default-typed params — those are already deserialized by the
+            // `deser_preamble` from `build_default_deser_preamble`, which produces
+            // its own `{name}_core` binding. Emitting another would duplicate.
             let named_params: Vec<&ParamDef> = method
                 .params
                 .iter()
-                .filter(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+                .filter(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !default_types.contains(n.as_str())))
                 .collect();
             if named_params.is_empty() {
                 format!("{core_import}::{}::{}({})", struct_name, method.name, call_args)
@@ -816,16 +832,29 @@ pub(super) fn gen_nif_method(
 /// Build the deserialization preamble for `Option<String>` JSON params that
 /// correspond to default-typed core types. Returns an empty string when no
 /// param needs JSON deserialization.
-fn build_default_deser_preamble(params: &[ParamDef], default_types: &AHashSet<String>, core_import: &str) -> String {
+fn build_default_deser_preamble(
+    params: &[ParamDef],
+    default_types: &AHashSet<String>,
+    core_import: &str,
+    has_error: bool,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
     for p in params {
         if let TypeRef::Named(n) = &p.ty {
             if default_types.contains(n) {
                 let core_ty = format!("{core_import}::{n}");
-                lines.push(format!(
-                    "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                    p.name, core_ty
-                ));
+                let line = if has_error {
+                    format!(
+                        "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                        p.name, core_ty
+                    )
+                } else {
+                    format!(
+                        "let {0}_core: Option<{1}> = {0}.and_then(|s| serde_json::from_str::<{1}>(&s).ok());",
+                        p.name, core_ty
+                    )
+                };
+                lines.push(line);
             }
         }
     }
@@ -898,7 +927,8 @@ pub(super) fn gen_nif_async_method(
     let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
 
     // Build deserialization preamble for default-typed (JSON-string) params.
-    let deser_preamble = build_default_deser_preamble(&method.params, default_types, core_import);
+    let deser_preamble =
+        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some());
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);

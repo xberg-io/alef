@@ -703,10 +703,7 @@ pub(crate) fn gen_opaque_handle_class(
 
     // Instance methods on this opaque handle (skip static and any method whose name
     // collides with a streaming adapter — those are emitted by the streaming codegen).
-    let streaming_method_names: AHashSet<String> = streaming_adapters
-        .iter()
-        .map(|a| a.name.to_snake_case())
-        .collect();
+    let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_snake_case()).collect();
     let instance_methods: Vec<&MethodDef> = typ
         .methods
         .iter()
@@ -857,9 +854,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let cname = format!("c{}", to_class_name(&p.name));
         match &p.ty {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-                out.push_str(&format!(
-                    "            var {cname} = arena.allocateFrom({pname});\n"
-                ));
+                out.push_str(&format!("            var {cname} = arena.allocateFrom({pname});\n"));
                 call_args.push(cname);
             }
             TypeRef::Optional(inner)
@@ -926,9 +921,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(pname);
             }
             _ => {
-                out.push_str(&format!(
-                    "            // TODO unsupported parameter type for {pname}\n"
-                ));
+                out.push_str(&format!("            // TODO unsupported parameter type for {pname}\n"));
                 out.push_str(&format!(
                     "            throw new {exception_class}(\"{method_name}: unsupported parameter shape\", (Throwable) null);\n"
                 ));

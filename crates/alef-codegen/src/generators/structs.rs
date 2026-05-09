@@ -105,7 +105,11 @@ pub fn gen_struct_with_per_field_attrs(
     let opaque_fields: Vec<&str> = typ
         .fields
         .iter()
-        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names) && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names))
+        .filter(|f| {
+            f.cfg.is_none()
+                && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+                && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names)
+        })
         .map(|f| f.name.as_str())
         .collect();
     // Always derive Default/Serialize/Deserialize. Opaque fields get #[serde(skip)]
@@ -181,7 +185,11 @@ pub fn gen_struct_with_rename(
     let opaque_fields: Vec<&str> = typ
         .fields
         .iter()
-        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names) && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names))
+        .filter(|f| {
+            f.cfg.is_none()
+                && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+                && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names)
+        })
         .map(|f| f.name.as_str())
         .collect();
     sb.add_derive("Default");
@@ -257,7 +265,11 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     let _opaque_fields: Vec<&str> = typ
         .fields
         .iter()
-        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names) && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names))
+        .filter(|f| {
+            f.cfg.is_none()
+                && field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+                && !field_references_opaque_type(&f.ty, cfg.serializable_opaque_type_names)
+        })
         .map(|f| f.name.as_str())
         .collect();
     sb.add_derive("Default");

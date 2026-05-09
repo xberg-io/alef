@@ -747,10 +747,7 @@ fn render_test_function(
         );
         let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
-        let method_args = if request_handle_vars.is_empty()
-            && inline_method_args.is_empty()
-            && extra_args.is_empty()
-        {
+        let method_args = if request_handle_vars.is_empty() && inline_method_args.is_empty() && extra_args.is_empty() {
             String::new()
         } else {
             let handles: Vec<String> = request_handle_vars.iter().map(|(_, v)| v.clone()).collect();
