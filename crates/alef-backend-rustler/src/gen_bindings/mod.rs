@@ -191,6 +191,21 @@ impl Backend for RustlerBackend {
         // Build adapter body map before method iteration so bodies are available for NIF generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Elixir)?;
 
+        // Streaming-adapter method keys ("Owner.method_name") — these methods are emitted
+        // as a pair of standalone start/next NIFs from the adapter struct hook, so the
+        // regular method-iteration loop must skip them to avoid double-emitting a NIF
+        // with the same name.
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                a.owner_type
+                    .as_deref()
+                    .map(|owner| format!("{owner}.{}", a.name))
+            })
+            .collect();
+
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
             match adapter.pattern {
@@ -312,6 +327,7 @@ impl Backend for RustlerBackend {
                 .methods
                 .iter()
                 .filter(|m| !exclude_functions.contains(m.name.as_str()))
+                .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
                 .filter(|m| {
                     // Skip methods whose return type references an excluded type.
                     // E.g. ConversionOptions::builder() returns ConversionOptionsBuilder which
@@ -991,13 +1007,31 @@ impl Backend for RustlerBackend {
             ));
         }
 
+        // Streaming-adapter method keys — these methods are emitted as start/next
+        // pairs (see below) plus a high-level `Stream.unfold/2` wrapper, so the
+        // regular method-wrapper loop must skip them.
+        let streaming_method_keys: AHashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                a.owner_type
+                    .as_deref()
+                    .map(|owner| format!("{owner}.{}", a.name))
+            })
+            .collect();
+
         // Wrapper functions for type methods (e.g., conversionoptions_default)
         for typ in api
             .types
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
         {
-            for method in &typ.methods {
+            for method in typ
+                .methods
+                .iter()
+                .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
+            {
                 let nif_fn_name = if method.is_async {
                     format!("{}_{}_async", typ.name.to_lowercase(), method.name)
                 } else {
@@ -1101,6 +1135,78 @@ impl Backend for RustlerBackend {
             }
         }
 
+        // Streaming-adapter wrappers: emit the underlying `_start` / `_next` defs
+        // (delegating to NIFs) plus a high-level `{name}/2` (or `/3`) function
+        // returning an Elixir `Stream` driven by `Stream.unfold/2`.
+        for adapter in config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        {
+            let Some(owner) = adapter.owner_type.as_deref() else {
+                continue;
+            };
+            let owner_lc = owner.to_lowercase();
+            let start_fn = format!("{owner_lc}_{}_start", adapter.name);
+            let next_fn = format!("{owner_lc}_{}_next", adapter.name);
+            let stream_fn = format!("{owner_lc}_{}", adapter.name);
+
+            // Build the wrapper-arg list: receiver + adapter params (binding type
+            // gets JSON-encoded via Jason for the NIF boundary).
+            let mut start_param_names: Vec<String> = vec!["client".to_string()];
+            for p in &adapter.params {
+                start_param_names.push(elixir_safe_param_name(&p.name));
+            }
+            let start_call_args = start_param_names.join(", ");
+
+            // _start delegate
+            content.push_str(&format!(
+                "  @doc \"Open a streaming {core_path} request — returns an opaque iterator handle.\"\n",
+                core_path = adapter.core_path,
+            ));
+            content.push_str(&format!("  def {start_fn}({start_call_args}) do\n"));
+            content.push_str(&format!(
+                "    {native_mod}.{start_fn}({start_call_args})\n  end\n\n"
+            ));
+
+            // _next delegate
+            content.push_str(&format!(
+                "  @doc \"Pull the next chunk JSON from a streaming handle, or `:nil` at end-of-stream.\"\n"
+            ));
+            content.push_str(&format!("  def {next_fn}(handle) do\n"));
+            content.push_str(&format!("    {native_mod}.{next_fn}(handle)\n  end\n\n"));
+
+            // High-level Stream.unfold wrapper. The request map is passed directly
+            // to the NIF (Rustler decodes via NifMap); the NIF returns chunk JSON
+            // which is decoded back into a map by the wrapper.
+            let req_param = adapter
+                .params
+                .first()
+                .map(|p| elixir_safe_param_name(&p.name))
+                .unwrap_or_else(|| "request".to_string());
+            content.push_str(&format!(
+                "  @doc \"Streaming `{core_path}` — returns an `Enumerable` of decoded chunk maps.\"\n",
+                core_path = adapter.core_path,
+            ));
+            content.push_str(&format!("  def {stream_fn}(client, {req_param}) do\n"));
+            content.push_str(&format!(
+                "    case {native_mod}.{start_fn}(client, {req_param}) do\n      \
+                 {{:ok, handle}} ->\n        \
+                 stream =\n          \
+                 Stream.unfold(handle, fn h ->\n            \
+                 case {native_mod}.{next_fn}(h) do\n              \
+                 {{:ok, nil}} -> nil\n              \
+                 {{:ok, chunk_json}} -> {{Jason.decode!(chunk_json), h}}\n              \
+                 {{:error, _}} -> nil\n            \
+                 end\n          \
+                 end)\n        \
+                 {{:ok, stream}}\n      \
+                 {{:error, reason}} ->\n        \
+                 {{:error, reason}}\n    \
+                 end\n  end\n\n"
+            ));
+        }
+
         // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
         let trimmed = content.trim_end_matches('\n');
         content = format!("{trimmed}\nend\n");
@@ -1202,11 +1308,34 @@ fn gen_nif_init(
         .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(t.name.as_str()))
         .map(|t| t.name.as_str())
         .collect();
-    if !opaque_types.is_empty() {
-        let registrations: Vec<String> = opaque_types
+
+    // Streaming-adapter handle resources (e.g. `DefaultClientChatStreamHandle`).
+    // These are not IR types — they are emitted by the streaming adapter — so we
+    // explicitly register them here.
+    let streaming_handle_types: Vec<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+        .filter_map(|a| {
+            let owner = a.owner_type.as_deref()?;
+            Some(format!(
+                "{}{}Handle",
+                pascal_case_simple(owner),
+                pascal_case_simple(&a.name)
+            ))
+        })
+        .collect();
+
+    if !opaque_types.is_empty() || !streaming_handle_types.is_empty() {
+        let mut registrations: Vec<String> = opaque_types
             .iter()
             .map(|name| format!("    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"))
             .collect();
+        for name in &streaming_handle_types {
+            registrations.push(format!(
+                "    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"
+            ));
+        }
         let reg_body = registrations.join("\n");
         format!(
             "fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {{\n{reg_body}\n    true\n}}\n\n\
@@ -1215,6 +1344,20 @@ fn gen_nif_init(
     } else {
         format!("rustler::init!(\"{module}\");")
     }
+}
+
+/// Convert snake_case (or already-PascalCase) to PascalCase. Used for synthesising
+/// streaming handle struct names from adapter `name` and `owner_type`.
+fn pascal_case_simple(s: &str) -> String {
+    s.split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
