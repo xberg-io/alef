@@ -185,14 +185,15 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     }
                 }
                 TypeRef::Bytes => {
+                    // Bytes maps to Vec<u8> in PHP. Convert Vec<u8> to &[u8] using slice syntax.
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
+                            format!("{php_name}.as_ref().map(|s| &s[..])")
                         } else {
                             php_name
                         }
                     } else if p.is_ref {
-                        format!("{php_name}.as_bytes()")
+                        format!("&{php_name}[..]")
                     } else {
                         php_name
                     }
@@ -384,14 +385,15 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     }
                 }
                 TypeRef::Bytes => {
+                    // Bytes maps to Vec<u8> in PHP. Convert Vec<u8> to &[u8] using slice syntax.
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
+                            format!("{php_name}.as_ref().map(|s| &s[..])")
                         } else {
                             php_name
                         }
                     } else if p.is_ref {
-                        format!("{php_name}.as_bytes()")
+                        format!("&{php_name}[..]")
                     } else {
                         php_name
                     }

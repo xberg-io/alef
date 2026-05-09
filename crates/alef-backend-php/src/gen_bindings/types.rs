@@ -328,30 +328,91 @@ fn gen_struct_methods_impl(
                 .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names));
 
             if has_representable_required {
-                let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
-                let param_lines = typ
+                // Build parameter lines using gen_php_function_params logic for proper type conversions
+                // For Vec<NonOpaqueCustomType>, this converts to &ZendHashTable
+                let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
-                    .filter(|f| field_can_be_param(&f.ty, enum_names))  // Only fields that can be params
+                    .filter(|f| field_can_be_param(&f.ty, enum_names))
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                        let mapped_ty = map_fn(&f.ty);
-                        if f.optional {
-                            // Optional scalar/Vec fields become Option<T>
-                            format!("    {}: Option<{}>", php_param_name, mapped_ty)
-                        } else {
-                            // Required scalar/Vec fields stay required
-                            format!("    {}: {}", php_param_name, mapped_ty)
+                        alef_core::ir::ParamDef {
+                            name: php_param_name,
+                            ty: f.ty.clone(),
+                            optional: f.optional,
+                            default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            sanitized: false,
+                            original_type: None,
+                            typed_default: None,
                         }
                     })
-                    .collect::<Vec<_>>()
-                    .join(",\n");
+                    .collect();
+
+                let param_lines = super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+
+                // Generate let bindings for Vec<NonOpaqueCustomType> fields
+                let mut let_bindings = String::new();
+                for f in typ.fields.iter().filter(|f| field_can_be_param(&f.ty, enum_names)) {
+                    if let TypeRef::Vec(inner) = &f.ty {
+                        if let TypeRef::Named(name) = inner.as_ref() {
+                            if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
+                                let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                                if f.optional {
+                                    let_bindings.push_str(&format!(
+                                        "let {}_core: Option<Vec<{}::{}>> = if let Some(ht) = {} {{\n        \
+                                         let mut result = Vec::new();\n        \
+                                         for (_, item) in ht.iter() {{\n            \
+                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n                \
+                                         result.push(parsed.clone().into());\n            \
+                                         }} else {{\n                \
+                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n            \
+                                         }}\n        \
+                                         }}\n        \
+                                         Some(result)\n    \
+                                         }} else {{\n        \
+                                         None\n    \
+                                         }};\n    ",
+                                        php_param_name, core_import, name, php_param_name, name, name
+                                    ));
+                                } else {
+                                    let_bindings.push_str(&format!(
+                                        "let mut {}_core_result: Vec<{}::{}> = Vec::new();\n    \
+                                         for (_, item) in {}.iter() {{\n        \
+                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n            \
+                                         {}_core_result.push(parsed.clone().into());\n        \
+                                         }} else {{\n            \
+                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n        \
+                                         }}\n    \
+                                         }}\n    \
+                                         let {}_core: Vec<{}::{}> = {}_core_result;\n    ",
+                                        php_param_name, core_import, name, php_param_name, name,
+                                        php_param_name, name, php_param_name, core_import, name, php_param_name
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let param_init = typ
                     .fields
                     .iter()
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         if field_can_be_param(&f.ty, enum_names) {
+                            // Check if this needs let-binding conversion
+                            if let TypeRef::Vec(inner) = &f.ty {
+                                if let TypeRef::Named(name) = inner.as_ref() {
+                                    if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                        // Use the _core binding
+                                        return format!("{}: {}_core", f.name, php_param_name);
+                                    }
+                                }
+                            }
                             // Params that are in the constructor
                             format!("{}: {}", f.name, php_param_name)
                         } else {
@@ -363,7 +424,7 @@ fn gen_struct_methods_impl(
                     .join(", ");
                 let named_constructor = format!(
                     "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
-                     Self {{ {param_init} }}\n\
+                     {let_bindings}Self {{ {param_init} }}\n\
                      }}"
                 );
                 impl_builder.add_method(&named_constructor);
@@ -385,36 +446,93 @@ fn gen_struct_methods_impl(
             } else {
                 // Named constructor for non-Default types. Generate a factory method
                 // decorated with #[php(constructor)] that accepts named parameters.
-                let param_lines = typ
+                // Use gen_php_function_params for proper Vec<NonOpaqueCustomType> handling
+                let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
                     .map(|f| {
-                        let mapped_ty = map_fn(&f.ty);
-                        if f.optional {
-                            format!("    {}: Option<{}>", f.name, mapped_ty)
-                        } else {
-                            format!("    {}: {}", f.name, mapped_ty)
+                        alef_core::ir::ParamDef {
+                            name: f.name.clone(),
+                            ty: f.ty.clone(),
+                            optional: f.optional,
+                            default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            sanitized: false,
+                            original_type: None,
+                            typed_default: None,
                         }
                     })
-                    .collect::<Vec<_>>()
-                    .join(",\n");
+                    .collect();
+
+                let param_lines = super::helpers::gen_php_function_params(&param_defs, mapper, opaque_types, &AHashSet::new());
+
+                // Generate let bindings for Vec<NonOpaqueCustomType> fields
+                let mut let_bindings = String::new();
+                for f in typ.fields.iter() {
+                    if let TypeRef::Vec(inner) = &f.ty {
+                        if let TypeRef::Named(name) = inner.as_ref() {
+                            if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
+                                if f.optional {
+                                    let_bindings.push_str(&format!(
+                                        "let {}_core: Option<Vec<{}::{}>> = if let Some(ht) = {} {{\n        \
+                                         let mut result = Vec::new();\n        \
+                                         for (_, item) in ht.iter() {{\n            \
+                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n                \
+                                         result.push(parsed.clone().into());\n            \
+                                         }} else {{\n                \
+                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n            \
+                                         }}\n        \
+                                         }}\n        \
+                                         Some(result)\n    \
+                                         }} else {{\n        \
+                                         None\n    \
+                                         }};\n    ",
+                                        f.name, core_import, name, f.name, name, name
+                                    ));
+                                } else {
+                                    let_bindings.push_str(&format!(
+                                        "let mut {}_core_result: Vec<{}::{}> = Vec::new();\n    \
+                                         for (_, item) in {}.iter() {{\n        \
+                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n            \
+                                         {}_core_result.push(parsed.clone().into());\n        \
+                                         }} else {{\n            \
+                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n        \
+                                         }}\n    \
+                                         }}\n    \
+                                         let {}_core: Vec<{}::{}> = {}_core_result;\n    ",
+                                        f.name, core_import, name, f.name, name,
+                                        f.name, name, f.name, core_import, name, f.name
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let param_init = typ
                     .fields
                     .iter()
                     .map(|f| {
-                        let snake_name = &f.name;
-                        let camel_name = if f.optional {
-                            snake_name.to_string()
-                        } else {
-                            snake_name.to_string()
-                        };
-                        format!("{}: {}", f.name, camel_name)
+                        // Check if this needs let-binding conversion
+                        if let TypeRef::Vec(inner) = &f.ty {
+                            if let TypeRef::Named(name) = inner.as_ref() {
+                                if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
+                                    // Use the _core binding
+                                    return format!("{}: {}_core", f.name, f.name);
+                                }
+                            }
+                        }
+                        // Default: use field name as-is
+                        format!("{}: {}", f.name, f.name)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let constructor = format!(
                     "#[php(constructor)]\npub fn new(\n{param_lines}\n) -> Self {{\n    \
-                     Self {{ {param_init} }}\n\
+                     {let_bindings}Self {{ {param_init} }}\n\
                      }}"
                 );
                 impl_builder.add_method(&constructor);
