@@ -198,6 +198,17 @@ pub fn render_test_file(
                     imports.push(enum_class.clone());
                 }
             }
+            // Also import handle config types for WASM
+            for fixture in fixtures.iter() {
+                let cc = e2e_config.resolve_call(fixture.call.as_deref());
+                if let Some(o) = cc.overrides.get("wasm") {
+                    if let Some(config_type) = &o.handle_config_type {
+                        if !imports.contains(config_type) {
+                            imports.push(config_type.clone());
+                        }
+                    }
+                }
+            }
         }
 
         let imports_str = imports.join(", ");
@@ -518,6 +529,9 @@ fn render_test_case(
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
+    let handle_config_type = per_call_override
+        .and_then(|o| o.handle_config_type.clone());
+
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -527,6 +541,7 @@ fn render_test_case(
         lang,
         &effective_enum_fields,
         &effective_bigint_fields,
+        handle_config_type.as_deref(),
     );
 
     if !extra_args.is_empty() {
@@ -782,11 +797,18 @@ fn ts_builder_expression_inner(
         return format!("{obj_literal} as {type_name}");
     }
 
-    // WASM path: construct the main type directly via its no-arg constructor
+    // WASM path: construct the main type directly via its constructor
     // (every wasm-bindgen-emitted struct exposes an all-optional positional
     // ctor + per-field setters). Nested object values are constructed
     // recursively the same way.
-    let mut stmts: Vec<String> = vec![format!("const _u = new {type_name}();")];
+    // For WASM config types, use the .default() factory if available to ensure
+    // the instance is properly initialized.
+    let init_stmt = if type_name.starts_with("Wasm") && type_name.ends_with("Config") {
+        format!("const _u = {type_name}.default();")
+    } else {
+        format!("const _u = new {type_name}();")
+    };
+    let mut stmts: Vec<String> = vec![init_stmt];
     for (key, val) in obj {
         let camel_key = snake_to_camel(key);
         let is_bigint = bigint_fields.contains(&camel_key) || bigint_fields.contains(key);
@@ -838,6 +860,7 @@ fn build_args_and_setup(
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
+    handle_config_type: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         // When the call has no configured args and the fixture input is an
@@ -890,8 +913,25 @@ fn build_args_and_setup(
             {
                 setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
             } else {
-                let literal = json_to_js_camel(config_value);
-                setup_lines.push(format!("const {name}Config = {literal};", name = arg.name));
+                // WASM: if handle_config_type is set, use factory pattern + setters
+                if let Some(config_type) = handle_config_type {
+                    // Construct config object with setters
+                    setup_lines.push(format!("const {name}Config = {config_type}.default();", name = arg.name));
+                    if let Some(obj) = config_value.as_object() {
+                        for (key, val) in obj {
+                            let camel_key = snake_to_camel(key);
+                            let value_expr = json_to_js_camel(val);
+                            setup_lines.push(format!(
+                                "{name}Config.{camel_key} = {value_expr};",
+                                name = arg.name
+                            ));
+                        }
+                    }
+                } else {
+                    // Other languages: pass config object directly or via constructor
+                    let literal = json_to_js_camel(config_value);
+                    setup_lines.push(format!("const {name}Config = {literal};", name = arg.name));
+                }
                 setup_lines.push(format!(
                     "const {} = {constructor_name}({name}Config);",
                     arg.name,
