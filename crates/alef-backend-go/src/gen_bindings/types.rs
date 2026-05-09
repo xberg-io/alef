@@ -3,6 +3,7 @@ use alef_codegen::naming::{go_type_name, to_go_name};
 use alef_core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use minijinja::context;
+use std::fmt::Write;
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -182,14 +183,68 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
                 .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Named(_)))
         });
 
+        // Untagged enums whose variants mix scalar and collection shapes (e.g.
+        // `Single(String) | Multiple(Vec<String>)`, `Text(String) | Parts(Vec<Foo>)`)
+        // can't be modeled as `type X string` — Vec serializes to an array, not a
+        // string, and any decoded JSON must round-trip without rejecting either shape.
+        // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
+        // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
+        let any_tuple_field_is_collection = enum_def.variants.iter().any(|v| {
+            v.fields
+                .iter()
+                .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
+        });
+
         if any_tuple_field_is_named_struct {
             gen_tuple_tagged_union_type(enum_def)
+        } else if any_tuple_field_is_collection {
+            gen_passthrough_raw_message_enum(enum_def)
         } else {
             gen_newtype_tuple_enum_type(enum_def)
         }
     } else {
         gen_data_enum_type(enum_def)
     }
+}
+
+/// Generate a Go type that wraps `json.RawMessage` for an untagged enum whose
+/// variants mix scalar and collection shapes — the wire form is whatever shape
+/// the value happened to have, and the Go side passes the bytes through.
+fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
+    let mut out = String::new();
+    let go_enum_name = go_type_name(&enum_def.name);
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+    emit_type_doc(
+        &mut out,
+        &go_enum_name,
+        &enum_def.doc,
+        "is an untagged union type whose variants have heterogeneous JSON shapes \
+         (scalar vs. array). Stored as raw JSON bytes so any variant round-trips.",
+    );
+    let _ = writeln!(out, "// Variants: {}", variant_names.join(", "));
+    let _ = writeln!(out);
+    let _ = writeln!(out, "type {} json.RawMessage", go_enum_name);
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// MarshalJSON returns the stored bytes unchanged.");
+    let _ = writeln!(out, "func (e {}) MarshalJSON() ([]byte, error) {{", go_enum_name);
+    let _ = writeln!(out, "\tif len(e) == 0 {{");
+    let _ = writeln!(out, "\t\treturn []byte(\"null\"), nil");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\treturn []byte(e), nil");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// UnmarshalJSON stores the raw bytes for round-trip serialization.");
+    let _ = writeln!(out, "func (e *{}) UnmarshalJSON(data []byte) error {{", go_enum_name);
+    let _ = writeln!(out, "\tif e == nil {{");
+    let _ = writeln!(out, "\t\treturn nil");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\t*e = make({}, len(data))", go_enum_name);
+    let _ = writeln!(out, "\tcopy(*e, data)");
+    let _ = writeln!(out, "\treturn nil");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    out
 }
 
 /// Compute the wire value for a unit enum variant.
