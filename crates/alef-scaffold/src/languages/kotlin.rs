@@ -26,38 +26,38 @@ pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
-    `java-library`
-    kotlin("jvm") version "{kotlin_plugin}"
-    `maven-publish`
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.1"
+  `java-library`
+  kotlin("jvm") version "{kotlin_plugin}"
+  `maven-publish`
+  id("org.jlleitschuh.gradle.ktlint") version "12.1.1"
 }}
 
 group = "{package}"
 version = "{version}"
 
 repositories {{
-    mavenCentral()
+  mavenCentral()
 }}
 
 dependencies {{
-    api("net.java.dev.jna:jna:{jna}")
-    // Jackson is on the public surface because the alef-emitted Java records
-    // include `@JsonProperty` annotations for serialization round-tripping.
-    api("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
-    api("com.fasterxml.jackson.core:jackson-databind:{jackson}")
-    api("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
-    // jspecify ships the `@Nullable` / `@NonNull` annotations referenced by the
-    // alef-emitted Java facade; it must be on the api configuration so Kotlin
-    // consumers see the annotations on cross-language types.
-    api("org.jspecify:jspecify:1.0.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{kotlinx_coroutines}")
-    testImplementation("org.jetbrains.kotlin:kotlin-test:{kotlin_plugin}")
-    testImplementation("junit:junit:{junit_legacy}")
+  api("net.java.dev.jna:jna:{jna}")
+  // Jackson is on the public surface because the alef-emitted Java records
+  // include `@JsonProperty` annotations for serialization round-tripping.
+  api("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
+  api("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+  api("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
+  // jspecify ships the `@Nullable` / `@NonNull` annotations referenced by the
+  // alef-emitted Java facade; it must be on the api configuration so Kotlin
+  // consumers see the annotations on cross-language types.
+  api("org.jspecify:jspecify:1.0.0")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{kotlinx_coroutines}")
+  testImplementation("org.jetbrains.kotlin:kotlin-test:{kotlin_plugin}")
+  testImplementation("junit:junit:{junit_legacy}")
 }}
 
 java {{
-    sourceCompatibility = JavaVersion.VERSION_{jvm_target}
-    targetCompatibility = JavaVersion.VERSION_{jvm_target}
+  sourceCompatibility = JavaVersion.VERSION_{jvm_target}
+  targetCompatibility = JavaVersion.VERSION_{jvm_target}
 }}
 
 // Include the alef-emitted Java facade (sibling package) so the Kotlin object
@@ -65,19 +65,19 @@ java {{
 // generated files in a sub-package (`<group>.kt`) to avoid colliding with the
 // Java facade that uses the canonical `<group>` package.
 sourceSets {{
-    main {{
-        java {{
-            // Pull in the Java facade emitted by the alef Java backend so the
-            // Kotlin module compiles against the same on-disk sources.
-            srcDir("../java/src/main/java")
-        }}
+  main {{
+    java {{
+      // Pull in the Java facade emitted by the alef Java backend so the
+      // Kotlin module compiles against the same on-disk sources.
+      srcDir("../java/src/main/java")
     }}
+  }}
 }}
 
 kotlin {{
-    compilerOptions {{
-        jvmTarget.set(JvmTarget.JVM_{jvm_target})
-    }}
+  compilerOptions {{
+    jvmTarget.set(JvmTarget.JVM_{jvm_target})
+  }}
 }}
 
 // ktlint configuration — see .editorconfig for details. We deliberately exclude
@@ -85,34 +85,34 @@ kotlin {{
 // directories: ktlint cannot lint pure-Java files, and the FFM/Panama bindings
 // are kept in their own module.
 ktlint {{
-    version.set("1.4.1")
-    outputToConsole.set(true)
-    ignoreFailures.set(false)
-    filter {{
-        exclude {{ entry -> entry.file.toString().contains("/packages/java/") }}
-        exclude("**/build/**")
-        exclude("**/generated/**")
-    }}
+  version.set("1.4.1")
+  outputToConsole.set(true)
+  ignoreFailures.set(false)
+  filter {{
+    exclude {{ entry -> entry.file.toString().contains("/packages/java/") }}
+    exclude("**/build/**")
+    exclude("**/generated/**")
+  }}
 }}
 
 // JNA needs the native lib on java.library.path; default to the workspace
 // `target/release` cargo output. Override with `-Pkb.lib.path=<dir>`.
 tasks.withType<Test>().configureEach {{
-    val libPath = (project.findProperty("kb.lib.path") as String?) ?: "${{rootDir}}/../../target/release"
-    systemProperty("jna.library.path", libPath)
-    systemProperty("java.library.path", libPath)
-    useJUnit()
+  val libPath = (project.findProperty("kb.lib.path") as String?) ?: "$rootDir/../../target/release"
+  systemProperty("jna.library.path", libPath)
+  systemProperty("java.library.path", libPath)
+  useJUnit()
 }}
 
 // Publish under a Kotlin-specific artifactId so consumers can disambiguate
 // the Kotlin module from the sibling Java facade in the same Maven group.
 publishing {{
-    publications {{
-        create<MavenPublication>("maven") {{
-            artifactId = "{kotlin_artifact_id}"
-            from(components["java"])
-        }}
+  publications {{
+    create<MavenPublication>("maven") {{
+      artifactId = "{kotlin_artifact_id}"
+      from(components["java"])
     }}
+  }}
 }}
 "#,
         package = kotlin_package,
