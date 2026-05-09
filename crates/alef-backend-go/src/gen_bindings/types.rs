@@ -669,13 +669,14 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             enum_name => &go_enum_name,
         },
     ));
+    let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
     out.push_str(&crate::template_env::render(
         "enum_marshal_json.jinja",
         minijinja::context! {
             enum_name => &go_enum_name,
+            tag_field => tag_field.as_deref().unwrap_or(""),
         },
     ));
-    let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
     out.push_str(&crate::template_env::render(
         "enum_unmarshal_json.jinja",
         minijinja::context! {
