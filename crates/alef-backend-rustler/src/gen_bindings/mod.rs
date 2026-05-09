@@ -199,11 +199,7 @@ impl Backend for RustlerBackend {
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
-            .filter_map(|a| {
-                a.owner_type
-                    .as_deref()
-                    .map(|owner| format!("{owner}.{}", a.name))
-            })
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
             .collect();
 
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
@@ -212,7 +208,10 @@ impl Backend for RustlerBackend {
                 alef_core::config::AdapterPattern::Streaming => {
                     let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
                     if let Some(struct_code) = adapter_bodies.get(&key) {
-                        builder.add_item(struct_code);
+                        // Post-process: convert default-typed request params to JSON strings so
+                        // partial maps from Elixir decode successfully (rustler NifMap is strict).
+                        let patched = patch_streaming_default_param(struct_code, adapter, &default_types, &core_import);
+                        builder.add_item(&patched);
                     }
                 }
                 alef_core::config::AdapterPattern::CallbackBridge => {
@@ -345,6 +344,7 @@ impl Backend for RustlerBackend {
                         &mapper,
                         typ.is_opaque,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &adapter_bodies,
                     ));
@@ -355,6 +355,7 @@ impl Backend for RustlerBackend {
                         &mapper,
                         typ.is_opaque,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &adapter_bodies,
                     ));
@@ -1014,11 +1015,7 @@ impl Backend for RustlerBackend {
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
-            .filter_map(|a| {
-                a.owner_type
-                    .as_deref()
-                    .map(|owner| format!("{owner}.{}", a.name))
-            })
+            .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
             .collect();
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)
@@ -1165,14 +1162,11 @@ impl Backend for RustlerBackend {
                 core_path = adapter.core_path,
             ));
             content.push_str(&format!("  def {start_fn}({start_call_args}) do\n"));
-            content.push_str(&format!(
-                "    {native_mod}.{start_fn}({start_call_args})\n  end\n\n"
-            ));
+            content.push_str(&format!("    {native_mod}.{start_fn}({start_call_args})\n  end\n\n"));
 
             // _next delegate
-            content.push_str(&format!(
-                "  @doc \"Pull the next chunk JSON from a streaming handle, or `:nil` at end-of-stream.\"\n"
-            ));
+            content
+                .push_str("  @doc \"Pull the next chunk JSON from a streaming handle, or `:nil` at end-of-stream.\"\n");
             content.push_str(&format!("  def {next_fn}(handle) do\n"));
             content.push_str(&format!("    {native_mod}.{next_fn}(handle)\n  end\n\n"));
 
@@ -1358,6 +1352,48 @@ fn pascal_case_simple(s: &str) -> String {
             }
         })
         .collect()
+}
+
+/// Patch a generated streaming `_start` NIF so its first parameter — when typed as
+/// a default-typed (has_default) core type — is taken as `Option<String>` JSON and
+/// deserialized to the core type before the inner method call.
+///
+/// Mirrors the approach used in `gen_nif_function` / `gen_nif_method` for non-streaming
+/// methods. Without this patch, the generated `_start` function would expect a
+/// fully-populated `NifMap` from Elixir, which fails for any partial map.
+fn patch_streaming_default_param(
+    code: &str,
+    adapter: &alef_core::config::AdapterConfig,
+    default_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let Some(first_param) = adapter.params.first() else {
+        return code.to_string();
+    };
+    let core_ty = first_param.ty.as_str();
+    if !default_types.contains(core_ty) {
+        return code.to_string();
+    }
+    let param_name = first_param.name.as_str();
+
+    // 1. Replace the typed param with `Option<String>`.
+    let typed_param = format!("{param_name}: {core_ty},");
+    let json_param = format!("{param_name}: Option<String>,");
+    let mut patched = code.replace(&typed_param, &json_param);
+
+    // 2. Replace the existing `let core_{name}: ... = {name}.into();` binding with a
+    //    JSON deserialization line.
+    let old_binding = format!("let core_{param_name}: {core_import}::{core_ty} = {param_name}.into();");
+    let new_binding = format!(
+        "let core_{param_name}: {core_import}::{core_ty} = {param_name}\n        \
+             .map(|s| serde_json::from_str::<{core_import}::{core_ty}>(&s))\n        \
+             .transpose()\n        \
+             .map_err(|e| e.to_string())?\n        \
+             .unwrap_or_default();"
+    );
+    patched = patched.replace(&old_binding, &new_binding);
+
+    patched
 }
 
 #[cfg(test)]

@@ -8,12 +8,27 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
 
 /// Build call argument expressions for Rustler opaque method (receiver is `resource`).
-pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+pub(super) fn gen_rustler_method_call_args(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
+) -> String {
     params
         .iter()
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 format!("&{}.inner", p.name)
+            }
+            // Default-typed Named params are passed as Option<String> JSON and decoded
+            // by the caller into a `{name}_core` local. Reference that local here.
+            TypeRef::Named(name) if default_types.contains(name.as_str()) => {
+                if p.optional {
+                    format!("{}_core", p.name)
+                } else if p.is_ref {
+                    format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name)
+                } else {
+                    format!("{}_core.unwrap_or_default()", p.name)
+                }
             }
             TypeRef::Named(_) => {
                 if p.optional {
@@ -615,12 +630,14 @@ pub(super) fn gen_nif_async_function(
 }
 
 /// Generate a Rustler NIF method for a struct using the shared TypeMapper.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_nif_method(
     struct_name: &str,
     method: &MethodDef,
     mapper: &RustlerMapper,
     is_opaque: bool,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
@@ -642,6 +659,13 @@ pub(super) fn gen_nif_method(
                 params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
+            // Default (has_default) types are passed as JSON strings so partial maps
+            // work — serde_json::from_str respects #[serde(default)]. Mirrors the
+            // free-function pattern in `gen_nif_function`.
+            if default_types.contains(n) {
+                params.push(format!("{}: Option<String>", p.name));
+                continue;
+            }
             // Optional Named non-opaque params must be Option<T> so callers can
             // pass nil (Elixir) and the NIF receives None rather than a decode error.
             if p.optional {
@@ -660,10 +684,17 @@ pub(super) fn gen_nif_method(
     let return_type = super::helpers::map_return_type(&method.return_type, mapper, opaque_types);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let has_default_params = method
+        .params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
+    let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
+
+    // Build deserialization preamble for default-typed (JSON-string) params.
+    let deser_preamble = build_default_deser_preamble(&method.params, default_types, core_import);
 
     let body = if can_delegate {
-        let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
+        let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
         let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
             // For &self: Arc<T> derefs to T, no clone needed (and avoids the
             // noop_method_call lint that the previous as_ref().clone() tripped).
@@ -741,15 +772,20 @@ pub(super) fn gen_nif_method(
                 opaque_types,
                 method.returns_ref,
             );
-            format!("let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
+            format!("{deser_preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
         } else {
-            gen_rustler_wrap_return(
+            let inner = gen_rustler_wrap_return(
                 &core_call,
                 &method.return_type,
                 struct_name,
                 opaque_types,
                 method.returns_ref,
-            )
+            );
+            if deser_preamble.is_empty() {
+                inner
+            } else {
+                format!("{deser_preamble}{inner}")
+            }
         }
     } else {
         let adapter_key = format!("{struct_name}.{}", method.name);
@@ -777,13 +813,38 @@ pub(super) fn gen_nif_method(
     out
 }
 
+/// Build the deserialization preamble for `Option<String>` JSON params that
+/// correspond to default-typed core types. Returns an empty string when no
+/// param needs JSON deserialization.
+fn build_default_deser_preamble(params: &[ParamDef], default_types: &AHashSet<String>, core_import: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for p in params {
+        if let TypeRef::Named(n) = &p.ty {
+            if default_types.contains(n) {
+                let core_ty = format!("{core_import}::{n}");
+                lines.push(format!(
+                    "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                    p.name, core_ty
+                ));
+            }
+        }
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", lines.join("\n    "))
+    }
+}
+
 /// Generate a Rustler NIF async method for a struct (sync wrapper scheduled on DirtyCpu).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_nif_async_method(
     struct_name: &str,
     method: &MethodDef,
     mapper: &RustlerMapper,
     is_opaque: bool,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
@@ -803,6 +864,11 @@ pub(super) fn gen_nif_async_method(
         if let TypeRef::Named(n) = &p.ty {
             if opaque_types.contains(n) {
                 params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
+                continue;
+            }
+            // Default (has_default) types are passed as JSON strings so partial maps work.
+            if default_types.contains(n) {
+                params.push(format!("{}: Option<String>", p.name));
                 continue;
             }
             // Optional Named non-opaque params must be Option<T> so callers can
@@ -825,10 +891,17 @@ pub(super) fn gen_nif_async_method(
     // method itself has no error type.
     let return_annotation = mapper.wrap_return(&return_type, true);
 
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let has_default_params = method
+        .params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
+    let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
+
+    // Build deserialization preamble for default-typed (JSON-string) params.
+    let deser_preamble = build_default_deser_preamble(&method.params, default_types, core_import);
 
     let body = if can_delegate {
-        let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
+        let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
         let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
             // For &self: Arc<T> derefs to T, no clone needed (and avoids the
             // noop_method_call lint that the previous as_ref().clone() tripped).
@@ -863,7 +936,7 @@ pub(super) fn gen_nif_async_method(
         );
         if method.error_type.is_some() {
             format!(
-                "std::thread::Builder::new()\n        \
+                "{deser_preamble}std::thread::Builder::new()\n        \
                  .stack_size(32 * 1024 * 1024)\n        \
                  .spawn(move || {{\n            \
                  let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
@@ -877,7 +950,7 @@ pub(super) fn gen_nif_async_method(
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "std::thread::Builder::new()\n        \
+                "{deser_preamble}std::thread::Builder::new()\n        \
                  .stack_size(32 * 1024 * 1024)\n        \
                  .spawn(move || {{\n            \
                  let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
