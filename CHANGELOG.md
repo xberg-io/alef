@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php-backend): do not append "Async" suffix to async method names in wrapper facade. The PHP binding blocks on async internally via `block_on`, presenting a synchronous API to callers. Wrapper facade methods now use the exact name from the IR (e.g. `scrape()` instead of `scrapeAsync()`), matching the configured function name in alef.toml e2e overrides. The underlying extension methods retain the "_async" suffix for internal delegation.
+
 - fix(magnus-backend): emit valid serde attribute `#[serde(default = "default_timeout")]` (function path) instead of `#[serde(default = "30000")]` (literal string) for Duration-typed timeout fields. The invalid literal syntax caused compilation errors in Ruby e2e bindings. Added helper function `default_timeout() -> u64` to struct templates.
 
 ### Added

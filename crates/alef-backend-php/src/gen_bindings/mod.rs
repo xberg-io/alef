@@ -655,15 +655,10 @@ impl Backend for PhpBackend {
         // Generate wrapper methods for functions
         for func in &api.functions {
             // PHP method names are based on the Rust source name (camelCased).
-            // Async functions get an "Async" suffix to disambiguate from sync variants.
-            // For example: `extract_bytes` (async) → `extractBytesAsync()`,
-            // `extract_bytes_sync` (sync) → `extractBytesSync()`.
-            let base_name = func.name.to_lower_camel_case();
-            let method_name = if func.is_async && !func.name.ends_with("_async") {
-                format!("{}Async", base_name)
-            } else {
-                base_name
-            };
+            // Async functions do not get a suffix because PHP blocks on async internally
+            // via `block_on`, presenting a synchronous API to callers.
+            // For example: `scrape` (async in Rust) → `scrape()` (sync from PHP perspective).
+            let method_name = func.name.to_lower_camel_case();
             let return_php_type = php_type(&func.return_type);
 
             // Visible params exclude bridge params (not surfaced to PHP callers).
