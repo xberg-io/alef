@@ -32,7 +32,7 @@ fn sanitize_php_enum_case(name: &str) -> String {
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
     gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods,
-    gen_opaque_struct_methods, gen_php_struct, is_tagged_data_enum,
+    gen_opaque_struct_methods, gen_php_struct, is_tagged_data_enum, is_untagged_data_enum,
 };
 
 pub struct PhpBackend;
@@ -88,22 +88,32 @@ impl Backend for PhpBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Separate unit-variant enums (→ String) from tagged data enums (→ flat PHP class).
+        // Separate unit-variant enums (→ String), tagged data enums (→ flat PHP class),
+        // and untagged data enums (→ serde_json::Value, converted via from_value at binding↔core boundary).
         let data_enum_names: AHashSet<String> = api
             .enums
             .iter()
             .filter(|e| is_tagged_data_enum(e))
             .map(|e| e.name.clone())
             .collect();
+        let untagged_data_enum_names: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| is_untagged_data_enum(e))
+            .map(|e| e.name.clone())
+            .collect();
+        // String-mapped enums: everything that is NOT a tagged-data enum AND NOT an untagged-data enum.
+        // Includes unit-variant enums (FilePurpose, ToolType, …) which are exposed as PHP string constants.
         let enum_names: AHashSet<String> = api
             .enums
             .iter()
-            .filter(|e| !is_tagged_data_enum(e))
+            .filter(|e| !is_tagged_data_enum(e) && !is_untagged_data_enum(e))
             .map(|e| e.name.clone())
             .collect();
         let mapper = PhpMapper {
             enum_names: enum_names.clone(),
             data_enum_names: data_enum_names.clone(),
+            untagged_data_enum_names: untagged_data_enum_names.clone(),
         };
         let core_import = config.core_import_name();
 
@@ -168,6 +178,30 @@ impl Backend for PhpBackend {
         if has_maps {
             builder.add_import("std::collections::HashMap");
         }
+
+        // PhpBytes wrapper: accepts PHP binary strings without UTF-8 validation.
+        // ext-php-rs's String FromZval rejects non-UTF-8 strings, so binary content
+        // (PDFs, images, etc.) gets "Invalid value given for argument" errors. This
+        // wrapper reads the raw bytes via `zend_str()` and exposes them as Vec<u8>.
+        builder.add_item(
+            "#[derive(Debug, Clone, Default)]\n\
+             pub struct PhpBytes(pub Vec<u8>);\n\
+             \n\
+             impl<'a> ext_php_rs::convert::FromZval<'a> for PhpBytes {\n    \
+                 const TYPE: ext_php_rs::flags::DataType = ext_php_rs::flags::DataType::String;\n    \
+                 fn from_zval(zval: &'a ext_php_rs::types::Zval) -> Option<Self> {\n        \
+                     zval.zend_str().map(|zs| PhpBytes(zs.as_bytes().to_vec()))\n    \
+                 }\n\
+             }\n\
+             \n\
+             impl From<PhpBytes> for Vec<u8> {\n    \
+                 fn from(b: PhpBytes) -> Self { b.0 }\n\
+             }\n\
+             \n\
+             impl From<Vec<u8>> for PhpBytes {\n    \
+                 fn from(v: Vec<u8>) -> Self { PhpBytes(v) }\n\
+             }\n",
+        );
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Php);

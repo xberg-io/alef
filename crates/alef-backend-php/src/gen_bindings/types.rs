@@ -450,14 +450,14 @@ fn gen_struct_methods_impl(
                                     }
                                 }
                             }
-                            // Bytes: param is String (PHP-side); field is Vec<u8>. Convert.
+                            // Bytes: param is PhpBytes (PHP-side); field is Vec<u8>. Unwrap.
                             let is_bytes = matches!(&f.ty, TypeRef::Bytes)
                                 || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
                             if is_bytes {
                                 if f.optional {
-                                    return format!("{}: {}.map(String::into_bytes)", f.name, php_param_name);
+                                    return format!("{}: {}.map(|b| b.0)", f.name, php_param_name);
                                 }
-                                return format!("{}: {}.into_bytes()", f.name, php_param_name);
+                                return format!("{}: {}.0", f.name, php_param_name);
                             }
                             // Params that are in the constructor
                             format!("{}: {}", f.name, php_param_name)
@@ -594,6 +594,26 @@ fn gen_struct_methods_impl(
         }
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
+            // Untagged data enums map to `serde_json::Value` in the binding struct, but
+            // ext-php-rs has no IntoZval impl for `serde_json::Value`.  Emit a JSON-string
+            // getter (Option<String>) so PHP can introspect the serialized form, while
+            // the actual round-trip through `from_json` uses the Value field directly.
+            if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) {
+                let body = if field.optional {
+                    format!(
+                        "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
+                        name = field.name
+                    )
+                } else {
+                    format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
+                };
+                let getter_method = format!(
+                    "#[php(getter)]\npub fn get_{field_name}(&self) -> Option<String> {{\n    {body}\n}}",
+                    field_name = field.name,
+                );
+                impl_builder.add_method(&getter_method);
+                continue;
+            }
             let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
             let rust_return_type = if field.optional {
                 mapper.optional(&mapper.map_type(&field.ty))
@@ -671,6 +691,28 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef) -> String {
 /// with named fields. These are lowered to flat PHP classes rather than string constants.
 pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
     enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty())
+}
+
+/// Return true if an enum is an "untagged data enum" — has `#[serde(untagged)]` AND at
+/// least one variant carrying data (e.g. `Single(String) | Multiple(Vec<String>)`).
+/// These cannot be lowered to a single `String` in the PHP binding because the wire
+/// JSON shape varies per variant; they are mapped to `serde_json::Value` and converted
+/// to the typed core enum via `serde_json::from_value` in the binding→core `From` impl.
+pub(crate) fn is_untagged_data_enum(enum_def: &EnumDef) -> bool {
+    enum_def.serde_untagged && enum_def.variants.iter().any(|v| !v.fields.is_empty())
+}
+
+/// Returns true if `ty` references (directly or via Optional/Vec wrap) a Named type whose
+/// name is in `untagged_data_enum_names`.  Used to choose the correct getter / From-impl
+/// branch in the PHP binding code generator.
+pub(crate) fn ty_references_untagged_data_enum(ty: &TypeRef, untagged_data_enum_names: &AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(n) => untagged_data_enum_names.contains(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            ty_references_untagged_data_enum(inner, untagged_data_enum_names)
+        }
+        _ => false,
+    }
 }
 
 /// Compute the flat struct field name for a single field of a variant.

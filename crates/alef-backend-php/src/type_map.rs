@@ -14,6 +14,13 @@ pub struct PhpMapper {
     /// Names of tagged data enums (struct-variant). These are mapped to their own
     /// flat PHP class (same name) instead of `String`.
     pub data_enum_names: AHashSet<String>,
+    /// Names of untagged data enums (`#[serde(untagged)]` with at least one
+    /// data variant — e.g. `Single(String) | Multiple(Vec<String>)`).  These
+    /// cannot be lowered to `String` (the wire shape may be a string OR an
+    /// array OR an object) so they are mapped to `serde_json::Value` in the
+    /// PHP binding struct, with conversion to the typed core enum done in
+    /// `From<BindingT> for CoreT` via `serde_json::from_value`.
+    pub untagged_data_enum_names: AHashSet<String>,
 }
 
 impl TypeMapper for PhpMapper {
@@ -54,6 +61,11 @@ impl TypeMapper for PhpMapper {
         if self.data_enum_names.contains(name) {
             // Data enum: maps to the flat PHP class with the same name.
             Cow::Borrowed(name)
+        } else if self.untagged_data_enum_names.contains(name) {
+            // Untagged data enum (e.g. `Single(String) | Multiple(Vec<String>)`):
+            // wire shape varies, so accept any JSON via serde_json::Value and
+            // convert in the binding→core From impl.
+            Cow::Borrowed("serde_json::Value")
         } else if self.enum_names.contains(name) {
             Cow::Borrowed("String")
         } else {

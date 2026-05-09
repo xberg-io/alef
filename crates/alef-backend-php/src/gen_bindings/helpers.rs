@@ -103,13 +103,12 @@ pub(crate) fn gen_php_function_params(
                     }
                 }
                 TypeRef::Bytes => {
-                    // ext-php-rs has no FromZval for Vec<u8> in function/constructor params.
-                    // PHP strings are binary-safe — accept as String, convert to bytes via
-                    // `.into_bytes()` at the call site.
+                    // PhpBytes is the local wrapper that accepts PHP binary strings without
+                    // UTF-8 validation (ext-php-rs's String FromZval rejects non-UTF-8 bytes).
                     if p.optional {
-                        "Option<String>".to_string()
+                        "Option<PhpBytes>".to_string()
                     } else {
-                        "String".to_string()
+                        "PhpBytes".to_string()
                     }
                 }
                 _ => {
@@ -195,18 +194,18 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     }
                 }
                 TypeRef::Bytes => {
-                    // PHP-side param is String (binary-safe). Convert to &[u8] / Vec<u8>
-                    // when passing to core.
+                    // PHP-side param is PhpBytes (binary-safe wrapper). Convert to
+                    // &[u8] / Vec<u8> when passing to core.
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
+                            format!("{php_name}.as_ref().map(|s| &s.0[..])")
                         } else {
-                            format!("{php_name}.map(String::into_bytes)")
+                            format!("{php_name}.map(|b| b.0)")
                         }
                     } else if p.is_ref {
-                        format!("{php_name}.as_bytes()")
+                        format!("&{php_name}.0[..]")
                     } else {
-                        format!("{php_name}.into_bytes()")
+                        format!("{php_name}.0")
                     }
                 }
                 TypeRef::Vec(inner) => {
@@ -396,18 +395,18 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     }
                 }
                 TypeRef::Bytes => {
-                    // PHP-side param is String (binary-safe). Convert to &[u8] / Vec<u8>
-                    // when passing to core.
+                    // PHP-side param is PhpBytes (binary-safe wrapper). Convert to
+                    // &[u8] / Vec<u8> when passing to core.
                     if p.optional {
                         if p.is_ref {
-                            format!("{php_name}.as_ref().map(|s| s.as_bytes())")
+                            format!("{php_name}.as_ref().map(|s| &s.0[..])")
                         } else {
-                            format!("{php_name}.map(String::into_bytes)")
+                            format!("{php_name}.map(|b| b.0)")
                         }
                     } else if p.is_ref {
-                        format!("{php_name}.as_bytes()")
+                        format!("&{php_name}.0[..]")
                     } else {
-                        format!("{php_name}.into_bytes()")
+                        format!("{php_name}.0")
                     }
                 }
                 TypeRef::Vec(inner) => {
