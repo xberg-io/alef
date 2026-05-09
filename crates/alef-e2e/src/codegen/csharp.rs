@@ -623,6 +623,30 @@ fn render_test_method(
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
+
+    // Streaming branch: chat_stream returns IAsyncEnumerable<ChatCompletionChunk>,
+    // not Task<T>. Emit `await foreach` over the stream, building local
+    // aggregator vars (`chunks`, `streamContent`, `streamComplete`, ...) and
+    // asserting on those locals — never on response pseudo-fields.
+    let raw_function_name = cs_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
+    if raw_function_name == "chat_stream" {
+        render_chat_stream_test_method(
+            out,
+            fixture,
+            class_name,
+            call_config,
+            cs_overrides,
+            e2e_config,
+            enum_fields,
+            nested_types,
+            exception_class,
+        );
+        return;
+    }
+
     let effective_function_name = cs_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
@@ -770,6 +794,7 @@ fn render_test_method(
                 effective_result_is_simple,
                 call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec),
                 call_config.result_is_array,
+                &e2e_config.fields_enum,
             );
         }
     }
@@ -797,6 +822,311 @@ fn render_test_method(
         out.push_str("    ");
         out.push_str(line);
         out.push('\n');
+    }
+}
+
+/// Render a `chat_stream` test method. The C# binding emits
+/// `IAsyncEnumerable<ChatCompletionChunk> ChatStream(req)` (not `Task<T>`), so
+/// the test body uses `await foreach` to drive the stream and aggregates
+/// per-chunk data into local vars (`chunks`, `streamContent`, `streamComplete`,
+/// optional `lastFinishReason`/`toolCallsJson`/`toolCalls0FunctionName`/`totalTokens`).
+/// Assertions then run against those locals — never against pseudo-fields on a
+/// response object.
+#[allow(clippy::too_many_arguments)]
+fn render_chat_stream_test_method(
+    out: &mut String,
+    fixture: &Fixture,
+    class_name: &str,
+    call_config: &crate::config::CallConfig,
+    cs_overrides: Option<&crate::config::CallOverride>,
+    e2e_config: &E2eConfig,
+    enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
+    exception_class: &str,
+) {
+    let method_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    let effective_function_name = cs_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    let function_name = effective_function_name.as_str();
+    let args = call_config.args.as_slice();
+
+    let top_level_options_type = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_type.as_deref());
+    let effective_options_type = cs_overrides
+        .and_then(|o| o.options_type.as_deref())
+        .or(top_level_options_type);
+    let top_level_options_via = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_via.as_deref());
+    let effective_options_via = cs_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .or(top_level_options_via);
+
+    let (setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        class_name,
+        effective_options_type,
+        effective_options_via,
+        enum_fields,
+        nested_types,
+        &fixture.id,
+    );
+
+    let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("csharp")
+            .and_then(|o| o.client_factory.as_deref())
+    });
+    let mut client_factory_setup = String::new();
+    if let Some(factory) = client_factory {
+        let factory_name = factory.to_upper_camel_case();
+        let fixture_id = &fixture.id;
+        client_factory_setup.push_str(&format!(
+            "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"
+        ));
+        client_factory_setup.push_str(&format!(
+            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+        ));
+    }
+
+    let call_target = if client_factory.is_some() { "client" } else { class_name };
+    let call_expr = format!("{call_target}.{function_name}({args_str})");
+
+    // Detect which aggregators a fixture's assertions actually need.
+    let mut needs_finish_reason = false;
+    let mut needs_tool_calls_json = false;
+    let mut needs_tool_calls_0_function_name = false;
+    let mut needs_total_tokens = false;
+    for a in &fixture.assertions {
+        if let Some(f) = a.field.as_deref() {
+            match f {
+                "finish_reason" => needs_finish_reason = true,
+                "tool_calls" => needs_tool_calls_json = true,
+                "tool_calls[0].function.name" => needs_tool_calls_0_function_name = true,
+                "usage.total_tokens" => needs_total_tokens = true,
+                _ => {}
+            }
+        }
+    }
+
+    let mut body = String::new();
+    let _ = writeln!(body, "    [Fact]");
+    let _ = writeln!(body, "    public async Task Test_{method_name}()");
+    let _ = writeln!(body, "    {{");
+    let _ = writeln!(body, "        // {description}");
+    if !client_factory_setup.is_empty() {
+        body.push_str(&client_factory_setup);
+    }
+    for line in &setup_lines {
+        let _ = writeln!(body, "        {line}");
+    }
+
+    if expects_error {
+        // Wrap the foreach in a lambda so the IAsyncEnumerable is actually
+        // consumed (otherwise the producer never runs and no exception is raised).
+        let _ = writeln!(
+            body,
+            "        await Assert.ThrowsAnyAsync<{exception_class}>(async () => {{"
+        );
+        let _ = writeln!(body, "            await foreach (var _chunk in {call_expr}) {{ }}");
+        body.push_str("        });\n");
+        body.push_str("    }\n");
+        for line in body.lines() {
+            out.push_str("    ");
+            out.push_str(line);
+            out.push('\n');
+        }
+        return;
+    }
+
+    body.push_str("        var chunks = new List<ChatCompletionChunk>();\n");
+    body.push_str("        var streamContent = new System.Text.StringBuilder();\n");
+    body.push_str("        var streamComplete = false;\n");
+    if needs_finish_reason {
+        body.push_str("        string? lastFinishReason = null;\n");
+    }
+    if needs_tool_calls_json {
+        body.push_str("        string? toolCallsJson = null;\n");
+    }
+    if needs_tool_calls_0_function_name {
+        body.push_str("        string? toolCalls0FunctionName = null;\n");
+    }
+    if needs_total_tokens {
+        body.push_str("        long? totalTokens = null;\n");
+    }
+    let _ = writeln!(body, "        await foreach (var chunk in {call_expr})");
+    body.push_str("        {\n");
+    body.push_str("            chunks.Add(chunk);\n");
+    body.push_str(
+        "            var choice = chunk.Choices != null && chunk.Choices.Count > 0 ? chunk.Choices[0] : null;\n",
+    );
+    body.push_str("            if (choice != null)\n");
+    body.push_str("            {\n");
+    body.push_str("                var delta = choice.Delta;\n");
+    body.push_str("                if (delta != null && !string.IsNullOrEmpty(delta.Content))\n");
+    body.push_str("                {\n");
+    body.push_str("                    streamContent.Append(delta.Content);\n");
+    body.push_str("                }\n");
+    if needs_finish_reason {
+        body.push_str("                if (choice.FinishReason != null)\n");
+        body.push_str("                {\n");
+        body.push_str("                    lastFinishReason = choice.FinishReason?.ToString()?.ToLower();\n");
+        body.push_str("                }\n");
+    }
+    if needs_tool_calls_json || needs_tool_calls_0_function_name {
+        body.push_str("                var tcs = delta?.ToolCalls;\n");
+        body.push_str("                if (tcs != null && tcs.Count > 0)\n");
+        body.push_str("                {\n");
+        if needs_tool_calls_json {
+            body.push_str(
+                "                    toolCallsJson ??= JsonSerializer.Serialize(tcs.Select(tc => new { function = new { name = tc.Function?.Name } }));\n",
+            );
+        }
+        if needs_tool_calls_0_function_name {
+            body.push_str("                    toolCalls0FunctionName ??= tcs[0].Function?.Name;\n");
+        }
+        body.push_str("                }\n");
+    }
+    body.push_str("            }\n");
+    if needs_total_tokens {
+        body.push_str("            if (chunk.Usage != null)\n");
+        body.push_str("            {\n");
+        body.push_str("                totalTokens = chunk.Usage.TotalTokens;\n");
+        body.push_str("            }\n");
+    }
+    body.push_str("        }\n");
+    body.push_str("        streamComplete = true;\n");
+
+    // Emit assertions on local aggregator vars.
+    let mut had_explicit_complete = false;
+    for assertion in &fixture.assertions {
+        if assertion.field.as_deref() == Some("stream_complete") {
+            had_explicit_complete = true;
+        }
+        emit_chat_stream_assertion(&mut body, assertion);
+    }
+    if !had_explicit_complete {
+        body.push_str("        Assert.True(streamComplete);\n");
+    }
+
+    body.push_str("    }\n");
+
+    for line in body.lines() {
+        out.push_str("    ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+/// Map a streaming fixture assertion to an `Assert` call on the local aggregator
+/// variable produced by `render_chat_stream_test_method`. Pseudo-fields like
+/// `chunks` / `stream_content` / `stream_complete` resolve to in-method locals.
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
+    let atype = assertion.assertion_type.as_str();
+    if atype == "not_error" || atype == "error" {
+        return;
+    }
+    let field = assertion.field.as_deref().unwrap_or("");
+
+    enum Kind {
+        Chunks,
+        Bool,
+        Str,
+        IntTokens,
+        Json,
+        Unsupported,
+    }
+
+    let (expr, kind) = match field {
+        "chunks" => ("chunks", Kind::Chunks),
+        "stream_content" => ("streamContent.ToString()", Kind::Str),
+        "stream_complete" => ("streamComplete", Kind::Bool),
+        "no_chunks_after_done" => ("streamComplete", Kind::Bool),
+        "finish_reason" => ("lastFinishReason", Kind::Str),
+        "tool_calls" => ("toolCallsJson", Kind::Json),
+        "tool_calls[0].function.name" => ("toolCalls0FunctionName", Kind::Str),
+        "usage.total_tokens" => ("totalTokens", Kind::IntTokens),
+        _ => ("", Kind::Unsupported),
+    };
+
+    if matches!(kind, Kind::Unsupported) {
+        let _ = writeln!(
+            out,
+            "        // skipped: streaming assertion on unsupported field '{field}'"
+        );
+        return;
+    }
+
+    match (atype, &kind) {
+        ("count_min", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(
+                    out,
+                    "        Assert.True(chunks.Count >= {n}, \"expected at least {n} chunks\");"
+                );
+            }
+        }
+        ("count_equals", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.Equal({n}, chunks.Count);");
+            }
+        }
+        ("equals", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let cs_val = json_to_csharp(val);
+                let _ = writeln!(out, "        Assert.Equal({cs_val}, {expr});");
+            }
+        }
+        ("contains", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let cs_val = json_to_csharp(val);
+                let _ = writeln!(out, "        Assert.Contains({cs_val}, {expr} ?? string.Empty);");
+            }
+        }
+        ("not_empty", Kind::Str) => {
+            let _ = writeln!(out, "        Assert.False(string.IsNullOrEmpty({expr}));");
+        }
+        ("not_empty", Kind::Json) => {
+            let _ = writeln!(out, "        Assert.NotNull({expr});");
+        }
+        ("is_empty", Kind::Str) => {
+            let _ = writeln!(out, "        Assert.True(string.IsNullOrEmpty({expr}));");
+        }
+        ("is_true", Kind::Bool) => {
+            let _ = writeln!(out, "        Assert.True({expr});");
+        }
+        ("is_false", Kind::Bool) => {
+            let _ = writeln!(out, "        Assert.False({expr});");
+        }
+        ("greater_than_or_equal", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.True({expr} >= {n}, \"expected >= {n}\");");
+            }
+        }
+        ("equals", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                let _ = writeln!(out, "        Assert.Equal((long?){n}, {expr});");
+            }
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "        // skipped: streaming assertion '{atype}' on field '{field}' not supported"
+            );
+        }
     }
 }
 
@@ -1198,6 +1528,7 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_vec: bool,
     result_is_array: bool,
+    fields_enum: &std::collections::HashSet<String>,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1507,9 +1838,33 @@ fn render_assertion(
         format!("{field_expr}.ToString()")
     };
 
+    // Detect enum-typed fields. C# emits typed enums (e.g. `FinishReason?`) for
+    // these so the codegen must avoid `.Trim()` (string-only) and instead
+    // compare via `?.ToString()?.ToLower()` to match snake_case JSON.
+    let field_is_enum = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| {
+            let resolved = field_resolver.resolve(f);
+            fields_enum.contains(f) || fields_enum.contains(resolved)
+        });
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
+                // Enum field equality bypasses the template (which would emit `.Trim()`,
+                // a string-only API). Compare lowercase ToString() against the lowercase
+                // fixture value to match the JSON form.
+                if field_is_enum && expected.is_string() {
+                    let s_lower = expected.as_str().map(|s| s.to_lowercase()).unwrap_or_default();
+                    let _ = writeln!(
+                        out,
+                        "        Assert.Equal(\"{}\", {field_expr}?.ToString()?.ToLower());",
+                        escape_csharp(&s_lower)
+                    );
+                    return;
+                }
                 let cs_val = json_to_csharp(expected);
                 let is_string_val = expected.is_string();
                 let is_bool_true = expected.as_bool() == Some(true);
