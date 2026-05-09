@@ -22,7 +22,7 @@ package {{ java_group_id }}.e2e;
 class {{ test_class_name }} {
 {%- if needs_object_mapper %}
 
-    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
 {%- endif %}
 
 {{ fixtures_body }}
