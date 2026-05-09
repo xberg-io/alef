@@ -1,7 +1,7 @@
 use alef_codegen::naming::to_java_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{PrimitiveType, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 
 /// Names that conflict with methods on `java.lang.Object` and are therefore
@@ -213,6 +213,8 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
         Some("camelCase") => name.to_lower_camel_case(),
         Some("PascalCase") => name.to_pascal_case(),
         Some("SCREAMING_SNAKE_CASE") => name.to_snake_case().to_uppercase(),
+        Some("kebab-case") => name.to_kebab_case(),
+        Some("SCREAMING-KEBAB-CASE") => name.to_kebab_case().to_uppercase(),
         Some("lowercase") => name.to_lowercase(),
         Some("UPPERCASE") => name.to_uppercase(),
         _ => name.to_lowercase(),

@@ -962,18 +962,44 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 let req_upper = req_snake.to_uppercase();
                 let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
                 let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
-                out.push_str(&format!(
-                    "            String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
-                ));
-                out.push_str(&format!(
-                    "            var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
-                ));
-                out.push_str(&format!(
-                    "            MemorySegment {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
-                ));
-                out.push_str(&format!(
-                    "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
-                ));
+                if p.optional {
+                    // Optional Named param (e.g. `query: Option<&BatchListQuery>` in Rust
+                    // surfaces as `TypeRef::Named` + `optional: true` in the IR after the
+                    // FFI extraction strips the `Option`). Pass MemorySegment.NULL when
+                    // the Java arg is null instead of serializing `null` and feeding it
+                    // to <Type>_from_json which then errors with "invalid type: null,
+                    // expected struct <Type>".
+                    out.push_str(&format!("            MemorySegment {cname};\n"));
+                    out.push_str(&format!(
+                        "            if ({pname} == null) {{ {cname} = MemorySegment.NULL; }} else {{\n"
+                    ));
+                    out.push_str(&format!(
+                        "                String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
+                    ));
+                    out.push_str(&format!(
+                        "                var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
+                    ));
+                    out.push_str(&format!(
+                        "                {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
+                    ));
+                    out.push_str(&format!(
+                        "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
+                    ));
+                    out.push_str("            }\n");
+                } else {
+                    out.push_str(&format!(
+                        "            String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
+                    ));
+                    out.push_str(&format!(
+                        "            var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
+                    ));
+                    out.push_str(&format!(
+                        "            MemorySegment {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
+                    ));
+                    out.push_str(&format!(
+                        "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
+                    ));
+                }
                 named_ptr_frees.push((cname.clone(), req_free));
                 call_args.push(cname);
             }
@@ -1512,6 +1538,16 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             }
         };
 
+        // When the core field has an explicit `#[serde(rename = "...")]` (e.g. `tool_type`
+        // → wire `"type"`), emit `@JsonProperty(<wire-name>)` so Jackson's
+        // BuilderBasedDeserializer matches the wire key to this builder field. Without
+        // this, deserializing a chunk like `{"type":"function"}` into StreamToolCallBuilder
+        // fails with "Unrecognized field 'type'".
+        if let Some(rename) = &field.serde_rename {
+            body.push_str("    @JsonProperty(\"");
+            body.push_str(rename);
+            body.push_str("\")\n");
+        }
         body.push_str("    private ");
         body.push_str(&field_type);
         body.push(' ');
@@ -1626,6 +1662,9 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     // Builder classes with @JsonPOJOBuilder annotation need Jackson imports
     if body.contains("@JsonPOJOBuilder") {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder");
+    }
+    if body.contains("@JsonProperty(") {
+        imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = crate::template_env::render(
