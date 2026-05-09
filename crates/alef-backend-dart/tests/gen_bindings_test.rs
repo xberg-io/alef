@@ -77,6 +77,7 @@ sources = ["src/lib.rs"]
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_primitive_fields_emits_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -120,6 +121,7 @@ fn struct_with_primitive_fields_emits_class() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_optional_vec_map_fields() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -161,6 +163,7 @@ fn struct_with_optional_vec_map_fields() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn empty_struct_emits_empty_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -177,6 +180,7 @@ fn empty_struct_emits_empty_class() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn unit_enum_emits_dart_enum() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -231,6 +235,7 @@ fn unit_enum_emits_dart_enum() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn data_bearing_enum_emits_sealed_class() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -318,22 +323,28 @@ fn simple_sync_function_emits_static_method() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
+    // FRB style: wrappers are always-async (Future<...>) and call into the
+    // bridge-generated lib.dart with named parameters.
     assert!(
         content.contains("class DemoCrateBridge {"),
         "missing bridge class: {content}"
     );
     assert!(
-        content.contains("static int greetUser(String userName)"),
-        "missing method sig: {content}"
+        content.contains("static Future<int> greetUser(String userName) async {"),
+        "missing async wrapper signature: {content}"
     );
     assert!(
-        content.contains("return rust_bridge.greetUser(userName);"),
-        "missing bridge call body: {content}"
+        content.contains("return await rust_bridge.greetUser(userName: userName);"),
+        "missing awaited bridge call with named param: {content}"
     );
     assert!(
-        content.contains("import 'demo_crate_bridge_generated.dart' as rust_bridge;"),
-        "missing rust_bridge import: {content}"
+        content.contains("import 'demo_crate_bridge_generated/lib.dart' as rust_bridge;"),
+        "missing rust_bridge lib.dart import: {content}"
     );
 }
 
@@ -364,11 +375,12 @@ fn async_function_emits_future_return_and_async_keyword() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
-    assert!(
-        content.contains("import 'dart:async';"),
-        "missing dart:async import: {content}"
-    );
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
+    // dart:async is no longer needed: Dart's core Future is in dart:core (auto-imported).
     assert!(
         content.contains("static Future<String> fetchData() async {"),
         "missing async method: {content}"
@@ -406,18 +418,24 @@ fn error_returning_function_emits_doc_comment() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    let content = &files[0].content;
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/src/demo_crate.dart"))
+        .map(|f| f.content.as_str())
+        .expect("missing src/demo_crate.dart");
     assert!(
         content.contains("/// throws ParseError on failure"),
         "missing error doc comment: {content}"
     );
+    // FRB style emits always-async wrappers — Future<String> rather than bare String.
     assert!(
-        content.contains("static String parseInput(String raw)"),
-        "missing method: {content}"
+        content.contains("static Future<String> parseInput(String raw) async {"),
+        "missing async parseInput method: {content}"
     );
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_type_emits_sealed_class_hierarchy() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -475,6 +493,7 @@ fn error_type_emits_sealed_class_hierarchy() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn bytes_field_adds_typed_data_import() {
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -899,6 +918,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
 // ── Bug regression: reserved Dart keyword `default` as enum variant name ────
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn enum_variant_named_default_is_escaped() {
     // Regression for: HtmlTheme::Default emitting bare `default` which is a
     // Dart reserved keyword, causing a parse error.
@@ -956,6 +976,7 @@ fn enum_variant_named_default_is_escaped() {
 // ── Bug regression: numeric field name `0` from tuple-variant index ─────────
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn tuple_variant_with_numeric_field_name_is_escaped() {
     // Regression for: FormatMetadata::Pdf(PdfMetadata) emitting `final String 0;`
     // when the IR uses the string "0" as the tuple-field name.
@@ -1006,6 +1027,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 }
 
 #[test]
+#[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_message_template_strips_placeholders_and_escapes_special_chars() {
     // Templates carry `thiserror`-style `{name}` placeholders. The Dart Display
     // string must not leak those placeholders to runtime users — the resolved
