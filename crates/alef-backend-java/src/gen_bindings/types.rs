@@ -14,6 +14,7 @@ pub(crate) fn gen_record_type(
     package: &str,
     typ: &TypeDef,
     complex_enums: &AHashSet<String>,
+    sealed_unions_with_unwrapped: &AHashSet<String>,
     lang_rename_all: &str,
     has_visitor_pattern: bool,
 ) -> String {
@@ -76,6 +77,28 @@ pub(crate) fn gen_record_type(
         // serde Vec<u8> deserialiser accepts them.
         if needs_bytes_int_serialize {
             decl.push_str("@JsonSerialize(using = ByteArrayToIntArraySerializer.class) ");
+        }
+
+        // Fields referencing sealed unions with unwrapped variants need a custom deserializer.
+        // When deserializing through a builder, Jackson needs this annotation to use the
+        // custom deserializer for the field type.
+        let field_type_name = match &f.ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Option(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    Some(n.as_str())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(type_name) = field_type_name {
+            if sealed_unions_with_unwrapped.contains(type_name) {
+                decl.push_str("@JsonDeserialize(using = ");
+                decl.push_str(type_name);
+                decl.push_str("Deserializer.class) ");
+            }
         }
 
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)
