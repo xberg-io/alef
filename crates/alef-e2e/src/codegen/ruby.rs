@@ -310,11 +310,20 @@ fn render_spec_file(
             render_http_example(&mut out, fixture);
             examples.push(out);
         } else {
-            // Non-HTTP fixtures that have no usable assertions are pending
+            // Resolve per-fixture call config so we can detect streaming up front.
+            let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
+            let fixture_call_overrides = fixture_call.overrides.get("ruby");
+            let raw_function_name = fixture_call_overrides
+                .and_then(|o| o.function.as_ref())
+                .cloned()
+                .unwrap_or_else(|| fixture_call.function.clone());
+
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-            let _has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
-            if !expects_error && !has_usable {
+            let is_streaming = raw_function_name == "chat_stream";
+
+            // Non-HTTP, non-streaming fixtures with no usable assertions stay pending.
+            if !expects_error && !has_usable && !is_streaming {
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
                 let mut out = String::new();
@@ -323,16 +332,12 @@ fn render_spec_file(
                 out.push_str("  end\n");
                 examples.push(out);
             } else {
-                // Resolve per-fixture call config
-                let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
-                let fixture_call_overrides = fixture_call.overrides.get("ruby");
-                let raw_function_name = fixture_call_overrides
-                    .and_then(|o| o.function.as_ref())
-                    .cloned()
-                    .unwrap_or_else(|| fixture_call.function.clone());
-                // Magnus binds async Rust methods with an `_async` suffix; reflect that in
-                // the test so `client.chat(...)` resolves to the actual `chat_async` method.
-                let fixture_function_name = if fixture_call.r#async && !raw_function_name.ends_with("_async") {
+                // Streaming methods do not take the `_async` suffix — Magnus emits
+                // `chat_stream` as a block-yielding method. All other async Rust
+                // methods are bound with the `_async` suffix.
+                let fixture_function_name = if is_streaming {
+                    raw_function_name
+                } else if fixture_call.r#async && !raw_function_name.ends_with("_async") {
                     format!("{raw_function_name}_async")
                 } else {
                     raw_function_name
@@ -352,20 +357,34 @@ fn render_spec_file(
                 // `speech` (returns bytes) take precedence over the top-level call default.
                 let fixture_result_is_simple =
                     fixture_call.result_is_simple || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
-                let example = render_example(
-                    fixture,
-                    &fixture_function_name,
-                    &call_receiver,
-                    fixture_result_var,
-                    fixture_args,
-                    field_resolver,
-                    fixture_options_type,
-                    enum_fields,
-                    fixture_result_is_simple,
-                    e2e_config,
-                    fixture_client_factory,
-                    &fixture_extra_args,
-                );
+                let example = if is_streaming {
+                    render_chat_stream_example(
+                        fixture,
+                        &fixture_function_name,
+                        &call_receiver,
+                        fixture_args,
+                        fixture_options_type,
+                        enum_fields,
+                        e2e_config,
+                        fixture_client_factory,
+                        &fixture_extra_args,
+                    )
+                } else {
+                    render_example(
+                        fixture,
+                        &fixture_function_name,
+                        &call_receiver,
+                        fixture_result_var,
+                        fixture_args,
+                        field_resolver,
+                        fixture_options_type,
+                        enum_fields,
+                        fixture_result_is_simple,
+                        e2e_config,
+                        fixture_client_factory,
+                        &fixture_extra_args,
+                    )
+                };
                 examples.push(example);
             }
         }
@@ -623,6 +642,274 @@ fn http_method_class(method: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Chat-stream test rendering — block iteration with local aggregation
+// ---------------------------------------------------------------------------
+
+/// Render an RSpec example for a `chat_stream` fixture.
+///
+/// The Ruby binding's `chat_stream` is block-yielding: each yielded value is a
+/// `LiterLlm::ChatCompletionChunk`. The codegen builds local aggregator vars
+/// (`chunks`, `stream_content`, `stream_complete`, plus optional
+/// `last_finish_reason`, `tool_calls_json`, `total_tokens`) inside the block and
+/// then emits assertions on those locals — never on response pseudo-fields.
+#[allow(clippy::too_many_arguments)]
+fn render_chat_stream_example(
+    fixture: &Fixture,
+    function_name: &str,
+    call_receiver: &str,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
+    e2e_config: &E2eConfig,
+    client_factory: Option<&str>,
+    extra_args: &[String],
+) -> String {
+    let test_name = sanitize_ident(&fixture.id);
+    let description = fixture.description.replace('\'', "\\'");
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let fixture_id = fixture.id.clone();
+
+    let (mut setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, call_receiver, options_type, enum_fields, false, &fixture.id);
+
+    let mut final_args = args_str;
+    if !extra_args.is_empty() {
+        let extra_str = extra_args.join(", ");
+        if final_args.is_empty() {
+            final_args = extra_str;
+        } else {
+            final_args = format!("{final_args}, {extra_str}");
+        }
+    }
+
+    // Detect which aggregators a fixture's assertions actually need so we don't
+    // emit unused locals (rubocop trips on assigned-but-unread vars).
+    let mut needs_finish_reason = false;
+    let mut needs_tool_calls_json = false;
+    let mut needs_tool_calls_0_function_name = false;
+    let mut needs_total_tokens = false;
+    for a in &fixture.assertions {
+        if let Some(f) = a.field.as_deref() {
+            match f {
+                "finish_reason" => needs_finish_reason = true,
+                "tool_calls" => needs_tool_calls_json = true,
+                "tool_calls[0].function.name" => needs_tool_calls_0_function_name = true,
+                "usage.total_tokens" => needs_total_tokens = true,
+                _ => {}
+            }
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str(&format!("  it '{test_name}: {description}' do\n"));
+
+    // Client construction.
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    if let Some(cf) = client_factory {
+        if has_mock {
+            out.push_str(&format!(
+                "    client = {call_receiver}.{cf}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')\n"
+            ));
+        } else if let Some(key_var) = api_key_var {
+            out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
+            out.push_str(&format!("    skip '{key_var} not set' unless api_key\n"));
+            out.push_str(&format!("    client = {call_receiver}.{cf}(api_key)\n"));
+        } else {
+            out.push_str(&format!("    client = {call_receiver}.{cf}('test-key')\n"));
+        }
+    }
+
+    // Visitor (rare for streaming, but support it for parity).
+    if let Some(visitor_spec) = &fixture.visitor {
+        let _ = build_ruby_visitor(&mut setup_lines, visitor_spec);
+    }
+    for line in &setup_lines {
+        out.push_str(&format!("    {line}\n"));
+    }
+
+    let call_expr = if client_factory.is_some() {
+        format!("client.{function_name}({final_args})")
+    } else {
+        format!("{call_receiver}.{function_name}({final_args})")
+    };
+
+    if expects_error {
+        out.push_str(&format!(
+            "    expect {{ {call_expr} {{ |_chunk| }} }}.to raise_error\n"
+        ));
+        out.push_str("  end\n");
+        return out;
+    }
+
+    // Build aggregators inside a block so the iterator drives the stream synchronously.
+    out.push_str("    chunks = []\n");
+    out.push_str("    stream_content = ''.dup\n");
+    out.push_str("    stream_complete = false\n");
+    if needs_finish_reason {
+        out.push_str("    last_finish_reason = nil\n");
+    }
+    if needs_tool_calls_json {
+        out.push_str("    tool_calls_json = nil\n");
+    }
+    if needs_tool_calls_0_function_name {
+        out.push_str("    tool_calls_0_function_name = nil\n");
+    }
+    if needs_total_tokens {
+        out.push_str("    total_tokens = nil\n");
+    }
+    out.push_str(&format!("    {call_expr} do |chunk|\n"));
+    out.push_str("      chunks << chunk\n");
+    out.push_str("      choice = chunk.choices && chunk.choices[0]\n");
+    out.push_str("      if choice\n");
+    out.push_str("        delta = choice.delta\n");
+    out.push_str("        if delta && delta.content\n");
+    out.push_str("          stream_content << delta.content\n");
+    out.push_str("        end\n");
+    if needs_finish_reason {
+        out.push_str("        if choice.finish_reason\n");
+        out.push_str("          last_finish_reason = choice.finish_reason.to_s\n");
+        out.push_str("        end\n");
+    }
+    if needs_tool_calls_json || needs_tool_calls_0_function_name {
+        out.push_str("        tcs = delta && delta.tool_calls\n");
+        out.push_str("        if tcs && !tcs.empty?\n");
+        if needs_tool_calls_json {
+            out.push_str(
+                "          tool_calls_json ||= tcs.map { |tc| { 'function' => { 'name' => (tc.function && tc.function.name rescue nil) } } }.to_json\n",
+            );
+        }
+        if needs_tool_calls_0_function_name {
+            out.push_str(
+                "          tool_calls_0_function_name ||= (tcs[0].function && tcs[0].function.name rescue nil)\n",
+            );
+        }
+        out.push_str("        end\n");
+    }
+    out.push_str("      end\n");
+    if needs_total_tokens {
+        out.push_str("      if chunk.usage && chunk.usage.total_tokens\n");
+        out.push_str("        total_tokens = chunk.usage.total_tokens\n");
+        out.push_str("      end\n");
+    }
+    out.push_str("    end\n");
+    out.push_str("    stream_complete = true\n");
+
+    // Render assertions on the local aggregator vars.
+    for assertion in &fixture.assertions {
+        emit_chat_stream_assertion(&mut out, assertion, e2e_config);
+    }
+
+    // Always assert that the stream completed cleanly so non-empty test bodies
+    // are guaranteed by RSpec's at-least-one-expectation requirement.
+    if !fixture
+        .assertions
+        .iter()
+        .any(|a| a.field.as_deref() == Some("stream_complete"))
+    {
+        out.push_str("    expect(stream_complete).to be(true)\n");
+    }
+
+    out.push_str("  end\n");
+    out
+}
+
+/// Map a streaming fixture assertion to an `expect` call on the local aggregator
+/// variable produced by [`render_chat_stream_example`]. Pseudo-fields like
+/// `chunks` / `stream_content` / `stream_complete` resolve to the in-block locals,
+/// not response accessors.
+fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_config: &E2eConfig) {
+    let atype = assertion.assertion_type.as_str();
+    if atype == "not_error" || atype == "error" {
+        return;
+    }
+    let field = assertion.field.as_deref().unwrap_or("");
+
+    enum Kind {
+        Chunks,
+        Bool,
+        Str,
+        IntTokens,
+        Json,
+        Unsupported,
+    }
+
+    let (expr, kind) = match field {
+        "chunks" => ("chunks", Kind::Chunks),
+        "stream_content" => ("stream_content", Kind::Str),
+        "stream_complete" => ("stream_complete", Kind::Bool),
+        "no_chunks_after_done" => ("stream_complete", Kind::Bool),
+        "finish_reason" => ("last_finish_reason", Kind::Str),
+        "tool_calls" => ("tool_calls_json", Kind::Json),
+        "tool_calls[0].function.name" => ("tool_calls_0_function_name", Kind::Str),
+        "usage.total_tokens" => ("total_tokens", Kind::IntTokens),
+        _ => ("", Kind::Unsupported),
+    };
+
+    if matches!(kind, Kind::Unsupported) {
+        out.push_str(&format!(
+            "    # skipped: streaming assertion on unsupported field '{field}'\n"
+        ));
+        return;
+    }
+
+    match (atype, &kind) {
+        ("count_min", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}.length).to be >= {n}\n"));
+            }
+        }
+        ("count_equals", Kind::Chunks) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}.length).to eq({n})\n"));
+            }
+        }
+        ("equals", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let rb_val = json_to_ruby(val);
+                out.push_str(&format!("    expect({expr}.to_s).to eq({rb_val})\n"));
+            }
+        }
+        ("contains", Kind::Str) => {
+            if let Some(val) = &assertion.value {
+                let rb_val = json_to_ruby(val);
+                out.push_str(&format!("    expect({expr}.to_s).to include({rb_val})\n"));
+            }
+        }
+        ("not_empty", Kind::Str) => {
+            out.push_str(&format!("    expect({expr}.to_s).not_to be_empty\n"));
+        }
+        ("not_empty", Kind::Json) => {
+            out.push_str(&format!("    expect({expr}).not_to be_nil\n"));
+        }
+        ("is_empty", Kind::Str) => {
+            out.push_str(&format!("    expect({expr}.to_s).to be_empty\n"));
+        }
+        ("is_true", Kind::Bool) => {
+            out.push_str(&format!("    expect({expr}).to be(true)\n"));
+        }
+        ("is_false", Kind::Bool) => {
+            out.push_str(&format!("    expect({expr}).to be(false)\n"));
+        }
+        ("greater_than_or_equal", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}).to be >= {n}\n"));
+            }
+        }
+        ("equals", Kind::IntTokens) => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                out.push_str(&format!("    expect({expr}).to eq({n})\n"));
+            }
+        }
+        _ => {
+            out.push_str(&format!(
+                "    # skipped: streaming assertion '{atype}' on field '{field}' not supported\n"
+            ));
+        }
     }
 }
 
