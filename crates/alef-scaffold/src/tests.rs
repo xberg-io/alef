@@ -911,6 +911,27 @@ fn test_scaffold_dart() {
         "analysis_options.yaml should include linter rules; got: {}",
         analysis_options.content
     );
+    // Dart 3.x removed these lints — they must not appear in the rules list.
+    for removed_lint in [
+        "avoid_returning_null",
+        "avoid_returning_null_for_future",
+        "invariant_booleans",
+        "iterable_contains_unrelated_type",
+        "list_remove_unrelated_type",
+    ] {
+        assert!(
+            !analysis_options.content.contains(removed_lint),
+            "analysis_options.yaml references lint removed in Dart 3.x: {removed_lint}"
+        );
+    }
+    // analyzer.exclude block silences flutter_rust_bridge-generated paths.
+    assert!(
+        analysis_options.content.contains("analyzer:")
+            && analysis_options.content.contains("exclude:")
+            && analysis_options.content.contains("lib/src/frb/**"),
+        "analysis_options.yaml must include analyzer.exclude block; got:\n{}",
+        analysis_options.content
+    );
 
     let gitignore = &files[2];
     assert_eq!(gitignore.path, PathBuf::from("packages/dart/.gitignore"));
