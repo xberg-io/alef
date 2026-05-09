@@ -173,6 +173,12 @@ struct ResolvedCallInfo {
     raw_c_result_type: Option<String>,
     c_free_fn: Option<String>,
     result_is_option: bool,
+    /// When `true`, the FFI signature for this method follows the byte-buffer
+    /// out-pointer pattern: `int32_t fn(this, req, uint8_t** out_ptr,
+    /// uintptr_t* out_len, uintptr_t* out_cap)`. The C codegen emits out-param
+    /// declarations, a status-code check, and `<prefix>_free_bytes` rather
+    /// than treating the result as an opaque response handle.
+    result_is_bytes: bool,
 }
 
 fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
@@ -199,6 +205,11 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
     let result_is_option = overrides
         .and_then(|o| if o.result_is_option { Some(true) } else { None })
         .unwrap_or(call.result_is_option);
+    // result_is_bytes is read from either the call-level config (preferred —
+    // the byte-buffer FFI shape is identical across languages that use the
+    // same FFI crate) or the per-language override (back-compat with the
+    // pattern used by Java / PHP / etc.).
+    let result_is_bytes = call.result_is_bytes || overrides.is_some_and(|o| o.result_is_bytes);
     ResolvedCallInfo {
         function_name,
         result_type_name,
@@ -208,6 +219,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         raw_c_result_type,
         c_free_fn,
         result_is_option,
+        result_is_bytes,
     }
 }
 
@@ -548,6 +560,7 @@ fn render_test_file(
             call_info.raw_c_result_type.as_deref(),
             call_info.c_free_fn.as_deref(),
             call_info.result_is_option,
+            call_info.result_is_bytes,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -573,6 +586,7 @@ fn render_test_function(
     raw_c_result_type: Option<&str>,
     c_free_fn: Option<&str>,
     result_is_option: bool,
+    result_is_bytes: bool,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -600,6 +614,31 @@ fn render_test_function(
             expects_error,
         );
         return;
+    }
+
+    // Byte-buffer pattern: methods like `speech` and `file_content` return raw
+    // bytes via the out-pointer FFI shape:
+    //   `int32_t fn(this, req, uint8_t** out_ptr, uintptr_t* out_len, uintptr_t* out_cap)`
+    // rather than as an opaque `*Response` handle. The C codegen must declare
+    // the out-params, check the int32_t status code, and free with
+    // `<prefix>_free_bytes` rather than emitting non-existent
+    // `<prefix>_<response>_audio` / `_content` accessors.
+    if let Some(factory) = client_factory {
+        if result_is_bytes {
+            render_bytes_test_function(
+                out,
+                fixture,
+                prefix,
+                function_name,
+                result_var,
+                args,
+                options_type_name,
+                result_type_name,
+                factory,
+                expects_error,
+            );
+            return;
+        }
     }
 
     // Client pattern: used when client_factory is configured (e.g. liter-llm).
@@ -1055,6 +1094,199 @@ fn render_test_function(
     }
     let result_type_snake = result_type_name.to_snake_case();
     let _ = writeln!(out, "    {prefix}_{result_type_snake}_free({result_var});");
+    let _ = writeln!(out, "}}");
+}
+
+/// Emit a byte-buffer test function for FFI methods returning raw bytes via
+/// the out-pointer pattern (e.g. `speech`, `file_content`).
+///
+/// FFI signature shape:
+/// ```c
+/// int32_t {prefix}_default_client_{fn}(
+///     const Client *this_,
+///     const Request *req,                /* present when args is non-empty */
+///     uint8_t **out_ptr,
+///     uintptr_t *out_len,
+///     uintptr_t *out_cap);
+/// ```
+///
+/// Emits:
+/// - request handle build (same as the standard client pattern)
+/// - `uint8_t *out_ptr = NULL; uintptr_t out_len = 0, out_cap = 0;`
+/// - call with `&out_ptr, &out_len, &out_cap`
+/// - status assertion: `status == 0` on success, `status != 0` on expected error
+/// - per-assertion: `not_empty` / `not_null` collapse to `out_len > 0` because
+///   the pseudo "audio" / "content" field is the byte buffer itself
+/// - `{prefix}_free_bytes(out_ptr, out_len, out_cap)` after assertions
+#[allow(clippy::too_many_arguments)]
+fn render_bytes_test_function(
+    out: &mut String,
+    fixture: &Fixture,
+    prefix: &str,
+    function_name: &str,
+    _result_var: &str,
+    args: &[crate::config::ArgMapping],
+    options_type_name: &str,
+    result_type_name: &str,
+    factory: &str,
+    expects_error: bool,
+) {
+    let prefix_upper = prefix.to_uppercase();
+    let mut request_handle_vars: Vec<(String, String)> = Vec::new();
+    let mut string_arg_exprs: Vec<String> = Vec::new();
+
+    for arg in args {
+        match arg.arg_type.as_str() {
+            "json_object" => {
+                let request_type_pascal =
+                    if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
+                        options_type_name.to_string()
+                    } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
+                        format!("{}Request", stripped)
+                    } else {
+                        format!("{result_type_name}Request")
+                    };
+                let request_type_snake = request_type_pascal.to_snake_case();
+                let var_name = format!("{request_type_snake}_handle");
+
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                let json_val = if field.is_empty() || field == "input" {
+                    Some(&fixture.input)
+                } else {
+                    fixture.input.get(field)
+                };
+
+                if let Some(val) = json_val {
+                    if !val.is_null() {
+                        let normalized = super::normalize_json_keys_to_snake_case(val);
+                        let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                        let escaped = escape_c(&json_str);
+                        let _ = writeln!(
+                            out,
+                            "    {prefix_upper}{request_type_pascal}* {var_name} = \
+                             {prefix}_{request_type_snake}_from_json(\"{escaped}\");"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "    assert({var_name} != NULL && \"failed to build request\");"
+                        );
+                        request_handle_vars.push((arg.name.clone(), var_name));
+                    }
+                }
+            }
+            "string" => {
+                // Pass string args (e.g. file_id for file_content) directly as
+                // C string literals.
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                let val = fixture.input.get(field);
+                let expr = match val {
+                    Some(serde_json::Value::String(s)) => format!("\"{}\"", escape_c(s)),
+                    Some(serde_json::Value::Null) | None if arg.optional => "NULL".to_string(),
+                    Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "NULL".to_string()),
+                    None => "NULL".to_string(),
+                };
+                string_arg_exprs.push(expr);
+            }
+            _ => {
+                // Other arg types are not currently exercised by byte-buffer
+                // methods; pass NULL so the call shape compiles.
+                string_arg_exprs.push("NULL".to_string());
+            }
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
+    );
+    let _ = writeln!(
+        out,
+        "    assert(client != NULL && \"failed to create client\");"
+    );
+
+    // Out-params for the byte buffer.
+    let _ = writeln!(out, "    uint8_t* out_ptr = NULL;");
+    let _ = writeln!(out, "    uintptr_t out_len = 0;");
+    let _ = writeln!(out, "    uintptr_t out_cap = 0;");
+
+    // Build the comma-separated argument list: handles, then string args.
+    let mut method_args: Vec<String> = Vec::new();
+    for (_, v) in &request_handle_vars {
+        method_args.push(v.clone());
+    }
+    method_args.extend(string_arg_exprs.iter().cloned());
+    let extra_args = if method_args.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", method_args.join(", "))
+    };
+
+    let call_fn = format!("{prefix}_default_client_{function_name}");
+    let _ = writeln!(
+        out,
+        "    int32_t status = {call_fn}(client{extra_args}, &out_ptr, &out_len, &out_cap);"
+    );
+
+    if expects_error {
+        for (_, var_name) in &request_handle_vars {
+            let req_snake = var_name.strip_suffix("_handle").unwrap_or(var_name);
+            let _ = writeln!(out, "    {prefix}_{req_snake}_free({var_name});");
+        }
+        let _ = writeln!(out, "    {prefix}_default_client_free(client);");
+        let _ = writeln!(out, "    assert(status != 0 && \"expected call to fail\");");
+        // free_bytes accepts a NULL ptr (no-op), so it is safe regardless of
+        // whether the failed call wrote out_ptr.
+        let _ = writeln!(
+            out,
+            "    {prefix}_free_bytes(out_ptr, out_len, out_cap);"
+        );
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
+    let _ = writeln!(
+        out,
+        "    assert(status == 0 && \"expected call to succeed\");"
+    );
+
+    // Render assertions. For byte-buffer methods, the only meaningful per-field
+    // assertions are presence/length checks on the buffer itself. Field names
+    // (e.g. "audio", "content") are pseudo-fields — collapse them all to
+    // `out_len > 0`.
+    let mut emitted_len_check = false;
+    for assertion in &fixture.assertions {
+        match assertion.assertion_type.as_str() {
+            "not_error" => {
+                // Already covered by the status == 0 assertion above.
+            }
+            "not_empty" | "not_null" => {
+                if !emitted_len_check {
+                    let _ = writeln!(
+                        out,
+                        "    assert(out_len > 0 && \"expected non-empty value\");"
+                    );
+                    emitted_len_check = true;
+                }
+            }
+            _ => {
+                // Other assertion shapes (equals, contains, ...) don't apply to
+                // raw bytes; emit a comment so the test stays readable but does
+                // not emit broken accessor calls.
+                let _ = writeln!(
+                    out,
+                    "    /* skipped: assertion '{}' not meaningful on raw byte buffer */",
+                    assertion.assertion_type
+                );
+            }
+        }
+    }
+
+    let _ = writeln!(out, "    {prefix}_free_bytes(out_ptr, out_len, out_cap);");
+    for (_, var_name) in &request_handle_vars {
+        let req_snake = var_name.strip_suffix("_handle").unwrap_or(var_name);
+        let _ = writeln!(out, "    {prefix}_{req_snake}_free({var_name});");
+    }
+    let _ = writeln!(out, "    {prefix}_default_client_free(client);");
     let _ = writeln!(out, "}}");
 }
 
