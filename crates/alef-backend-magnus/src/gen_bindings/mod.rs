@@ -477,6 +477,7 @@ impl Backend for MagnusBackend {
             .push_str("\n\n# Add accessor methods to Hash-based internally-tagged enum instances\nclass Hash\n");
         native_content.push_str("  # Support internally-tagged enum accessors like format.excel, format.email, etc.\n");
         native_content.push_str("  # Also support direct field access like format.sheet_count\n");
+        native_content.push_str("  # rubocop:disable Metrics/CyclomaticComplexity\n");
         native_content.push_str("  def method_missing(method_name, *args, &block)\n");
         native_content.push_str("    # Try symbol key first (how Magnus converts JSON keys)\n");
         native_content.push_str("    return self[method_name] if key?(method_name)\n\n");
@@ -496,7 +497,8 @@ impl Backend for MagnusBackend {
         native_content.push_str("      return self[:'_0'] || self['_0'] || self\n");
         native_content.push_str("    end\n\n");
         native_content.push_str("    super\n");
-        native_content.push_str("  end\n\n");
+        native_content.push_str("  end\n");
+        native_content.push_str("  # rubocop:enable Metrics/CyclomaticComplexity\n\n");
         native_content.push_str("  def respond_to_missing?(method_name, include_private = false)\n");
         native_content.push_str("    return true if key?(method_name) || key?(method_name.to_s)\n\n");
         native_content.push_str("    format_type = self[:'format_type'] || self['format_type']\n");
