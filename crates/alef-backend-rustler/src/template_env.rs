@@ -571,7 +571,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
     ),
     (
         "elixir_visitor_call.jinja",
-        "      {%- raw %}{:ok, _}{%- endraw %} = {{ native_mod }}.{{ func_name }}_with_visitor({{ args }})\n",
+        "      {:ok, _} = {{ native_mod }}.{{ func_name }}_with_visitor({{ args }})\n",
     ),
     (
         "elixir_visitor_receive.jinja",
@@ -594,9 +594,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         r#"  @doc false
   defp do_visitor_receive_loop(visitor) do
     receive do
-      {%- raw %}
       {:visitor_callback, ref_id, callback_name, args_json} ->
-      {%- endraw %}
         result =
           case Map.get(visitor, callback_name) do
             nil -> "continue"
@@ -606,16 +604,14 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         {{ native_mod }}.visitor_reply(ref_id, result)
         do_visitor_receive_loop(visitor)
 
-      {%- raw %}
       {:ok, result} ->
         {:ok, result}
 
       {:error, reason} ->
         {:error, reason}
-      {%- endraw %}
     after
       30_000 ->
-        {%- raw %}{:error, "visitor callback timeout after 30s"}{%- endraw %}
+        {:error, "visitor callback timeout after 30s"}
     end
   end
 
@@ -627,9 +623,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
       :continue -> "continue"
       :skip -> "skip"
       :preserve_html -> "preserve_html"
-      {%- raw %}
       {:custom, value} -> to_string(value)
-      {%- endraw %}
       binary when is_binary(binary) -> binary
       _ -> "continue"
     end

@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-05-09
+
 ### Fixed
 
+- fix(rustler-backend): remove `{%- raw %}` whitespace strippers from Elixir
+  visitor templates that were collapsing pattern-match clauses onto single
+  lines. With `trim_blocks` and `lstrip_blocks` enabled in the env, the raw
+  blocks were unnecessary and the leading `-` strippers ate the newlines and
+  indent that separated `receive do` arms, generating syntactically invalid
+  Elixir like `receive do      {:visitor_callback, ...} ->        result =`.
+  Affects `elixir_visitor_call.jinja` and the visitor receive loop / apply
+  callback case clauses in `elixir_visitor_helper_functions.jinja`.
 - fix(e2e/php): treat `field == "input"` as the entire fixture input object
   in PHP arg resolution (mirroring the shared `resolve_field` helper used by
   Python/Ruby/Go). Previously every call whose argument bound the whole input
