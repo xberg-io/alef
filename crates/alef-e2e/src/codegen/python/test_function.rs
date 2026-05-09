@@ -325,6 +325,11 @@ fn build_args_and_setup(
         let value = resolve_field(&fixture.input, &arg.field);
 
         if value.is_null() && arg.optional {
+            // Emit None as a placeholder so subsequent positional args keep their
+            // index alignment. With kwarg emission this would just be skipped, but
+            // since we emit positional args (commit 40ff92c9), an omitted optional
+            // arg in the middle would shift later args into the wrong position.
+            kwarg_exprs.push("None".to_string());
             continue;
         }
 

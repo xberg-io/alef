@@ -373,7 +373,6 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     for func in &path_candidates {
         emit_path_overload(func, &all_names, out);
     }
-
 }
 
 /// Emits the e2e-test helper wrappers (kreuzberg-specific, retained for reference).

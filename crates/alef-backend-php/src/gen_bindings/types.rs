@@ -375,8 +375,8 @@ fn gen_struct_methods_impl(
                         // binding when `has_serde` is enabled on a `has_default` type
                         // (option_duration_on_defaults). The constructor signature must
                         // match the field type or the struct init will fail to type-check.
-                        let optional = f.optional
-                            || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration));
+                        let optional =
+                            f.optional || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration));
                         alef_core::ir::ParamDef {
                             name: php_param_name,
                             ty: f.ty.clone(),
