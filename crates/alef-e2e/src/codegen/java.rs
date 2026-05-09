@@ -83,9 +83,9 @@ impl E2eCodegen for JavaCodegen {
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
 
-        // Get Java-specific enum_fields from override (required for correct enum handling).
-        let empty_enum_fields = std::collections::HashMap::new();
-        let java_enum_fields = overrides.as_ref().map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
+        // Resolve enum_fields and nested_types from Java override config.
+        static EMPTY_ENUM_FIELDS: std::sync::LazyLock<std::collections::HashMap<String, String>> = std::sync::LazyLock::new(std::collections::HashMap::new);
+        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
 
         // Build effective nested_types by merging defaults with configured overrides.
         let mut effective_nested_types = default_java_nested_types();
@@ -128,7 +128,7 @@ impl E2eCodegen for JavaCodegen {
                 options_type.as_deref(),
                 &field_resolver,
                 result_is_simple,
-                java_enum_fields,
+                &e2e_config.fields_enum,
                 e2e_config,
                 &effective_nested_types,
                 nested_types_optional,
@@ -214,7 +214,7 @@ fn render_test_file(
     options_type: Option<&str>,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &std::collections::HashMap<String, String>,
+    enum_fields: &std::collections::HashSet<String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
@@ -285,9 +285,8 @@ fn render_test_file(
         }
     }
 
-    // Collect all enum types used in builder expressions across all fixtures.
-    let mut enum_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    // Collect nested config types actually referenced in fixture builder expressions
+    // Collect nested config types actually referenced in fixture builder expressions.
+    // Note: enum types don't need explicit imports since they're in the same package.
     let mut nested_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
         let call_cfg = e2e_config.resolve_call(f.call.as_deref());
@@ -297,7 +296,6 @@ fn render_test_file(
                 if let Some(val) = f.input.get(field) {
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
-                            collect_enum_and_nested_types(obj, enum_fields, &mut enum_types_used);
                             collect_nested_type_names(obj, nested_types, &mut nested_types_used);
                         }
                     }
@@ -348,13 +346,6 @@ fn render_test_file(
                 format!("{binding_pkg_for_imports}.{opts_type}")
             };
             imports.push(format!("import {qualified};"));
-        }
-    }
-
-    // Import all enum types used in builder expressions
-    if !enum_types_used.is_empty() && !binding_pkg_for_imports.is_empty() {
-        for enum_type in &enum_types_used {
-            imports.push(format!("import {binding_pkg_for_imports}.{enum_type};"));
         }
     }
 
@@ -749,7 +740,7 @@ fn render_test_method(
     options_type: Option<&str>,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    enum_fields: &std::collections::HashMap<String, String>,
+    enum_fields: &std::collections::HashSet<String>,
     e2e_config: &E2eConfig,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
@@ -961,10 +952,11 @@ fn render_test_method(
     // call-specific enum-typed result fields (e.g. `choices[0].finish_reason` for
     // chat) trigger Optional<Enum> coercion even when the global override block
     // does not list them. Per-call entries take precedence.
-    let mut effective_enum_fields: std::collections::HashMap<String, String> = enum_fields.clone();
+    // Combine global enum_fields (HashSet) with per-call overrides (HashMap).
+    let mut effective_enum_fields: std::collections::HashSet<String> = enum_fields.clone();
     if let Some(co) = call_overrides {
-        for (k, v) in &co.enum_fields {
-            effective_enum_fields.insert(k.clone(), v.clone());
+        for k in co.enum_fields.keys() {
+            effective_enum_fields.insert(k.clone());
         }
     }
 
@@ -1166,7 +1158,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     result_is_bytes: bool,
-    enum_fields: &std::collections::HashMap<String, String>,
+    enum_fields: &std::collections::HashSet<String>,
 ) {
     // Byte-buffer returns: emit length-based assertions instead of struct-field
     // accessors. The result is `byte[]`, which has no `isEmpty()`/struct-field methods.
@@ -1386,7 +1378,7 @@ fn render_assertion(
     let field_is_enum = assertion
         .field
         .as_deref()
-        .is_some_and(|f| enum_fields.contains_key(f) || enum_fields.contains_key(field_resolver.resolve(f)));
+        .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
     // Determine if this field is an array (List<T>) — needed to choose .toString() for
     // contains assertions, since List.contains(Object) uses equals() which won't match
@@ -1690,7 +1682,7 @@ fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> 
 fn java_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
-    enum_fields: &std::collections::HashMap<String, String>,
+    enum_fields: &std::collections::HashSet<String>,
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
     path_fields: &[String],
@@ -1703,10 +1695,11 @@ fn java_builder_expression(
 
         let java_val = match val {
             serde_json::Value::String(s) => {
-                // Check if this field is an enum type by looking up in enum_fields.
-                // enum_fields is keyed by camelCase names (e.g., "codeBlockStyle"), not snake_case.
-                if let Some(enum_type_name) = enum_fields.get(&camel_key) {
-                    // Enum field: use the mapped enum type name from the config
+                // Check if this field is an enum type by checking enum_fields.
+                // Infer enum type name from camelCase field name by converting to UpperCamelCase.
+                if enum_fields.contains(&camel_key) {
+                    // Enum field: infer type name from field name (e.g., "codeBlockStyle" -> "CodeBlockStyle")
+                    let enum_type_name = camel_key.to_upper_camel_case();
                     let variant_name = s.to_upper_camel_case();
                     format!("{}.{}", enum_type_name, variant_name)
                 } else if camel_key == "preset" && type_name == "PreprocessingOptions" {
