@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- feat(e2e/java): emit real test bodies parallel to Python codegen — drop `Assumptions.assumeTrue(false, ...)` stubs. The Java e2e generator now resolves `client_factory` and `options_via` from java overrides (with file-level fallback) and emits real bodies for every non-HTTP fixture. With `client_factory` set, tests instantiate a client via `{ClassName}.{factory}("test-key", mockUrl, null, null, null)` (when fixture has `mock_response`/`http`) or via the env-key-or-skip pattern, then dispatch the call as a method on the client. With `options_via = "from_json"`, json_object args are built via `{OptionsType}.fromJson(jsonString)` instead of the builder expression path. The `if call_overrides.is_none() { assumeTrue(false) }` stub branch in `render_test_method` is removed.
+
 ### Fixed
 
 - fix(e2e/c): drive streaming tests via FFI iterator handle instead of non-existent `_chunks` / `_stream_content` / `_stream_complete` accessors. The C codegen previously emitted calls to invented per-chunk accessor functions and then comment-skipped every assertion, leaving the C streaming suite uncompilable against the actual FFI surface. The new path detects `function = "chat_stream"` in the client-pattern branch and emits a dedicated test body that calls `{prefix}_default_client_chat_stream_start`, loops over `_next` until null (treating `last_error_code() == 0` as clean end-of-stream, non-zero as error), and aggregates per-chunk data into local variables (`chunks_count`, `stream_content`, `stream_complete`, `last_choices_json`, `total_tokens`). Fixture pseudo-fields (`chunks`, `stream_content`, `stream_complete`, `no_chunks_after_done`, `finish_reason`, `tool_calls`, `tool_calls[0].function.name`, `usage.total_tokens`) are translated to assertions on those locals; `error` fixtures assert that `_chat_stream_start` returned NULL.

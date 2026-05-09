@@ -747,21 +747,34 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // Emit a compilable stub for non-HTTP fixtures that have no call override.
-    if call_overrides.is_none() {
-        let skip_msg = format!("TODO: implement Java e2e test for fixture '{}'", fixture.id);
-        out.push_str(&format!(
-            "    @Test\n    void test{}() {{\n        // {}\n        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"{}\");\n    }}\n",
-            method_name, description, skip_msg
-        ));
-        return;
-    }
-
     // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(|s| s.to_string()));
     let effective_options_type = effective_options_type.as_deref();
+
+    // Resolve client_factory: prefer call-level java override, fall back to file-level java override.
+    let client_factory: Option<String> = call_overrides
+        .and_then(|o| o.client_factory.clone())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.clone())
+        });
+
+    // Resolve options_via: "kwargs" (default), "from_json", "json", "dict".
+    let options_via: String = call_overrides
+        .and_then(|o| o.options_via.clone())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.options_via.clone())
+        })
+        .unwrap_or_else(|| "kwargs".to_string());
 
     // Resolve per-fixture result_is_simple and result_is_bytes from the call override.
     let effective_result_is_simple =
@@ -786,7 +799,15 @@ fn render_test_method(
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                 if let Some(val) = fixture.input.get(field) {
                     if !val.is_null() && !val.is_array() {
-                        if let Some(obj) = val.as_object() {
+                        if options_via == "from_json" {
+                            // Build the typed POJO via static fromJson(String) method.
+                            let json_str = serde_json::to_string(val).unwrap_or_default();
+                            let escaped = escape_java(&json_str);
+                            let var_name = &arg.name;
+                            builder_expressions.push_str(&format!(
+                                "        var {var_name} = {opts_type}.fromJson(\"{escaped}\");\n",
+                            ));
+                        } else if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
                             let empty_path_fields: Vec<String> = Vec::new();
                             let path_fields = call_overrides.map(|o| &o.path_fields).unwrap_or(&empty_path_fields);
@@ -876,7 +897,40 @@ fn render_test_method(
     }
 
     let throws_clause = " throws Exception";
-    let call_expr = format!("{class_name}.{function_name}({final_args})");
+
+    // When client_factory is set, instantiate a client and dispatch the call as
+    // a method on the client; otherwise call the static helper on `class_name`.
+    let (client_setup_lines, call_target) = if let Some(factory) = client_factory.as_deref() {
+        let factory_name = factory.to_lower_camel_case();
+        let fixture_id = &fixture.id;
+        let mut setup: Vec<String> = Vec::new();
+        if fixture.mock_response.is_some() || fixture.http.is_some() {
+            setup.push(format!(
+                "String mockUrl = System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+            ));
+            setup.push(format!(
+                "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
+            ));
+        } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
+            setup.push(format!(
+                "String apiKey = System.getenv(\"{api_key_var}\");"
+            ));
+            setup.push(format!(
+                "org.junit.jupiter.api.Assumptions.assumeTrue(apiKey != null && !apiKey.isEmpty(), \"{api_key_var} not set\");"
+            ));
+            setup.push(format!("var client = {class_name}.{factory_name}(apiKey);"));
+        } else {
+            setup.push(format!("var client = {class_name}.{factory_name}(\"test-key\");"));
+        }
+        (setup, "client".to_string())
+    } else {
+        (Vec::new(), class_name.to_string())
+    };
+
+    // Prepend client setup before any other setup_lines.
+    let combined_setup: Vec<String> = client_setup_lines.into_iter().chain(setup_lines).collect();
+
+    let call_expr = format!("{call_target}.{function_name}({final_args})");
 
     let rendered = crate::template_env::render(
         "java/test_method.jinja",
@@ -884,7 +938,7 @@ fn render_test_method(
             method_name => method_name,
             description => description,
             builder_expressions => builder_expressions,
-            setup_lines => setup_lines,
+            setup_lines => combined_setup,
             throws_clause => throws_clause,
             expects_error => expects_error,
             call_expr => call_expr,
