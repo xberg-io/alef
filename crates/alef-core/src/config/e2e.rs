@@ -678,6 +678,24 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub visitor_trait: Option<String>,
+    /// Maps result field paths to their wasm-bindgen enum class names.
+    ///
+    /// wasm-bindgen exposes Rust enums as numeric discriminants in JavaScript
+    /// (`WasmFinishReason.Stop === 0`), not string variants. When an `equals`
+    /// assertion targets a field listed here, the WASM generator emits
+    /// `expect(result.choices[0].finishReason).toBe(WasmFinishReason.Stop)`
+    /// instead of attempting `(value ?? "").trim()`.
+    ///
+    /// The fixture's expected string value is converted to PascalCase to look
+    /// up the variant (e.g. `"tool_calls"` -> `ToolCalls`).
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.calls.chat.overrides.wasm]
+    /// result_enum_fields = { "choices[0].finish_reason" = "WasmFinishReason", "status" = "WasmBatchStatus" }
+    /// ```
+    #[serde(default)]
+    pub result_enum_fields: HashMap<String, String>,
 }
 
 fn default_true() -> bool {

@@ -6,12 +6,15 @@ use crate::fixture::Assertion;
 use super::json::json_to_js;
 
 /// Render a single assertion into the test body.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_enum_fields: &std::collections::HashMap<String, String>,
+    lang: &str,
 ) {
     // For simple-result methods (e.g., `speech` returning bytes/Buffer), every
     // field-based assertion targets the result itself — there is no struct to
@@ -72,10 +75,33 @@ pub(super) fn render_assertion(
         }
     }
 
-    let field_expr = match &assertion.field {
+    let mut field_expr = match &assertion.field {
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "typescript", result_var),
         _ => result_var.to_string(),
     };
+
+    // WASM: enum-typed result fields are exposed as numeric discriminants by
+    // wasm-bindgen, not strings. Compare against `EnumClass.Variant` instead of
+    // running `.trim()` on a number.
+    if lang == "wasm" {
+        if let Some(enum_class) = assertion.field.as_deref().and_then(|f| {
+            result_enum_fields
+                .get(f)
+                .or_else(|| result_enum_fields.get(field_resolver.resolve(f)))
+        }) {
+            if render_wasm_enum_assertion(out, assertion, &field_expr, enum_class) {
+                return;
+            }
+        }
+
+        // wasm-bindgen maps Rust `u64`/`i64` to JS `BigInt`. Numeric assertions
+        // would otherwise fail with `expected 15n to be 15`. Wrap the field
+        // expression in `Number(...)` for numeric `equals` / inequality
+        // comparisons so both BigInt and Number values compare correctly.
+        if assertion_value_is_numeric(assertion) {
+            field_expr = format!("Number({field_expr})");
+        }
+    }
 
     let field_is_array = assertion
         .field
@@ -83,6 +109,56 @@ pub(super) fn render_assertion(
         .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
 
     render_standard_assertion(out, assertion, result_var, &field_expr, field_resolver, field_is_array);
+}
+
+/// Return `true` when the assertion compares the field against a numeric value.
+fn assertion_value_is_numeric(assertion: &Assertion) -> bool {
+    match assertion.assertion_type.as_str() {
+        "equals" | "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => assertion
+            .value
+            .as_ref()
+            .is_some_and(|v| v.is_number()),
+        _ => false,
+    }
+}
+
+/// Convert a snake_case fixture string to PascalCase for enum variant lookup.
+fn snake_to_pascal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper_next = true;
+    for ch in s.chars() {
+        if ch == '_' || ch == '-' {
+            upper_next = true;
+        } else if upper_next {
+            out.extend(ch.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Render an enum-typed result assertion using `EnumClass.Variant` comparison.
+/// Returns `true` if the assertion was rendered.
+fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_expr: &str, enum_class: &str) -> bool {
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                let variant = snake_to_pascal(s);
+                out.push_str(&format!(
+                    "    expect({field_expr}).toBe({enum_class}.{variant});\n"
+                ));
+                return true;
+            }
+        }
+        "not_empty" | "is_not_empty" => {
+            out.push_str(&format!("    expect({field_expr}).toBeDefined();\n"));
+            return true;
+        }
+        _ => {}
+    }
+    false
 }
 
 /// Try to render a synthetic/virtual field assertion. Returns `true` when the field was handled.
@@ -672,7 +748,15 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("not_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            false,
+            &std::collections::HashMap::new(),
+            "node",
+        );
         assert!(out.contains(".length"), "got: {out}");
     }
 
@@ -681,7 +765,15 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            false,
+            &std::collections::HashMap::new(),
+            "node",
+        );
         assert!(out.contains(".trim()"), "got: {out}");
     }
 
@@ -690,7 +782,15 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("is_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            false,
+            &std::collections::HashMap::new(),
+            "node",
+        );
         assert!(out.contains("(result ?? \"\").length"), "got: {out}");
     }
 
@@ -703,7 +803,15 @@ mod tests {
             Some(serde_json::Value::String("Function".into())),
         );
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            false,
+            &std::collections::HashMap::new(),
+            "node",
+        );
         assert!(out.contains("_alefE2eItemTexts(item)"), "got: {out}");
     }
 

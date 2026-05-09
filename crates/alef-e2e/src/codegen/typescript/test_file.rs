@@ -44,6 +44,9 @@ pub fn render_test_file(
     let override_config = e2e_config.call.overrides.get(lang);
     let nested_types = override_config.map(|o| o.nested_types.clone()).unwrap_or_default();
     let enum_fields = override_config.map(|o| o.enum_fields.clone()).unwrap_or_default();
+    let result_enum_fields = override_config
+        .map(|o| o.result_enum_fields.clone())
+        .unwrap_or_default();
 
     // Per-fixture wasm/node overrides may add their own options_type / nested_types /
     // enum_fields (each call exposes a different request struct in WASM, e.g.
@@ -54,6 +57,8 @@ pub fn render_test_file(
     let mut all_options_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut all_nested_types: std::collections::HashMap<String, String> = nested_types.clone();
     let mut all_enum_fields: std::collections::HashMap<String, String> = enum_fields.clone();
+    let mut all_result_enum_classes: std::collections::BTreeSet<String> =
+        result_enum_fields.values().cloned().collect();
     if let Some(opts) = options_type {
         all_options_types.insert(opts.to_string());
     }
@@ -68,6 +73,9 @@ pub fn render_test_file(
             }
             for (k, v) in &o.enum_fields {
                 all_enum_fields.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+            for v in o.result_enum_fields.values() {
+                all_result_enum_classes.insert(v.clone());
             }
         }
     }
@@ -179,12 +187,21 @@ pub fn render_test_file(
                     }
                 }
             }
-            let imports_str = imports.join(", ");
-            import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
-        } else {
-            let imports_str = imports.join(", ");
-            import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
         }
+
+        // Result-enum classes are imported even when no options-type imports
+        // are needed — assertions on enum-typed result fields reference the
+        // enum class by name (e.g. `WasmFinishReason.Stop`).
+        if lang == "wasm" {
+            for enum_class in &all_result_enum_classes {
+                if !imports.contains(enum_class) {
+                    imports.push(enum_class.clone());
+                }
+            }
+        }
+
+        let imports_str = imports.join(", ");
+        import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
 
         if needs_cache_isolation && has_configure {
             import_node_fs = "import { mkdtempSync, rmSync } from 'node:fs';\nimport { join } from 'node:path';\nimport { tmpdir } from 'node:os';".to_string();
@@ -220,6 +237,7 @@ pub fn render_test_file(
                 lang,
                 &nested_types,
                 &enum_fields,
+                &result_enum_fields,
             );
         }
         if i + 1 < fixtures.len() {
@@ -439,6 +457,7 @@ fn render_test_case(
     lang: &str,
     nested_types: &std::collections::HashMap<String, String>,
     enum_fields: &std::collections::HashMap<String, String>,
+    result_enum_fields: &std::collections::HashMap<String, String>,
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
@@ -468,6 +487,16 @@ fn render_test_case(
             effective_enum_fields.insert(k.clone(), v.clone());
         }
     }
+    let mut effective_result_enum_fields: std::collections::HashMap<String, String> = result_enum_fields.clone();
+    if let Some(o) = per_call_override {
+        for (k, v) in &o.result_enum_fields {
+            effective_result_enum_fields.insert(k.clone(), v.clone());
+        }
+    }
+    // Per-language `extra_args` from call overrides — verbatim trailing
+    // expressions appended after the configured args (e.g. `undefined` for an
+    // optional trailing parameter the fixture cannot supply).
+    let extra_args: Vec<String> = per_call_override.map(|o| o.extra_args.clone()).unwrap_or_default();
     let global_bigint_fields: Vec<String> = e2e_config
         .call
         .overrides
@@ -489,7 +518,7 @@ fn render_test_case(
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
         effective_options_type.as_deref(),
@@ -499,6 +528,15 @@ fn render_test_case(
         &effective_enum_fields,
         &effective_bigint_fields,
     );
+
+    if !extra_args.is_empty() {
+        let extra_str = extra_args.join(", ");
+        args_str = if args_str.is_empty() {
+            extra_str
+        } else {
+            format!("{args_str}, {extra_str}")
+        };
+    }
 
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
@@ -584,6 +622,8 @@ fn render_test_case(
             result_var,
             field_resolver,
             result_is_simple,
+            &effective_result_enum_fields,
+            lang,
         );
     }
 
@@ -800,6 +840,19 @@ fn build_args_and_setup(
     bigint_fields: &std::collections::BTreeSet<String>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
+        // When the call has no configured args and the fixture input is an
+        // empty object, emit no positional arguments. This lets `extra_args`
+        // (e.g. `undefined`) become the sole call argument — matching the
+        // shape expected by zero-arg or single-optional-arg functions like
+        // `listFiles(query?)` in WASM, where passing `{}` would fail the
+        // `instanceof` check.
+        if input
+            .as_object()
+            .map(|m| m.is_empty())
+            .unwrap_or_else(|| input.is_null())
+        {
+            return (Vec::new(), String::new());
+        }
         return (Vec::new(), json_to_js(input));
     }
 
