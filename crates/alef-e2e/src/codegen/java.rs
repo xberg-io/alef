@@ -787,8 +787,8 @@ fn render_test_method(
             if arg.arg_type != "json_object" {
                 return false;
             }
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            fixture.input.get(field).is_some_and(|v| !v.is_null() && !v.is_array())
+            let val = super::resolve_field(&fixture.input, &arg.field);
+            !val.is_null() && !val.is_array()
         });
 
     // Emit builder expressions for json_object args.
@@ -796,32 +796,30 @@ fn render_test_method(
     if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
         for arg in args {
             if arg.arg_type == "json_object" {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                if let Some(val) = fixture.input.get(field) {
-                    if !val.is_null() && !val.is_array() {
-                        if options_via == "from_json" {
-                            // Build the typed POJO via static fromJson(String) method.
-                            let json_str = serde_json::to_string(val).unwrap_or_default();
-                            let escaped = escape_java(&json_str);
-                            let var_name = &arg.name;
-                            builder_expressions.push_str(&format!(
-                                "        var {var_name} = {opts_type}.fromJson(\"{escaped}\");\n",
-                            ));
-                        } else if let Some(obj) = val.as_object() {
-                            // Generate builder expression: TypeName.builder().withFieldName(value)...build()
-                            let empty_path_fields: Vec<String> = Vec::new();
-                            let path_fields = call_overrides.map(|o| &o.path_fields).unwrap_or(&empty_path_fields);
-                            let builder_expr = java_builder_expression(
-                                obj,
-                                opts_type,
-                                enum_fields,
-                                nested_types,
-                                nested_types_optional,
-                                path_fields,
-                            );
-                            let var_name = &arg.name;
-                            builder_expressions.push_str(&format!("        var {} = {};\n", var_name, builder_expr));
-                        }
+                let val = super::resolve_field(&fixture.input, &arg.field);
+                if !val.is_null() && !val.is_array() {
+                    if options_via == "from_json" {
+                        // Build the typed POJO via static fromJson(String) method.
+                        let json_str = serde_json::to_string(val).unwrap_or_default();
+                        let escaped = escape_java(&json_str);
+                        let var_name = &arg.name;
+                        builder_expressions.push_str(&format!(
+                            "        var {var_name} = {opts_type}.fromJson(\"{escaped}\");\n",
+                        ));
+                    } else if let Some(obj) = val.as_object() {
+                        // Generate builder expression: TypeName.builder().withFieldName(value)...build()
+                        let empty_path_fields: Vec<String> = Vec::new();
+                        let path_fields = call_overrides.map(|o| &o.path_fields).unwrap_or(&empty_path_fields);
+                        let builder_expr = java_builder_expression(
+                            obj,
+                            opts_type,
+                            enum_fields,
+                            nested_types,
+                            nested_types_optional,
+                            path_fields,
+                        );
+                        let var_name = &arg.name;
+                        builder_expressions.push_str(&format!("        var {} = {};\n", var_name, builder_expr));
                     }
                 }
             }
@@ -1002,8 +1000,8 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let resolved = super::resolve_field(input, &arg.field);
+        let val = if resolved.is_null() { None } else { Some(resolved) };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: emit positional null/default so the call
