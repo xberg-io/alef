@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.4] - 2026-05-09
+
+### Fixed
+
+- fix(java-backend): underscore-prefix the unused `package` parameter on
+  `gen_sealed_union_deserializer` to satisfy `RUSTFLAGS=-D warnings` in the
+  publish pipeline (was the v0.15.3 release blocker).
+- fix(java-backend): strip tag field before deserializing inner type.
+- fix(e2e/c): use `options_type` override for request type when set.
+- fix(e2e/wasm): derive bg.wasm filename from the actual crate name.
+- fix(e2e/elixir): resolve `field=='input'` to entire fixture input.
+- fix(php-backend): emit camelCase parameter names in struct constructor
+  field init.
+
 ## [0.15.3] - 2026-05-09
 
 ### Fixed
