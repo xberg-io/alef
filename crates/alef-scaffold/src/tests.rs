@@ -1336,6 +1336,34 @@ fn test_scaffold_swift() {
         .iter()
         .find(|f| f.path == Path::new(".github/workflows/swift.yml"));
     assert!(workflow.is_some(), "GitHub workflow should be generated");
+    let workflow_content = &workflow.unwrap().content;
+    // Regression: the swift-bridge copy step must not use `printf "...$(cat ...)"`.
+    // printf interprets `%` and `\` sequences in its format string, which corrupts
+    // generated Swift sources whenever they contain those characters. Use the safer
+    // `{ echo ...; cat ...; }` concatenation form instead.
+    assert!(
+        !workflow_content.contains("printf \"import RustBridgeC"),
+        "swift workflow must not use unsafe printf to prepend `import RustBridgeC`; got:\n{workflow_content}"
+    );
+    assert!(
+        workflow_content.contains(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#),
+        "swift workflow must prepend `import RustBridgeC` via echo+cat; got:\n{workflow_content}"
+    );
+    // BUILDING.md template must apply the same fix (debug + release sections).
+    assert!(
+        !building.content.contains("printf \"import RustBridgeC"),
+        "BUILDING.md must not use unsafe printf to prepend `import RustBridgeC`; got:\n{}",
+        building.content
+    );
+    assert!(
+        building
+            .content
+            .matches(r#"{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }"#)
+            .count()
+            >= 2,
+        "BUILDING.md must use echo+cat in both debug and release copy sections; got:\n{}",
+        building.content
+    );
 }
 
 #[test]

@@ -188,10 +188,13 @@ OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
 cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
     > packages/swift/Sources/RustBridgeC/RustBridgeC.h
 
-# Copy Swift bridge files, prepending "import RustBridgeC" so they see the C types
-printf "import RustBridgeC\n$(cat "$OUT/SwiftBridgeCore.swift")" \
+# Copy Swift bridge files, prepending "import RustBridgeC" so they see the C types.
+# Use `{{ echo ...; cat ...; }}` rather than `printf "...$(cat)..."` because printf
+# interprets `%` and `\` sequences in its format string, which would corrupt the
+# generated Swift sources.
+{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
     > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-printf "import RustBridgeC\n$(cat "$OUT/{binding_crate}/{binding_crate}.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
     > packages/swift/Sources/RustBridge/{binding_crate}.swift
 ```
 
@@ -216,9 +219,9 @@ OUT=$(ls -dt target/release/build/{binding_crate}-*/out 2>/dev/null | head -1)
 
 cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
     > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-printf "import RustBridgeC\n$(cat "$OUT/SwiftBridgeCore.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
     > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-printf "import RustBridgeC\n$(cat "$OUT/{binding_crate}/{binding_crate}.swift")" \
+{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
     > packages/swift/Sources/RustBridge/{binding_crate}.swift
 
 swift build --package-path packages/swift --configuration release
@@ -314,9 +317,9 @@ jobs:
           OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
           cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
               > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-          printf "import RustBridgeC\n$(cat \"$OUT/SwiftBridgeCore.swift\")" \
+          {{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
               > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-          printf "import RustBridgeC\n$(cat \"$OUT/{binding_crate}/{binding_crate}.swift\")" \
+          {{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
               > packages/swift/Sources/RustBridge/{binding_crate}.swift
       - name: Build Swift package
         working-directory: packages/swift
