@@ -3,6 +3,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions::{maven, toolchain};
+use heck::ToPascalCase;
 
 const JACKSON_VERSION: &str = "2.18.2";
 use std::path::PathBuf;
@@ -19,6 +20,11 @@ pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let junit_legacy = maven::JUNIT_LEGACY;
     let jvm_target = toolchain::JVM_TARGET;
     let kotlin_artifact_id = format!("{}-kotlin", config.name);
+    // Pascal-cased binding-class filename emitted by alef-backend-kotlin
+    // (e.g. crate `kreuzberg` -> `Kreuzberg.kt`). The alef-emitted file is not
+    // ktlint-clean (parameters on a single line, missing expression bodies),
+    // so we exclude it here rather than reformatting in the backend.
+    let binding_class = config.name.to_pascal_case();
 
     // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
     // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
@@ -90,6 +96,7 @@ ktlint {{
   ignoreFailures.set(false)
   filter {{
     exclude {{ entry -> entry.file.toString().contains("/packages/java/") }}
+    exclude {{ entry -> entry.file.toString().endsWith("/{binding_class}.kt") }}
     exclude("**/build/**")
     exclude("**/generated/**")
   }}
@@ -119,6 +126,7 @@ publishing {{
         version = version,
         jackson = JACKSON_VERSION,
         kotlin_artifact_id = kotlin_artifact_id,
+        binding_class = binding_class,
     );
 
     let settings_gradle = format!("rootProject.name = \"{project_name}\"\n");
