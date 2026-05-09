@@ -342,6 +342,8 @@ fn gen_struct_methods_impl(
                                 // Only allow if it's opaque or an enum (which map to String)
                                 opaque_types.contains(name.as_str()) || enum_names.contains(name.as_str())
                             }
+                            // Vec<serde_json::Value> does not implement FromZval; skip.
+                            alef_core::ir::TypeRef::Json => false,
                             _ => true, // Vec<primitive>, Vec<String>, etc.
                         }
                     }
@@ -370,12 +372,11 @@ fn gen_struct_methods_impl(
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         // Non-optional Duration fields are stored as `Option<i64>` in the
-                        // binding when `option_duration_on_defaults` is set on a `has_default`
-                        // type — the constructor signature must match the field type.
+                        // binding when `has_serde` is enabled on a `has_default` type
+                        // (option_duration_on_defaults). The constructor signature must
+                        // match the field type or the struct init will fail to type-check.
                         let optional = f.optional
-                            || (cfg.option_duration_on_defaults
-                                && typ.has_default
-                                && matches!(f.ty, TypeRef::Duration));
+                            || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration));
                         alef_core::ir::ParamDef {
                             name: php_param_name,
                             ty: f.ty.clone(),
