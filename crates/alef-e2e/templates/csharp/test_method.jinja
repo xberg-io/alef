@@ -31,6 +31,9 @@
 {% if client_factory_setup %}
 {{ client_factory_setup }}
 {% endif %}
+{% for line in setup_lines %}
+        {{ line }}
+{% endfor %}
 {% if return_type == "async Task" %}
         await Assert.ThrowsAnyAsync<{{ exception_class }}>(() => {{ call_target }}.{{ call_expr }});
 {% else %}
