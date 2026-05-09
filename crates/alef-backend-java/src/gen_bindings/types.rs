@@ -458,8 +458,16 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     if needs_json_property {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
-    imports.push("com.fasterxml.jackson.annotation.JsonSubTypes");
-    imports.push("com.fasterxml.jackson.annotation.JsonTypeInfo");
+    // When a custom deserializer handles polymorphic dispatch (@JsonDeserialize with a
+    // *Deserializer class), @JsonTypeInfo + @JsonSubTypes are redundant and actively
+    // harmful: Jackson's AsPropertyTypeDeserializer strips the discriminator field
+    // (visible=false) before calling the custom deserializer, so the custom deserializer
+    // never sees it and throws "Missing discriminator field". Only emit @JsonTypeInfo /
+    // @JsonSubTypes when there is NO custom deserializer (simple polymorphic dispatch).
+    if !needs_unwrapped {
+        imports.push("com.fasterxml.jackson.annotation.JsonSubTypes");
+        imports.push("com.fasterxml.jackson.annotation.JsonTypeInfo");
+    }
     if needs_list {
         imports.push("java.util.List");
     }
@@ -487,28 +495,33 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     out.push('\n');
 
     emit_javadoc(&mut out, &enum_def.doc, "");
-    // @JsonTypeInfo and @JsonSubTypes annotations
-    out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
-    out.push_str(tag_field);
-    out.push_str("\", visible = false)\n");
-    out.push_str("@JsonSubTypes({\n");
-    for (i, variant) in enum_def.variants.iter().enumerate() {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let comma = if i < enum_def.variants.len() - 1 { "," } else { "" };
-        out.push_str("    @JsonSubTypes.Type(value = ");
-        out.push_str(&enum_def.name);
-        out.push('.');
-        out.push_str(&variant.name);
-        out.push_str(".class, name = \"");
-        out.push_str(&discriminator);
-        out.push_str("\")");
-        out.push_str(comma);
-        out.push('\n');
+    // @JsonTypeInfo and @JsonSubTypes annotations — only when no custom deserializer.
+    // A custom *Deserializer reads the tag field itself; mixing @JsonTypeInfo (which
+    // strips the tag when visible=false) with a custom deserializer causes a NPE/missing-
+    // discriminator error because the tag is consumed before the deserializer sees it.
+    if !needs_unwrapped {
+        out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
+        out.push_str(tag_field);
+        out.push_str("\", visible = false)\n");
+        out.push_str("@JsonSubTypes({\n");
+        for (i, variant) in enum_def.variants.iter().enumerate() {
+            let discriminator = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+            let comma = if i < enum_def.variants.len() - 1 { "," } else { "" };
+            out.push_str("    @JsonSubTypes.Type(value = ");
+            out.push_str(&enum_def.name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(".class, name = \"");
+            out.push_str(&discriminator);
+            out.push_str("\")");
+            out.push_str(comma);
+            out.push('\n');
+        }
+        out.push_str("})\n");
     }
-    out.push_str("})\n");
     // Newtype variants with flattened fields cannot directly map to record fields.
     // Allow unknown properties at the interface level so Jackson doesn't fail when
     // encountering flattened inner-type fields.
