@@ -232,6 +232,7 @@ pub(crate) fn gen_php_struct(
             cast_large_ints_to_f64: cfg.cast_large_ints_to_f64,
             named_non_opaque_params_by_ref: cfg.named_non_opaque_params_by_ref,
             lossy_skip_types: cfg.lossy_skip_types,
+            serializable_opaque_type_names: cfg.serializable_opaque_type_names,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {
@@ -368,10 +369,17 @@ fn gen_struct_methods_impl(
                     .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        // Non-optional Duration fields are stored as `Option<i64>` in the
+                        // binding when `option_duration_on_defaults` is set on a `has_default`
+                        // type — the constructor signature must match the field type.
+                        let optional = f.optional
+                            || (cfg.option_duration_on_defaults
+                                && typ.has_default
+                                && matches!(f.ty, TypeRef::Duration));
                         alef_core::ir::ParamDef {
                             name: php_param_name,
                             ty: f.ty.clone(),
-                            optional: f.optional,
+                            optional,
                             default: None,
                             is_ref: false,
                             is_mut: false,

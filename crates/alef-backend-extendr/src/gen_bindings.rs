@@ -54,6 +54,7 @@ impl ExtendrBackend {
             // construct core structs emit Default::default() for those fields instead of
             // attempting .clone().into() which would fail to compile.
             lossy_skip_types,
+            serializable_opaque_type_names: &[],
         }
     }
 }

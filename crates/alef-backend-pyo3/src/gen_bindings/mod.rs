@@ -45,6 +45,7 @@ impl Pyo3Backend {
             cast_large_ints_to_f64: false,
             named_non_opaque_params_by_ref: false,
             lossy_skip_types: &[],
+            serializable_opaque_type_names: &[],
         }
     }
 
@@ -216,6 +217,7 @@ impl Backend for Pyo3Backend {
         let conversion_opaque_set: AHashSet<String> =
             opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
+        let serializable_opaque_names_vec: Vec<String> = data_enum_names.clone();
         opaque_names_vec.extend(data_enum_names);
         opaque_names_vec.extend(bridge_type_aliases);
         // Mirror the Vec in a HashSet so the transitive-closure loop's
@@ -246,6 +248,8 @@ impl Backend for Pyo3Backend {
         }
         cfg.opaque_type_names = &opaque_names_vec;
         cfg_unsendable.opaque_type_names = &opaque_names_vec;
+        cfg.serializable_opaque_type_names = &serializable_opaque_names_vec;
+        cfg_unsendable.serializable_opaque_type_names = &serializable_opaque_names_vec;
         let mutex_types: AHashSet<String> = api
             .types
             .iter()
