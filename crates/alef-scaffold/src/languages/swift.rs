@@ -287,7 +287,8 @@ struct Demo {{
         module = module,
     );
 
-    let github_workflow = r#"name: Swift
+    let github_workflow = format!(
+        r#"name: Swift
 
 on:
   push:
@@ -298,21 +299,34 @@ on:
 jobs:
   test:
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: packages/swift
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
         with:
           swift-version: "6.0"
+      - name: Build {binding_crate} Rust crate
+        run: cargo build -p {binding_crate}
+      - name: Copy swift-bridge generated sources
+        run: |
+          OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
+          cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
+              > packages/swift/Sources/RustBridgeC/RustBridgeC.h
+          printf "import RustBridgeC\n$(cat \"$OUT/SwiftBridgeCore.swift\")" \
+              > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
+          printf "import RustBridgeC\n$(cat \"$OUT/{binding_crate}/{binding_crate}.swift\")" \
+              > packages/swift/Sources/RustBridge/{binding_crate}.swift
       - name: Build Swift package
+        working-directory: packages/swift
         run: swift build
       - name: Run tests
+        working-directory: packages/swift
         run: swift test
-"#
-    .to_string();
+"#,
+        binding_crate = binding_crate_name,
+    );
 
     Ok(vec![
         GeneratedFile {
