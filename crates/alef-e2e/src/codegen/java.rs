@@ -61,6 +61,7 @@ impl E2eCodegen for JavaCodegen {
 
         // Resolve Java package info for the dependency.
         let java_group_id = config.java_group_id();
+        let binding_pkg = config.java_package();
         let pkg_version = config.resolved_version().unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate pom.xml.
@@ -121,6 +122,7 @@ impl E2eCodegen for JavaCodegen {
                 &class_name,
                 &function_name,
                 &java_group_id,
+                &binding_pkg,
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
@@ -206,6 +208,7 @@ fn render_test_file(
     class_name: &str,
     function_name: &str,
     java_group_id: &str,
+    binding_pkg: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
@@ -283,13 +286,32 @@ fn render_test_file(
         }
     }
 
+    // Effective binding package for FQN imports of binding types
+    // (ChatCompletionRequest, etc.). Prefer the explicit `[crates.java] package`
+    // wired in via `binding_pkg`; fall back to the package derived from a
+    // fully-qualified `class_name` when present.
+    let binding_pkg_for_imports: String = if !binding_pkg.is_empty() {
+        binding_pkg.to_string()
+    } else if !import_path.is_empty() {
+        import_path
+            .rsplit_once('.')
+            .map(|(p, _)| p.to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     // Build imports list
     let mut imports: Vec<String> = Vec::new();
     imports.push("import org.junit.jupiter.api.Test;".to_string());
     imports.push("import static org.junit.jupiter.api.Assertions.*;".to_string());
 
+    // Import the test entry-point class itself when it is fully-qualified or
+    // when we know the binding package — emit the FQN so javac resolves it.
     if !import_path.is_empty() {
         imports.push(format!("import {import_path};"));
+    } else if !binding_pkg_for_imports.is_empty() && !class_name.is_empty() {
+        imports.push(format!("import {binding_pkg_for_imports}.{class_name};"));
     }
 
     if needs_object_mapper {
@@ -299,52 +321,41 @@ fn render_test_file(
 
     // Import all options types used across fixtures (for builder expressions and MAPPER).
     if !all_options_types.is_empty() {
-        let opts_pkg = if !import_path.is_empty() {
-            import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("")
-        } else {
-            ""
-        };
         for opts_type in &all_options_types {
-            let qualified = if opts_pkg.is_empty() {
+            let qualified = if binding_pkg_for_imports.is_empty() {
                 opts_type.clone()
             } else {
-                format!("{opts_pkg}.{opts_type}")
+                format!("{binding_pkg_for_imports}.{opts_type}")
             };
             imports.push(format!("import {qualified};"));
         }
     }
 
     // Import all enum types used in builder expressions
-    if !enum_types_used.is_empty() && !import_path.is_empty() {
-        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+    if !enum_types_used.is_empty() && !binding_pkg_for_imports.is_empty() {
         for enum_type in &enum_types_used {
-            imports.push(format!("import {binding_pkg}.{enum_type};"));
+            imports.push(format!("import {binding_pkg_for_imports}.{enum_type};"));
         }
     }
 
     // Import nested options types
-    if !nested_types_used.is_empty() && !import_path.is_empty() {
-        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+    if !nested_types_used.is_empty() && !binding_pkg_for_imports.is_empty() {
         for type_name in &nested_types_used {
-            imports.push(format!("import {binding_pkg}.{type_name};"));
+            imports.push(format!("import {binding_pkg_for_imports}.{type_name};"));
         }
     }
 
     // Import CrawlConfig when handle args need JSON deserialization.
-    if needs_object_mapper_for_handle && !import_path.is_empty() {
-        let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-        imports.push(format!("import {pkg}.CrawlConfig;"));
+    if needs_object_mapper_for_handle && !binding_pkg_for_imports.is_empty() {
+        imports.push(format!("import {binding_pkg_for_imports}.CrawlConfig;"));
     }
 
     // Import visitor types when any fixture uses visitor callbacks.
     let has_visitor_fixtures = fixtures.iter().any(|f| f.visitor.is_some());
-    if has_visitor_fixtures && !import_path.is_empty() {
-        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-        if !binding_pkg.is_empty() {
-            imports.push(format!("import {binding_pkg}.Visitor;"));
-            imports.push(format!("import {binding_pkg}.NodeContext;"));
-            imports.push(format!("import {binding_pkg}.VisitResult;"));
-        }
+    if has_visitor_fixtures && !binding_pkg_for_imports.is_empty() {
+        imports.push(format!("import {binding_pkg_for_imports}.Visitor;"));
+        imports.push(format!("import {binding_pkg_for_imports}.NodeContext;"));
+        imports.push(format!("import {binding_pkg_for_imports}.VisitResult;"));
     }
 
     // Import Optional when using builder expressions with optional fields

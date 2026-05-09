@@ -1,5 +1,8 @@
 {%- if assertion_type == "equals" -%}
-{%- if is_string_val -%}
+{%- if java_val == "" -%}
+{#- value: null in fixture; the Optional wrapper should be empty (underlying @Nullable was null) -#}
+        assertTrue({{ field_expr|replace(".orElse(\"\")", "")|replace(".orElse(0L)", "") }}.isEmpty(), "expected null");
+{%- elif is_string_val -%}
         assertEquals({{ java_val }}, {{ string_expr }}.trim());
 {%- elif is_numeric_val and ".orElse(\"\")" in field_expr -%}
         assertEquals({{ java_val }}, {{ field_expr|replace(".orElse(\"\")", ".orElse(0L)") }});

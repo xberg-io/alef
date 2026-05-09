@@ -12,10 +12,10 @@
 {{ header }}
 package {{ java_group_id }}.e2e;
 
-{%- if imports %}
+{% if imports %}
 {% for imp in imports %}
 {{ imp }}
-{%- endfor %}
+{% endfor %}
 {% endif %}
 
 /** E2e tests for category: {{ category }}. */
