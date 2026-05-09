@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(codegen/binding-to-core): preserve `Option<T>` layer for genuinely-optional fields in the `has_optionalized_duration` builder branch. The branch routed every `field.optional == true` field through `gen_optionalized_field_to_core(..., field_is_ir_optional=true)`, which emits `.unwrap_or_default()` for primitives, `String`, `Path`, `Duration` etc. — producing `T` from a binding `Option<T>` and breaking the assignment to a core `Option<T>` destination. Now genuinely-optional fields fall through to `field_conversion_to_core_cfg(name, ty, true, config)`, mirroring the non-builder branch's logic. Affected any crate where the parent type has both a non-optional `Duration` (triggering builder mode via `option_duration_on_defaults`) and at least one `Option<T>` field — e.g. kreuzcrawl's `BrowserConfig` (`endpoint`, `wait_selector`, `extra_wait`) and `CrawlConfig` (`max_depth`, `max_pages`, `browser_profile`, `warc_output`).
+
 - fix(pre-commit): prefer pre-installed `alef` binary on PATH (when `--version` matches the pinned `alef.toml` version) before falling back to the cached release tarball download. Speeds up local development (no network round-trip when `cargo install --path crates/alef-cli` already produced a binary) and avoids the "No such file or directory" failure mode when a downstream `.pre-commit-config.yaml` overrode `entry: alef verify` — overrides are no longer needed because the script-language hook itself dispatches to the right binary. Documented in `.pre-commit-hooks.yaml` that `entry:` should not be overridden.
 
 ### Changed

@@ -93,10 +93,19 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 continue;
             }
             let conversion = if optionalized && !field.optional {
+                // Field was Option-wrapped in the binding for ergonomics; core expects T.
+                // Use unwrap_or_default to peel the binding-side Option.
                 gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
-            } else if field.optional {
+            } else if optionalized && field.optional {
+                // Double-Option: IR-optional field was Option-wrapped again by optionalize_defaults.
+                // Binding holds Option<Option<T>>; preserve the inner Option layer.
                 gen_optionalized_field_to_core(&field.name, &field.ty, config, true)
             } else {
+                // Either a required field (`!field.optional`) or a genuinely optional IR field
+                // when `optionalize_defaults=false` (e.g. option_duration_on_defaults-only mode).
+                // Both cases — Option<T>↔Option<T> and T↔T — are handled correctly here.
+                // Calling `gen_optionalized_field_to_core` for the latter would incorrectly
+                // emit `.unwrap_or_default()` and break the `Option<T>` destination assignment.
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
             };
             // Apply binding field name substitution for keyword-escaped fields.
