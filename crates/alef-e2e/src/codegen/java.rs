@@ -754,26 +754,18 @@ fn render_test_method(
     let effective_options_type = effective_options_type.as_deref();
 
     // Resolve client_factory: prefer call-level java override, fall back to file-level java override.
-    let client_factory: Option<String> = call_overrides
-        .and_then(|o| o.client_factory.clone())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get(lang)
-                .and_then(|o| o.client_factory.clone())
-        });
+    let client_factory: Option<String> = call_overrides.and_then(|o| o.client_factory.clone()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.clone())
+    });
 
     // Resolve options_via: "kwargs" (default), "from_json", "json", "dict".
     let options_via: String = call_overrides
         .and_then(|o| o.options_via.clone())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get(lang)
-                .and_then(|o| o.options_via.clone())
-        })
+        .or_else(|| e2e_config.call.overrides.get(lang).and_then(|o| o.options_via.clone()))
         .unwrap_or_else(|| "kwargs".to_string());
 
     // Resolve per-fixture result_is_simple and result_is_bytes from the call override.
@@ -910,9 +902,7 @@ fn render_test_method(
                 "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
             ));
         } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
-            setup.push(format!(
-                "String apiKey = System.getenv(\"{api_key_var}\");"
-            ));
+            setup.push(format!("String apiKey = System.getenv(\"{api_key_var}\");"));
             setup.push(format!(
                 "org.junit.jupiter.api.Assumptions.assumeTrue(apiKey != null && !apiKey.isEmpty(), \"{api_key_var} not set\");"
             ));

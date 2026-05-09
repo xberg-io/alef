@@ -102,12 +102,12 @@ pub(super) fn gen_streaming_method_wrapper(
 
     // Start the stream. Non-static streaming methods always have a non-null
     // opaque receiver — cast `h.ptr` like other opaque-receiver methods do.
-    let c_receiver = format!("(*C.{}{})(unsafe.Pointer({}.ptr))", upper_prefix, typ.name, receiver_name);
+    let c_receiver = format!(
+        "(*C.{}{})(unsafe.Pointer({}.ptr))",
+        upper_prefix, typ.name, receiver_name
+    );
     let start_call = if c_params.is_empty() {
-        format!(
-            "C.{}_{}_{}_start({})",
-            ffi_prefix, type_snake, method_snake, c_receiver
-        )
+        format!("C.{}_{}_{}_start({})", ffi_prefix, type_snake, method_snake, c_receiver)
     } else {
         format!(
             "C.{}_{}_{}_start({}, {})",

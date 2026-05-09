@@ -189,11 +189,7 @@ pub(super) fn gen_native_ex(
         .adapters
         .iter()
         .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
-        .filter_map(|a| {
-            a.owner_type
-                .as_deref()
-                .map(|owner| format!("{owner}.{}", a.name))
-        })
+        .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
         .collect();
 
     // Stubs for type methods

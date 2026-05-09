@@ -378,14 +378,15 @@ pub(crate) fn gen_native_lib(
         if !matches!(adapter.pattern, AdapterPattern::Streaming) {
             continue;
         }
-        let Some(owner_type) = adapter.owner_type.as_deref() else { continue; };
-        let Some(item_type) = adapter.item_type.as_deref() else { continue; };
-        let Some(request_type) = adapter
-            .params
-            .first()
-            .map(|p| p.ty.as_str())
-            .filter(|s| !s.is_empty())
-        else { continue; };
+        let Some(owner_type) = adapter.owner_type.as_deref() else {
+            continue;
+        };
+        let Some(item_type) = adapter.item_type.as_deref() else {
+            continue;
+        };
+        let Some(request_type) = adapter.params.first().map(|p| p.ty.as_str()).filter(|s| !s.is_empty()) else {
+            continue;
+        };
 
         let owner_snake = owner_type.to_snake_case();
         let owner_upper = owner_snake.to_uppercase();

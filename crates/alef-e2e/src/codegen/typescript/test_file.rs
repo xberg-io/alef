@@ -664,8 +664,7 @@ fn ts_builder_expression_inner(
         let camel_key = snake_to_camel(key);
         if let serde_json::Value::Object(nested_obj) = val {
             if let Some(nested_type) = nested_types.get(key.as_str()) {
-                let nested_expr =
-                    ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields);
+                let nested_expr = ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields);
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));

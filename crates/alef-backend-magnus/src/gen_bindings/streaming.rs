@@ -205,19 +205,11 @@ pub(super) fn gen_streaming_method_body(adapter: &StreamingAdapter<'_>) -> Strin
 pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<String> {
     let iter_name = &adapter.iterator_struct_name;
     vec![
-        format!(
-            r#"    let class = module.define_class("{iter_name}", ruby.class_object())?;"#
-        ),
-        format!(
-            r#"    class.define_method("next_chunk", method!({iter_name}::next_chunk, 0))?;"#
-        ),
-        format!(
-            r#"    class.define_method("each", method!({iter_name}::each, 0))?;"#
-        ),
+        format!(r#"    let class = module.define_class("{iter_name}", ruby.class_object())?;"#),
+        format!(r#"    class.define_method("next_chunk", method!({iter_name}::next_chunk, 0))?;"#),
+        format!(r#"    class.define_method("each", method!({iter_name}::each, 0))?;"#),
         // Mix in Enumerable so .to_a, .map, etc. work.
-        format!(
-            r#"    class.include_module(ruby.module_enumerable())?;"#
-        ),
+        format!(r#"    class.include_module(ruby.module_enumerable())?;"#),
     ]
 }
 
@@ -226,7 +218,5 @@ pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<S
 pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) -> String {
     let name = adapter.name;
     let owner = adapter.owner_type;
-    format!(
-        r#"    class.define_method("{name}", method!({owner}::{name}, 1))?;"#
-    )
+    format!(r#"    class.define_method("{name}", method!({owner}::{name}, 1))?;"#)
 }

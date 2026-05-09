@@ -826,9 +826,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
         "                streamHandle = (MemorySegment) NativeLib.{start_handle}.invoke(this.handle, requestPtr);\n"
     ));
     out.push_str("            } finally {\n");
-    out.push_str(&format!(
-        "                NativeLib.{req_free}.invoke(requestPtr);\n"
-    ));
+    out.push_str(&format!("                NativeLib.{req_free}.invoke(requestPtr);\n"));
     out.push_str("            }\n");
     out.push_str("        } catch (Throwable e) {\n");
     out.push_str(&format!(
@@ -849,9 +847,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     out.push_str(&format!("            private {item_type} pending = pull();\n"));
     out.push_str("            private boolean closed = false;\n");
     out.push('\n');
-    out.push_str(&format!(
-        "            private {item_type} pull() {{\n"
-    ));
+    out.push_str(&format!("            private {item_type} pull() {{\n"));
     out.push_str("                if (closed) { return null; }\n");
     out.push_str("                MemorySegment chunkPtr;\n");
     out.push_str("                try {\n");
@@ -908,9 +904,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
         "                        throw new RuntimeException(new {exception_class}(\"{method_name}: failed to serialize chunk\"));\n"
     ));
     out.push_str("                    }\n");
-    out.push_str(
-        "                    String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n",
-    );
+    out.push_str("                    String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
     out.push_str(&format!(
         "                    NativeLib.{prefix_upper}_FREE_STRING.invoke(jsonPtr);\n"
     ));
@@ -980,9 +974,7 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
     out.push_str(
         "            String msg = ctxPtr.equals(MemorySegment.NULL) ? \"unknown\" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);\n",
     );
-    out.push_str(&format!(
-        "            throw new {exception_class}(code, msg);\n"
-    ));
+    out.push_str(&format!("            throw new {exception_class}(code, msg);\n"));
     out.push_str("        } catch (Throwable e) {\n");
     out.push_str(&format!(
         "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
@@ -999,9 +991,7 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
     out.push_str(
         "        .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
     );
-    out.push_str(
-        "        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n",
-    );
+    out.push_str("        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n");
     out.push_str(
         "        .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);\n",
     );

@@ -63,10 +63,7 @@ fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) -> bool {
     let normalized = cfg_str.trim().replace(" (", "(");
     let cfg_str = normalized.as_str();
 
-    if let Some(feature) = cfg_str
-        .strip_prefix("feature = \"")
-        .and_then(|s| s.strip_suffix('"'))
-    {
+    if let Some(feature) = cfg_str.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
         return enabled_features.iter().any(|ef| ef == feature);
     }
     if let Some(inner) = cfg_str.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {

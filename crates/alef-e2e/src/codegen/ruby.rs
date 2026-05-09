@@ -673,8 +673,15 @@ fn render_chat_stream_example(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, call_receiver, options_type, enum_fields, false, &fixture.id);
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        call_receiver,
+        options_type,
+        enum_fields,
+        false,
+        &fixture.id,
+    );
 
     let mut final_args = args_str;
     if !extra_args.is_empty() {
@@ -739,9 +746,7 @@ fn render_chat_stream_example(
     };
 
     if expects_error {
-        out.push_str(&format!(
-            "    expect {{ {call_expr} {{ |_chunk| }} }}.to raise_error\n"
-        ));
+        out.push_str(&format!("    expect {{ {call_expr} {{ |_chunk| }} }}.to raise_error\n"));
         out.push_str("  end\n");
         return out;
     }

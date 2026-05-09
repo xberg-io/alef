@@ -225,10 +225,20 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // These provide a pull-based alternative to the callback-based wrappers so that
         // language bindings without native async (Go, Ruby, Java, C#, Elixir, C) can drive
         // the stream in a simple while loop without holding a C function pointer.
-        for adapter in config.adapters.iter().filter(|a| matches!(a.pattern, AdapterPattern::Streaming)) {
-            let Some(owner_type) = adapter.owner_type.as_deref() else { continue; };
-            let Some(item_type) = adapter.item_type.as_deref() else { continue; };
-            let Some(request_type) = adapter.request_type.as_deref() else { continue; };
+        for adapter in config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        {
+            let Some(owner_type) = adapter.owner_type.as_deref() else {
+                continue;
+            };
+            let Some(item_type) = adapter.item_type.as_deref() else {
+                continue;
+            };
+            let Some(request_type) = adapter.request_type.as_deref() else {
+                continue;
+            };
             builder.add_item(&helpers::gen_stream_handle_functions(
                 prefix,
                 owner_type,
@@ -1604,15 +1614,18 @@ type = "ChatRequest"
             "functions must be marked #[unsafe(no_mangle)]"
         );
         assert!(
-            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_start"),
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_start"),
             "_start must be pub unsafe extern C"
         );
         assert!(
-            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_next"),
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_next"),
             "_next must be pub unsafe extern C"
         );
         assert!(
-            lib.content.contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_free"),
+            lib.content
+                .contains("pub unsafe extern \"C\" fn ml_default_client_chat_stream_free"),
             "_free must be pub unsafe extern C"
         );
 

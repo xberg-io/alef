@@ -125,10 +125,7 @@ impl Backend for MagnusBackend {
             .iter()
             .filter_map(|a| streaming::StreamingAdapter::from_config(a, &module_name))
             .collect();
-        let streaming_method_names: AHashSet<String> = streaming_adapters
-            .iter()
-            .map(|a| a.name.to_string())
-            .collect();
+        let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_string()).collect();
         let mut streaming_methods_by_owner: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for adapter in &streaming_adapters {
@@ -232,10 +229,8 @@ impl Backend for MagnusBackend {
                 ));
                 // Append streaming methods in a separate impl block so they sit
                 // alongside the auto-generated ones for this owner type.
-                let owner_streaming: Vec<&streaming::StreamingAdapter<'_>> = streaming_adapters
-                    .iter()
-                    .filter(|a| a.owner_type == typ.name)
-                    .collect();
+                let owner_streaming: Vec<&streaming::StreamingAdapter<'_>> =
+                    streaming_adapters.iter().filter(|a| a.owner_type == typ.name).collect();
                 if !owner_streaming.is_empty() {
                     let mut impl_block = format!("impl {} {{\n", typ.name);
                     for adapter in &owner_streaming {

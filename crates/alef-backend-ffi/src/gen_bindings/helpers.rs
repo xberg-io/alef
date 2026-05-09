@@ -508,9 +508,7 @@ pub(super) fn gen_stream_handle_functions(
     // Error type is erased to a boxed trait object so the handle type is stable across
     // error-type changes in core.  Uses only std — no anyhow dependency required.
     let boxed_err = "Box<dyn std::error::Error + Send + Sync + 'static>";
-    let stream_ty = format!(
-        "futures_util::stream::BoxStream<'static, Result<{core_item}, {boxed_err}>>"
-    );
+    let stream_ty = format!("futures_util::stream::BoxStream<'static, Result<{core_item}, {boxed_err}>>");
     let owner_ty = format!("{core_import}::{owner_type}");
 
     format!(

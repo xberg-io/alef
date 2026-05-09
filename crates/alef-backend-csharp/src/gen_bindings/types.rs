@@ -86,12 +86,7 @@ pub(super) fn gen_opaque_handle(
         if streaming_methods.contains(&method.name) {
             if let Some(meta) = streaming_methods_meta.get(&method.name) {
                 out.push('\n');
-                out.push_str(&gen_opaque_streaming_method(
-                    method,
-                    &class_name,
-                    exception_name,
-                    meta,
-                ));
+                out.push_str(&gen_opaque_streaming_method(method, &class_name, exception_name, meta));
             }
             continue;
         }
@@ -185,7 +180,9 @@ fn gen_opaque_streaming_method(
     ));
     out.push_str("        if (streamHandle == IntPtr.Zero)\n");
     out.push_str("        {\n");
-    out.push_str(&format!("            NativeMethods.{req_free}({req_param_name}Handle);\n"));
+    out.push_str(&format!(
+        "            NativeMethods.{req_free}({req_param_name}Handle);\n"
+    ));
     out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
     out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
     out.push_str("            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
@@ -208,7 +205,9 @@ fn gen_opaque_streaming_method(
     out.push_str("                    {\n");
     out.push_str("                        var ctxPtr = NativeMethods.LastErrorContext();\n");
     out.push_str("                        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
-    out.push_str(&format!("                        throw new {exception_name}(ec, msg);\n"));
+    out.push_str(&format!(
+        "                        throw new {exception_name}(ec, msg);\n"
+    ));
     out.push_str("                    }\n");
     out.push_str("                    yield break;\n");
     out.push_str("                }\n");
@@ -228,7 +227,9 @@ fn gen_opaque_streaming_method(
     out.push_str("        finally\n");
     out.push_str("        {\n");
     out.push_str(&format!("            NativeMethods.{free_native}(streamHandle);\n"));
-    out.push_str(&format!("            NativeMethods.{req_free}({req_param_name}Handle);\n"));
+    out.push_str(&format!(
+        "            NativeMethods.{req_free}({req_param_name}Handle);\n"
+    ));
     out.push_str("        }\n");
     out.push_str("    }\n");
 

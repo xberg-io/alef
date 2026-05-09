@@ -604,15 +604,7 @@ fn render_test_function(
     // assertions on pseudo-fields resolve to those locals rather than to
     // non-existent accessor functions on a single chunk handle.
     if client_factory.is_some() && function_name == "chat_stream" {
-        render_chat_stream_test_function(
-            out,
-            fixture,
-            prefix,
-            result_var,
-            args,
-            options_type_name,
-            expects_error,
-        );
+        render_chat_stream_test_function(out, fixture, prefix, result_var, args, options_type_name, expects_error);
         return;
     }
 
@@ -1138,14 +1130,13 @@ fn render_bytes_test_function(
     for arg in args {
         match arg.arg_type.as_str() {
             "json_object" => {
-                let request_type_pascal =
-                    if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
-                        options_type_name.to_string()
-                    } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
-                        format!("{}Request", stripped)
-                    } else {
-                        format!("{result_type_name}Request")
-                    };
+                let request_type_pascal = if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
+                    options_type_name.to_string()
+                } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
+                    format!("{}Request", stripped)
+                } else {
+                    format!("{result_type_name}Request")
+                };
                 let request_type_snake = request_type_pascal.to_snake_case();
                 let var_name = format!("{request_type_snake}_handle");
 
@@ -1166,10 +1157,7 @@ fn render_bytes_test_function(
                             "    {prefix_upper}{request_type_pascal}* {var_name} = \
                              {prefix}_{request_type_snake}_from_json(\"{escaped}\");"
                         );
-                        let _ = writeln!(
-                            out,
-                            "    assert({var_name} != NULL && \"failed to build request\");"
-                        );
+                        let _ = writeln!(out, "    assert({var_name} != NULL && \"failed to build request\");");
                         request_handle_vars.push((arg.name.clone(), var_name));
                     }
                 }
@@ -1199,10 +1187,7 @@ fn render_bytes_test_function(
         out,
         "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
     );
-    let _ = writeln!(
-        out,
-        "    assert(client != NULL && \"failed to create client\");"
-    );
+    let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
     // Out-params for the byte buffer.
     let _ = writeln!(out, "    uint8_t* out_ptr = NULL;");
@@ -1236,18 +1221,12 @@ fn render_bytes_test_function(
         let _ = writeln!(out, "    assert(status != 0 && \"expected call to fail\");");
         // free_bytes accepts a NULL ptr (no-op), so it is safe regardless of
         // whether the failed call wrote out_ptr.
-        let _ = writeln!(
-            out,
-            "    {prefix}_free_bytes(out_ptr, out_len, out_cap);"
-        );
+        let _ = writeln!(out, "    {prefix}_free_bytes(out_ptr, out_len, out_cap);");
         let _ = writeln!(out, "}}");
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "    assert(status == 0 && \"expected call to succeed\");"
-    );
+    let _ = writeln!(out, "    assert(status == 0 && \"expected call to succeed\");");
 
     // Render assertions. For byte-buffer methods, the only meaningful per-field
     // assertions are presence/length checks on the buffer itself. Field names
@@ -1261,10 +1240,7 @@ fn render_bytes_test_function(
             }
             "not_empty" | "not_null" => {
                 if !emitted_len_check {
-                    let _ = writeln!(
-                        out,
-                        "    assert(out_len > 0 && \"expected non-empty value\");"
-                    );
+                    let _ = writeln!(out, "    assert(out_len > 0 && \"expected non-empty value\");");
                     emitted_len_check = true;
                 }
             }
@@ -1379,7 +1355,10 @@ fn render_chat_stream_test_function(
         return;
     }
 
-    let _ = writeln!(out, "    assert(stream_handle != NULL && \"expected stream-start to succeed\");");
+    let _ = writeln!(
+        out,
+        "    assert(stream_handle != NULL && \"expected stream-start to succeed\");"
+    );
 
     let _ = writeln!(out, "    size_t chunks_count = 0;");
     let _ = writeln!(out, "    char* stream_content = (char*)malloc(1);");
@@ -1411,7 +1390,10 @@ fn render_chat_stream_test_function(
         "        char* choices_json = {prefix}_chat_completion_chunk_choices({result_var});"
     );
     let _ = writeln!(out, "        if (choices_json != NULL) {{");
-    let _ = writeln!(out, "            const char* d = strstr(choices_json, \"\\\"content\\\":\");");
+    let _ = writeln!(
+        out,
+        "            const char* d = strstr(choices_json, \"\\\"content\\\":\");"
+    );
     let _ = writeln!(out, "            if (d != NULL) {{");
     let _ = writeln!(out, "                d += 10;");
     let _ = writeln!(out, "                while (*d == ' ' || *d == '\\t') d++;");
@@ -1419,16 +1401,28 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "                    d++;");
     let _ = writeln!(out, "                    const char* e = d;");
     let _ = writeln!(out, "                    while (*e && *e != '\"') {{");
-    let _ = writeln!(out, "                        if (*e == '\\\\' && *(e+1)) e += 2; else e++;");
+    let _ = writeln!(
+        out,
+        "                        if (*e == '\\\\' && *(e+1)) e += 2; else e++;"
+    );
     let _ = writeln!(out, "                    }}");
     let _ = writeln!(out, "                    size_t add = (size_t)(e - d);");
     let _ = writeln!(out, "                    if (add > 0) {{");
-    let _ = writeln!(out, "                        char* nc = (char*)realloc(stream_content, stream_content_len + add + 1);");
+    let _ = writeln!(
+        out,
+        "                        char* nc = (char*)realloc(stream_content, stream_content_len + add + 1);"
+    );
     let _ = writeln!(out, "                        if (nc != NULL) {{");
     let _ = writeln!(out, "                            stream_content = nc;");
-    let _ = writeln!(out, "                            memcpy(stream_content + stream_content_len, d, add);");
+    let _ = writeln!(
+        out,
+        "                            memcpy(stream_content + stream_content_len, d, add);"
+    );
     let _ = writeln!(out, "                            stream_content_len += add;");
-    let _ = writeln!(out, "                            stream_content[stream_content_len] = '\\0';");
+    let _ = writeln!(
+        out,
+        "                            stream_content[stream_content_len] = '\\0';"
+    );
     let _ = writeln!(out, "                        }}");
     let _ = writeln!(out, "                    }}");
     let _ = writeln!(out, "                }}");
@@ -1444,7 +1438,10 @@ fn render_chat_stream_test_function(
         "        {prefix_upper}Usage* usage_handle = {prefix}_chat_completion_chunk_usage({result_var});"
     );
     let _ = writeln!(out, "        if (usage_handle != NULL) {{");
-    let _ = writeln!(out, "            total_tokens = (uint64_t){prefix}_usage_total_tokens(usage_handle);");
+    let _ = writeln!(
+        out,
+        "            total_tokens = (uint64_t){prefix}_usage_total_tokens(usage_handle);"
+    );
     let _ = writeln!(out, "            {prefix}_usage_free(usage_handle);");
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "        {prefix}_chat_completion_chunk_free({result_var});");
@@ -1456,7 +1453,10 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "    char* tool_calls_json = NULL;");
     let _ = writeln!(out, "    char* tool_calls_0_function_name = NULL;");
     let _ = writeln!(out, "    if (last_choices_json != NULL) {{");
-    let _ = writeln!(out, "        finish_reason = alef_json_get_string(last_choices_json, \"finish_reason\");");
+    let _ = writeln!(
+        out,
+        "        finish_reason = alef_json_get_string(last_choices_json, \"finish_reason\");"
+    );
     let _ = writeln!(
         out,
         "        const char* tc = strstr(last_choices_json, \"\\\"tool_calls\\\":\");"
@@ -1469,32 +1469,65 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "                const char* end = tc;");
     let _ = writeln!(out, "                int in_str = 0;");
     let _ = writeln!(out, "                for (; *end; end++) {{");
-    let _ = writeln!(out, "                    if (*end == '\\\\' && in_str) {{ if (*(end+1)) end++; continue; }}");
-    let _ = writeln!(out, "                    if (*end == '\"') {{ in_str = !in_str; continue; }}");
+    let _ = writeln!(
+        out,
+        "                    if (*end == '\\\\' && in_str) {{ if (*(end+1)) end++; continue; }}"
+    );
+    let _ = writeln!(
+        out,
+        "                    if (*end == '\"') {{ in_str = !in_str; continue; }}"
+    );
     let _ = writeln!(out, "                    if (in_str) continue;");
     let _ = writeln!(out, "                    if (*end == '[' || *end == '{{') depth++;");
-    let _ = writeln!(out, "                    else if (*end == ']' || *end == '}}') {{ depth--; if (depth == 0) {{ end++; break; }} }}");
+    let _ = writeln!(
+        out,
+        "                    else if (*end == ']' || *end == '}}') {{ depth--; if (depth == 0) {{ end++; break; }} }}"
+    );
     let _ = writeln!(out, "                }}");
     let _ = writeln!(out, "                size_t tlen = (size_t)(end - tc);");
     let _ = writeln!(out, "                tool_calls_json = (char*)malloc(tlen + 1);");
     let _ = writeln!(out, "                if (tool_calls_json != NULL) {{");
     let _ = writeln!(out, "                    memcpy(tool_calls_json, tc, tlen);");
     let _ = writeln!(out, "                    tool_calls_json[tlen] = '\\0';");
-    let _ = writeln!(out, "                    const char* fn = strstr(tool_calls_json, \"\\\"function\\\"\");");
+    let _ = writeln!(
+        out,
+        "                    const char* fn = strstr(tool_calls_json, \"\\\"function\\\"\");"
+    );
     let _ = writeln!(out, "                    if (fn != NULL) {{");
-    let _ = writeln!(out, "                        const char* np = strstr(fn, \"\\\"name\\\":\");");
+    let _ = writeln!(
+        out,
+        "                        const char* np = strstr(fn, \"\\\"name\\\":\");"
+    );
     let _ = writeln!(out, "                        if (np != NULL) {{");
     let _ = writeln!(out, "                            np += 7;");
-    let _ = writeln!(out, "                            while (*np == ' ' || *np == '\\t') np++;");
+    let _ = writeln!(
+        out,
+        "                            while (*np == ' ' || *np == '\\t') np++;"
+    );
     let _ = writeln!(out, "                            if (*np == '\"') {{");
     let _ = writeln!(out, "                                np++;");
     let _ = writeln!(out, "                                const char* ne = np;");
-    let _ = writeln!(out, "                                while (*ne && *ne != '\"') {{ if (*ne == '\\\\' && *(ne+1)) ne += 2; else ne++; }}");
+    let _ = writeln!(
+        out,
+        "                                while (*ne && *ne != '\"') {{ if (*ne == '\\\\' && *(ne+1)) ne += 2; else ne++; }}"
+    );
     let _ = writeln!(out, "                                size_t nlen = (size_t)(ne - np);");
-    let _ = writeln!(out, "                                tool_calls_0_function_name = (char*)malloc(nlen + 1);");
-    let _ = writeln!(out, "                                if (tool_calls_0_function_name != NULL) {{");
-    let _ = writeln!(out, "                                    memcpy(tool_calls_0_function_name, np, nlen);");
-    let _ = writeln!(out, "                                    tool_calls_0_function_name[nlen] = '\\0';");
+    let _ = writeln!(
+        out,
+        "                                tool_calls_0_function_name = (char*)malloc(nlen + 1);"
+    );
+    let _ = writeln!(
+        out,
+        "                                if (tool_calls_0_function_name != NULL) {{"
+    );
+    let _ = writeln!(
+        out,
+        "                                    memcpy(tool_calls_0_function_name, np, nlen);"
+    );
+    let _ = writeln!(
+        out,
+        "                                    tool_calls_0_function_name[nlen] = '\\0';"
+    );
     let _ = writeln!(out, "                                }}");
     let _ = writeln!(out, "                            }}");
     let _ = writeln!(out, "                        }}");
@@ -1510,10 +1543,16 @@ fn render_chat_stream_test_function(
     }
 
     let _ = writeln!(out, "    free(stream_content);");
-    let _ = writeln!(out, "    if (last_choices_json != NULL) {prefix}_free_string(last_choices_json);");
+    let _ = writeln!(
+        out,
+        "    if (last_choices_json != NULL) {prefix}_free_string(last_choices_json);"
+    );
     let _ = writeln!(out, "    if (finish_reason != NULL) free(finish_reason);");
     let _ = writeln!(out, "    if (tool_calls_json != NULL) free(tool_calls_json);");
-    let _ = writeln!(out, "    if (tool_calls_0_function_name != NULL) free(tool_calls_0_function_name);");
+    let _ = writeln!(
+        out,
+        "    if (tool_calls_0_function_name != NULL) free(tool_calls_0_function_name);"
+    );
     if request_var.is_some() {
         let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
     }
@@ -1568,10 +1607,7 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
     match (atype, &kind) {
         ("count_min", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                let _ = writeln!(
-                    out,
-                    "    assert({expr} >= {n} && \"expected at least {n} chunks\");"
-                );
+                let _ = writeln!(out, "    assert({expr} >= {n} && \"expected at least {n} chunks\");");
             }
         }
         ("equals", Kind::Str) => {
