@@ -1841,14 +1841,10 @@ fn render_assertion(
     // Detect enum-typed fields. C# emits typed enums (e.g. `FinishReason?`) for
     // these so the codegen must avoid `.Trim()` (string-only) and instead
     // compare via `?.ToString()?.ToLower()` to match snake_case JSON.
-    let field_is_enum = assertion
-        .field
-        .as_deref()
-        .filter(|f| !f.is_empty())
-        .is_some_and(|f| {
-            let resolved = field_resolver.resolve(f);
-            fields_enum.contains(f) || fields_enum.contains(resolved)
-        });
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        fields_enum.contains(f) || fields_enum.contains(resolved)
+    });
 
     match assertion.assertion_type.as_str() {
         "equals" => {

@@ -363,10 +363,7 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
         out,
         "\t\tif [ -z \"$$MOCK_URL\" ]; then echo 'failed to start mock-server' >&2; cat mock_server.stdout >&2; kill $$MOCK_PID 2>/dev/null || true; exit 1; fi; \\"
     );
-    let _ = writeln!(
-        out,
-        "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" ./$(TARGET); STATUS=$$?; \\"
-    );
+    let _ = writeln!(out, "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" ./$(TARGET); STATUS=$$?; \\");
     let _ = writeln!(out, "\t\texec 9>&-; \\");
     let _ = writeln!(out, "\t\tkill $$MOCK_PID 2>/dev/null || true; \\");
     let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");

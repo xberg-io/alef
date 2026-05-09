@@ -114,10 +114,9 @@ pub(super) fn render_assertion(
 /// Return `true` when the assertion compares the field against a numeric value.
 fn assertion_value_is_numeric(assertion: &Assertion) -> bool {
     match assertion.assertion_type.as_str() {
-        "equals" | "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => assertion
-            .value
-            .as_ref()
-            .is_some_and(|v| v.is_number()),
+        "equals" | "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
+            assertion.value.as_ref().is_some_and(|v| v.is_number())
+        }
         _ => false,
     }
 }
@@ -146,9 +145,7 @@ fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_exp
         "equals" => {
             if let Some(serde_json::Value::String(s)) = &assertion.value {
                 let variant = snake_to_pascal(s);
-                out.push_str(&format!(
-                    "    expect({field_expr}).toBe({enum_class}.{variant});\n"
-                ));
+                out.push_str(&format!("    expect({field_expr}).toBe({enum_class}.{variant});\n"));
                 return true;
             }
         }
