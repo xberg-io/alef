@@ -52,12 +52,15 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| call.function.clone());
         // Elixir facade exports async variants with `_async` suffix when the call is async.
-        // Append the suffix only if not already present.
-        let function_name = if call.r#async && !base_function_name.ends_with("_async") {
-            format!("{base_function_name}_async")
-        } else {
-            base_function_name
-        };
+        // Append the suffix only if not already present and the function isn't a streaming
+        // entry-point — streaming wrappers (e.g. `defaultclient_chat_stream`) drive the
+        // FFI iterator handle and aren't async-callable in the OpenAI sense.
+        let function_name =
+            if call.r#async && !base_function_name.ends_with("_async") && !base_function_name.ends_with("_stream") {
+                format!("{base_function_name}_async")
+            } else {
+                base_function_name
+            };
         let options_type = overrides.and_then(|o| o.options_type.clone());
         let options_default_fn = overrides.and_then(|o| o.options_via.clone());
         let empty_enum_fields = HashMap::new();
@@ -699,7 +702,7 @@ fn render_test_case(
         } else {
             elixir_module_name(&raw_module)
         };
-        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") {
+        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
             format!("{base_fn}_async")
         } else {
             base_fn
@@ -818,19 +821,50 @@ fn render_test_case(
             .and_then(|o| o.client_factory.as_deref())
     });
 
+    // Append per-call extra_args (e.g. trailing `nil` for `list_files(client, query)`)
+    // so Elixir matches the binding's positional arity. Mirrors the same override the
+    // Ruby/Go/Node codegens already honor.
+    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let final_args_with_extras = if extra_args.is_empty() {
+        final_args
+    } else if final_args.is_empty() {
+        extra_args.join(", ")
+    } else {
+        format!("{final_args}, {}", extra_args.join(", "))
+    };
+
     // Prefix the client variable to the args when client_factory is set.
     let effective_args = if client_factory.is_some() {
-        if final_args.is_empty() {
+        if final_args_with_extras.is_empty() {
             "client".to_string()
         } else {
-            format!("client, {final_args}")
+            format!("client, {final_args_with_extras}")
         }
     } else {
-        final_args
+        final_args_with_extras
     };
+
+    // Real-API smoke fixtures (no mock_response, no http) must be env-gated on the
+    // configured `env.api_key_var` so absent keys yield a deterministic skip rather
+    // than a spurious "no mock route" failure. Mirrors the Python conftest skip.
+    let needs_api_key_skip = fixture.mock_response.is_none()
+        && fixture.http.is_none()
+        && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{test_label}\" do");
+
+    if needs_api_key_skip {
+        let api_key_var = fixture
+            .env
+            .as_ref()
+            .and_then(|e| e.api_key_var.as_deref())
+            .unwrap_or("");
+        let _ = writeln!(out, "      if System.get_env(\"{api_key_var}\") in [nil, \"\"] do");
+        let _ = writeln!(out, "        # {api_key_var} not set — skipping live smoke test");
+        let _ = writeln!(out, "        :ok");
+        let _ = writeln!(out, "      else");
+    }
 
     for line in &setup_lines {
         let _ = writeln!(out, "      {line}");
@@ -850,6 +884,12 @@ fn render_test_case(
         .and_then(|o| o.returns_result)
         .unwrap_or(call_config.returns_result || client_factory.is_some());
 
+    // Some calls (e.g. speech, file_content) return raw bytes rather than a struct.
+    // When the call is marked `result_is_simple`, treat the bound `result` variable as
+    // the value itself so assertions on a logical "audio"/"content" field map to the
+    // bare binary instead of a struct accessor that doesn't exist.
+    let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
+
     if expects_error {
         if returns_result {
             let _ = writeln!(
@@ -859,6 +899,9 @@ fn render_test_case(
         } else {
             // Non-Result function — just call and discard; error detection not meaningful.
             let _ = writeln!(out, "      _result = {module_path}.{function_name}({effective_args})");
+        }
+        if needs_api_key_skip {
+            let _ = writeln!(out, "      end");
         }
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
@@ -879,9 +922,20 @@ fn render_test_case(
     }
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, &result_var, field_resolver, &module_path);
+        render_assertion(
+            out,
+            assertion,
+            &result_var,
+            field_resolver,
+            &module_path,
+            &e2e_config.fields_enum,
+            result_is_simple,
+        );
     }
 
+    if needs_api_key_skip {
+        let _ = writeln!(out, "      end");
+    }
     let _ = writeln!(out, "    end");
     let _ = writeln!(out, "  end");
 }
@@ -1141,6 +1195,8 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     module_path: &str,
+    fields_enum: &std::collections::HashSet<String>,
+    result_is_simple: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -1289,25 +1345,49 @@ fn render_assertion(
     }
 
     // Skip assertions on fields that don't exist on the result type.
-    if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "      # skipped: field '{f}' not available on result type");
-            return;
+    // When `result_is_simple`, the bound result is the value itself (e.g. a binary)
+    // so `is_valid_for_result` is meaningless — fall through and emit the assertion
+    // against the bare result_var below.
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+                let _ = writeln!(out, "      # skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "elixir", result_var),
-        _ => result_var.to_string(),
+    // result_is_simple: when the call returns the value itself (e.g. a binary for
+    // `speech` / `file_content`), bypass the field accessor and assert against the
+    // bound `result` variable directly.
+    let field_expr = if result_is_simple {
+        result_var.to_string()
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "elixir", result_var),
+            _ => result_var.to_string(),
+        }
     };
 
     // Only wrap in String.trim/0 when the expression is actually a string.
     // Numeric expressions (e.g., length(...)) must not be wrapped.
     let is_numeric = is_numeric_expr(&field_expr);
+    // Detect whether the field resolves to an enum type. Rustler binds Rust
+    // enums as atoms (e.g. `:stop`), so calling `String.trim/1` on them raises
+    // FunctionClauseError. Coerce via `to_string/1` before string ops.
+    let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        fields_enum.contains(f) || fields_enum.contains(resolved)
+    });
+    let coerced_field_expr = if field_is_enum {
+        format!("to_string({field_expr})")
+    } else {
+        field_expr.clone()
+    };
     let trimmed_field_expr = if is_numeric {
         field_expr.clone()
     } else {
-        format!("String.trim({field_expr})")
+        format!("String.trim({coerced_field_expr})")
     };
 
     // Detect whether the assertion field resolves to an array type so that
@@ -1326,6 +1406,8 @@ fn render_assertion(
                 let is_string_expected = expected.is_string();
                 if is_string_expected && !is_numeric {
                     let _ = writeln!(out, "      assert {trimmed_field_expr} == {elixir_val}");
+                } else if field_is_enum {
+                    let _ = writeln!(out, "      assert {coerced_field_expr} == {elixir_val}");
                 } else {
                     let _ = writeln!(out, "      assert {field_expr} == {elixir_val}");
                 }
