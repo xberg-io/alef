@@ -1,4 +1,4 @@
-version = "0.15.8"
+version = "0.15.10"
 languages = []
 
 [crate]
