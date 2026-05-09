@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(pre-commit): prefer pre-installed `alef` binary on PATH (when `--version` matches the pinned `alef.toml` version) before falling back to the cached release tarball download. Speeds up local development (no network round-trip when `cargo install --path crates/alef-cli` already produced a binary) and avoids the "No such file or directory" failure mode when a downstream `.pre-commit-config.yaml` overrode `entry: alef verify` — overrides are no longer needed because the script-language hook itself dispatches to the right binary. Documented in `.pre-commit-hooks.yaml` that `entry:` should not be overridden.
+
 ### Changed
 
 - feat(e2e/java): emit real test bodies parallel to Python codegen — drop `Assumptions.assumeTrue(false, ...)` stubs. The Java e2e generator now resolves `client_factory` and `options_via` from java overrides (with file-level fallback) and emits real bodies for every non-HTTP fixture. With `client_factory` set, tests instantiate a client via `{ClassName}.{factory}("test-key", mockUrl, null, null, null)` (when fixture has `mock_response`/`http`) or via the env-key-or-skip pattern, then dispatch the call as a method on the client. With `options_via = "from_json"`, json_object args are built via `{OptionsType}.fromJson(jsonString)` instead of the builder expression path. The `if call_overrides.is_none() { assumeTrue(false) }` stub branch in `render_test_method` is removed.

@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-"""Download, verify, cache, and exec the pinned alef binary for pre-commit hooks."""
+"""Resolve and exec the pinned alef binary for pre-commit hooks.
+
+Resolution order:
+    1. `alef` already on PATH whose `alef --version` matches the version pinned
+       in this repo's `alef.toml`. Zero-cost path for developers who have run
+       `cargo install --path crates/alef-cli`.
+    2. Cached release tarball under `~/.cache/alef-hooks/{version}/`. If the
+       cache is empty, downloads from GitHub releases and verifies sha256.
+
+Both paths exec the resolved binary with the args passed in by the hook entry.
+"""
 
 import hashlib
 import os
 import platform
+import shutil
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -118,8 +130,44 @@ def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) 
     archive.unlink(missing_ok=True)
 
 
+def _system_binary_matches(version: str) -> Path | None:
+    """Return the path to a system `alef` whose `--version` output matches.
+
+    Looks up `alef` (or `alef.exe` on Windows) on PATH and runs `alef --version`.
+    Accepts the binary if the trailing whitespace-trimmed token equals the pinned
+    version. Returns None on any failure (binary missing, wrong version, version
+    command failed, timeout).
+    """
+    candidate = shutil.which(_binary_name())
+    if candidate is None:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            [candidate, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    # Typical output: "alef 0.15.8" — accept the last whitespace-separated token.
+    last_token = (result.stdout.strip().split() or [""])[-1].lstrip("v")
+    if last_token != version:
+        return None
+    return Path(candidate)
+
+
 def _resolve_binary() -> Path:
     version = _version()
+
+    # Prefer a pre-installed `alef` on PATH whose --version matches.
+    system_binary = _system_binary_matches(version)
+    if system_binary is not None:
+        return system_binary
+
     system, machine = _detect_platform()
     asset_name, fmt = _asset_name_for(system, machine)
     cache = _cache_dir(version)
