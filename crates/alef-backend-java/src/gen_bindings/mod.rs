@@ -263,7 +263,7 @@ impl Backend for JavaBackend {
             if typ.is_opaque && !builder_class_names.contains(&typ.name) {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_opaque_handle_class(&package, typ, &prefix),
+                    content: gen_opaque_handle_class(&package, typ, &prefix, &config.adapters, &main_class),
                     generated_header: true,
                 });
             }

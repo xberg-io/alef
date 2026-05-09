@@ -1,5 +1,5 @@
 use ahash::AHashSet;
-use alef_core::config::ResolvedCrateConfig;
+use alef_core::config::{AdapterPattern, ResolvedCrateConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, TypeRef};
 use heck::ToSnakeCase;
@@ -366,6 +366,124 @@ pub(crate) fn gen_native_lib(
                 },
             );
             trait_handles.push(handle_code);
+        }
+    }
+
+    // Streaming-adapter method handles. For each `[[crates.adapters]]` entry with
+    // pattern = "streaming", emit three downcall handles for the FFI iterator-handle
+    // functions (`_start`, `_next`, `_free`) plus the request `_from_json`/`_free`
+    // and the chunk-item `_to_json`/`_free` accessors needed to drive the iterator
+    // from Java. The Java public method is emitted on the owner opaque handle class.
+    for adapter in &config.adapters {
+        if !matches!(adapter.pattern, AdapterPattern::Streaming) {
+            continue;
+        }
+        let Some(owner_type) = adapter.owner_type.as_deref() else { continue; };
+        let Some(item_type) = adapter.item_type.as_deref() else { continue; };
+        let Some(request_type) = adapter
+            .params
+            .first()
+            .map(|p| p.ty.as_str())
+            .filter(|s| !s.is_empty())
+        else { continue; };
+
+        let owner_snake = owner_type.to_snake_case();
+        let owner_upper = owner_snake.to_uppercase();
+        let adapter_snake = adapter.name.to_snake_case();
+        let adapter_upper = adapter_snake.to_uppercase();
+        let prefix_upper = prefix.to_uppercase();
+
+        // _start: (client_ptr, request_ptr) -> stream_handle_ptr
+        let start_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_START");
+        let start_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_start");
+        let start_layout =
+            "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_normal.jinja",
+            minijinja::context! {
+                handle_name => start_handle,
+                ffi_name => start_ffi,
+                layout => start_layout,
+            },
+        ));
+
+        // _next: (stream_handle_ptr) -> item_ptr
+        let next_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_NEXT");
+        let next_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_next");
+        let next_layout = "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)".to_string();
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_normal.jinja",
+            minijinja::context! {
+                handle_name => next_handle,
+                ffi_name => next_ffi,
+                layout => next_layout,
+            },
+        ));
+
+        // _free: (stream_handle_ptr) -> void
+        let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
+        let free_ffi = format!("{prefix}_{owner_snake}_{adapter_snake}_free");
+        accessor_handles.push(crate::template_env::render(
+            "method_handle_free.jinja",
+            minijinja::context! {
+                handle_name => free_handle,
+                ffi_name => free_ffi,
+            },
+        ));
+
+        // Request type _from_json + _free (used to marshal the request POJO into a
+        // pointer the FFI iterator-start expects).
+        let request_snake = request_type.to_snake_case();
+        let request_upper = request_snake.to_uppercase();
+
+        let req_from_json_handle = format!("{prefix_upper}_{request_upper}_FROM_JSON");
+        let req_from_json_ffi = format!("{prefix}_{request_snake}_from_json");
+        if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_from_json.jinja",
+                minijinja::context! {
+                    handle_name => req_from_json_handle,
+                    ffi_name => req_from_json_ffi,
+                },
+            ));
+        }
+        let req_free_handle = format!("{prefix_upper}_{request_upper}_FREE");
+        let req_free_ffi = format!("{prefix}_{request_snake}_free");
+        if emitted_free_handles.insert(req_free_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_free.jinja",
+                minijinja::context! {
+                    handle_name => req_free_handle,
+                    ffi_name => req_free_ffi,
+                },
+            ));
+        }
+
+        // Item type _to_json + _free (used to deserialize each chunk pointer back
+        // into a Java record).
+        let item_snake = item_type.to_snake_case();
+        let item_upper = item_snake.to_uppercase();
+        let item_to_json_handle = format!("{prefix_upper}_{item_upper}_TO_JSON");
+        let item_to_json_ffi = format!("{prefix}_{item_snake}_to_json");
+        if emitted_to_json_handles.insert(item_to_json_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_to_json.jinja",
+                minijinja::context! {
+                    handle_name => item_to_json_handle,
+                    ffi_name => item_to_json_ffi,
+                },
+            ));
+        }
+        let item_free_handle = format!("{prefix_upper}_{item_upper}_FREE");
+        let item_free_ffi = format!("{prefix}_{item_snake}_free");
+        if emitted_free_handles.insert(item_free_handle.clone()) {
+            accessor_handles.push(crate::template_env::render(
+                "method_handle_free.jinja",
+                minijinja::context! {
+                    handle_name => item_free_handle,
+                    ffi_name => item_free_ffi,
+                },
+            ));
         }
     }
 
