@@ -1349,6 +1349,33 @@ fn test_scaffold_kotlin() {
     assert_eq!(files[0].path, PathBuf::from("packages/kotlin/build.gradle.kts"));
     assert!(files[0].content.contains("kotlin(\"jvm\")"));
     assert!(files[0].content.contains("org.jlleitschuh.gradle.ktlint"));
+    // jspecify is required by the alef-emitted Java facade.
+    assert!(
+        files[0].content.contains("org.jspecify:jspecify:"),
+        "build.gradle.kts must declare jspecify; got:\n{}",
+        files[0].content
+    );
+    // ktlint must skip the Java facade and build/generated dirs.
+    assert!(
+        files[0].content.contains("filter {")
+            && files[0].content.contains("/packages/java/")
+            && files[0].content.contains("**/build/**")
+            && files[0].content.contains("**/generated/**"),
+        "ktlint filter block missing or incomplete; got:\n{}",
+        files[0].content
+    );
+    // Maven artifactId override disambiguates Kotlin module from sibling Java module.
+    assert!(
+        files[0].content.contains("artifactId = \"my-lib-kotlin\""),
+        "publication artifactId override missing; got:\n{}",
+        files[0].content
+    );
+    // JDK 25 is the minimum (FFM finalized).
+    assert!(
+        files[0].content.contains("JavaVersion.VERSION_25") && files[0].content.contains("JvmTarget.JVM_25"),
+        "build.gradle.kts must target JDK 25; got:\n{}",
+        files[0].content
+    );
     assert_eq!(files[1].path, PathBuf::from("packages/kotlin/settings.gradle.kts"));
     assert_eq!(files[2].path, PathBuf::from("packages/kotlin/.gitignore"));
     assert_eq!(files[3].path, PathBuf::from("packages/kotlin/.editorconfig"));
@@ -1365,6 +1392,11 @@ fn test_scaffold_kotlin() {
     assert!(files[6].content.contains("object"));
     assert_eq!(files[7].path, PathBuf::from(".github/workflows/kotlin.yml"));
     assert!(files[7].content.contains("gradle build"));
+    assert!(
+        files[7].content.contains(r#"java-version: "25""#),
+        "kotlin.yml must pin java-version 25 for FFM; got:\n{}",
+        files[7].content
+    );
 }
 
 #[test]
