@@ -36,6 +36,8 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block} }}
+async-trait = "0.1"
+serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt", "macros"] }}
 swift-bridge = "{swift_bridge_ver}"

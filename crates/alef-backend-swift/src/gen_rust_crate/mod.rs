@@ -9,6 +9,7 @@ pub(crate) mod cargo;
 pub(crate) mod default_construction;
 pub(crate) mod enums;
 pub(crate) mod extern_block;
+pub(crate) mod plugin_inbound;
 pub(crate) mod shims;
 pub(crate) mod trait_bridge;
 pub(crate) mod type_bridge;
@@ -224,6 +225,18 @@ fn emit_lib_rs(
     for (_bridge_cfg, trait_def) in &active_bridges {
         extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(trait_def));
     }
+    // Inbound (extern "Swift") plugin bridges — Swift implements the Rust trait.
+    // First the register/unregister entry points (extern "Rust"), then the Swift-side
+    // type and method declarations (extern "Swift").
+    for (bridge_cfg, trait_def) in &active_bridges {
+        let reg_block = plugin_inbound::emit_extern_block_for_inbound_registration(trait_def, bridge_cfg);
+        if !reg_block.is_empty() {
+            extern_blocks.push(reg_block);
+        }
+    }
+    for (_bridge_cfg, trait_def) in &active_bridges {
+        extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def));
+    }
 
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
@@ -261,6 +274,22 @@ fn emit_lib_rs(
             trait_def,
             &source_crate,
             &enum_names,
+        ));
+        out.push('\n');
+    }
+
+    // Inbound plugin trait bridges (Swift implements the Rust trait): emit the shared
+    // error helper once, then per-trait wrapper structs + Plugin/Trait impls + register fns.
+    if !active_bridges.is_empty() {
+        out.push_str(&plugin_inbound::emit_plugin_error_helper(&source_crate));
+    }
+    for (bridge_cfg, trait_def) in &active_bridges {
+        out.push_str(&plugin_inbound::emit_inbound_wrapper(
+            trait_def,
+            bridge_cfg,
+            api,
+            &source_crate,
+            &type_paths,
         ));
         out.push('\n');
     }
