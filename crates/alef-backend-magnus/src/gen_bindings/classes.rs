@@ -3,7 +3,7 @@
 use ahash::AHashSet;
 use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators;
-use alef_codegen::shared::{constructor_parts, function_params};
+use alef_codegen::shared::function_params;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 

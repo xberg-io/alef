@@ -864,10 +864,10 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
             }
             let go_field = to_go_name(&field.name);
             // Per-field `#[serde(rename = "...")]` wins over `rename_all`.
-        let json_name = field
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
+            let json_name = field
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
             let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
             let is_named_enum = !field.optional
                 && !use_default_pointer

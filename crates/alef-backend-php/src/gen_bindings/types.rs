@@ -322,7 +322,10 @@ fn gen_struct_methods_impl(
             }
 
             // Only generate constructor if there's at least one representable required field (otherwise from_json is simpler)
-            let has_representable_required = typ.fields.iter().any(|f| !f.optional && field_can_be_param(&f.ty, enum_names));
+            let has_representable_required = typ
+                .fields
+                .iter()
+                .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names));
 
             if has_representable_required {
                 let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);

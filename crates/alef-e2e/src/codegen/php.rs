@@ -128,8 +128,12 @@ impl E2eCodegen for PhpCodegen {
             generated_header: false,
         });
 
-        // Check if any fixture is an HTTP test (needs mock server bootstrap).
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+        // Check if any fixture needs a mock HTTP server (either http-shape or
+        // liter-llm mock_response-shape) so bootstrap.php spawns it.
+        let has_http_fixtures = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {

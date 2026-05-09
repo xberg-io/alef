@@ -350,8 +350,8 @@ fn render_spec_file(
                     fixture_call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
                 // Use per-fixture-call result_is_simple so per-call overrides like
                 // `speech` (returns bytes) take precedence over the top-level call default.
-                let fixture_result_is_simple = fixture_call.result_is_simple
-                    || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
+                let fixture_result_is_simple =
+                    fixture_call.result_is_simple || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
                 let example = render_example(
                     fixture,
                     &fixture_function_name,

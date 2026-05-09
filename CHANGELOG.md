@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/php): bootstrap.php now spawns the mock HTTP server when fixtures
+  use the `mock_response` schema (in addition to the `http` schema). Switched
+  the trigger from `is_http_test()` to `needs_mock_server()` to match the
+  Ruby/Python behavior; otherwise `MOCK_SERVER_URL` was unset and reqwest
+  failed with "builder error" on every call.
+
 ## [0.15.2] - 2026-05-09
 
 ### Fixed

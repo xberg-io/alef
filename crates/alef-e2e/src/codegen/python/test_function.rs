@@ -326,7 +326,7 @@ fn build_args_and_setup(
             arg_bindings.push(format!(
                 "    {var_name} = os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'"
             ));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -366,7 +366,7 @@ fn build_args_and_setup(
                 _ => "None".to_string(),
             };
             arg_bindings.push(format!("    {var_name} = {default_val}"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -382,7 +382,7 @@ fn build_args_and_setup(
             ""
         };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-        kwarg_exprs.push(var_name.to_string());
+        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
     }
 
     (arg_bindings, kwarg_exprs)
@@ -430,7 +430,7 @@ fn emit_handle_arg(
         let literal = json_to_python_literal(config_value);
         arg_bindings.push(format!("    {var_name} = {constructor_name}({literal})"));
     }
-    kwarg_exprs.push(var_name.to_string());
+    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
 }
 
 fn build_handle_kwarg_value(
@@ -498,7 +498,7 @@ fn emit_json_object_arg(
                         })
                         .collect();
                     arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                    kwarg_exprs.push(var_name.to_string());
+                    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                     return true;
                 }
             }
@@ -510,14 +510,14 @@ fn emit_json_object_arg(
                 ""
             };
             arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             true
         }
         "json" => {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             let escaped = escape_python(&json_str);
             arg_bindings.push(format!("    {var_name} = json.loads(\"{escaped}\")"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             true
         }
         "from_json" => {
@@ -525,7 +525,7 @@ fn emit_json_object_arg(
                 let json_str = serde_json::to_string(value).unwrap_or_default();
                 let escaped = escape_python(&json_str);
                 arg_bindings.push(format!("    {var_name} = {opts_type}.from_json(\"{escaped}\")"));
-                kwarg_exprs.push(var_name.to_string());
+                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                 true
             } else {
                 false
@@ -543,7 +543,7 @@ fn emit_json_object_arg(
                             .map(|obj| emit_python_batch_item(obj, elem_type))
                             .collect();
                         arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                        kwarg_exprs.push(var_name.to_string());
+                        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                         return true;
                     }
                 }
@@ -569,7 +569,7 @@ fn emit_json_object_arg(
                     .collect();
                 let constructor = format!("{opts_type}({})", kwargs.join(", "));
                 arg_bindings.push(format!("    {var_name} = {constructor}"));
-                kwarg_exprs.push(var_name.to_string());
+                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                 true
             } else {
                 false
@@ -603,7 +603,7 @@ fn emit_bytes_arg(
     } else {
         arg_bindings.push(format!("    {var_name} = None"));
     }
-    kwarg_exprs.push(var_name.to_string());
+    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
 }
 
 /// Emit a Python batch item (BatchBytesItem or BatchFileItem) constructor.
