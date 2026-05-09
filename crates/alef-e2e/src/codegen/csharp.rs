@@ -870,15 +870,40 @@ fn render_test_method(
         class_name.to_string()
     };
 
-    // Build client factory setup code
+    // Build client factory setup code. For fixtures whose env block sets
+    // an `api_key_var` AND that have neither `mock_response` nor an `http`
+    // override (live-smoke tests against real provider APIs), prepend an
+    // early-return when the env var is unset so CI without API keys does
+    // not fail with `not found: No mock route for ...`. Mirrors the
+    // Elixir / Python skip pattern documented in CHANGELOG v0.15.9.
     let mut client_factory_setup = String::new();
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
-        client_factory_setup.push_str(&format!(
-            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
-        ));
+        let is_live_smoke = fixture.mock_response.is_none()
+            && fixture.http.is_none()
+            && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
+        if is_live_smoke {
+            let api_key_var = fixture
+                .env
+                .as_ref()
+                .and_then(|e| e.api_key_var.as_deref())
+                .unwrap_or("");
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(
+                "        if (string.IsNullOrEmpty(apiKey)) { return; }\n",
+            );
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else {
+            client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
+        }
     }
 
     // Build call expression
@@ -1016,12 +1041,32 @@ fn render_chat_stream_test_method(
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        client_factory_setup.push_str(&format!(
-            "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"
-        ));
-        client_factory_setup.push_str(&format!(
-            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
-        ));
+        let is_live_smoke = fixture.mock_response.is_none()
+            && fixture.http.is_none()
+            && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
+        if is_live_smoke {
+            let api_key_var = fixture
+                .env
+                .as_ref()
+                .and_then(|e| e.api_key_var.as_deref())
+                .unwrap_or("");
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(
+                "        if (string.IsNullOrEmpty(apiKey)) { return; }\n",
+            );
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else {
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+            ));
+        }
     }
 
     let call_target = if client_factory.is_some() { "client" } else { class_name };
