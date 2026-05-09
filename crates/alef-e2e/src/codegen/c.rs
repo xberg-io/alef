@@ -23,6 +23,30 @@ use super::E2eCodegen;
 /// C e2e code generator.
 pub struct CCodegen;
 
+/// Returns true when `t` is a primitive C scalar type (uint64_t, int32_t, double,
+/// etc.) that should be emitted as a typed local variable rather than a heap
+/// `char*` accessor result.
+fn is_primitive_c_type(t: &str) -> bool {
+    matches!(
+        t,
+        "uint8_t"
+            | "uint16_t"
+            | "uint32_t"
+            | "uint64_t"
+            | "int8_t"
+            | "int16_t"
+            | "int32_t"
+            | "int64_t"
+            | "uintptr_t"
+            | "intptr_t"
+            | "size_t"
+            | "ssize_t"
+            | "double"
+            | "float"
+            | "bool"
+    )
+}
+
 impl E2eCodegen for CCodegen {
     fn generate(
         &self,
@@ -179,6 +203,10 @@ struct ResolvedCallInfo {
     /// declarations, a status-code check, and `<prefix>_free_bytes` rather
     /// than treating the result as an opaque response handle.
     result_is_bytes: bool,
+    /// Per-language `extra_args` from call overrides — verbatim trailing
+    /// arguments appended after the configured `args`. The C codegen passes
+    /// `NULL` for absent optional pointers via this mechanism.
+    extra_args: Vec<String>,
 }
 
 fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
@@ -210,6 +238,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
     // same FFI crate) or the per-language override (back-compat with the
     // pattern used by Java / PHP / etc.).
     let result_is_bytes = call.result_is_bytes || overrides.is_some_and(|o| o.result_is_bytes);
+    let extra_args = overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
     ResolvedCallInfo {
         function_name,
         result_type_name,
@@ -220,6 +249,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         c_free_fn,
         result_is_option,
         result_is_bytes,
+        extra_args,
     }
 }
 
@@ -561,6 +591,7 @@ fn render_test_file(
             call_info.c_free_fn.as_deref(),
             call_info.result_is_option,
             call_info.result_is_bytes,
+            &call_info.extra_args,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -587,6 +618,7 @@ fn render_test_function(
     c_free_fn: Option<&str>,
     result_is_option: bool,
     result_is_bytes: bool,
+    extra_args: &[String],
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -639,6 +671,10 @@ fn render_test_function(
     // then frees result, request handles, and client.
     if let Some(factory) = client_factory {
         let mut request_handle_vars: Vec<(String, String)> = Vec::new(); // (arg_name, var_name)
+        // Inline argument expressions appended after request handles in the
+        // method call (e.g. literal C strings for `string` args, `NULL` for
+        // optional pointer args). Order matches the position in `args`.
+        let mut inline_method_args: Vec<String> = Vec::new();
 
         for arg in args {
             if arg.arg_type == "json_object" {
@@ -677,6 +713,31 @@ fn render_test_function(
                         request_handle_vars.push((arg.name.clone(), var_name));
                     }
                 }
+            } else if arg.arg_type == "string" {
+                // String arg: read fixture input, emit as a C string literal inline.
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                let val = fixture.input.get(field);
+                match val {
+                    Some(v) if v.is_string() => {
+                        let s = v.as_str().unwrap_or_default();
+                        let escaped = escape_c(s);
+                        inline_method_args.push(format!("\"{escaped}\""));
+                    }
+                    Some(serde_json::Value::Null) | None if arg.optional => {
+                        inline_method_args.push("NULL".to_string());
+                    }
+                    None => {
+                        inline_method_args.push("\"\"".to_string());
+                    }
+                    Some(other) => {
+                        let s = serde_json::to_string(other).unwrap_or_default();
+                        let escaped = escape_c(&s);
+                        inline_method_args.push(format!("\"{escaped}\""));
+                    }
+                }
+            } else if arg.optional {
+                // Optional non-string, non-json_object arg: pass NULL.
+                inline_method_args.push("NULL".to_string());
             }
         }
 
@@ -686,11 +747,19 @@ fn render_test_function(
         );
         let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
-        let method_args = if request_handle_vars.is_empty() {
+        let method_args = if request_handle_vars.is_empty()
+            && inline_method_args.is_empty()
+            && extra_args.is_empty()
+        {
             String::new()
         } else {
-            let handles: Vec<&str> = request_handle_vars.iter().map(|(_, v)| v.as_str()).collect();
-            format!(", {}", handles.join(", "))
+            let handles: Vec<String> = request_handle_vars.iter().map(|(_, v)| v.clone()).collect();
+            let parts: Vec<String> = handles
+                .into_iter()
+                .chain(inline_method_args.iter().cloned())
+                .chain(extra_args.iter().cloned())
+                .collect();
+            format!(", {}", parts.join(", "))
         };
 
         let call_fn = format!("{prefix}_default_client_{function_name}");
@@ -718,6 +787,9 @@ fn render_test_function(
 
         let mut intermediate_handles: Vec<(String, String)> = Vec::new();
         let mut accessed_fields: Vec<(String, String, bool)> = Vec::new();
+        // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
+        // Locals not present here default to char* (heap-allocated accessor result).
+        let mut primitive_locals: HashMap<String, String> = HashMap::new();
 
         for assertion in &fixture.assertions {
             if let Some(f) = &assertion.field {
@@ -726,7 +798,7 @@ fn render_test_function(
                     let local_var = f.replace(['.', '['], "_").replace(']', "");
                     let has_map_access = resolved.contains('[');
                     if resolved.contains('.') {
-                        emit_nested_accessor(
+                        let leaf_primitive = emit_nested_accessor(
                             out,
                             prefix,
                             resolved,
@@ -736,10 +808,19 @@ fn render_test_function(
                             &mut intermediate_handles,
                             result_type_name,
                         );
+                        if let Some(prim) = leaf_primitive {
+                            primitive_locals.insert(local_var.clone(), prim);
+                        }
                     } else {
                         let result_type_snake = result_type_name.to_snake_case();
                         let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
-                        let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                        let lookup_key = format!("{result_type_snake}.{resolved}");
+                        if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                            let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
+                            primitive_locals.insert(local_var.clone(), t.clone());
+                        } else {
+                            let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                        }
                     }
                     accessed_fields.push((f.clone(), local_var, has_map_access));
                 }
@@ -747,10 +828,21 @@ fn render_test_function(
         }
 
         for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, prefix, field_resolver, &accessed_fields);
+            render_assertion(
+                out,
+                assertion,
+                result_var,
+                prefix,
+                field_resolver,
+                &accessed_fields,
+                &primitive_locals,
+            );
         }
 
         for (_f, local_var, from_json) in &accessed_fields {
+            if primitive_locals.contains_key(local_var) {
+                continue;
+            }
             if *from_json {
                 let _ = writeln!(out, "    free({local_var});");
             } else {
@@ -1030,6 +1122,8 @@ fn render_test_function(
     // Track intermediate handles emitted so we can free them and avoid duplicates.
     // Each entry: (handle_var_name, snake_type_name) — freed in reverse order.
     let mut intermediate_handles: Vec<(String, String)> = Vec::new();
+    // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
+    let mut primitive_locals: HashMap<String, String> = HashMap::new();
 
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
@@ -1039,7 +1133,7 @@ fn render_test_function(
                 let has_map_access = resolved.contains('[');
 
                 if resolved.contains('.') {
-                    emit_nested_accessor(
+                    let leaf_primitive = emit_nested_accessor(
                         out,
                         prefix,
                         resolved,
@@ -1049,10 +1143,19 @@ fn render_test_function(
                         &mut intermediate_handles,
                         result_type_name,
                     );
+                    if let Some(prim) = leaf_primitive {
+                        primitive_locals.insert(local_var.clone(), prim);
+                    }
                 } else {
                     let result_type_snake = result_type_name.to_snake_case();
                     let accessor_fn = format!("{prefix}_{result_type_snake}_{resolved}");
-                    let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                    let lookup_key = format!("{result_type_snake}.{resolved}");
+                    if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                        let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
+                        primitive_locals.insert(local_var.clone(), t.clone());
+                    } else {
+                        let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                    }
                 }
                 accessed_fields.push((f.clone(), local_var.clone(), has_map_access));
             }
@@ -1060,11 +1163,22 @@ fn render_test_function(
     }
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, prefix, field_resolver, &accessed_fields);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            prefix,
+            field_resolver,
+            &accessed_fields,
+            &primitive_locals,
+        );
     }
 
     // Free extracted leaf strings.
     for (_f, local_var, from_json) in &accessed_fields {
+        if primitive_locals.contains_key(local_var) {
+            continue;
+        }
         if *from_json {
             let _ = writeln!(out, "    free({local_var});");
         } else {
@@ -1682,7 +1796,7 @@ fn emit_nested_accessor(
     fields_c_types: &HashMap<String, String>,
     intermediate_handles: &mut Vec<(String, String)>,
     result_type_name: &str,
-) {
+) -> Option<String> {
     let segments: Vec<&str> = resolved.split('.').collect();
     let prefix_upper = prefix.to_uppercase();
 
@@ -1714,14 +1828,20 @@ fn emit_nested_accessor(
                 out,
                 "    char* {local_var} = alef_json_get_string({json_var}, \"{key}\");"
             );
-            return; // Map access is always the leaf.
+            return None; // Map access leaf — char*.
         }
 
         let seg_snake = segment.to_snake_case();
         let accessor_fn = format!("{prefix}_{current_snake_type}_{seg_snake}");
 
         if is_leaf {
-            // Leaf field returns char* — assign to the local variable.
+            // Leaf may be a primitive scalar (uint64_t, double, ...) when
+            // configured in `fields_c_types`. Otherwise default to char*.
+            let lookup_key = format!("{current_snake_type}.{seg_snake}");
+            if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+                let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({current_handle});");
+                return Some(t.clone());
+            }
             let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({current_handle});");
         } else {
             // Intermediate field returns an opaque handle.
@@ -1752,6 +1872,7 @@ fn emit_nested_accessor(
             current_handle = handle_var;
         }
     }
+    None
 }
 
 /// Build the C argument string for the function call.
@@ -1801,6 +1922,7 @@ fn render_assertion(
     ffi_prefix: &str,
     _field_resolver: &FieldResolver,
     accessed_fields: &[(String, String, bool)],
+    primitive_locals: &HashMap<String, String>,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
@@ -1822,16 +1944,61 @@ fn render_assertion(
         _ => result_var.to_string(),
     };
 
+    let field_is_primitive = primitive_locals.contains_key(&field_expr);
+    let field_primitive_type = primitive_locals.get(&field_expr).cloned();
+    // Map-access fields are extracted via `alef_json_get_string` and end up
+    // as char*. When the assertion expects a numeric or boolean value, we
+    // emit a parsed/literal comparison rather than `strcmp`.
+    let field_is_map_access = if let Some(f) = &assertion.field {
+        accessed_fields.iter().any(|(k, _, m)| k == f && *m)
+    } else {
+        false
+    };
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let c_val = json_to_c(expected);
-                if expected.is_string() {
-                    // Use str_trim_eq for string comparisons to handle trailing whitespace.
+                if field_is_primitive {
+                    let cmp_val = if field_primitive_type.as_deref() == Some("bool") {
+                        match expected.as_bool() {
+                            Some(true) => "1".to_string(),
+                            Some(false) => "0".to_string(),
+                            None => c_val,
+                        }
+                    } else {
+                        c_val
+                    };
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} == {cmp_val} && \"equals assertion failed\");"
+                    );
+                } else if expected.is_string() {
                     let _ = writeln!(
                         out,
                         "    assert(str_trim_eq({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
                     );
+                } else if field_is_map_access && expected.is_boolean() {
+                    let lit = match expected.as_bool() {
+                        Some(true) => "\"true\"",
+                        _ => "\"false\"",
+                    };
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} != NULL && strcmp({field_expr}, {lit}) == 0 && \"equals assertion failed\");"
+                    );
+                } else if field_is_map_access && expected.is_number() {
+                    if expected.is_f64() {
+                        let _ = writeln!(
+                            out,
+                            "    assert({field_expr} != NULL && atof({field_expr}) == {c_val} && \"equals assertion failed\");"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert({field_expr} != NULL && atoll({field_expr}) == {c_val} && \"equals assertion failed\");"
+                        );
+                    }
                 } else {
                     let _ = writeln!(
                         out,
@@ -1902,31 +2069,59 @@ fn render_assertion(
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let c_val = json_to_c(val);
-                let _ = writeln!(out, "    assert({field_expr} > {c_val} && \"expected greater than\");");
+                if field_is_map_access && val.is_number() && !field_is_primitive {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} != NULL && atof({field_expr}) > {c_val} && \"expected greater than\");"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert({field_expr} > {c_val} && \"expected greater than\");");
+                }
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let c_val = json_to_c(val);
-                let _ = writeln!(out, "    assert({field_expr} < {c_val} && \"expected less than\");");
+                if field_is_map_access && val.is_number() && !field_is_primitive {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} != NULL && atof({field_expr}) < {c_val} && \"expected less than\");"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert({field_expr} < {c_val} && \"expected less than\");");
+                }
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let c_val = json_to_c(val);
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} >= {c_val} && \"expected greater than or equal\");"
-                );
+                if field_is_map_access && val.is_number() && !field_is_primitive {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} != NULL && atof({field_expr}) >= {c_val} && \"expected greater than or equal\");"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} >= {c_val} && \"expected greater than or equal\");"
+                    );
+                }
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let c_val = json_to_c(val);
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} <= {c_val} && \"expected less than or equal\");"
-                );
+                if field_is_map_access && val.is_number() && !field_is_primitive {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} != NULL && atof({field_expr}) <= {c_val} && \"expected less than or equal\");"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    assert({field_expr} <= {c_val} && \"expected less than or equal\");"
+                    );
+                }
             }
         }
         "starts_with" => {
