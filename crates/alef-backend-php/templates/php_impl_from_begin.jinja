@@ -1,3 +1,6 @@
+{%- if has_stripped_cfg_fields %}
+#[allow(clippy::needless_update)]
+{%- endif %}
 #[allow(clippy::useless_conversion)]
 impl From<{{ binding_type }}> for {{ core_type }} {
     fn from(val: {{ binding_type }}) -> Self {

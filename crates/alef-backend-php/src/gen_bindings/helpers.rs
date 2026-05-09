@@ -871,6 +871,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         context! {
             binding_type => &typ.name,
             core_type => &core_path,
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
         },
     ));
     for field in &typ.fields {
@@ -1033,7 +1034,9 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     }
     out.push_str(&crate::template_env::render(
         "php_impl_from_end.jinja",
-        minijinja::Value::default(),
+        context! {
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+        },
     ));
     out
 }
