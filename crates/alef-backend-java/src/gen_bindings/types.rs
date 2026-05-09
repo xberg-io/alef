@@ -888,7 +888,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                     "            MemorySegment {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
                 ));
                 out.push_str(&format!(
-                    "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\"); }}\n"
+                    "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
                 ));
                 named_ptr_frees.push((cname.clone(), req_free));
                 call_args.push(cname);
@@ -916,7 +916,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                     "                {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
                 ));
                 out.push_str(&format!(
-                    "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\"); }}\n"
+                    "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
                 ));
                 out.push_str("            }\n");
                 named_ptr_frees.push((cname.clone(), req_free));
@@ -930,7 +930,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                     "            // TODO unsupported parameter type for {pname}\n"
                 ));
                 out.push_str(&format!(
-                    "            throw new {exception_class}(\"{method_name}: unsupported parameter shape\");\n"
+                    "            throw new {exception_class}(\"{method_name}: unsupported parameter shape\", (Throwable) null);\n"
                 ));
                 out.push_str("        } catch (Throwable e) {\n");
                 out.push_str(&format!(
@@ -1027,7 +1027,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
         out.push_str("                    checkLastFfiError();\n");
         out.push_str(&format!(
-            "                    throw new {exception_class}(\"{method_name}: failed to serialize response\");\n"
+            "                    throw new {exception_class}(\"{method_name}: failed to serialize response\", (Throwable) null);\n"
         ));
         out.push_str("                }\n");
         out.push_str("                String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
@@ -1050,7 +1050,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
             "            // TODO unsupported return shape for {method_name}\n"
         ));
         out.push_str(&format!(
-            "            throw new {exception_class}(\"{method_name}: unsupported return shape\");\n"
+            "            throw new {exception_class}(\"{method_name}: unsupported return shape\", (Throwable) null);\n"
         ));
     }
 
@@ -1136,7 +1136,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     out.push_str("            if (requestPtr.equals(MemorySegment.NULL)) {\n");
     out.push_str("                checkLastFfiError();\n");
     out.push_str(&format!(
-        "                throw new {exception_class}(\"{method_name}: failed to marshal request\");\n"
+        "                throw new {exception_class}(\"{method_name}: failed to marshal request\", (Throwable) null);\n"
     ));
     out.push_str("            }\n");
     out.push_str("            try {\n");
@@ -1157,7 +1157,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     out.push_str("        if (streamHandle == null || streamHandle.equals(MemorySegment.NULL)) {\n");
     out.push_str("            checkLastFfiError();\n");
     out.push_str(&format!(
-        "            throw new {exception_class}(\"{method_name}: stream handle was null\");\n"
+        "            throw new {exception_class}(\"{method_name}: stream handle was null\", (Throwable) null);\n"
     ));
     out.push_str("        }\n");
     out.push_str("        final MemorySegment finalStreamHandle = streamHandle;\n");
@@ -1219,7 +1219,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
         "                        NativeLib.{item_free}.invoke(chunkPtr);\n"
     ));
     out.push_str(&format!(
-        "                        throw new RuntimeException(new {exception_class}(\"{method_name}: failed to serialize chunk\"));\n"
+        "                        throw new RuntimeException(new {exception_class}(\"{method_name}: failed to serialize chunk\", (Throwable) null));\n"
     ));
     out.push_str("                    }\n");
     out.push_str("                    String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
