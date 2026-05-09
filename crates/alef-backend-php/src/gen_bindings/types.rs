@@ -309,13 +309,22 @@ fn gen_struct_methods_impl(
             // Also generate a #[php(constructor)] for named construction.
             // Include parameters for all scalar/Vec fields (required and optional).
             // Omit complex optional fields (they default to None).
-            fn field_can_be_param(ty: &alef_core::ir::TypeRef, enum_names: &AHashSet<String>) -> bool {
+            fn field_can_be_param(ty: &alef_core::ir::TypeRef, enum_names: &AHashSet<String>, opaque_types: &AHashSet<String>) -> bool {
                 match ty {
-                    alef_core::ir::TypeRef::Vec(_) => true,
+                    alef_core::ir::TypeRef::Vec(inner) => {
+                        // Vec<NonOpaqueCustomType> cannot be a constructor param (requires error handling for FromZval)
+                        match inner.as_ref() {
+                            alef_core::ir::TypeRef::Named(name) => {
+                                // Only allow if it's opaque or an enum (which map to String)
+                                opaque_types.contains(name.as_str()) || enum_names.contains(name.as_str())
+                            }
+                            _ => true, // Vec<primitive>, Vec<String>, etc.
+                        }
+                    }
                     alef_core::ir::TypeRef::Bytes => true,
                     alef_core::ir::TypeRef::Optional(inner) => {
                         // Optional scalar/Vec can be a param; optional complex cannot
-                        field_can_be_param(inner, enum_names)
+                        field_can_be_param(inner, enum_names, opaque_types)
                     }
                     _ => is_php_prop_scalar_with_enums(ty, enum_names),
                 }

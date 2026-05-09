@@ -180,6 +180,21 @@ impl Backend for JavaBackend {
             .map(|e| e.name.clone())
             .collect();
 
+        // Collect sealed union types with unwrapped/tuple variants that need custom deserializers.
+        // When a record field references one of these types, we need to add a @JsonDeserialize
+        // annotation to the field so Jackson uses the custom deserializer.
+        let sealed_unions_with_unwrapped: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| {
+                e.serde_tag.is_some()
+                    && e.variants
+                        .iter()
+                        .any(|v| v.fields.len() == 1 && helpers::is_tuple_field_name(&v.fields[0].name))
+            })
+            .map(|e| e.name.clone())
+            .collect();
+
         // Resolve language-level serde rename strategy (always wins over IR type-level).
         let lang_rename_all = config.serde_rename_all_for_language(Language::Java);
 
@@ -197,7 +212,7 @@ impl Backend for JavaBackend {
                 }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all, has_visitor_pattern),
+                    content: gen_record_type(&package, typ, &complex_enums, &sealed_unions_with_unwrapped, &lang_rename_all, has_visitor_pattern),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults

@@ -161,12 +161,29 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         })
     });
 
+    // Detect whether any fixture uses file_path or bytes args — if so, setUpAll must chdir
+    // to the test_documents directory so that relative paths like "docx/fake.docx" resolve.
+    // Mirrors the Ruby/Python conftest and Swift setUp patterns.
+    let needs_chdir = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        call_config
+            .args
+            .iter()
+            .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+    });
+
     let _ = writeln!(out, "import 'package:test/test.dart';");
     let _ = writeln!(out, "import 'dart:io';");
     if has_batch_byte_items {
         let _ = writeln!(out, "import 'dart:typed_data';");
     }
     let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
+    // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
+    // It lives in the FRB-generated frb_generated.dart inside the kreuzberg package.
+    let _ = writeln!(out, "import 'package:kreuzberg/src/frb/frb_generated.dart' show RustLib;");
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
         let _ = writeln!(out, "import 'dart:convert';");
@@ -219,6 +236,25 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "void main() {{");
+
+    // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
+    // when fixtures load files by path, chdir to test_documents so that relative
+    // paths like "docx/fake.docx" resolve correctly.
+    //
+    // The test_documents directory lives two levels above e2e/dart/ (at the repo root).
+    // The FIXTURES_DIR environment variable can override this for CI environments.
+    let _ = writeln!(out, "  setUpAll(() async {{");
+    let _ = writeln!(out, "    await RustLib.init();");
+    if needs_chdir {
+        let _ = writeln!(
+            out,
+            "    final _testDocs = Platform.environment['FIXTURES_DIR'] ?? '../../test_documents';"
+        );
+        let _ = writeln!(out, "    final _dir = Directory(_testDocs);");
+        let _ = writeln!(out, "    if (_dir.existsSync()) Directory.current = _dir;");
+    }
+    let _ = writeln!(out, "  }});");
+    let _ = writeln!(out);
 
     // Close the shared client after all tests in this file complete.
     if has_http_fixtures {
