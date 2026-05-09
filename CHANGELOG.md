@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(e2e): `exclude_categories` filter omits non-binding-surface fixtures from cross-language codegen. Set `exclude_categories = ["cache", "proxy", ...]` under `[crates.e2e]` (or a top-level `[e2e]` block) and every per-language e2e generator skips fixtures whose resolved category matches an entry in the set — no test, no skip directive, no commented body. The fixture files stay on disk and remain available to the consumer's own Rust integration tests, so middleware-only fixtures (cache, proxy, budget, hooks, ...) can keep their existing Rust coverage without polluting bindings whose public API does not expose those layers. The validate pass treats excluded categories as expected-empty and no longer warns about them.
 - feat(release-metadata): recognise `dart`, `swift`, `gleam`, `zig`, and `kotlin` as release targets. They join the existing 14 targets in `ALL_RELEASE_TARGETS`, are emitted as `release_dart` / `release_swift` / `release_gleam` / `release_zig` / `release_kotlin` boolean fields in the JSON output, and are accepted by `--targets`. Aliases: `flutter`/`pub` → `dart`, `spm` → `swift`, `kt` → `kotlin`. Required for kreuzberg's publish workflow which now ships these languages.
 
+## [0.15.8] - 2026-05-09
+
+### Fixed
+
+- fix(pre-commit): resolve pre-commit hook binary in extraction subdirectory. The release tarball top-level entry (e.g. `alef-aarch64-apple-darwin/`) extracts into the version cache directory, placing the binary at `~/.cache/alef-hooks/{version}/{target}/alef`. The hook was previously looking for the binary one level up, resulting in `FileNotFoundError` when executing `alef-verify` or `alef-sync-versions` hooks in downstream projects.
+
 ## [0.15.7] - 2026-05-09
 
 ### Fixed

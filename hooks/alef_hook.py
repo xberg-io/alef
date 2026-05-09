@@ -75,17 +75,16 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _cache_dir(version: str, asset_name: str) -> Path:
-    target = asset_name.split(".", maxsplit=1)[0]
+def _cache_dir(version: str) -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return base / "alef-hooks" / version / target
+    return base / "alef-hooks" / version
 
 
 def _binary_name() -> str:
     return "alef.exe" if platform.system().lower() == "windows" else "alef"
 
 
-def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) -> Path:
+def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) -> None:
     url = f"https://github.com/{REPO}/releases/download/v{version}/{asset_name}"
     archive = cache / asset_name
     cache.mkdir(parents=True, exist_ok=True)
@@ -117,18 +116,18 @@ def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) 
             zf.extractall(cache)  # noqa: S202
 
     archive.unlink(missing_ok=True)
-    return cache / _binary_name()
 
 
 def _resolve_binary() -> Path:
     version = _version()
     system, machine = _detect_platform()
     asset_name, fmt = _asset_name_for(system, machine)
-    cache = _cache_dir(version, asset_name)
-    binary = cache / _binary_name()
+    cache = _cache_dir(version)
+    target = asset_name.split(".", maxsplit=1)[0]
+    binary = cache / target / _binary_name()
 
     if not binary.is_file():
-        binary = _download_and_extract(version, asset_name, fmt, cache)
+        _download_and_extract(version, asset_name, fmt, cache)
 
     if not os.access(binary, os.X_OK):
         binary.chmod(binary.stat().st_mode | 0o111)

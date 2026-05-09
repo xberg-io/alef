@@ -54,8 +54,7 @@ use anyhow::Result;
 ///   function but only carry per-language type/arg overrides are still emitted
 ///   for languages without an explicit override.
 pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_config: &E2eConfig) -> bool {
-    if !e2e_config.exclude_categories.is_empty()
-        && e2e_config.exclude_categories.contains(&fixture.resolved_category())
+    if !e2e_config.exclude_categories.is_empty() && e2e_config.exclude_categories.contains(&fixture.resolved_category())
     {
         return false;
     }
