@@ -3,7 +3,8 @@
 {% endif %}#[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {
 {% for field in fields %}
-    {{ field.name }}: {{ field.field_type }},
+{% if field.field_type == 'u64' and (field.name == 'request_timeout' or field.name == 'timeout') %}    #[serde(default = "30000")]
+{% endif %}    {{ field.name }}: {{ field.field_type }},
 {% endfor %}
 }
 
