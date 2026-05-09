@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/python): emit positional arguments instead of `kwarg=var` in test call sites. Reverts a regression introduced by 0.15.5 (`fix(e2e/php): spawn mock server when fixtures use mock_response schema`) which inadvertently re-added the `{kwarg_name}={var_name}` form across all branches in `build_args_and_setup`. The kwarg name was sourced from `alef.toml` and did not match the binding's actual pyo3 parameter name, producing `TypeError: ... got an unexpected keyword argument 'request'` for every chat/embed/moderate test. Restores positional emission so the call works regardless of binding-side parameter naming.
 - fix(php-backend): map `TypeRef::Bytes` params to PHP `String` and convert to `Vec<u8>` via `into_bytes()` at constructor / call sites (PHP strings are binary-safe). Avoids the missing `FromZval for Vec<u8>` in ext-php-rs that previously surfaced as compile errors on speech / file-content endpoints.
 
 ## [0.15.6] - 2026-05-09
