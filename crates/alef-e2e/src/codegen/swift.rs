@@ -640,6 +640,18 @@ fn render_test_method(
 }
 
 /// Build setup lines and the argument list for the function call.
+///
+/// Swift-bridge wrappers require strongly-typed values that don't have implicit
+/// Swift literal conversions:
+///
+/// - `bytes` args become `RustVec<UInt8>` — fixture supplies a relative file path
+///   string which is read at test time and pushed into a `RustVec<UInt8>` setup
+///   variable. A literal byte array is base64-decoded or UTF-8 encoded inline.
+/// - `json_object` args become opaque `ExtractionConfig` (or sibling) instances —
+///   a JSON string is decoded via `extractionConfigFromJson(...)` in a setup line.
+/// - Optional args missing from the fixture must still appear at the call site
+///   as `nil` whenever a later positional arg is present, otherwise Swift slots
+///   subsequent values into the wrong parameter.
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -653,7 +665,22 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
-    for arg in args {
+    // Pre-compute, for each arg index, whether any later arg has a fixture-provided
+    // value (or is required and will emit a default). When an optional arg is empty
+    // but a later arg WILL emit, we must keep the slot with `nil` so positional
+    // alignment is preserved.
+    let later_emits: Vec<bool> = (0..args.len())
+        .map(|i| {
+            args.iter().skip(i + 1).any(|a| {
+                let f = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                let v = input.get(f);
+                let has_value = matches!(v, Some(x) if !x.is_null());
+                has_value || !a.optional || (a.arg_type == "json_object" && a.name == "config")
+            })
+        })
+        .collect();
+
+    for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
                 "let {} = ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\"",
@@ -663,20 +690,89 @@ fn build_args_and_setup(
             continue;
         }
 
+        // bytes args: fixture stores a fixture-relative path string. Generate
+        // setup that reads it into a Data and pushes each byte into a
+        // RustVec<UInt8>. Literal byte arrays inline the bytes; missing values
+        // produce an empty vec (or `nil` when optional).
+        if arg.arg_type == "bytes" {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
+            match val {
+                None | Some(serde_json::Value::Null) if arg.optional => {
+                    if later_emits[idx] {
+                        parts.push("nil".to_string());
+                    }
+                }
+                None | Some(serde_json::Value::Null) => {
+                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    parts.push(var_name);
+                }
+                Some(serde_json::Value::String(s)) => {
+                    let escaped = escape_swift(s);
+                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
+                    let data_var = format!("{}Data", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!(
+                        "let {data_var} = try Data(contentsOf: URL(fileURLWithPath: \"{escaped}\"))"
+                    ));
+                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!("for _byte in {data_var} {{ {var_name}.push(value: _byte) }}"));
+                    parts.push(var_name);
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    for v in arr {
+                        if let Some(n) = v.as_u64() {
+                            setup_lines.push(format!("{var_name}.push(value: UInt8({n}))"));
+                        }
+                    }
+                    parts.push(var_name);
+                }
+                Some(other) => {
+                    // Fallback: encode the JSON serialisation as UTF-8 bytes.
+                    let json_str = serde_json::to_string(other).unwrap_or_default();
+                    let escaped = escape_swift(&json_str);
+                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!("let {var_name} = RustVec<UInt8>()"));
+                    setup_lines.push(format!(
+                        "for _byte in Array(\"{escaped}\".utf8) {{ {var_name}.push(value: _byte) }}"
+                    ));
+                    parts.push(var_name);
+                }
+            }
+            continue;
+        }
+
+        // json_object "config" args: the swift-bridge wrapper requires an opaque
+        // `ExtractionConfig` (or sibling) instance, not a JSON string. Use the
+        // generated `extractionConfigFromJson(_:)` helper from RustBridge.
+        // Batch functions (batchExtract*) hardcode config internally — skip it.
+        let is_config_arg = arg.name == "config" && arg.arg_type == "json_object";
+        let is_batch_fn = function_name.starts_with("batch") || function_name.starts_with("Batch");
+        if is_config_arg && !is_batch_fn {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
+            let json_str = match val {
+                None | Some(serde_json::Value::Null) => "{}".to_string(),
+                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            };
+            let escaped = escape_swift(&json_str);
+            let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
+            setup_lines.push(format!("let {var_name} = try extractionConfigFromJson(\"{escaped}\")"));
+            parts.push(var_name);
+            continue;
+        }
+
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // For json_object "config" args in non-batch extract functions, the swift
-                // e2e wrappers always require a configJson String parameter. Provide an
-                // empty JSON object so the call signature matches the wrapper.
-                // Batch functions (batchExtract*) hardcode config internally — skip it.
-                let is_config_arg = arg.name == "config" && arg.arg_type == "json_object";
-                let is_batch_fn = function_name.starts_with("batch") || function_name.starts_with("Batch");
-                if is_config_arg && !is_batch_fn {
-                    parts.push("\"{}\"".to_string());
-                } else {
-                    continue;
+                // Optional arg with no fixture value: keep the slot with `nil`
+                // when a later arg will emit, so positional alignment matches
+                // the swift-bridge wrapper signature.
+                if later_emits[idx] {
+                    parts.push("nil".to_string());
                 }
             }
             None | Some(serde_json::Value::Null) => {
