@@ -108,6 +108,25 @@ pub struct E2eConfig {
     /// `batch.completed_count` on a `ScrapeResult`).
     #[serde(default)]
     pub result_fields: HashSet<String>,
+    /// Fixture categories excluded from cross-language e2e codegen.
+    ///
+    /// Fixtures whose resolved category matches an entry in this set are
+    /// skipped by every per-language e2e generator — no test is emitted at
+    /// all (no skip directive, no commented-out body). The fixture files stay
+    /// on disk and remain available to Rust integration tests inside the
+    /// consumer crate's own `tests/` directory.
+    ///
+    /// Use this to keep fixtures that exercise internal middleware (cache,
+    /// proxy, budget, hooks, etc.) out of bindings whose public surface does
+    /// not expose those layers.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e]
+    /// exclude_categories = ["cache", "proxy", "budget", "hooks"]
+    /// ```
+    #[serde(default)]
+    pub exclude_categories: HashSet<String>,
     /// C FFI accessor type chain: maps `"{parent_snake_type}.{field}"` to the
     /// PascalCase return type name (without prefix).
     ///
