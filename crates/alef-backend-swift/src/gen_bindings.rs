@@ -548,11 +548,27 @@ fn emit_e2e_wrappers(out: &mut String) {
 /// The wrapper function name is derived by stripping the `_sync` suffix from the
 /// function name (if present) and converting to camelCase. The inner call uses
 /// the camelCased name of the function directly (which swift-bridge exposes).
+///
+/// When the convenience wrapper has the same Swift name as the underlying bridge
+/// function (i.e. the Rust name had no `_sync` suffix to strip), the same-module
+/// overload would shadow the imported `RustBridge.<name>(_:_:...)` declaration.
+/// In that case we explicitly qualify the inner call with `RustBridge.` so Swift's
+/// overload resolution finds the positional bridge wrapper instead of looping back
+/// to the labeled convenience overloads — which would either fail to compile or
+/// resolve to the convenience overload itself (causing infinite recursion / wrong
+/// return type, e.g. a Swift `String` that has no `.toString()` member).
 fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
     let swift_inner = swift_ident(&func.name.to_lower_camel_case());
     // Wrapper name: strip trailing "Sync" for the public-facing overload name.
     let wrapper_name = if swift_inner.ends_with("Sync") {
         swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    // Qualify the inner call with `RustBridge.` when the convenience wrapper would
+    // shadow the imported bridge function (same Swift name).
+    let inner_call = if wrapper_name == swift_inner {
+        format!("RustBridge.{swift_inner}")
     } else {
         swift_inner.clone()
     };
@@ -571,9 +587,7 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     out.push_str("    content: String");
     emit_trailing_params(trailing_params.iter().copied(), out);
     out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!(
-        "    return try {swift_inner}(makeByteVec(Array(content.utf8))"
-    ));
+    out.push_str(&format!("    return try {inner_call}(makeByteVec(Array(content.utf8))"));
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
@@ -585,7 +599,7 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     out.push_str("    content: [UInt8]");
     emit_trailing_params(trailing_params.iter().copied(), out);
     out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!("    return try {swift_inner}(makeByteVec(content)"));
+    out.push_str(&format!("    return try {inner_call}(makeByteVec(content)"));
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
@@ -595,10 +609,19 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
 /// Emits a String path convenience overload for a function whose first param is
 /// `TypeRef::Path`. The wrapper accepts `path: String` instead of a `URL` or `Path`
 /// and delegates to the camelCased bridge function directly.
+///
+/// As with `emit_bytes_overloads`, when the convenience wrapper has the same Swift
+/// name as the underlying bridge function we qualify the inner call with
+/// `RustBridge.` to avoid shadowing the imported declaration.
 fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
     let swift_inner = swift_ident(&func.name.to_lower_camel_case());
     let wrapper_name = if swift_inner.ends_with("Sync") {
         swift_inner[..swift_inner.len() - 4].to_string()
+    } else {
+        swift_inner.clone()
+    };
+    let inner_call = if wrapper_name == swift_inner {
+        format!("RustBridge.{swift_inner}")
     } else {
         swift_inner.clone()
     };
@@ -613,7 +636,7 @@ fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet
     out.push_str("    path: String");
     emit_trailing_params_with_defaults(trailing_params.iter().copied(), out);
     out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!("    return try {swift_inner}(path"));
+    out.push_str(&format!("    return try {inner_call}(path"));
     for p in &trailing_params {
         out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
     }
