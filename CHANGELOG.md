@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/php): treat `field == "input"` as the entire fixture input object
+  in PHP arg resolution (mirroring the shared `resolve_field` helper used by
+  Python/Ruby/Go). Previously every call whose argument bound the whole input
+  (e.g. `chat`, `embed` with `req=input`) generated `client->methodAsync(null)`,
+  causing ~99 of 128 PHP e2e errors with "Invalid value given for argument".
 - fix(napi-backend): represent `#[serde(untagged)]` data enums as a thin
   `serde_json::Value` wrapper struct with manual `FromNapiValue`/`ToNapiValue`
   impls. Previously the variants were flattened to a `#[napi(string_enum)]`

@@ -995,8 +995,12 @@ fn build_args_and_setup(
     // whether a missing optional middle arg must emit `null` to preserve the
     // positional argument layout, or can be safely dropped.
     let arg_has_emission = |arg: &crate::config::ArgMapping| -> bool {
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let val = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) => !arg.optional,
             Some(_) => true,
@@ -1017,8 +1021,12 @@ fn build_args_and_setup(
         if arg.arg_type == "handle" {
             // Generate a createEngine (or equivalent) call and pass the variable.
             let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let config_value = if arg.field == "input" {
+                input
+            } else {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                input.get(field).unwrap_or(&serde_json::Value::Null)
+            };
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
@@ -1043,8 +1051,12 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let val = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
 
         // Bytes args: fixture stores either a fixture-relative path string (load
         // with file_get_contents at runtime, mirroring the go/python convention)
