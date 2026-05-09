@@ -1286,7 +1286,11 @@ fn render_chat_stream_test_function(
         let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
     }
     let _ = writeln!(out, "    {prefix}_default_client_free(client);");
-    let _ = writeln!(out, "    /* suppress unused */ (void)total_tokens; (void)no_chunks_after_done;");
+    let _ = writeln!(
+        out,
+        "    /* suppress unused */ (void)total_tokens; (void)no_chunks_after_done; \
+         (void)stream_complete; (void)chunks_count; (void)stream_content_len;"
+    );
     let _ = writeln!(out, "}}");
 }
 
