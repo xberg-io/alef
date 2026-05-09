@@ -142,7 +142,7 @@ def _system_binary_matches(version: str) -> Path | None:
     if candidate is None:
         return None
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [candidate, "--version"],
             check=False,
             capture_output=True,
