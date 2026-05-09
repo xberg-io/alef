@@ -2044,32 +2044,33 @@ fn csharp_object_initializer(
                 .iter()
                 .find(|(k, _)| *k == key.as_str())
                 .map(|(_, t)| *t);
-            let cs_val = if let Some(enum_type) = enum_fields.get(key.as_str()).map(String::as_str).or(implicit_enum_type) {
-                // Enum: EnumType.Member
-                if val.is_null() {
-                    "null".to_string()
+            let cs_val =
+                if let Some(enum_type) = enum_fields.get(key.as_str()).map(String::as_str).or(implicit_enum_type) {
+                    // Enum: EnumType.Member
+                    if val.is_null() {
+                        "null".to_string()
+                    } else {
+                        let member = val
+                            .as_str()
+                            .map(|s| s.to_upper_camel_case())
+                            .unwrap_or_else(|| "null".to_string());
+                        format!("{enum_type}.{member}")
+                    }
+                } else if let Some(nested_type) = nested_types.get(key.as_str()) {
+                    // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
+                    let normalized = normalize_csharp_enum_values(val, enum_fields);
+                    let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                    format!(
+                        "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
+                        escape_csharp(&json_str)
+                    )
+                } else if let Some(arr) = val.as_array() {
+                    // Array: List<string>
+                    let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
+                    format!("new List<string> {{ {} }}", items.join(", "))
                 } else {
-                    let member = val
-                        .as_str()
-                        .map(|s| s.to_upper_camel_case())
-                        .unwrap_or_else(|| "null".to_string());
-                    format!("{enum_type}.{member}")
-                }
-            } else if let Some(nested_type) = nested_types.get(key.as_str()) {
-                // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
-                let normalized = normalize_csharp_enum_values(val, enum_fields);
-                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                format!(
-                    "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
-                    escape_csharp(&json_str)
-                )
-            } else if let Some(arr) = val.as_array() {
-                // Array: List<string>
-                let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
-                format!("new List<string> {{ {} }}", items.join(", "))
-            } else {
-                json_to_csharp(val)
-            };
+                    json_to_csharp(val)
+                };
             format!("{pascal_key} = {cs_val}")
         })
         .collect();

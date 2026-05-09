@@ -617,9 +617,8 @@ fn gen_struct_methods_impl(
                 } else {
                     format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
                 };
-                let getter_method = format!(
-                    "#[php(getter)]\npub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}"
-                );
+                let getter_method =
+                    format!("#[php(getter)]\npub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}");
                 impl_builder.add_method(&getter_method);
                 continue;
             }

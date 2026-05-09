@@ -96,11 +96,12 @@ pub struct ConversionConfig<'a> {
     /// Names of untagged data enums (`#[serde(untagged)]` with at least one data variant —
     /// e.g. `Single(String) | Multiple(Vec<String>)`). Fields referencing these types are
     /// stored as `serde_json::Value` in the binding struct (the wire JSON shape varies per
-    /// variant, so we accept any value at the boundary).  Conversions:
+    /// variant, so we accept any value at the boundary). Used by the PHP backend; ext-php-rs
+    /// has no `FromZval`/`IntoZval` for typed Rust enums with mixed-shape variants, and the
+    /// only safe wire format is JSON-via-Value. Conversions:
+    ///
     ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
     ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
-    /// Used by the PHP backend; ext-php-rs has no `FromZval`/`IntoZval` for typed Rust enums
-    /// with mixed-shape variants, and the only safe wire format is JSON-via-Value.
     pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
 }
 

@@ -362,7 +362,10 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
     if let Some(from_pos) = content.find(&from_marker) {
         let full_from_pos = from_pos + from_marker.len();
         let before_from = &content[..from_pos];
-        if let Some(import_pos) = before_from.rfind("import {").or_else(|| before_from.rfind("import init, {")) {
+        if let Some(import_pos) = before_from
+            .rfind("import {")
+            .or_else(|| before_from.rfind("import init, {"))
+        {
             let import_section = &content[import_pos..full_from_pos];
 
             // Already patched — nothing to do.

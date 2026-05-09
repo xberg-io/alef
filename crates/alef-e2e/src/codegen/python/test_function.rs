@@ -40,7 +40,6 @@ pub(super) fn render_test_function(
 
     let python_override = call_config.overrides.get("python");
     let result_is_simple = python_override.is_some_and(|o| o.result_is_simple);
-    let arg_name_map = python_override.map(|o| &o.arg_name_map);
 
     // Per-fixture call override takes precedence over the file-level value.
     let effective_options_type = python_override.and_then(|o| o.options_type.as_deref()).or(options_type);
@@ -84,7 +83,6 @@ pub(super) fn render_test_function(
         enum_fields,
         handle_nested_types,
         handle_dict_types,
-        arg_name_map,
     );
 
     // Build visitor class if present
@@ -294,17 +292,12 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
-    arg_name_map: Option<&HashMap<String, String>>,
 ) -> (Vec<String>, Vec<String>) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
 
     for arg in &call_config.args {
         let var_name = &arg.name;
-        let kwarg_name = arg_name_map
-            .and_then(|m| m.get(var_name.as_str()))
-            .map(|s| s.as_str())
-            .unwrap_or(var_name.as_str());
 
         if arg.arg_type == "handle" {
             emit_handle_arg(
@@ -313,7 +306,6 @@ fn build_args_and_setup(
                 fixture,
                 arg,
                 var_name,
-                kwarg_name,
                 options_type,
                 handle_nested_types,
                 handle_dict_types,
@@ -343,7 +335,6 @@ fn build_args_and_setup(
                 &mut kwarg_exprs,
                 value,
                 var_name,
-                kwarg_name,
                 options_type,
                 options_via,
                 enum_fields,
@@ -371,7 +362,7 @@ fn build_args_and_setup(
         }
 
         if arg.arg_type == "bytes" {
-            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name, kwarg_name);
+            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name);
             continue;
         }
 
@@ -395,7 +386,6 @@ fn emit_handle_arg(
     fixture: &Fixture,
     arg: &crate::config::ArgMapping,
     var_name: &str,
-    kwarg_name: &str,
     options_type: Option<&str>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
@@ -472,7 +462,6 @@ fn emit_json_object_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
-    kwarg_name: &str,
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
@@ -583,7 +572,6 @@ fn emit_bytes_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
-    kwarg_name: &str,
 ) {
     if let Some(raw) = value.as_str() {
         match classify_bytes_value(raw) {
@@ -716,7 +704,6 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
-            None,
         );
         assert!(bindings.is_empty());
         assert!(exprs.is_empty());
@@ -727,7 +714,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("pdf/memo.pdf".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content", "content");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content");
         assert!(bindings[0].contains("Path("), "got: {:?}", bindings[0]);
         assert!(bindings[0].contains("read_bytes"), "got: {:?}", bindings[0]);
     }
@@ -737,7 +724,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("/9j/4AAQ".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data", "data");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data");
         assert!(bindings[0].contains("b64decode"), "got: {:?}", bindings[0]);
     }
 
@@ -750,7 +737,6 @@ mod tests {
             &mut bindings,
             &mut exprs,
             &value,
-            "opts",
             "opts",
             None,
             "dict",

@@ -222,6 +222,7 @@ pub(super) fn gen_opaque_struct_methods(
 }
 
 /// Generate an opaque instance method that delegates to self.inner.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_instance_method(
     method: &MethodDef,
     mapper: &NapiMapper,

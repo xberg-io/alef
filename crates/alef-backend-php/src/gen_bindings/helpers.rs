@@ -1115,18 +1115,6 @@ fn gen_string_to_enum_expr(
     }
 }
 
-/// PHP-specific core→binding conversion with Bytes→String handling.
-/// Uses the shared gen_from_core_to_binding_cfg (which already handles
-/// Bytes→String correctly since we changed the type mapping).
-pub(crate) fn gen_php_from_core_to_binding(
-    typ: &alef_core::ir::TypeDef,
-    core_import: &str,
-    opaque_types: &ahash::AHashSet<String>,
-    config: &alef_codegen::conversions::ConversionConfig,
-) -> String {
-    alef_codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, config)
-}
-
 /// Generate a global Tokio runtime for PHP async support.
 pub(crate) fn gen_tokio_runtime() -> String {
     "static WORKER_RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {

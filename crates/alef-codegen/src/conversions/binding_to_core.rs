@@ -704,18 +704,12 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n))));
         if direct_named {
             if optional {
-                return format!(
-                    "{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())"
-                );
+                return format!("{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())");
             }
-            return format!(
-                "{name}: serde_json::from_value(val.{name}).unwrap_or_default()"
-            );
+            return format!("{name}: serde_json::from_value(val.{name}).unwrap_or_default()");
         }
         if optional_named {
-            return format!(
-                "{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())"
-            );
+            return format!("{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())");
         }
         if vec_named {
             if optional {
@@ -723,9 +717,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                     "{name}: val.{name}.map(|v| v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())"
                 );
             }
-            return format!(
-                "{name}: val.{name}.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect()"
-            );
+            return format!("{name}: val.{name}.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect()");
         }
         if optional_vec_named {
             return format!(
