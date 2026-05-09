@@ -778,7 +778,10 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
                             } else {
                                 "nil".to_string()
                             };
-                            Some(format!("Kreuzberg::{}.new(path: \"{}\", config: {})", elem_type, path, config_arg))
+                            Some(format!(
+                                "Kreuzberg::{}.new(path: \"{}\", config: {})",
+                                elem_type, path, config_arg
+                            ))
                         }
                         _ => None,
                     }

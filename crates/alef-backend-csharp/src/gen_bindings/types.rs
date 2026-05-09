@@ -615,6 +615,7 @@ pub(crate) fn gen_byte_array_to_int_array_converter(namespace: &str) -> String {
 
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
+    out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
 
