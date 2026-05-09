@@ -339,7 +339,7 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     // assigned MOCK_SERVER_URL line on stdout, exports it for the test process,
     // runs the suite, then tears the server down. This mirrors the per-language
     // conftest/setup machinery used by Python, Ruby, Java, etc.
-    let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../rust/target/release/mock-server");
+    let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../../target/release/mock-server");
     let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
     let _ = writeln!(out);
     let _ = writeln!(out, "test: $(TARGET)");
@@ -349,7 +349,7 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "\t\tif [ ! -x \"$(MOCK_SERVER_BIN)\" ]; then \\");
     let _ = writeln!(
         out,
-        "\t\t\techo \"mock-server binary not found at $(MOCK_SERVER_BIN); run: cargo build --manifest-path ../rust/Cargo.toml --bin mock-server --release\" >&2; \\"
+        "\t\t\techo \"mock-server binary not found at $(MOCK_SERVER_BIN); run: cargo build -p mock-server --release\" >&2; \\"
     );
     let _ = writeln!(out, "\t\t\texit 1; \\");
     let _ = writeln!(out, "\t\tfi; \\");
@@ -357,7 +357,7 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "\t\tmkfifo mock_server.stdin; \\");
     let _ = writeln!(
         out,
-        "\t\t\"$(MOCK_SERVER_BIN)\" \"$(FIXTURES_DIR)\" <mock_server.stdin >mock_server.stdout 2>&1 & \\"
+        "\t\t\"$(MOCK_SERVER_BIN)\" --fixtures \"$(FIXTURES_DIR)\" <mock_server.stdin >mock_server.stdout 2>&1 & \\"
     );
     let _ = writeln!(out, "\t\tMOCK_PID=$$!; \\");
     let _ = writeln!(out, "\t\texec 9>mock_server.stdin; \\");
