@@ -196,6 +196,7 @@ struct ResolvedCallInfo {
     args: Vec<crate::config::ArgMapping>,
     raw_c_result_type: Option<String>,
     c_free_fn: Option<String>,
+    c_engine_factory: Option<String>,
     result_is_option: bool,
     /// When `true`, the FFI signature for this method follows the byte-buffer
     /// out-pointer pattern: `int32_t fn(this, req, uint8_t** out_ptr,
@@ -230,6 +231,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
     let client_factory = overrides.and_then(|o| o.client_factory.as_ref()).cloned();
     let raw_c_result_type = overrides.and_then(|o| o.raw_c_result_type.clone());
     let c_free_fn = overrides.and_then(|o| o.c_free_fn.clone());
+    let c_engine_factory = overrides.and_then(|o| o.c_engine_factory.clone());
     let result_is_option = overrides
         .and_then(|o| if o.result_is_option { Some(true) } else { None })
         .unwrap_or(call.result_is_option);
@@ -247,6 +249,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         args: call.args.clone(),
         raw_c_result_type,
         c_free_fn,
+        c_engine_factory,
         result_is_option,
         result_is_bytes,
         extra_args,
