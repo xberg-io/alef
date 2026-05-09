@@ -381,9 +381,17 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                         let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
                         args.push(dart_items);
                     }
+                } else if arg_def.name == "config" {
+                    if let serde_json::Value::Object(map) = &arg_value {
+                        // Fixture provides config overrides — build an ExtractionConfig constructor
+                        // with defaults, overriding only the fields present in the fixture JSON.
+                        // This handles error-triggering configs like {force_ocr:true, disable_ocr:true}.
+                        if !map.is_empty() {
+                            args.push(emit_extraction_config_dart(map));
+                        }
+                    }
+                    // If config is null/absent, the wrapper supplies the default ExtractionConfig.
                 }
-                // Optional json_object args (e.g. config) are omitted — the wrapper
-                // supplies the default ExtractionConfig when config is not passed.
             }
             _ => {}
         }
@@ -404,13 +412,13 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     if expects_error {
-        // expectLater takes a Future directly as the first argument; the Future resolves
-        // and if it throws the throwsA matcher catches the exception. Use throwsException
-        // (package:test built-in matcher) which avoids the anything() type constraint
-        // issues with package:matcher API changes in Dart 3.x.
+        // flutter_rust_bridge 2.x decodes Rust errors as raw String values (not Exception
+        // subtypes), so throwsException will not match. Use throwsA(anything) which matches
+        // any thrown object regardless of type. Note: `anything` is a const Matcher value,
+        // not a function — do not write `anything()` (Dart 3 / matcher-0.12.x compile error).
         let _ = writeln!(
             out,
-            "    await expectLater({receiver_class}.{function_name}({args_str}), throwsException);"
+            "    await expectLater({receiver_class}.{function_name}({args_str}), throwsA(anything));"
         );
     } else {
         let _ = writeln!(
@@ -421,6 +429,70 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
+}
+
+/// Converts a snake_case JSON key to Dart camelCase.
+fn snake_to_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut next_upper = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            next_upper = true;
+        } else if next_upper {
+            result.extend(ch.to_uppercase());
+            next_upper = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Emits a Dart `ExtractionConfig(...)` constructor with default values, overriding
+/// fields present in `overrides` (from fixture JSON, snake_case keys).
+///
+/// Only simple scalar overrides (bool, int) are supported. Complex nested types
+/// (ocr, chunking, etc.) are left at their defaults (null).
+fn emit_extraction_config_dart(overrides: &serde_json::Map<String, serde_json::Value>) -> String {
+    // Collect scalar overrides; convert keys to camelCase.
+    let mut field_overrides: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (key, val) in overrides {
+        let camel = snake_to_camel(key);
+        let dart_val = match val {
+            serde_json::Value::Bool(b) => {
+                if *b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => format!("'{s}'"),
+            _ => continue, // skip complex nested objects
+        };
+        field_overrides.insert(camel, dart_val);
+    }
+
+    let use_cache = field_overrides.remove("useCache").unwrap_or_else(|| "true".to_string());
+    let enable_quality_processing = field_overrides
+        .remove("enableQualityProcessing")
+        .unwrap_or_else(|| "true".to_string());
+    let force_ocr = field_overrides
+        .remove("forceOcr")
+        .unwrap_or_else(|| "false".to_string());
+    let disable_ocr = field_overrides
+        .remove("disableOcr")
+        .unwrap_or_else(|| "false".to_string());
+    let include_document_structure = field_overrides
+        .remove("includeDocumentStructure")
+        .unwrap_or_else(|| "false".to_string());
+    let max_archive_depth = field_overrides
+        .remove("maxArchiveDepth")
+        .unwrap_or_else(|| "3".to_string());
+
+    format!(
+        "ExtractionConfig(useCache: {use_cache}, enableQualityProcessing: {enable_quality_processing}, forceOcr: {force_ocr}, disableOcr: {disable_ocr}, resultFormat: ResultFormat.unified, outputFormat: OutputFormat.plain(), includeDocumentStructure: {include_document_structure}, maxArchiveDepth: {max_archive_depth})"
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -162,8 +162,7 @@ fn emit_lib_rs(
 
     // Compute the transitive closure of all struct/enum types reachable from function-
     // parameter types that need From conversion, via non-sanitized field references.
-    let types_needing_from_impl =
-        compute_types_needing_from_impl(api, &param_types_needing_from, exclude_types);
+    let types_needing_from_impl = compute_types_needing_from_impl(api, &param_types_needing_from, exclude_types);
 
     // Emit From<T> for kreuzberg::T impls (mirror-to-core direction) for types in the
     // transitive closure. Only those types (not all types) get this impl, avoiding
@@ -250,11 +249,10 @@ fn compute_types_containing_sanitized(
                 continue;
             }
             // Check if any field references a type already in result.
-            let references_sanitized = ty.fields.iter().any(|f| {
-                collect_named_types(&f.ty)
-                    .iter()
-                    .any(|n| result.contains(n))
-            });
+            let references_sanitized = ty
+                .fields
+                .iter()
+                .any(|f| collect_named_types(&f.ty).iter().any(|n| result.contains(n)));
             if references_sanitized {
                 result.insert(ty.name.clone());
                 changed = true;
