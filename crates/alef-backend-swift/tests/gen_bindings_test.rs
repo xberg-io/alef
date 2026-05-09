@@ -545,7 +545,8 @@ fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
 #[test]
 fn bytes_first_param_emits_string_and_uint8_overloads() {
     // IR: analyze_bytes(content: Bytes, config: AnalyzeConfig) -> AnalyzeResult
-    // Should emit String + [UInt8] overloads named `analyzeBytes` delegating to `analyzeBytes`.
+    // Should emit String + [UInt8] overloads named `analyzeBytes` delegating to
+    // `RustBridge.analyzeBytes` (qualified to avoid same-module shadowing).
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -566,7 +567,7 @@ fn bytes_first_param_emits_string_and_uint8_overloads() {
     let content = &files[0].content;
 
     // The wrapper name is `analyzeBytes` (no `_sync` suffix to strip here).
-    // The inner call is also `analyzeBytes`.
+    // The inner call must be `RustBridge.analyzeBytes` to bypass shadowing.
 
     // String overload present using the IR-derived name — not "extractBytes"
     assert!(
@@ -577,6 +578,15 @@ fn bytes_first_param_emits_string_and_uint8_overloads() {
     assert!(
         content.contains("public func analyzeBytes(\n    content: [UInt8]"),
         "missing [UInt8] overload for analyzeBytes: {content}"
+    );
+    // Inner call must be qualified with `RustBridge.` to bypass same-module shadowing.
+    assert!(
+        content.contains("return try RustBridge.analyzeBytes(makeByteVec("),
+        "inner call should be qualified as RustBridge.analyzeBytes: {content}"
+    );
+    assert!(
+        !content.contains("return try analyzeBytes(makeByteVec("),
+        "unqualified inner call would be shadowed by the convenience overload: {content}"
     );
     // IR-derived type names used — not extraction-specific names
     assert!(
