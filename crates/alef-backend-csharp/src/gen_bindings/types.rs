@@ -564,6 +564,24 @@ pub(super) fn gen_record_type(
             }
         }
 
+        // `#[serde(flatten)]` on a `serde_json::Value` field: emit
+        // `[JsonExtensionData] public Dictionary<string, JsonElement> Field`
+        // so System.Text.Json absorbs unknown sibling fields into the dict
+        // on read, and writes them flat alongside the parent's named fields
+        // on write. This mirrors the serde flatten semantic used by types
+        // like `ResponseTool { tool_type, #[serde(flatten)] config: Value }`
+        // where wire JSON is `{"type":"function","name":"f","description":"d"}`.
+        let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
+        if is_flattened_json {
+            let cs_name = to_csharp_name(&field.name);
+            out.push_str("    [JsonExtensionData]\n");
+            out.push_str(&format!(
+                "    public Dictionary<string, JsonElement> {cs_name} {{ get; set; }} = new();\n"
+            ));
+            out.push('\n');
+            continue;
+        }
+
         // For visitor bridges, use [JsonIgnore] instead of [JsonPropertyName]
         if is_visitor_bridge {
             out.push_str("    [JsonIgnore]\n");

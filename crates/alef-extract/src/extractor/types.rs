@@ -107,6 +107,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
                 vec_inner_core_wrapper: detect_vec_inner_core_wrapper(&field.ty),
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             }]
         }
         _ => vec![],
@@ -257,6 +258,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 vec_inner_core_wrapper: CoreWrapper::None,
                                 newtype_wrapper: None,
                                 serde_rename: None,
+                                serde_flatten: false,
                             }
                         })
                         .collect();

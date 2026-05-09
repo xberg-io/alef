@@ -138,6 +138,13 @@ pub struct FieldDef {
     /// names (e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as `"type"`).
     #[serde(default)]
     pub serde_rename: Option<String>,
+    /// True when the field carries `#[serde(flatten)]`. Backends use this to emit
+    /// language-native flatten support: Jackson `@JsonAnyGetter`/`@JsonAnySetter`
+    /// in Java, `[JsonExtensionData]` in C# — both keyed `Map<String, Object>` /
+    /// `Dictionary<string, JsonElement>` so unknown sibling fields land under the
+    /// flattened bag instead of being rejected.
+    #[serde(default)]
+    pub serde_flatten: bool,
 }
 
 /// A method on a public struct.

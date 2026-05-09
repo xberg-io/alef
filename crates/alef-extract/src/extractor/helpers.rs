@@ -569,6 +569,7 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
     let (ty, optional) = unwrap_optional(resolved);
 
     let serde_rename = extract_serde_rename(&field.attrs);
+    let serde_flatten = extract_serde_flatten(&field.attrs);
 
     FieldDef {
         name,
@@ -585,7 +586,28 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
         vec_inner_core_wrapper,
         newtype_wrapper: None,
         serde_rename,
+        serde_flatten,
     }
+}
+
+/// True when any of the given attributes is `#[serde(flatten)]` (also matching
+/// `#[cfg_attr(..., serde(flatten))]`). Used by Java/C# backends to emit
+/// `@JsonAnyGetter`/`@JsonAnySetter` and `[JsonExtensionData]` respectively
+/// for fields that carry sibling-fields-as-map semantics.
+pub(crate) fn extract_serde_flatten(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        if !attr_str.contains("serde") {
+            return false;
+        }
+        // The `flatten` token must appear as a standalone serde directive, not as
+        // part of another identifier. Look for the boundary patterns serde emits.
+        attr_str.contains("flatten ,")
+            || attr_str.contains("flatten,")
+            || attr_str.contains("flatten )")
+            || attr_str.contains("flatten)")
+            || attr_str.ends_with("flatten")
+    })
 }
 
 /// Extract a `#[serde(rename = "...")]` value from a list of attributes (also
@@ -645,6 +667,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 }
             })
             .collect(),

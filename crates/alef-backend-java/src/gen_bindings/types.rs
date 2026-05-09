@@ -36,8 +36,17 @@ pub(crate) fn gen_record_type(
         // Special handling for visitor field in ConversionOptions when visitor pattern is active:
         // Change type from VisitorHandle (opaque) to Visitor (interface), mark as transient.
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && f.name == "visitor";
+
+        // `#[serde(flatten)]` on a `serde_json::Value` field: emit
+        // `@JsonAnyGetter Map<String, Object>` so Jackson absorbs unknown
+        // sibling fields into the map on read and writes them flat alongside
+        // the parent's named fields on write. Mirrors C#'s [JsonExtensionData].
+        let is_flattened_json = f.serde_flatten && matches!(&f.ty, TypeRef::Json);
+
         let ftype = if is_visitor_field {
             "Visitor".to_string()
+        } else if is_flattened_json {
+            "Map<String, Object>".to_string()
         } else if is_complex {
             "Object".to_string()
         } else if f.optional {
@@ -120,7 +129,13 @@ pub(crate) fn gen_record_type(
         if needs_non_null {
             decl.push_str("@JsonInclude(JsonInclude.Include.NON_NULL) ");
         }
-        if has_json_property && !is_visitor_field {
+        if is_flattened_json {
+            // `@JsonAnyGetter` makes Jackson serialize each map entry as a top-level
+            // field of the enclosing object. The matching `@JsonAnySetter` on the
+            // builder absorbs unknown sibling fields. Combined, they implement the
+            // serde flatten semantic for `serde_json::Value` fields.
+            decl.push_str("@com.fasterxml.jackson.annotation.JsonAnyGetter ");
+        } else if has_json_property && !is_visitor_field {
             decl.push_str("@JsonProperty(\"");
             decl.push_str(&json_property_name);
             decl.push_str("\") ");
@@ -1478,10 +1493,18 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         // build() call passes a Visitor — not a VisitorHandle — to the record constructor.
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
 
+        // `#[serde(flatten)]` on a `serde_json::Value` field — store as
+        // `java.util.HashMap<String, Object>` so the builder's matching
+        // `@JsonAnySetter` method can accumulate sibling fields. The record's
+        // accessor returns the same `java.util.Map<String, Object>` view.
+        let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
+
         // Duration maps to primitive `long` in the public record, but in builder
         // classes we use boxed `Long` so that `null` can represent "not set".
         let field_type = if is_visitor_field {
             "Optional<Visitor>".to_string()
+        } else if is_flattened_json {
+            "Map<String, Object>".to_string()
         } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
@@ -1494,6 +1517,10 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             // The visitor field is wrapped in Optional<Visitor> regardless of the IR's
             // optionality, so its default has to be Optional.empty() to match the type.
             "Optional.empty()".to_string()
+        } else if is_flattened_json {
+            // Flatten field: live `HashMap` accumulator that the @JsonAnySetter
+            // builder method (emitted later) writes into.
+            "new java.util.HashMap<>()".to_string()
         } else if field.optional {
             // For Optional fields, always use Optional.empty() or Optional.of(value)
             if let Some(default) = &field.default {
@@ -1568,7 +1595,11 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         //      tolerant of any `PropertyNamingStrategy` (or none) on the consuming
         //      ObjectMapper. Without this, deserializing a chunk like `{"type":"function"}`
         //      into StreamToolCallBuilder fails with "Unrecognized field 'type'".
-        let wire_name: Option<String> = if let Some(rename) = &field.serde_rename {
+        let wire_name: Option<String> = if is_flattened_json {
+            // Flatten fields have no single wire name — the matching
+            // `@JsonAnySetter` setter intercepts every unknown sibling field.
+            None
+        } else if let Some(rename) = &field.serde_rename {
             Some(rename.clone())
         } else if field.name.contains('_') {
             Some(field.name.clone())
@@ -1603,11 +1634,14 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         let field_name = safe_java_field_name(&field.name);
         let field_name_pascal = to_class_name(&field.name);
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
         // Builders store the visitor as Optional<Visitor> for null-safe chaining, but
         // expose `withVisitor(Visitor)` to keep the user-facing API ergonomic — callers
         // should not have to write `Optional.of(visitor)` themselves.
         let field_type = if is_visitor_field {
             "Visitor".to_string()
+        } else if is_flattened_json {
+            "Map<String, Object>".to_string()
         } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
@@ -1619,6 +1653,14 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         body.push_str("    /** Sets the ");
         body.push_str(&field_name);
         body.push_str(" field. */\n");
+        if is_flattened_json {
+            // The regular `with<Field>(Map)` setter must not bind to a wire
+            // field of the same name (e.g. an actual `content` array field
+            // would be miscast as a `Map`). `@JsonIgnore` prevents Jackson
+            // from picking it up; the matching `@JsonAnySetter` below
+            // intercepts every flattened sibling field instead.
+            body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnore\n");
+        }
         body.push_str("    public ");
         body.push_str(&typ.name);
         body.push_str("Builder with");
@@ -1638,6 +1680,26 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         body.push_str("        return this;\n");
         body.push_str("    }\n");
         body.push('\n');
+
+        // Flatten field: emit `@JsonAnySetter` so Jackson absorbs unknown
+        // sibling fields into the map during deserialization. Without this,
+        // any field not declared on the builder triggers
+        // `Unrecognized field "<name>" not marked as ignorable`.
+        if is_flattened_json {
+            body.push_str("    /** Absorbs unknown sibling fields (serde flatten). */\n");
+            body.push_str("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
+            body.push_str("    public ");
+            body.push_str(&typ.name);
+            body.push_str("Builder ");
+            body.push_str(&field_name);
+            body.push_str("Entry(final String key, final Object value) {\n");
+            body.push_str("        this.");
+            body.push_str(&field_name);
+            body.push_str(".put(key, value);\n");
+            body.push_str("        return this;\n");
+            body.push_str("    }\n");
+            body.push('\n');
+        }
     }
 
     // Generate build() method
