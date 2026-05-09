@@ -475,6 +475,49 @@ pub fn field_conversion_from_core_cfg(
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }
 
+    // Untagged data enum field (core holds the typed enum, binding holds serde_json::Value):
+    // serialize via serde_json::to_value.  Handles direct, Optional, and Vec wrappings.
+    if let Some(untagged_names) = config.untagged_data_enum_names {
+        let direct_named = matches!(ty, TypeRef::Named(n) if untagged_names.contains(n));
+        let optional_named = matches!(ty, TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n)));
+        let vec_named = matches!(ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n)));
+        let optional_vec_named = matches!(ty, TypeRef::Optional(outer)
+            if matches!(outer.as_ref(), TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n))));
+        if direct_named {
+            if optional {
+                return format!(
+                    "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok())"
+                );
+            }
+            return format!(
+                "{name}: serde_json::to_value(&val.{name}).unwrap_or(serde_json::Value::Null)"
+            );
+        }
+        if optional_named {
+            return format!(
+                "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_value(v).ok())"
+            );
+        }
+        if vec_named {
+            if optional {
+                return format!(
+                    "{name}: val.{name}.as_ref().map(|v| v.iter().filter_map(|x| serde_json::to_value(x).ok()).collect())"
+                );
+            }
+            return format!(
+                "{name}: val.{name}.iter().filter_map(|x| serde_json::to_value(x).ok()).collect()"
+            );
+        }
+        if optional_vec_named {
+            return format!(
+                "{name}: val.{name}.as_ref().map(|v| v.iter().filter_map(|x| serde_json::to_value(x).ok()).collect())"
+            );
+        }
+    }
+
     // Vec<Named>→String core→binding: binding holds JSON string, core has Vec<Named>.
     // Only apply serde round-trip for Vec<Named> types (complex structs that can't cross FFI).
     // Vec<String>, Vec<Primitive>, etc. stay as-is since they map directly.

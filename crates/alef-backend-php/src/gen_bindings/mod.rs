@@ -419,7 +419,11 @@ impl Backend for PhpBackend {
         let php_conv_config = ConversionConfig {
             cast_large_ints_to_i64: true,
             enum_string_names: Some(enum_names_ref),
-            json_to_string: true,
+            untagged_data_enum_names: Some(&mapper.untagged_data_enum_names),
+            // PHP keeps `serde_json::Value` as-is in the binding struct (matches PhpMapper::json).
+            // `json_to_string` was previously enabled but caused `from_json` to fail when a JSON
+            // object/array landed in a `String`-typed field (e.g. tool `parameters` schema).
+            json_as_value: true,
             include_cfg_metadata: false,
             option_duration_on_defaults: true,
             from_binding_skip_types: &bridge_skip_types,

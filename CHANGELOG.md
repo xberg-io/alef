@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(php-backend): map `TypeRef::Bytes` params to PHP `String` and convert to `Vec<u8>` via `into_bytes()` at constructor / call sites (PHP strings are binary-safe). Avoids the missing `FromZval for Vec<u8>` in ext-php-rs that previously surfaced as compile errors on speech / file-content endpoints.
 
+## [0.15.6] - 2026-05-09
+
+### Fixed
+
+- fix(e2e/wasm): redirect generated test imports to `<pkg>/dist-node` sub-path so that vitest (Node.js) resolves the self-initialising CJS bundle instead of the bundler-only `dist/` entry that fails without Vite/webpack.
+- fix(e2e/c): normalise hyphens to underscores in the `-l` linker flag of generated Makefiles; Rust cdylib output always uses underscores (`libhtml_to_markdown_ffi.dylib`) regardless of the crate name.
+
 ## [0.15.5] - 2026-05-09
 
 ### Fixed

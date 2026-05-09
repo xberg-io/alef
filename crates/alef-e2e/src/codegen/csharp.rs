@@ -2032,21 +2032,29 @@ fn csharp_object_initializer(
         return format!("new {type_name}()");
     }
 
-    // Fields that are JsonElement? in the C# binding (discriminated unions in Rust).
-    // These must be wrapped in JsonDocument.Parse() to create a JsonElement from a value.
-    static JSON_ELEMENT_FIELDS: &[&str] = &["output_format"];
+    // Snake_case fixture keys for fields that are real C# enums in the binding.
+    // The fixture string value (e.g. "markdown") maps to `EnumType.Member` (e.g. `OutputFormat.Markdown`).
+    static IMPLICIT_ENUM_FIELDS: &[(&str, &str)] = &[("output_format", "OutputFormat")];
 
     let props: Vec<String> = obj
         .iter()
         .map(|(key, val)| {
             let pascal_key = key.to_upper_camel_case();
-            let cs_val = if let Some(enum_type) = enum_fields.get(key.as_str()) {
+            let implicit_enum_type = IMPLICIT_ENUM_FIELDS
+                .iter()
+                .find(|(k, _)| *k == key.as_str())
+                .map(|(_, t)| *t);
+            let cs_val = if let Some(enum_type) = enum_fields.get(key.as_str()).map(String::as_str).or(implicit_enum_type) {
                 // Enum: EnumType.Member
-                let member = val
-                    .as_str()
-                    .map(|s| s.to_upper_camel_case())
-                    .unwrap_or_else(|| "null".to_string());
-                format!("{enum_type}.{member}")
+                if val.is_null() {
+                    "null".to_string()
+                } else {
+                    let member = val
+                        .as_str()
+                        .map(|s| s.to_upper_camel_case())
+                        .unwrap_or_else(|| "null".to_string());
+                    format!("{enum_type}.{member}")
+                }
             } else if let Some(nested_type) = nested_types.get(key.as_str()) {
                 // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
                 let normalized = normalize_csharp_enum_values(val, enum_fields);
@@ -2059,14 +2067,6 @@ fn csharp_object_initializer(
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
                 format!("new List<string> {{ {} }}", items.join(", "))
-            } else if JSON_ELEMENT_FIELDS.contains(&key.as_str()) {
-                // JsonElement? fields: wrap the JSON value in JsonDocument.Parse().RootElement
-                if val.is_null() {
-                    "null".to_string()
-                } else {
-                    let json_str = serde_json::to_string(val).unwrap_or_default();
-                    format!("JsonDocument.Parse(\"{}\").RootElement", escape_csharp(&json_str))
-                }
             } else {
                 json_to_csharp(val)
             };

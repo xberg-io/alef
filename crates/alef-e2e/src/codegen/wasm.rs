@@ -219,8 +219,18 @@ impl E2eCodegen for WasmCodegen {
             );
 
             // Inject WASM initialization code for Node.js environments.
-            // Pass the WASM crate name (e.g., "html-to-markdown-wasm") instead of the core crate name.
-            let wasm_crate_name = format!("{}-wasm", config.name);
+            // Derive the wasm crate name from pkg_path by finding the path component
+            // that ends with "-wasm" or "_wasm" (e.g. "html-to-markdown-wasm" from
+            // "../../crates/html-to-markdown-wasm"). Falls back to "{config.name}-wasm".
+            let wasm_crate_name = std::path::Path::new(&pkg_path)
+                .components()
+                .filter_map(|c| match c {
+                    std::path::Component::Normal(s) => s.to_str(),
+                    _ => None,
+                })
+                .find(|s| s.ends_with("-wasm") || s.ends_with("_wasm"))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{}-wasm", config.name));
             content = inject_wasm_init(&content, &pkg_name, &wasm_crate_name);
 
             files.push(GeneratedFile {
@@ -319,66 +329,55 @@ fn render_tsconfig() -> String {
     crate::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
 }
 
-/// Inject WASM initialization code for Node.js environments.
+/// Redirect the WASM package import to the `dist-node` sub-path for Node.js
+/// test environments (vitest).
 ///
-/// Injects top-level await for the async init() function from wasm-pack.
-/// This allows the WASM module to be initialized before tests run.
-/// Also injects chdir to test_documents before init() so file paths resolve.
+/// The published npm package exposes three distributions:
+/// - `dist/`      — bundler target (requires Vite/webpack WASM plugin; used by browsers)
+/// - `dist-node/` — Node.js CJS target (self-initializing; no explicit init call needed)
+/// - `dist-web/`  — plain-web target
+///
+/// Vitest runs tests in a Node.js process. When the `dist/` bundler entry is
+/// imported, the WASM initialization promise fails because the Node.js runtime
+/// has no bundler to resolve the `.wasm` binary. Importing from `dist-node`
+/// avoids this: the module uses `__dirname` + `readFileSync` to load and
+/// instantiate the binary synchronously at module evaluation time.
 ///
 /// # Arguments
-/// * `content` — the generated TypeScript test file content
-/// * `pkg_name` — the npm package name (e.g., "kreuzberg" or "@org/kreuzberg")
-/// * `_crate_name` — the Rust crate name (unused in async init pattern)
-fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
+/// * `content`    — the generated TypeScript test file content
+/// * `pkg_name`   — the npm package name (e.g., `"@kreuzberg/html-to-markdown-wasm"`)
+/// * `_crate_name` — unused; retained for API stability
+fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String {
     // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
     let from_marker_sq = format!("}} from '{pkg_name}';");
     let from_marker_dq = format!("}} from \"{pkg_name}\";");
-    let from_marker = if content.contains(&from_marker_sq) {
-        from_marker_sq
+    let (from_marker, quote_char) = if content.contains(&from_marker_sq) {
+        (from_marker_sq, '\'')
     } else {
-        from_marker_dq
+        (from_marker_dq, '"')
     };
 
-    // Find the closing `} from "pkg_name";` marker, then search backward for the matching `import {`
-    // to avoid accidentally patching an earlier import statement (e.g. `import { ... } from "vitest"`).
+    // Find the closing `} from "pkg_name";` import that belongs to the wasm package,
+    // then search backward for the opening `import {` that started it.
     if let Some(from_pos) = content.find(&from_marker) {
         let full_from_pos = from_pos + from_marker.len();
-        // Search backward from from_pos to find the last `import {` or `import init, {` before it.
         let before_from = &content[..from_pos];
-        if let Some(import_pos) = before_from
-            .rfind("import {")
-            .or_else(|| before_from.rfind("import init, {"))
-        {
+        if let Some(import_pos) = before_from.rfind("import {").or_else(|| before_from.rfind("import init, {")) {
             let import_section = &content[import_pos..full_from_pos];
 
-            // Already patched (contains `import init`) — nothing to do.
-            if import_section.contains("import init,") {
+            // Already patched — nothing to do.
+            if import_section.contains("/dist-node") {
                 return content.to_string();
             }
 
-            // For Node.js test environments (vitest), use initSync with the bundled WASM
-            // binary. Use import.meta.resolve to locate the bundled WASM file reliably.
-            // wasm-pack derives the bg.wasm filename from the crate name with dashes
-            // replaced by underscores (e.g. "liter-llm-wasm" -> "liter_llm_wasm_bg.wasm").
-            let bg_wasm_name = format!("{}_bg.wasm", crate_name.replace('-', "_"));
-            let init_code = format!("import {{ initSync }} from '{pkg_name}';\n", pkg_name = pkg_name);
-            let setup_code = format!(
-                "import {{ fileURLToPath }} from \"url\";\n\
-                import {{ dirname, join }} from \"path\";\n\
-                import {{ readFileSync }} from \"fs\";\n\
-                const __filename = fileURLToPath(import.meta.url);\n\
-                const __dirname = dirname(__filename);\n\
-                const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n\
-                globalThis.process.chdir(testDocumentsDir);\n\
-                const wasmUrl = await import.meta.resolve('{pkg_name}/{bg_wasm_name}');\n\
-                const wasmPath = fileURLToPath(wasmUrl);\n\
-                const wasmBuffer = readFileSync(wasmPath);\n\
-                initSync(wasmBuffer);\n",
-                pkg_name = pkg_name,
-                bg_wasm_name = bg_wasm_name
-            );
+            // Replace the import path with the Node.js-specific sub-package.
+            // `dist-node` is a CJS module that loads and instantiates the WASM
+            // binary synchronously at module evaluation time, requiring no
+            // explicit init call and no top-level await.
+            let dist_node_from = format!("}} from {q}{pkg_name}/dist-node{q};", q = quote_char);
+            let patched_section = import_section.replace(&from_marker, &dist_node_from);
 
-            return init_code + &content[..full_from_pos] + "\n" + &setup_code + &content[full_from_pos..];
+            return content[..import_pos].to_string() + &patched_section + &content[full_from_pos..];
         }
     }
 

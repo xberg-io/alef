@@ -594,11 +594,21 @@ fn gen_struct_methods_impl(
         }
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
-            // Untagged data enums map to `serde_json::Value` in the binding struct, but
-            // ext-php-rs has no IntoZval impl for `serde_json::Value`.  Emit a JSON-string
-            // getter (Option<String>) so PHP can introspect the serialized form, while
-            // the actual round-trip through `from_json` uses the Value field directly.
-            if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) {
+            // ext-php-rs derives the PHP property name from the Rust method ident (stripping `get_`),
+            // *not* from the `#[php(name = ...)]` attribute (which only renames the PHP method).
+            // Use a camelCase Rust ident (`get_toolCalls`) so the resulting property is `toolCalls`,
+            // matching the `#[php(prop, name = "...")]` convention used for scalar fields.
+            let php_field_name = alef_codegen::naming::to_php_name(&field.name);
+            let getter_ident = format!("get_{php_field_name}");
+
+            // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
+            // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
+            // Emit a JSON-string getter (Option<String>) so PHP can introspect the serialized
+            // form, while the actual round-trip through `from_json` uses the Value field directly.
+            let is_json_field = matches!(field.ty, TypeRef::Json)
+                || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json))
+                || matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
+            if ty_references_untagged_data_enum(&field.ty, &mapper.untagged_data_enum_names) || is_json_field {
                 let body = if field.optional {
                     format!(
                         "self.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())",
@@ -608,8 +618,7 @@ fn gen_struct_methods_impl(
                     format!("serde_json::to_string(&self.{name}).ok()", name = field.name)
                 };
                 let getter_method = format!(
-                    "#[php(getter)]\npub fn get_{field_name}(&self) -> Option<String> {{\n    {body}\n}}",
-                    field_name = field.name,
+                    "#[php(getter)]\npub fn {getter_ident}(&self) -> Option<String> {{\n    {body}\n}}"
                 );
                 impl_builder.add_method(&getter_method);
                 continue;
@@ -621,7 +630,7 @@ fn gen_struct_methods_impl(
                 map_fn(&field.ty)
             };
             let getter_method = format!(
-                "#[php(getter)]\npub fn get_{field_name}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
+                "#[php(getter)]\npub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
                 field_name = field.name,
                 ret = rust_return_type,
             );

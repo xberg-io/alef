@@ -239,18 +239,24 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "FFI_DIR = ffi");
     let _ = writeln!(out);
 
+    // Rust's cdylib output normalizes hyphens to underscores in the filename
+    // (e.g. crate "html-to-markdown-ffi" → "libhtml_to_markdown_ffi.dylib").
+    // The -l linker flag must therefore use the underscore form, while the
+    // pkg-config package name retains the original form (as declared in the .pc file).
+    let link_lib_name = lib_name.replace('-', "_");
+
     // 3-path fallback: ffi/ (download script) -> local repo build -> pkg-config.
     let _ = writeln!(out, "ifneq ($(wildcard $(FFI_DIR)/include/{header_name}),)");
     let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_DIR)/include");
     let _ = writeln!(
         out,
-        "    LDFLAGS = -L$(FFI_DIR)/lib -l{lib_name} -Wl,-rpath,$(FFI_DIR)/lib"
+        "    LDFLAGS = -L$(FFI_DIR)/lib -l{link_lib_name} -Wl,-rpath,$(FFI_DIR)/lib"
     );
     let _ = writeln!(out, "else ifneq ($(wildcard {ffi_crate_path}/include/{header_name}),)");
     let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I{ffi_crate_path}/include");
     let _ = writeln!(
         out,
-        "    LDFLAGS = -L../../target/release -l{lib_name} -Wl,-rpath,../../target/release"
+        "    LDFLAGS = -L../../target/release -l{link_lib_name} -Wl,-rpath,../../target/release"
     );
     let _ = writeln!(out, "else");
     let _ = writeln!(

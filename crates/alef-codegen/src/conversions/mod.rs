@@ -93,6 +93,15 @@ pub struct ConversionConfig<'a> {
     /// extendr uses f64 for large integers because R has no native 64-bit integer type.
     /// Binding→core: `as usize`/`as u64` casts; core→binding: `as f64` casts.
     pub cast_large_ints_to_f64: bool,
+    /// Names of untagged data enums (`#[serde(untagged)]` with at least one data variant —
+    /// e.g. `Single(String) | Multiple(Vec<String>)`). Fields referencing these types are
+    /// stored as `serde_json::Value` in the binding struct (the wire JSON shape varies per
+    /// variant, so we accept any value at the boundary).  Conversions:
+    ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
+    ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
+    /// Used by the PHP backend; ext-php-rs has no `FromZval`/`IntoZval` for typed Rust enums
+    /// with mixed-shape variants, and the only safe wire format is JSON-via-Value.
+    pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
 }
 
 impl<'a> ConversionConfig<'a> {

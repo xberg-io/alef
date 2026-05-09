@@ -42,8 +42,14 @@ impl TypeMapper for PhpMapper {
         })
     }
 
+    /// Map `serde_json::Value` to itself in the PHP binding.
+    /// We previously lowered JSON to `String`, but `serde::Deserialize` on the binding
+    /// struct then chokes on incoming JSON objects/arrays whose target field is `String`
+    /// (e.g. a tool's `parameters` schema).  Keeping the field as `serde_json::Value`
+    /// lets `from_json` accept any wire shape; PHP-side access goes through a
+    /// JSON-string getter (see `gen_struct_methods_impl`).
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("String")
+        Cow::Borrowed("serde_json::Value")
     }
 
     /// Map bytes type to Vec<u8> (PHP strings are binary-safe).

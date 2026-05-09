@@ -691,6 +691,48 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
     }
+    // Untagged data enum field (binding holds serde_json::Value, core holds the typed enum):
+    // convert via serde_json::from_value.  Handles direct, Optional, and Vec wrappings.
+    if let Some(untagged_names) = config.untagged_data_enum_names {
+        let direct_named = matches!(ty, TypeRef::Named(n) if untagged_names.contains(n));
+        let optional_named = matches!(ty, TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n)));
+        let vec_named = matches!(ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n)));
+        let optional_vec_named = matches!(ty, TypeRef::Optional(outer)
+            if matches!(outer.as_ref(), TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if untagged_names.contains(n))));
+        if direct_named {
+            if optional {
+                return format!(
+                    "{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())"
+                );
+            }
+            return format!(
+                "{name}: serde_json::from_value(val.{name}).unwrap_or_default()"
+            );
+        }
+        if optional_named {
+            return format!(
+                "{name}: val.{name}.and_then(|v| serde_json::from_value(v).ok())"
+            );
+        }
+        if vec_named {
+            if optional {
+                return format!(
+                    "{name}: val.{name}.map(|v| v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())"
+                );
+            }
+            return format!(
+                "{name}: val.{name}.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect()"
+            );
+        }
+        if optional_vec_named {
+            return format!(
+                "{name}: val.{name}.map(|v| v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())"
+            );
+        }
+    }
     // Json→String binding→core: use Default::default() (lossy — can't parse String back)
     if config.json_to_string && matches!(ty, TypeRef::Json) {
         return format!("{name}: Default::default()");
