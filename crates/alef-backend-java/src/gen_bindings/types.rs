@@ -366,6 +366,14 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
         return gen_java_tagged_union(package, enum_def);
     }
 
+    // Untagged union with data variants (e.g. EmbeddingInput = String | Vec<String>):
+    // emit a transparent JsonNode-wrapper class. Jackson cannot dispatch between
+    // alternatives by name (variant identifiers don't appear in the wire JSON), so
+    // we hold the raw JsonNode and let serde on the Rust side resolve the variant.
+    if enum_def.serde_untagged && has_data_variants {
+        return gen_java_untagged_wrapper(package, enum_def);
+    }
+
     let header = hash::header(CommentStyle::DoubleSlash);
     let imports = [
         "com.fasterxml.jackson.annotation.JsonCreator",
@@ -449,6 +457,34 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     out
 }
 
+/// Emit a transparent JsonNode-wrapper for `#[serde(untagged)]` enums.
+///
+/// Untagged unions like `EmbeddingInput = Single(String) | Multiple(Vec<String>)`
+/// have no on-wire discriminator. Jackson's default deserialization tries to match
+/// the JSON shape against the Java type; for plain enums it calls `fromValue(...)`
+/// which throws on any value that does not match a variant name. The wrapper class
+/// holds the JsonNode verbatim, with `@JsonValue` for serialization and
+/// `@JsonCreator(mode=DELEGATING)` so Jackson hands the parsed JsonNode straight
+/// through. The Rust core (serde) resolves the variant on the way in.
+fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let doc = enum_def
+        .doc
+        .lines()
+        .next()
+        .map(|line| escape_javadoc_line(line.trim()))
+        .unwrap_or_default();
+    crate::template_env::render(
+        "untagged_union_wrapper.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+            class_name => &enum_def.name,
+            doc => doc,
+        },
+    )
+}
+
 pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
@@ -522,10 +558,14 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     }
     if needs_unwrapped {
         imports.push("com.fasterxml.jackson.databind.deser.std.StdDeserializer");
+        imports.push("com.fasterxml.jackson.databind.ser.std.StdSerializer");
         imports.push("com.fasterxml.jackson.core.JsonParser");
+        imports.push("com.fasterxml.jackson.core.JsonGenerator");
         imports.push("com.fasterxml.jackson.databind.DeserializationContext");
+        imports.push("com.fasterxml.jackson.databind.SerializerProvider");
         imports.push("com.fasterxml.jackson.databind.node.ObjectNode");
         imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonSerialize");
     }
     if has_data_variants {
         imports.push("org.jspecify.annotations.Nullable");
@@ -573,6 +613,9 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         out.push_str("@JsonDeserialize(using = ");
         out.push_str(&enum_def.name);
         out.push_str("Deserializer.class)\n");
+        out.push_str("@JsonSerialize(using = ");
+        out.push_str(&enum_def.name);
+        out.push_str("Serializer.class)\n");
     }
     out.push_str("public sealed interface ");
     out.push_str(&enum_def.name);
@@ -710,10 +753,14 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
 
     out.push_str("}\n");
 
-    // Generate custom deserializer for sealed interfaces with unwrapped variants
+    // Generate custom deserializer + serializer for sealed interfaces with unwrapped
+    // variants. The serializer mirrors the deserializer's tag handling: it emits the
+    // tag field plus the inner record's fields flattened (e.g. {"role":"user","content":...}).
     if needs_unwrapped {
         out.push('\n');
         gen_sealed_union_deserializer(&mut out, package, enum_def, tag_field);
+        out.push('\n');
+        gen_sealed_union_serializer(&mut out, package, enum_def, tag_field);
     }
 
     out
@@ -1733,4 +1780,44 @@ fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &En
     out.push_str("        };\n");
     out.push_str("    }\n");
     out.push_str("}\n");
+}
+
+/// Emit the companion serializer that mirrors `gen_sealed_union_deserializer`.
+///
+/// For an internally-tagged enum like `#[serde(tag = "role")] enum Message { User(UserMessage), ... }`,
+/// the deserializer reads the `role` field, strips it, and dispatches to the matching variant.
+/// The serializer must do the inverse: emit a flat object containing the tag field plus the
+/// inner record's fields. Without this, Jackson's default serialization wraps the inner value
+/// (e.g. `{"value": {...UserMessage...}}`) and Rust's serde rejects the missing tag.
+fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum_def: &EnumDef, tag_field: &str) {
+    let variants: Vec<minijinja::Value> = enum_def
+        .variants
+        .iter()
+        .map(|v| {
+            let discriminator = v.serde_rename.clone().unwrap_or_else(|| {
+                let name = &v.name;
+                enum_def
+                    .serde_rename_all
+                    .as_deref()
+                    .map(|strategy| java_apply_rename_all(name, Some(strategy)))
+                    .unwrap_or_else(|| java_apply_rename_all(name, None))
+            });
+            let is_unit = v.fields.is_empty();
+            let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name);
+            minijinja::context! {
+                name => &v.name,
+                discriminator => discriminator,
+                is_unit => is_unit,
+                is_tuple => is_tuple,
+            }
+        })
+        .collect();
+    out.push_str(&crate::template_env::render(
+        "sealed_union_serializer.jinja",
+        minijinja::context! {
+            class_name => &enum_def.name,
+            tag_field => tag_field,
+            variants => variants,
+        },
+    ));
 }

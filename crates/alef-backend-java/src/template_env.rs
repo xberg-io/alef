@@ -55,6 +55,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "infrastructure_exception.jinja",
         include_str!("../templates/infrastructure_exception.jinja"),
     ),
+    (
+        "untagged_union_wrapper.jinja",
+        include_str!("../templates/untagged_union_wrapper.jinja"),
+    ),
+    (
+        "sealed_union_serializer.jinja",
+        include_str!("../templates/sealed_union_serializer.jinja"),
+    ),
     ("node_context.jinja", include_str!("../templates/node_context.jinja")),
     ("visit_result.jinja", include_str!("../templates/visit_result.jinja")),
     (

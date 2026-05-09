@@ -1,0 +1,85 @@
+{{ header }}package {{ package }};
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+{%- if doc %}
+/**
+ * {{ doc }}
+ */
+{%- endif %}
+public final class {{ class_name }} {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private final JsonNode value;
+
+    @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+    public {{ class_name }}(final JsonNode value) {
+        this.value = value;
+    }
+
+    @JsonValue
+    public JsonNode value() {
+        return value;
+    }
+
+    public static {{ class_name }} of(final String s) {
+        return new {{ class_name }}(JsonNodeFactory.instance.textNode(s));
+    }
+
+    public static {{ class_name }} of(final List<String> items) {
+        var arr = JsonNodeFactory.instance.arrayNode();
+        for (var s : items) arr.add(s);
+        return new {{ class_name }}(arr);
+    }
+
+    public static {{ class_name }} ofObject(final Object o) {
+        return new {{ class_name }}(MAPPER.valueToTree(o));
+    }
+
+    public static {{ class_name }} fromJson(final String json) {
+        try {
+            return new {{ class_name }}(MAPPER.readTree(json));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse {{ class_name }} from JSON", e);
+        }
+    }
+
+    public Optional<String> asString() {
+        return value != null && value.isTextual() ? Optional.of(value.asText()) : Optional.empty();
+    }
+
+    public Optional<List<String>> asList() {
+        if (value == null || !value.isArray()) return Optional.empty();
+        var result = new ArrayList<String>(value.size());
+        for (var node : value) result.add(node.asText());
+        return Optional.of(result);
+    }
+
+    public Optional<JsonNode> asObject() {
+        return value != null && value.isObject() ? Optional.of(value) : Optional.empty();
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (this == o) return true;
+        if (!(o instanceof {{ class_name }} other)) return false;
+        return Objects.equals(value, other.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(value);
+    }
+
+    @Override
+    public String toString() {
+        return value == null ? "null" : value.toString();
+    }
+}

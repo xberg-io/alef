@@ -170,16 +170,10 @@ impl Backend for JavaBackend {
             });
         }
 
-        // Collect complex enums (untagged enums with data variants) — use Object for these fields.
-        // Tagged unions (serde_tag is set) are now generated as proper sealed interfaces
-        // and can be deserialized as their concrete types, so they are NOT complex_enums.
-        // Externally-tagged enums (the serde default) are string enums — also NOT complex.
-        let complex_enums: AHashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| e.serde_untagged && e.variants.iter().any(|v| !v.fields.is_empty()))
-            .map(|e| e.name.clone())
-            .collect();
+        // Untagged unions with data variants now emit as JsonNode-wrapper classes
+        // (see gen_java_untagged_wrapper). The set is intentionally empty so that
+        // record fields keep their wrapper type instead of being downcast to Object.
+        let complex_enums: AHashSet<String> = AHashSet::new();
 
         // Collect sealed union types with unwrapped/tuple variants that need custom deserializers.
         // When a record field references one of these types, we need to add a @JsonDeserialize
