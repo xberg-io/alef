@@ -505,11 +505,11 @@ pub(super) fn gen_stream_handle_functions(
 
     // Full item type path for the BoxStream generic
     let core_item = format!("{core_import}::{item_type}");
-    // Error type is the Rust stream item error — we use anyhow::Error as the broadest
-    // common type since the core returns BoxStream<Result<Item, impl Error>>.
-    // We erase the error type to anyhow::Error to keep the handle type stable.
+    // Error type is erased to a boxed trait object so the handle type is stable across
+    // error-type changes in core.  Uses only std — no anyhow dependency required.
+    let boxed_err = "Box<dyn std::error::Error + Send + Sync + 'static>";
     let stream_ty = format!(
-        "futures::stream::BoxStream<'static, Result<{core_item}, anyhow::Error>>"
+        "futures_util::stream::BoxStream<'static, Result<{core_item}, {boxed_err}>>"
     );
     let owner_ty = format!("{core_import}::{owner_type}");
 
@@ -575,10 +575,10 @@ pub unsafe extern "C" fn {fn_start}(
         }}
     }};
 
-    // Map the stream's concrete error type to anyhow::Error to erase it from the handle type.
+    // Map the stream's concrete error type to Box<dyn Error> to erase it from the handle type.
     let mapped: {stream_ty} = {{
-        use futures::StreamExt;
-        Box::pin(raw_stream.map(|r| r.map_err(anyhow::Error::from)))
+        use futures_util::StreamExt;
+        Box::pin(raw_stream.map(|r| r.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)))
     }};
 
     let handle = Box::new({handle_name} {{
@@ -633,7 +633,7 @@ pub unsafe extern "C" fn {fn_next}(
         }}
     }};
 
-    use futures::StreamExt;
+    use futures_util::StreamExt;
     match h.rt.block_on(stream.next()) {{
         Some(Ok(chunk)) => {{
             // SAFETY: We box the chunk and transfer ownership to the caller via raw pointer.
