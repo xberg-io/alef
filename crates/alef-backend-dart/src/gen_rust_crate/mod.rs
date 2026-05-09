@@ -131,12 +131,8 @@ fn emit_lib_rs(
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
 
-    // Compute the set of types that have sanitized fields — these cannot be safely
-    // transmuted from the mirror struct to the core struct because sanitized fields
-    // may have different memory sizes (e.g. `Option<String>` vs `Option<CancellationToken>`).
-    // For these types, bridge functions use `From<MirrorT> for kreuzberg::T` instead of
-    // `std::mem::transmute`.
-    let types_needing_from_conversion: HashSet<String> = api
+    // Compute the set of types that have DIRECT sanitized fields.
+    let types_with_direct_sanitized_fields: HashSet<String> = api
         .types
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
@@ -144,11 +140,30 @@ fn emit_lib_rs(
         .map(|t| t.name.clone())
         .collect();
 
-    // Compute the transitive closure of all struct/enum types reachable from types that
-    // have sanitized fields via non-sanitized field references. These are the types that
-    // need From<MirrorT> for kreuzberg::T impls so that `.into()` calls work in the
-    // generated From impls for sanitized-field types.
-    let types_needing_from_impl = compute_types_needing_from_impl(api, &types_needing_from_conversion, exclude_types);
+    // Compute the transitive closure: types that DIRECTLY or INDIRECTLY contain a type
+    // with sanitized fields. These cannot be safely transmuted because the inner types
+    // have different memory layouts (e.g. BatchBytesItem contains FileExtractionConfig
+    // which has Option<String> where core has Option<HtmlOutputConfig>).
+    // Bridge functions use `From<MirrorT> for kreuzberg::T` for all of these.
+    let types_needing_from_conversion: HashSet<String> =
+        compute_types_containing_sanitized(api, &types_with_direct_sanitized_fields, exclude_types);
+
+    // Collect only the types transitively containing sanitized fields that appear as
+    // function input parameters. Output-only types (result structs) are excluded —
+    // they never flow Dart→Rust and must not get From<Mirror> for Core impls.
+    let param_types_needing_from: HashSet<String> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name) && !has_unbridgeable_param(f))
+        .flat_map(|f| f.params.iter())
+        .flat_map(|p| collect_named_types_from_type_ref(&p.ty))
+        .filter(|name| types_needing_from_conversion.contains(name))
+        .collect();
+
+    // Compute the transitive closure of all struct/enum types reachable from function-
+    // parameter types that need From conversion, via non-sanitized field references.
+    let types_needing_from_impl =
+        compute_types_needing_from_impl(api, &param_types_needing_from, exclude_types);
 
     // Emit From<T> for kreuzberg::T impls (mirror-to-core direction) for types in the
     // transitive closure. Only those types (not all types) get this impl, avoiding
@@ -210,6 +225,46 @@ fn dart_module_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
 }
 
+/// Compute the transitive closure of all struct types that DIRECTLY OR INDIRECTLY
+/// contain a type from `direct_sanitized` via their fields. Used to find all types
+/// that cannot be safely transmuted (because an inner type has a layout mismatch).
+fn compute_types_containing_sanitized(
+    api: &ApiSurface,
+    direct_sanitized: &HashSet<String>,
+    exclude_types: &HashSet<String>,
+) -> HashSet<String> {
+    let struct_by_name: std::collections::HashMap<&str, &TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .map(|t| (t.name.as_str(), t))
+        .collect();
+
+    // Start with all directly-sanitized types and expand to any type that contains them.
+    let mut result: HashSet<String> = direct_sanitized.clone();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for ty in struct_by_name.values() {
+            if result.contains(&ty.name) {
+                continue;
+            }
+            // Check if any field references a type already in result.
+            let references_sanitized = ty.fields.iter().any(|f| {
+                collect_named_types(&f.ty)
+                    .iter()
+                    .any(|n| result.contains(n))
+            });
+            if references_sanitized {
+                result.insert(ty.name.clone());
+                changed = true;
+            }
+        }
+    }
+
+    result
+}
+
 /// Compute the transitive closure of all struct/enum types reachable from
 /// `seed_types` (types with sanitized fields) via non-sanitized field references.
 ///
@@ -248,10 +303,11 @@ fn compute_types_needing_from_impl(
                 // Collect all Named type references from this field.
                 for named in collect_named_types(&field.ty) {
                     if !result.contains(&named)
-                        && (struct_by_name.contains_key(named.as_str()) || enum_names.contains(named.as_str())) {
-                            result.insert(named.clone());
-                            worklist.push(named);
-                        }
+                        && (struct_by_name.contains_key(named.as_str()) || enum_names.contains(named.as_str()))
+                    {
+                        result.insert(named.clone());
+                        worklist.push(named);
+                    }
                 }
             }
         }
@@ -262,12 +318,17 @@ fn compute_types_needing_from_impl(
 
 /// Collect all Named type names referenced (possibly nested) in a TypeRef.
 fn collect_named_types(ty: &TypeRef) -> Vec<String> {
+    collect_named_types_from_type_ref(ty)
+}
+
+/// Collect all Named type names referenced (possibly nested) in a TypeRef.
+fn collect_named_types_from_type_ref(ty: &TypeRef) -> Vec<String> {
     match ty {
         TypeRef::Named(name) => vec![name.clone()],
-        TypeRef::Vec(inner) | TypeRef::Optional(inner) => collect_named_types(inner),
+        TypeRef::Vec(inner) | TypeRef::Optional(inner) => collect_named_types_from_type_ref(inner),
         TypeRef::Map(k, v) => {
-            let mut names = collect_named_types(k);
-            names.extend(collect_named_types(v));
+            let mut names = collect_named_types_from_type_ref(k);
+            names.extend(collect_named_types_from_type_ref(v));
             names
         }
         _ => vec![],
@@ -630,6 +691,15 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
                 format!("{binding}.map(Into::into)")
             } else {
                 format!("{binding}.into()")
+            }
+        }
+        TypeRef::Path => {
+            // Mirror collapses Option<PathBuf> → String (with unwrap_or_default()).
+            // Reverse: produce Option<PathBuf> from the String (None if empty).
+            if field.optional {
+                format!("if {binding}.is_empty() {{ None }} else {{ Some(std::path::PathBuf::from({binding})) }}")
+            } else {
+                format!("std::path::PathBuf::from({binding})")
             }
         }
         TypeRef::Vec(inner) => match inner.as_ref() {

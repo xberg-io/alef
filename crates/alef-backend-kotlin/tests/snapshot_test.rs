@@ -118,6 +118,7 @@ fn make_basic_api() -> ApiSurface {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![ErrorDef {

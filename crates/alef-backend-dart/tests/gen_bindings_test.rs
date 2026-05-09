@@ -208,6 +208,7 @@ fn unit_enum_emits_dart_enum() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
@@ -261,6 +262,7 @@ fn data_bearing_enum_emits_sealed_class() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
@@ -930,6 +932,7 @@ fn enum_variant_named_default_is_escaped() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             is_copy: false,
             has_serde: false,
@@ -977,6 +980,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             is_copy: false,
             has_serde: false,

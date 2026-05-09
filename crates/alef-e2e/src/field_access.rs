@@ -853,16 +853,18 @@ fn render_php(segments: &[PathSegment], result_var: &str) -> String {
         match seg {
             PathSegment::Field(f) => {
                 out.push_str("->");
-                out.push_str(f);
+                // PHP properties are camelCase (per #[php(prop, name = "...")]),
+                // so convert snake_case field names to camelCase.
+                out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField(f) => {
                 out.push_str("->");
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
                 out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push_str("->");
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 out.push_str(&format!("[\"{key}\"]"));
             }
             PathSegment::Length => {

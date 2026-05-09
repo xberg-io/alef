@@ -1405,6 +1405,7 @@ mod tests {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
             variants: vec![EnumVariant {
                 name: "Active".to_string(),

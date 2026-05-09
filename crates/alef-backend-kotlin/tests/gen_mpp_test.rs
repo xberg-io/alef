@@ -421,6 +421,7 @@ fn mpp_sealed_enum_in_common_main() {
             ],
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,

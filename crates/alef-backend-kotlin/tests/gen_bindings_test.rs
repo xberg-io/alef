@@ -192,6 +192,7 @@ fn unit_enum_emits_enum_class() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,

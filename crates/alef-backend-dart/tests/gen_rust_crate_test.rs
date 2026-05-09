@@ -296,6 +296,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,

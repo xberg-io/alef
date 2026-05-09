@@ -183,6 +183,7 @@ fn simple_enum_def() -> EnumDef {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     }
 }
@@ -2437,6 +2438,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     };
     assert!(
@@ -2464,6 +2466,7 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     };
     let cfg = default_cfg();
@@ -2546,6 +2549,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     };
     let cfg = default_cfg();
@@ -2597,6 +2601,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     };
     let mut cfg = default_cfg();
@@ -2638,6 +2643,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         is_copy: false,
         has_serde: false,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
     };
     let cfg = default_cfg(); // no pyclass attr

@@ -84,6 +84,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         doc: String::new(),
         cfg: None,
         serde_tag: None,
+        serde_untagged: false,
         serde_rename_all: None,
 
         is_copy: false,

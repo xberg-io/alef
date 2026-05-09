@@ -236,6 +236,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
@@ -286,6 +287,7 @@ fn data_bearing_enum_emits_associated_values() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,

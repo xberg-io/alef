@@ -308,6 +308,7 @@ mod tests {
             is_copy: false,
             has_serde: true,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }

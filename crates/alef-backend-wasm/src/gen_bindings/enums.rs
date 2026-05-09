@@ -69,6 +69,7 @@ mod tests {
             is_copy: true,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }
     }

@@ -2681,6 +2681,7 @@ fn test_merge_surface_includes_functions_and_enums() {
             is_copy: false,
             has_serde: false,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
         }],
         errors: vec![],
@@ -2754,6 +2755,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             },
             alef_core::ir::EnumDef {
@@ -2766,6 +2768,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 is_copy: false,
                 has_serde: false,
                 serde_tag: None,
+                serde_untagged: false,
                 serde_rename_all: None,
             },
         ],

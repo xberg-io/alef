@@ -185,6 +185,7 @@ fn enum_emits_custom_type() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
@@ -295,6 +296,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,

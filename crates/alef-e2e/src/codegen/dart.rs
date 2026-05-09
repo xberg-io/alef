@@ -404,11 +404,13 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     if expects_error {
-        // Wrap the call in expect(..., throwsA(anything())) so the test asserts
-        // that the API throws an exception rather than silently failing.
+        // expectLater takes a Future directly as the first argument; the Future resolves
+        // and if it throws the throwsA matcher catches the exception. Use throwsException
+        // (package:test built-in matcher) which avoids the anything() type constraint
+        // issues with package:matcher API changes in Dart 3.x.
         let _ = writeln!(
             out,
-            "    await expectLater(() async => await {receiver_class}.{function_name}({args_str}), throwsA(anything()));"
+            "    await expectLater({receiver_class}.{function_name}({args_str}), throwsException);"
         );
     } else {
         let _ = writeln!(

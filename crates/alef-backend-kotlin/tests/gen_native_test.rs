@@ -234,6 +234,7 @@ fn native_unit_enum_emits_enum_class() {
             ],
             cfg: None,
             serde_tag: None,
+            serde_untagged: false,
             serde_rename_all: None,
 
             is_copy: false,
