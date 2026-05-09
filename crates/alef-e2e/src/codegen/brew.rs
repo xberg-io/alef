@@ -648,7 +648,11 @@ fn render_assertion(out: &mut String, assertion: &Assertion, binary_name: &str, 
                 let jq_path = field_to_jq_path(resolved);
                 let safe_field = sanitize_ident(field);
                 let _ = writeln!(out, "    local val_{safe_field}");
-                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                // Use `// empty` so JSON null becomes an empty string rather than the literal "null".
+                let _ = writeln!(
+                    out,
+                    "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path} // empty')"
+                );
                 let _ = writeln!(out, "    assert_is_empty \"$val_{safe_field}\" '{field}'");
             }
         }
