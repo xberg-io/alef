@@ -84,6 +84,7 @@ fn simple_type_def() -> TypeDef {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             },
             FieldDef {
                 name: "count".to_string(),
@@ -100,6 +101,7 @@ fn simple_type_def() -> TypeDef {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             },
         ],
         methods: vec![],
@@ -1465,6 +1467,7 @@ fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1504,6 +1507,7 @@ fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_in
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1542,6 +1546,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1575,6 +1580,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration_optional_flag() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -1611,6 +1617,7 @@ fn test_gen_lossy_binding_to_core_fields_with_optional_duration_type() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -2161,6 +2168,7 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2216,6 +2224,7 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2259,6 +2268,7 @@ fn test_can_generate_default_impl_named_in_known_set() {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2307,6 +2317,7 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }],
         methods: vec![],
         is_opaque: false,
@@ -2428,6 +2439,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             }],
             is_tuple: false,
             doc: String::new(),
@@ -4606,6 +4618,7 @@ fn test_gen_constructor_more_than_7_fields_gets_clippy_allow() {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
     }
     let mapper = RustMapper;
@@ -6098,6 +6111,7 @@ fn test_gen_lossy_binding_to_core_fields_named_field() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6134,6 +6148,7 @@ fn test_gen_lossy_binding_to_core_fields_path_field() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6170,6 +6185,7 @@ fn test_gen_lossy_binding_to_core_fields_path_optional() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6206,6 +6222,7 @@ fn test_gen_lossy_binding_to_core_fields_json_field() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6242,6 +6259,7 @@ fn test_gen_lossy_binding_to_core_fields_json_optional() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6278,6 +6296,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6314,6 +6333,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6395,6 +6415,7 @@ fn test_gen_lossy_binding_to_core_fields_char_field() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6431,6 +6452,7 @@ fn test_gen_lossy_binding_to_core_fields_char_optional() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(
@@ -6470,6 +6492,7 @@ fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     });
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(

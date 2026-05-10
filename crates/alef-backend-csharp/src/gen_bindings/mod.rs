@@ -281,10 +281,7 @@ impl Backend for CsharpBackend {
                 // would write `"fine_tune"` instead.
                 let rename_all_differs = matches!(
                     e.serde_rename_all.as_deref(),
-                    Some("kebab-case")
-                        | Some("SCREAMING-KEBAB-CASE")
-                        | Some("camelCase")
-                        | Some("PascalCase")
+                    Some("kebab-case") | Some("SCREAMING-KEBAB-CASE") | Some("camelCase") | Some("PascalCase")
                 );
                 if rename_all_differs {
                     return true;

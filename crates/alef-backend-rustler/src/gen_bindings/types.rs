@@ -681,6 +681,7 @@ mod tests {
                             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                             newtype_wrapper: None,
                             serde_rename: None,
+                            serde_flatten: false,
                         },
                         FieldDef {
                             name: "bearer_format".into(),
@@ -697,6 +698,7 @@ mod tests {
                             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                             newtype_wrapper: None,
                             serde_rename: None,
+                            serde_flatten: false,
                         },
                     ],
                     is_tuple: false,
@@ -722,6 +724,7 @@ mod tests {
                             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                             newtype_wrapper: None,
                             serde_rename: None,
+                            serde_flatten: false,
                         },
                         FieldDef {
                             name: "name".into(),
@@ -738,6 +741,7 @@ mod tests {
                             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                             newtype_wrapper: None,
                             serde_rename: None,
+                            serde_flatten: false,
                         },
                     ],
                     is_tuple: false,
@@ -830,6 +834,7 @@ mod tests {
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
                         serde_rename: None,
+                        serde_flatten: false,
                     }],
                     is_tuple: true,
                     doc: String::new(),
@@ -853,6 +858,7 @@ mod tests {
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
                         serde_rename: None,
+                        serde_flatten: false,
                     }],
                     is_tuple: true,
                     doc: String::new(),
@@ -947,6 +953,7 @@ mod tests {
             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(field_type_for_rustler(&bool_field), "bool");
         let str_field = FieldDef {

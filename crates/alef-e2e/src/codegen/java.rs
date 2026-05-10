@@ -78,7 +78,10 @@ impl E2eCodegen for JavaCodegen {
         // it. Without this, every fixture-bound test failed with
         // `LiterLlmRsException: error sending request for url` because
         // `System.getenv("MOCK_SERVER_URL")` was null.
-        let needs_mock_server = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.needs_mock_server());
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Generate test files per category. Path mirrors the configured Java
         // package — `dev.myorg` becomes `dev/myorg`, etc. — so the package
@@ -281,12 +284,16 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("        if (!bin.exists()) {\n");
     out.push_str("            throw new IllegalStateException(\"MockServerListener: mock-server binary not found at \" + bin + \" — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release\");\n");
     out.push_str("        }\n");
-    out.push_str("        ProcessBuilder pb = new ProcessBuilder(bin.getAbsolutePath(), fixturesDir.getAbsolutePath())\n");
+    out.push_str(
+        "        ProcessBuilder pb = new ProcessBuilder(bin.getAbsolutePath(), fixturesDir.getAbsolutePath())\n",
+    );
     out.push_str("            .redirectErrorStream(false);\n");
     out.push_str("        try {\n");
     out.push_str("            mockServer = pb.start();\n");
     out.push_str("        } catch (IOException e) {\n");
-    out.push_str("            throw new IllegalStateException(\"MockServerListener: failed to start mock-server\", e);\n");
+    out.push_str(
+        "            throw new IllegalStateException(\"MockServerListener: failed to start mock-server\", e);\n",
+    );
     out.push_str("        }\n");
     out.push_str("        // Read until we see the MOCK_SERVER_URL=... line. Cap the loop so a\n");
     out.push_str("        // misbehaving mock-server cannot block the launcher indefinitely.\n");
@@ -303,7 +310,9 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("            }\n");
     out.push_str("        } catch (IOException e) {\n");
     out.push_str("            mockServer.destroyForcibly();\n");
-    out.push_str("            throw new IllegalStateException(\"MockServerListener: failed to read mock-server stdout\", e);\n");
+    out.push_str(
+        "            throw new IllegalStateException(\"MockServerListener: failed to read mock-server stdout\", e);\n",
+    );
     out.push_str("        }\n");
     out.push_str("        if (url == null || url.isEmpty()) {\n");
     out.push_str("            mockServer.destroyForcibly();\n");

@@ -960,6 +960,7 @@ mod tests {
             vec_inner_core_wrapper: Default::default(),
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }
     }
 

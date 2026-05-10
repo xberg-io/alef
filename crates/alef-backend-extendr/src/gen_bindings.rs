@@ -1839,6 +1839,7 @@ package_name = "testlib"
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }
     }
 

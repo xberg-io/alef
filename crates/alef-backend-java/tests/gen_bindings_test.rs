@@ -45,6 +45,7 @@ fn make_newtype_field(ty: TypeRef) -> FieldDef {
         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     }
 }
 
@@ -74,6 +75,7 @@ fn test_basic_generation() {
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             }],
             methods: vec![],
             is_opaque: false,
@@ -302,6 +304,7 @@ fn test_optional_field_defaults_in_builder() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "bullets".to_string(),
@@ -318,6 +321,7 @@ fn test_optional_field_defaults_in_builder() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "escape_asterisks".to_string(),
@@ -334,6 +338,7 @@ fn test_optional_field_defaults_in_builder() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "timeout_ms".to_string(),
@@ -350,6 +355,7 @@ fn test_optional_field_defaults_in_builder() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
