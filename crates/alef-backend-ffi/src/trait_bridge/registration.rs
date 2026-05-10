@@ -259,6 +259,9 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             let clone_expr = match &p.ty {
                 TypeRef::Path => format!("{}.to_path_buf()", p.name),
                 TypeRef::Bytes => format!("{}.to_vec()", p.name),
+                // &str is not Clone-into-owned by itself — `.clone()` returns &str (same lifetime).
+                // Use `.to_string()` so the closure captures an owned String that is 'static.
+                TypeRef::String | TypeRef::Char if p.is_ref => format!("{}.to_string()", p.name),
                 _ => format!("{}.clone()", p.name),
             };
             out.push_str(&crate::template_env::render(
