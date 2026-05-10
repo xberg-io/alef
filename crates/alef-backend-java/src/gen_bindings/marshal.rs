@@ -197,23 +197,31 @@ pub(crate) fn marshal_param_to_ffi(
                 }
                 // Optional primitive numeric types: Java auto-unboxes null Long/Integer/etc.
                 // via `.intValue()`/`.longValue()` when passed to MethodHandle.invoke(...),
-                // which throws NullPointerException. Emit an explicit null→0 coercion local
-                // so the FFI call always receives a valid primitive.
+                // which throws NullPointerException. Emit an explicit null → sentinel
+                // coercion local so the FFI call always receives a valid primitive AND the
+                // FFI shim's `if x == {prim}::MAX { None }` decoder recognises a null caller.
+                // Sentinel choice mirrors `alef-backend-ffi` `param_optional_numeric_conversion`:
+                // unsigned ints use bitwise -1 (truncates to all-bits-set = u{N}::MAX);
+                // signed ints use the Java boxed type's MAX_VALUE; floats use NaN.
                 TypeRef::Primitive(prim) => {
                     use alef_core::ir::PrimitiveType;
                     let cname = "c".to_string() + name;
-                    let (prim_kw, zero_lit) = match prim {
-                        PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
-                            ("long", "0L")
-                        }
-                        PrimitiveType::F32 => ("float", "0.0f"),
-                        PrimitiveType::F64 => ("double", "0.0"),
+                    let (prim_kw, none_lit) = match prim {
+                        PrimitiveType::U64 | PrimitiveType::Usize => ("long", "-1L"),
+                        PrimitiveType::I64 | PrimitiveType::Isize => ("long", "Long.MAX_VALUE"),
+                        PrimitiveType::U32 => ("int", "-1"),
+                        PrimitiveType::I32 => ("int", "Integer.MAX_VALUE"),
+                        PrimitiveType::U16 => ("short", "(short) -1"),
+                        PrimitiveType::I16 => ("short", "Short.MAX_VALUE"),
+                        PrimitiveType::U8 => ("byte", "(byte) -1"),
+                        PrimitiveType::I8 => ("byte", "Byte.MAX_VALUE"),
+                        PrimitiveType::F32 => ("float", "Float.NaN"),
+                        PrimitiveType::F64 => ("double", "Double.NaN"),
                         PrimitiveType::Bool => ("boolean", "false"),
-                        _ => ("int", "0"),
                     };
                     writeln!(
                         out,
-                        "            {prim_kw} {cname} = ({name} == null) ? {zero_lit} : {name};",
+                        "            {prim_kw} {cname} = ({name} == null) ? {none_lit} : {name};",
                     )
                     .ok();
                 }

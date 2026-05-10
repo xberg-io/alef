@@ -626,11 +626,30 @@ pub(super) fn native_call_arg(
         }
         ty => {
             if optional {
-                // For optional primitive types (e.g. ulong?, uint?), use GetValueOrDefault()
-                // to safely unwrap with a default of 0 if null. String/Char/Path/Json are
-                // reference types so `!` is correct for those.
-                let needs_value_unwrap = matches!(ty, TypeRef::Primitive(_) | TypeRef::Duration);
-                if needs_value_unwrap {
+                // For optional primitive types (e.g. ulong?, uint?), pass the FFI's
+                // None sentinel when the value is null. The FFI shim decodes
+                // `{prim}::MAX` (and NAN for floats) as None — passing 0 collides with
+                // a legitimate zero from the caller, e.g. timeout_secs=0 = "no timeout"
+                // would be silently treated as "unset" without this. Mirrors the
+                // `alef-backend-ffi` `param_optional_numeric_conversion` decoder.
+                // String/Char/Path/Json are reference types so `!` is correct for those.
+                if let TypeRef::Primitive(prim) = ty {
+                    use alef_core::ir::PrimitiveType;
+                    let sentinel = match prim {
+                        PrimitiveType::U8 => "byte.MaxValue",
+                        PrimitiveType::U16 => "ushort.MaxValue",
+                        PrimitiveType::U32 => "uint.MaxValue",
+                        PrimitiveType::U64 | PrimitiveType::Usize => "ulong.MaxValue",
+                        PrimitiveType::I8 => "sbyte.MaxValue",
+                        PrimitiveType::I16 => "short.MaxValue",
+                        PrimitiveType::I32 => "int.MaxValue",
+                        PrimitiveType::I64 | PrimitiveType::Isize => "long.MaxValue",
+                        PrimitiveType::F32 => "float.NaN",
+                        PrimitiveType::F64 => "double.NaN",
+                        PrimitiveType::Bool => unreachable!("handled above"),
+                    };
+                    format!("{param_name} ?? {sentinel}")
+                } else if matches!(ty, TypeRef::Duration) {
                     format!("{param_name}.GetValueOrDefault()")
                 } else {
                     format!("{param_name}!")
