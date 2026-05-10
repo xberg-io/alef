@@ -369,7 +369,10 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 }
             }
         }
-        // Also check struct field accessors and method returns that yield enum pointers
+        // Also check struct field accessors and method returns that yield enum pointers.
+        // Field accessors (gen_field_accessor) emit `*mut Enum` returns whenever a struct
+        // field's type is a Named enum, so any such field implies a heap-allocated enum
+        // pointer that callers must free / stringify — match the function path above.
         for typ in api.types.iter().filter(|t| !t.is_trait) {
             for method in &typ.methods {
                 let return_named = match &method.return_type {
@@ -384,6 +387,24 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     _ => None,
                 };
                 if let Some(name) = return_named {
+                    if api.enums.iter().any(|e| e.name == name) {
+                        enum_pointer_return.insert(name);
+                    }
+                }
+            }
+            for field in &typ.fields {
+                let field_named = match &field.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.clone()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = field_named {
                     if api.enums.iter().any(|e| e.name == name) {
                         enum_pointer_return.insert(name);
                     }
