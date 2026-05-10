@@ -6,8 +6,9 @@ mod types;
 
 use crate::naming::dart_style;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, FunctionDef};
+use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -77,7 +78,18 @@ impl Backend for DartBackend {
         // import (with prefix) makes the free functions callable here.
         body.push_str(&format!("export '{module_name}_bridge_generated/lib.dart';\n"));
 
-        if !visible_functions.is_empty() {
+        // Collect trait bridge configs that are not excluded for Dart and have at least
+        // one of register_fn / unregister_fn / clear_fn set. These produce additional
+        // static wrapper methods in the bridge class.
+        let dart_backend_name = "dart";
+        let active_bridge_configs: Vec<&TraitBridgeConfig> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == dart_backend_name))
+            .filter(|b| b.register_fn.is_some() || b.unregister_fn.is_some() || b.clear_fn.is_some())
+            .collect();
+
+        if !visible_functions.is_empty() || !active_bridge_configs.is_empty() {
             // FRB places its generated Dart code in a subdirectory named
             // `{module_name}_bridge_generated/` and exposes it via `lib.dart`.
             //
@@ -103,6 +115,13 @@ impl Backend for DartBackend {
             for f in &visible_functions {
                 emit_function(f, &mut body, &mut imports);
                 body.push('\n');
+            }
+            // Emit static register/unregister/clear wrapper methods for each active
+            // trait bridge config. FRB bridges the underlying `pub fn`s as free Dart
+            // functions; these wrappers expose them as named static methods on the
+            // bridge class so Dart callers have a single, discoverable entry point.
+            for bridge_cfg in &active_bridge_configs {
+                emit_trait_bridge_methods(bridge_cfg, &mut body);
             }
             body.push_str("}\n");
         }
@@ -147,7 +166,6 @@ impl Backend for DartBackend {
 
         // Emit traits.dart when at least one [[trait_bridges]] entry is configured
         // for the Dart backend (not excluded).
-        let dart_backend_name = "dart";
         let trait_names: Vec<&str> = config
             .trait_bridges
             .iter()
@@ -219,6 +237,53 @@ impl DartBackend {
                 }],
             }),
         }
+    }
+}
+
+/// Emit `static Future<void>` wrapper methods for a trait bridge in the Dart bridge class.
+///
+/// For each of `register_fn`, `unregister_fn`, and `clear_fn` that is set on the config,
+/// emits a corresponding Dart static method that delegates to the FRB-bridged free function:
+///
+/// - `register_fn`   → `static Future<void> registerXxx(XxxDartImpl impl_) async { ... }`
+/// - `unregister_fn` → `static Future<void> unregisterXxx(String name) async { ... }`
+/// - `clear_fn`      → `static Future<void> clearXxxs() async { ... }`
+///
+/// The names are converted to lowerCamelCase (matching FRB's Dart naming convention).
+fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
+    let trait_name = &bridge_cfg.trait_name;
+    let impl_type = format!("{trait_name}DartImpl");
+
+    if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+        let dart_name = register_fn.to_lower_camel_case();
+        out.push_str(&format!(
+            "  /// Register a Dart implementation of [{trait_name}] with the plugin registry.\n"
+        ));
+        out.push_str(&format!(
+            "  static Future<void> {dart_name}({impl_type} impl_) async {{\n"
+        ));
+        out.push_str(&format!("    await rust_bridge.{dart_name}(impl_: impl_);\n"));
+        out.push_str("  }\n\n");
+    }
+
+    if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+        let dart_name = unregister_fn.to_lower_camel_case();
+        out.push_str(&format!(
+            "  /// Unregister a previously-registered [{trait_name}] plugin by name.\n"
+        ));
+        out.push_str(&format!("  static Future<void> {dart_name}(String name) async {{\n"));
+        out.push_str(&format!("    await rust_bridge.{dart_name}(name: name);\n"));
+        out.push_str("  }\n\n");
+    }
+
+    if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+        let dart_name = clear_fn.to_lower_camel_case();
+        out.push_str(&format!(
+            "  /// Clear all registered [{trait_name}] plugins from the registry.\n"
+        ));
+        out.push_str(&format!("  static Future<void> {dart_name}() async {{\n"));
+        out.push_str(&format!("    await rust_bridge.{dart_name}();\n"));
+        out.push_str("  }\n\n");
     }
 }
 

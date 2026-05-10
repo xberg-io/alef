@@ -207,12 +207,15 @@ pub(crate) fn emit_trait_bridge(
     out.push_str("    }\n");
     out.push_str("}\n");
 
-    // --- 5. register_*/unregister_* forwarder functions ---
-    // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`).
-    // FRB auto-bridges these `pub fn` items so Dart sees them as `Future<void> registerOcrBackend(...)`
-    // / `Future<void> unregisterOcrBackend(...)`.
+    // --- 5. register_*/unregister_*/clear_* forwarder functions ---
+    // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`
+    // / `clear_fn`). FRB auto-bridges these `pub fn` items so Dart sees them as:
+    //   Future<void> registerOcrBackend(...)
+    //   Future<void> unregisterOcrBackend(...)
+    //   Future<void> clearOcrBackends()
     emit_register_forwarder(out, bridge_config, &struct_name, source_crate_name);
     emit_unregister_forwarder(out, bridge_config, source_crate_name);
+    emit_clear_forwarder(out, bridge_config, source_crate_name);
 }
 
 /// Emit a Dart-side `register_*` forwarder for a configured trait bridge.
@@ -296,6 +299,33 @@ fn emit_unregister_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig
     out.push_str(&format!("    let registry = {registry_getter}();\n"));
     out.push_str("    let mut registry = registry.write();\n");
     out.push_str("    registry.remove(&name).map_err(|e| e.to_string())\n");
+    out.push_str("}\n");
+}
+
+/// Emit a Rust-side `clear_*` forwarder for a configured trait bridge.
+///
+/// Removes ALL previously-registered plugins of this type via the configured `registry_getter`.
+/// Stringifies the host error. No-op when `clear_fn` is unset on the bridge config.
+fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _source_crate_name: &str) {
+    let Some(clear_fn) = bridge_config.clear_fn.as_deref() else {
+        return;
+    };
+    let Some(registry_getter) = bridge_config.registry_getter.as_deref() else {
+        return;
+    };
+
+    out.push('\n');
+    out.push_str(&format!(
+        "/// Clear all registered `{}` plugins.\n",
+        bridge_config.trait_name
+    ));
+    out.push_str(&format!(
+        "/// Removes every plugin from `{registry_getter}()` and stringifies any host error.\n"
+    ));
+    out.push_str(&format!("pub fn {clear_fn}() -> Result<(), String> {{\n"));
+    out.push_str(&format!("    let registry = {registry_getter}();\n"));
+    out.push_str("    let mut registry = registry.write();\n");
+    out.push_str("    registry.clear().map_err(|e| e.to_string())\n");
     out.push_str("}\n");
 }
 

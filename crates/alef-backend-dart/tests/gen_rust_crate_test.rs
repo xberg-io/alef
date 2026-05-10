@@ -740,6 +740,96 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
     );
 }
 
+/// When `clear_fn` and `registry_getter` are both set, the codegen must emit a
+/// `pub fn clear_*() -> Result<(), String>` Rust-side forwarder.  FRB auto-bridges
+/// it so Dart sees it as `Future<void> clearXxxs()`.
+#[test]
+fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "supports_language",
+            vec![make_param("lang", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Clear forwarder takes no args and returns Result<(), String>.
+    assert!(
+        lib.contains("pub fn clear_ocr_backends() -> Result<(), String>"),
+        "missing clear forwarder signature: {lib}"
+    );
+    assert!(
+        lib.contains("registry.clear().map_err(|e| e.to_string())"),
+        "clear forwarder must call registry.clear() and stringify errors: {lib}"
+    );
+    assert!(
+        lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
+        "clear forwarder must call the configured registry getter: {lib}"
+    );
+}
+
+/// When `clear_fn` is unset, no clear forwarder is emitted.
+#[test]
+fn lib_rs_does_not_emit_clear_forwarder_without_clear_fn() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains("pub fn clear_"),
+        "no clear forwarder should be emitted when clear_fn is unset: {lib}"
+    );
+}
+
 #[test]
 fn cargo_toml_has_license_field() {
     use alef_core::config::ScaffoldConfig;

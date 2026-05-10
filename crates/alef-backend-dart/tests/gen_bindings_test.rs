@@ -934,6 +934,135 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
     );
 }
 
+// ── Dart-side trait bridge wrapper methods ──────────────────────────────────
+
+fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: bridge_trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    config
+}
+
+fn find_dart_src(files: &[alef_core::backend::GeneratedFile]) -> Option<&str> {
+    files
+        .iter()
+        .find(|f| {
+            let p = f.path.to_string_lossy();
+            p.ends_with(".dart") && p.contains("/lib/src/") && !p.ends_with("traits.dart")
+        })
+        .map(|f| f.content.as_str())
+}
+
+/// When `register_fn`, `unregister_fn`, and `clear_fn` are all set, the generated Dart
+/// wrapper class must contain matching static methods delegating to the FRB free functions.
+#[test]
+fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configured() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "extract_text",
+            vec![make_param("data", TypeRef::Bytes)],
+            TypeRef::String,
+            true,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    let config = make_config_with_full_bridge("OcrBackend");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let content = find_dart_src(&files).expect("src dart file should be emitted");
+
+    // register wrapper
+    assert!(
+        content.contains("static Future<void> registerOcrBackend(OcrBackendDartImpl impl_) async {"),
+        "missing registerOcrBackend wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.registerOcrBackend(impl_: impl_);"),
+        "registerOcrBackend must delegate to rust_bridge: {content}"
+    );
+
+    // unregister wrapper
+    assert!(
+        content.contains("static Future<void> unregisterOcrBackend(String name) async {"),
+        "missing unregisterOcrBackend wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.unregisterOcrBackend(name: name);"),
+        "unregisterOcrBackend must delegate to rust_bridge: {content}"
+    );
+
+    // clear wrapper
+    assert!(
+        content.contains("static Future<void> clearOcrBackends() async {"),
+        "missing clearOcrBackends wrapper: {content}"
+    );
+    assert!(
+        content.contains("await rust_bridge.clearOcrBackends();"),
+        "clearOcrBackends must delegate to rust_bridge: {content}"
+    );
+}
+
+/// When `unregister_fn` and `clear_fn` are both None, neither wrapper should be emitted.
+#[test]
+fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+    // make_config_with_bridge leaves register_fn / unregister_fn / clear_fn all None
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+
+    // No Dart bridge class should be emitted at all when there are no functions
+    // and no bridge methods to emit.
+    let dart_src = find_dart_src(&files).expect("src dart file should still be emitted");
+    assert!(
+        !dart_src.contains("unregisterValidator"),
+        "no unregister wrapper should be emitted: {dart_src}"
+    );
+    assert!(
+        !dart_src.contains("clearValidators"),
+        "no clear wrapper should be emitted: {dart_src}"
+    );
+}
+
 // ── Bug regression: reserved Dart keyword `default` as enum variant name ────
 
 #[test]
