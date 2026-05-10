@@ -82,11 +82,7 @@ fn resolve_external_use(
     // Extract the full surface of the external crate into a temporary surface
     let mut ext_surface = ApiSurface {
         crate_name: crate_name.to_string(), // Use our crate name for the rust_path
-        version: String::new(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![],
-        errors: vec![],
+        ..ApiSurface::default()
     };
     let mut rwa = ahash::AHashSet::new();
     super::extract_items(

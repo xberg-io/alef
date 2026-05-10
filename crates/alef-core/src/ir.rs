@@ -31,7 +31,7 @@ pub enum DefaultValue {
 }
 
 /// Complete API surface extracted from a Rust crate's public interface.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiSurface {
     pub crate_name: String,
     pub version: String,
@@ -39,6 +39,12 @@ pub struct ApiSurface {
     pub functions: Vec<FunctionDef>,
     pub enums: Vec<EnumDef>,
     pub errors: Vec<ErrorDef>,
+    /// Type names → fully qualified rust_paths for types that were extracted but
+    /// then excluded from the public binding surface. Preserved so trait_bridge
+    /// codegen can still reference them by qualified path when they appear in
+    /// trait method signatures (e.g. `Renderer::render(&InternalDocument)`).
+    #[serde(default)]
+    pub excluded_type_paths: std::collections::HashMap<String, String>,
 }
 
 /// A public struct exposed to bindings.

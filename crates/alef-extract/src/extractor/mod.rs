@@ -31,10 +31,7 @@ pub fn extract(
     let mut surface = ApiSurface {
         crate_name: crate_name.to_string(),
         version: version.to_string(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![],
-        errors: vec![],
+        ..ApiSurface::default()
     };
 
     let mut visited = Vec::<PathBuf>::new();
