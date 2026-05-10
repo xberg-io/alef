@@ -41,12 +41,20 @@ pub fn gen_native_methods_trait_bridges(
 
     let bridge_data: Vec<_> = bridges
         .iter()
-        .map(|(trait_name, _config, _trait_def)| {
+        .map(|(trait_name, config, _trait_def)| {
             let trait_snake = trait_name.to_snake_case();
+            let register_fn = config
+                .register_fn
+                .as_deref()
+                .map(|f| f.to_string())
+                .unwrap_or_else(|| format!("{prefix}_register_{trait_snake}"));
+            let has_unregister = config.unregister_fn.is_some();
+            let unregister_fn = config.unregister_fn.as_deref().unwrap_or("").to_string();
             Value::from_serialize(serde_json::json!({
                 "trait_name": trait_name,
-                "register_fn": format!("{prefix}_register_{trait_snake}"),
-                "unregister_fn": format!("{prefix}_unregister_{trait_snake}"),
+                "register_fn": register_fn,
+                "has_unregister": has_unregister,
+                "unregister_fn": unregister_fn,
             }))
         })
         .collect();
@@ -486,11 +494,13 @@ fn gen_single_trait_bridge(
     out.push('\n');
 
     // --- Registry Class ---
+    let has_unregister = bridge_cfg.unregister_fn.is_some();
     out.push_str(&render(
         "trait_registry_class.jinja",
         Value::from_serialize(serde_json::json!({
             "trait_pascal": trait_pascal,
             "has_super_trait": has_super_trait,
+            "has_unregister": has_unregister,
         })),
     ));
 }
@@ -592,7 +602,8 @@ mod tests {
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static void Register(IOcrBackend impl, string name)"));
-        assert!(content.contains("public static void Unregister(string name)"));
+        // unregister_fn is None — Unregister must not be emitted
+        assert!(!content.contains("public static void Unregister(string name)"));
         // No impl.Name reference when interface lacks it
         assert!(!content.contains("impl.Name"));
     }
@@ -624,9 +635,28 @@ mod tests {
     }
 
     #[test]
-    fn test_native_methods_declarations() {
+    fn test_native_methods_declarations_without_unregister() {
+        // unregister_fn is None — only the register P/Invoke should be emitted.
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges);
+
+        assert!(content.contains("RegisterOcrBackend"));
+        assert!(!content.contains("UnregisterOcrBackend"));
+        assert!(content.contains("[DllImport"));
+        assert!(content.contains("kreuzberg_register_ocr_backend"));
+        assert!(!content.contains("kreuzberg_unregister_ocr_backend"));
+    }
+
+    #[test]
+    fn test_native_methods_declarations_with_configured_unregister() {
+        // When unregister_fn is set, both register and unregister P/Invokes are emitted
+        // using the configured function names.
+        let trait_def = make_trait_def("OcrBackend");
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.register_fn = Some("kreuzberg_register_ocr_backend".to_string());
+        bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges);
 
@@ -635,5 +665,32 @@ mod tests {
         assert!(content.contains("[DllImport"));
         assert!(content.contains("kreuzberg_register_ocr_backend"));
         assert!(content.contains("kreuzberg_unregister_ocr_backend"));
+    }
+
+    #[test]
+    fn test_registry_emits_unregister_when_configured() {
+        // When unregister_fn is set, the registry class should contain an Unregister method.
+        let trait_def = make_trait_def("OcrBackend");
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+
+        assert!(content.contains("public static class OcrBackendRegistry"));
+        assert!(content.contains("public static void Unregister(string name)"));
+        assert!(content.contains("NativeMethods.UnregisterOcrBackend(name, out var outError)"));
+    }
+
+    #[test]
+    fn test_registry_omits_unregister_when_not_configured() {
+        // When unregister_fn is None, the registry class must not emit an Unregister method.
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+
+        assert!(content.contains("public static class OcrBackendRegistry"));
+        assert!(!content.contains("public static void Unregister(string name)"));
+        assert!(!content.contains("NativeMethods.UnregisterOcrBackend"));
     }
 }

@@ -43,6 +43,7 @@ public static class {{ trait_pascal }}Registry {
         }
     }
 
+{% if has_unregister %}
     /// <summary>Unregister a {{ trait_pascal }} implementation</summary>
     public static void Unregister(string name) {
         if (string.IsNullOrEmpty(name))
@@ -59,4 +60,5 @@ public static class {{ trait_pascal }}Registry {
             bridge.Dispose();
         }
     }
+{% endif %}
 }
