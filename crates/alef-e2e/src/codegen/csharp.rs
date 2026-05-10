@@ -116,6 +116,15 @@ impl E2eCodegen for CSharpCodegen {
             generated_header: true,
         });
 
+        // Emit xunit.runner.json to disable xUnit's default collection-parallel
+        // mode. All test classes share a single mock-server spawned via
+        // [ModuleInitializer], so concurrent collections cause request churn.
+        files.push(GeneratedFile {
+            path: output_base.join("xunit.runner.json"),
+            content: render_xunit_runner_json(),
+            generated_header: false,
+        });
+
         // Generate test files per category.
         let tests_base = output_base.join("tests");
         let field_resolver = FieldResolver::new(
@@ -203,6 +212,10 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
             xunit_runner_version => tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
         },
     )
+}
+
+fn render_xunit_runner_json() -> String {
+    "{\n  \"$schema\": \"https://xunit.net/schema/v3/xunit.runner.schema.json\",\n  \"parallelizeTestCollections\": false\n}\n".to_string()
 }
 
 fn render_test_setup(needs_mock_server: bool) -> String {
