@@ -6,6 +6,7 @@
 mod helpers;
 mod object_wrapper;
 mod shared;
+pub mod trait_bridge;
 mod traits;
 mod typealiases;
 
