@@ -128,6 +128,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     &module_name,
                     &config.ffi_lib_name(),
                     &config.ffi_crate_path(),
+                    &e2e_config.test_documents_relative_from(0),
                 ),
                 generated_header: false,
             },
@@ -207,6 +208,7 @@ fn render_build_zig(
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
+    test_documents_path: &str,
 ) -> String {
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
@@ -286,7 +288,7 @@ pub fn build(b: *std.Build) void {
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
         ));
         content.push_str(&format!(
-            "    {test_name}_run.setCwd(b.path(\"../../test_documents\"));\n"
+            "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
         ));
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }

@@ -771,6 +771,7 @@ fn render_test_case(
         )
     };
 
+    let test_documents_path = e2e_config.test_documents_relative_from(0);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         resolved_args,
@@ -781,6 +782,7 @@ fn render_test_case(
         &fixture.id,
         resolved_handle_struct_type,
         resolved_handle_atom_list_fields_ref,
+        &test_documents_path,
     );
 
     // Build visitor if present — it will be injected into the options map.
@@ -999,6 +1001,7 @@ fn build_args_and_setup(
     fixture_id: &str,
     _handle_struct_type: Option<&str>,
     _handle_atom_list_fields: &std::collections::HashSet<String>,
+    test_documents_path: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty.
@@ -1087,7 +1090,7 @@ fn build_args_and_setup(
                 // relative to the e2e/elixir/ directory where `mix test` runs.
                 if arg.arg_type == "file_path" {
                     if let Some(path_str) = v.as_str() {
-                        let full_path = format!("../../test_documents/{path_str}");
+                        let full_path = format!("{test_documents_path}/{path_str}");
                         parts.push(format!("\"{}\"", escape_elixir(&full_path)));
                         continue;
                     }
@@ -1107,8 +1110,9 @@ fn build_args_and_setup(
                                     .find('/')
                                     .is_some_and(|slash_pos| slash_pos > 0 && raw[slash_pos + 1..].contains('.'));
                             if is_file_path {
-                                // Looks like "dir/file.ext" — read from test_documents.
-                                let full_path = format!("../../test_documents/{raw}");
+                                // Looks like "dir/file.ext" — read from the
+                                // configured test-documents directory.
+                                let full_path = format!("{test_documents_path}/{raw}");
                                 let escaped = escape_elixir(&full_path);
                                 setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
                                 parts.push(var_name.to_string());

@@ -282,7 +282,11 @@ fn render_test_file(
         let _ = writeln!(out, "            .deletingLastPathComponent() // swift/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // packages/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // <repo root>");
-        let _ = writeln!(out, "            .appendingPathComponent(\"test_documents\")");
+        let _ = writeln!(
+            out,
+            "            .appendingPathComponent(\"{}\")",
+            e2e_config.test_documents_dir
+        );
         let _ = writeln!(
             out,
             "        if FileManager.default.fileExists(atPath: _testDocs.path) {{"

@@ -147,7 +147,12 @@ impl E2eCodegen for PhpCodegen {
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
-            content: render_bootstrap(&pkg_path, has_http_fixtures, has_file_fixtures),
+            content: render_bootstrap(
+                &pkg_path,
+                has_http_fixtures,
+                has_file_fixtures,
+                &e2e_config.test_documents_relative_from(0),
+            ),
             generated_header: true,
         });
 
@@ -285,7 +290,12 @@ fn render_phpunit_xml() -> String {
     crate::template_env::render("php/phpunit.xml.jinja", minijinja::context! {})
 }
 
-fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool, has_file_fixtures: bool) -> String {
+fn render_bootstrap(
+    pkg_path: &str,
+    has_http_fixtures: bool,
+    has_file_fixtures: bool,
+    test_documents_path: &str,
+) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::template_env::render(
         "php/bootstrap.php.jinja",
@@ -294,6 +304,7 @@ fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool, has_file_fixtures: 
             pkg_path => pkg_path,
             has_http_fixtures => has_http_fixtures,
             has_file_fixtures => has_file_fixtures,
+            test_documents_path => test_documents_path,
         },
     )
 }

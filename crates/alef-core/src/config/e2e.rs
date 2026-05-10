@@ -56,7 +56,7 @@ fn default_test_apps_dir() -> String {
 }
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct E2eConfig {
     /// Directory containing fixture JSON files (default: "fixtures").
     #[serde(default = "default_fixtures_dir")]
@@ -64,6 +64,18 @@ pub struct E2eConfig {
     /// Output directory for generated e2e test projects (default: "e2e").
     #[serde(default = "default_output_dir")]
     pub output: String,
+    /// Repo-root-relative directory holding binary file fixtures referenced by
+    /// `file_path` / `bytes` fixture args (default: "test_documents").
+    ///
+    /// Backends that emit chdir / setup hooks for file-based fixtures resolve
+    /// the relative path from the test-emission directory via
+    /// [`E2eConfig::test_documents_relative_from`]. The default matches the
+    /// kreuzberg convention; downstream crates whose fixtures don't reference
+    /// files (e.g. liter-llm, which uses pure mock-server fixtures) can leave
+    /// the default in place — backends conditionally emit the setup only when
+    /// fixtures actually need it.
+    #[serde(default = "default_test_documents_dir")]
+    pub test_documents_dir: String,
     /// Languages to generate e2e tests for. Defaults to top-level `languages` list.
     #[serde(default)]
     pub languages: Vec<String>,
@@ -238,6 +250,28 @@ impl E2eConfig {
             &self.output
         }
     }
+
+    /// Relative path from a backend's emission directory to the
+    /// `test_documents_dir` at the repo root.
+    ///
+    /// `emission_depth` counts the number of additional `../` segments needed
+    /// to reach `<output>/<lang>/` from where the file is being emitted:
+    ///
+    /// * `0` — emitted directly at `e2e/<lang>/` (e.g. dart, zig `build.zig`)
+    /// * `1` — emitted at `e2e/<lang>/<sub>/` (e.g. ruby `spec/`, R `tests/`)
+    /// * `2` — emitted at `e2e/<lang>/<sub1>/<sub2>/`
+    ///
+    /// The base prefix is two segments above `<output>/<lang>/` (i.e.
+    /// `../../`), matching the canonical layout where `<output>` (default
+    /// `"e2e"`) sits at the repo root next to the configured
+    /// `test_documents_dir`.
+    pub fn test_documents_relative_from(&self, emission_depth: usize) -> String {
+        let mut up = String::from("../../");
+        for _ in 0..emission_depth {
+            up.push_str("../");
+        }
+        format!("{up}{}", self.test_documents_dir)
+    }
 }
 
 fn default_fixtures_dir() -> String {
@@ -246,6 +280,42 @@ fn default_fixtures_dir() -> String {
 
 fn default_output_dir() -> String {
     "e2e".to_string()
+}
+
+fn default_test_documents_dir() -> String {
+    "test_documents".to_string()
+}
+
+/// Hand-rolled `Default` so the `test_documents_dir` field receives its
+/// `default_test_documents_dir()` value (`"test_documents"`) when callers use
+/// `..Default::default()` to construct an `E2eConfig` literally rather than
+/// going through `serde::Deserialize`. Without this, `derive(Default)` would
+/// fall back to `String::default()` (i.e. the empty string), and any backend
+/// computing `test_documents_relative_from(0)` would emit `"../../"` (no dir
+/// component), breaking generated chdir hooks.
+impl Default for E2eConfig {
+    fn default() -> Self {
+        Self {
+            fixtures: default_fixtures_dir(),
+            output: default_output_dir(),
+            test_documents_dir: default_test_documents_dir(),
+            languages: Vec::new(),
+            call: CallConfig::default(),
+            calls: HashMap::new(),
+            packages: HashMap::new(),
+            format: HashMap::new(),
+            fields: HashMap::new(),
+            fields_optional: HashSet::new(),
+            fields_array: HashSet::new(),
+            fields_method_calls: HashSet::new(),
+            result_fields: HashSet::new(),
+            exclude_categories: HashSet::new(),
+            fields_c_types: HashMap::new(),
+            fields_enum: HashSet::new(),
+            dep_mode: DependencyMode::default(),
+            registry: RegistryConfig::default(),
+        }
+    }
 }
 
 /// Configuration for the function call in each test.
@@ -794,4 +864,56 @@ pub struct PackageRef {
     /// Package version (e.g., for go.mod require directives).
     #[serde(default)]
     pub version: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_e2e_with_test_documents(dir: &str) -> E2eConfig {
+        E2eConfig {
+            test_documents_dir: dir.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_documents_dir_default_is_test_documents() {
+        let cfg: E2eConfig = toml::from_str("[call]\nfunction = \"f\"\n").expect("minimal TOML must deserialize");
+        assert_eq!(cfg.test_documents_dir, "test_documents");
+    }
+
+    #[test]
+    fn test_documents_dir_explicit_override_wins() {
+        let cfg: E2eConfig = toml::from_str(
+            "test_documents_dir = \"fixture_files\"\n[call]\nfunction = \"f\"\n",
+        )
+        .expect("explicit override must deserialize");
+        assert_eq!(cfg.test_documents_dir, "fixture_files");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_lang_root_returns_two_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(0), "../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_spec_depth_returns_three_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(1), "../../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_from_at_two_subdirs_deep_returns_four_dots_up() {
+        let cfg = empty_e2e_with_test_documents("test_documents");
+        assert_eq!(cfg.test_documents_relative_from(2), "../../../../test_documents");
+    }
+
+    #[test]
+    fn test_documents_relative_uses_configured_dir_name() {
+        let cfg = empty_e2e_with_test_documents("fixture_files");
+        assert_eq!(cfg.test_documents_relative_from(0), "../../fixture_files");
+        assert_eq!(cfg.test_documents_relative_from(1), "../../../fixture_files");
+    }
 }

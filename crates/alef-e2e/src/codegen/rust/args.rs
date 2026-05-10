@@ -5,6 +5,11 @@ use crate::escape::rust_raw_string;
 /// Render a single argument binding and expression for a Rust e2e test call.
 ///
 /// Returns `(binding_lines, call_expression)`.
+///
+/// `test_documents_dir` is the configured fixture-binary directory name (see
+/// [`E2eConfig::test_documents_dir`]). It is concatenated at compile time with
+/// the `CARGO_MANIFEST_DIR` so that fixture-relative paths resolve from any
+/// `cargo` invocation cwd.
 #[allow(clippy::too_many_arguments)]
 pub fn render_rust_arg(
     name: &str,
@@ -16,6 +21,7 @@ pub fn render_rust_arg(
     mock_base_url: Option<&str>,
     owned: bool,
     element_type: Option<&str>,
+    test_documents_dir: &str,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         let lines = vec![format!(
@@ -82,7 +88,7 @@ pub fn render_rust_arg(
         if let serde_json::Value::String(path_str) = value {
             // File-path value: load via std::fs::read at test-run time.
             let binding = format!(
-                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/{path_str}\")).expect(\"test_documents/{path_str} must exist\");"
+                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../{test_documents_dir}/{path_str}\")).expect(\"{test_documents_dir}/{path_str} must exist\");"
             );
             let call_expr = if owned { name.to_string() } else { format!("&{name}") };
             return (vec![binding], call_expr);
@@ -101,7 +107,7 @@ pub fn render_rust_arg(
     if arg_type == "file_path" {
         if let serde_json::Value::String(path_str) = value {
             let binding = format!(
-                "let {name}: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{path_str}\");"
+                "let {name}: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../{test_documents_dir}/\", \"{path_str}\");"
             );
             return (vec![binding], name.to_string());
         }

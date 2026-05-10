@@ -84,7 +84,7 @@ impl E2eCodegen for RCodegen {
         // `pdf/fake_memo.pdf` resolve at extraction time.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("setup-fixtures.R"),
-            content: render_setup_fixtures(),
+            content: render_setup_fixtures(&e2e_config.test_documents_relative_from(1)),
             generated_header: true,
         });
 
@@ -149,7 +149,7 @@ Config/testthat/edition: 3
     )
 }
 
-fn render_setup_fixtures() -> String {
+fn render_setup_fixtures(test_documents_path: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out);
@@ -175,7 +175,7 @@ fn render_setup_fixtures() -> String {
     );
     let _ = writeln!(
         out,
-        ".alef_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
+        ".alef_test_documents <- normalizePath(\"{test_documents_path}\", mustWork = FALSE)"
     );
     let _ = writeln!(out, ".resolve_fixture <- function(path) {{");
     let _ = writeln!(out, "  if (dir.exists(.alef_test_documents)) {{");

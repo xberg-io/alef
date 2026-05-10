@@ -156,7 +156,7 @@ impl E2eCodegen for GoCodegen {
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(),
+                content: render_main_test_go(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }
@@ -249,7 +249,7 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
 /// The binary is expected at `../rust/target/release/mock-server` relative to the Go e2e
 /// directory.  The server prints `MOCK_SERVER_URL=http://...` on stdout; we read that line
 /// and export the variable so all test files can call `os.Getenv("MOCK_SERVER_URL")`.
-fn render_main_test_go() -> String {
+fn render_main_test_go(test_documents_dir: &str) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
@@ -271,7 +271,7 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "\t// Change to the test_documents directory so that fixture file paths like"
+        "\t// Change to the configured test-documents directory so that fixture file paths like"
     );
     let _ = writeln!(
         out,
@@ -279,7 +279,7 @@ fn render_main_test_go() -> String {
     );
     let _ = writeln!(
         out,
-        "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"test_documents\")"
+        "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"{test_documents_dir}\")"
     );
     let _ = writeln!(out, "\tif err := os.Chdir(testDocumentsDir); err != nil {{");
     let _ = writeln!(out, "\t\tpanic(err)");

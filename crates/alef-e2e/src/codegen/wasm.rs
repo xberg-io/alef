@@ -16,6 +16,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -172,7 +173,7 @@ impl E2eCodegen for WasmCodegen {
         if has_file_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_file_setup(),
+                content: render_file_setup(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }
@@ -295,21 +296,25 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
     )
 }
 
-fn render_file_setup() -> String {
+fn render_file_setup(test_documents_dir: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    header
-        + r#"import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-// Change to the test_documents directory so that fixture file paths like
-// "pdf/fake_memo.pdf" resolve correctly when vitest runs from e2e/wasm/.
-// setup.ts lives in e2e/wasm/; test_documents lives at the repository root,
-// two directories up: e2e/wasm/ -> e2e/ -> repo root -> test_documents/.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const testDocumentsDir = join(__dirname, '..', '..', 'test_documents');
-process.chdir(testDocumentsDir);
-"#
+    let mut out = header;
+    out.push_str("import { fileURLToPath } from 'url';\n");
+    out.push_str("import { dirname, join } from 'path';\n\n");
+    out.push_str(
+        "// Change to the configured test-documents directory so that fixture file paths like\n",
+    );
+    out.push_str("// \"pdf/fake_memo.pdf\" resolve correctly when vitest runs from e2e/wasm/.\n");
+    out.push_str("// setup.ts lives in e2e/wasm/; the fixtures dir lives at the repository root,\n");
+    out.push_str("// two directories up: e2e/wasm/ -> e2e/ -> repo root.\n");
+    out.push_str("const __filename = fileURLToPath(import.meta.url);\n");
+    out.push_str("const __dirname = dirname(__filename);\n");
+    let _ = writeln!(
+        out,
+        "const testDocumentsDir = join(__dirname, '..', '..', '{test_documents_dir}');"
+    );
+    out.push_str("process.chdir(testDocumentsDir);\n");
+    out
 }
 
 fn render_global_setup() -> String {

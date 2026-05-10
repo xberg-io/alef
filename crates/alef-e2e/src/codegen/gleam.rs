@@ -699,7 +699,9 @@ fn render_test_case(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
+    let test_documents_path = e2e_config.test_documents_relative_from(0);
+    let (setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, &fixture.id, &test_documents_path);
 
     // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
     // emit one function per fixture so failures point at the offending fixture.
@@ -742,6 +744,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     _fixture_id: &str,
+    test_documents_path: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -758,14 +761,16 @@ fn build_args_and_setup(
         match arg.arg_type.as_str() {
             "file_path" => {
                 // Always a required string path.
-                // Gleam e2e runs from e2e/gleam/ so prefix with ../../test_documents/
+                // Gleam e2e runs from e2e/gleam/ so the path resolves relative
+                // to the configured test-documents directory.
                 let path = val.and_then(|v| v.as_str()).unwrap_or("");
-                let full_path = format!("../../test_documents/{path}");
+                let full_path = format!("{test_documents_path}/{path}");
                 parts.push(format!("\"{}\"", escape_gleam(&full_path)));
             }
             "bytes" => {
                 // Read the file at runtime via Erlang file:read_file/1.
-                // The fixture `data` field holds the path relative to test_documents/.
+                // The fixture `data` field holds the path relative to the
+                // configured test-documents directory.
                 let path = val.and_then(|v| v.as_str()).unwrap_or("");
                 let var_name = if bytes_var_counter == 0 {
                     "data_bytes__".to_string()
@@ -774,7 +779,7 @@ fn build_args_and_setup(
                 };
                 bytes_var_counter += 1;
                 // Use relative path from e2e/gleam/ project root.
-                let full_path = format!("../../test_documents/{path}");
+                let full_path = format!("{test_documents_path}/{path}");
                 setup_lines.push(format!(
                     "let assert Ok({var_name}) = e2e_gleam.read_file_bytes(\"{}\")",
                     escape_gleam(&full_path)
@@ -830,7 +835,7 @@ fn build_args_and_setup(
                                         let full_path = if path.starts_with('/') {
                                             path.to_string()
                                         } else {
-                                            format!("../../test_documents/{path}")
+                                            format!("{test_documents_path}/{path}")
                                         };
                                         format!(
                                             "kreuzberg.BatchFileItem(path: \"{}\", config: option.None)",

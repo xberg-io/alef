@@ -42,13 +42,14 @@ pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: boo
     )
 }
 
-pub(super) fn render_file_setup() -> String {
+pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
 
     crate::template_env::render(
         "typescript/setup.ts.jinja",
         context! {
             header => header,
+            test_documents_dir => test_documents_dir,
         },
     )
 }

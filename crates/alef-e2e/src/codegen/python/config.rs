@@ -180,6 +180,7 @@ def app(mock_server: str) -> object:  # noqa: ARG001
 "#
         )
     } else if has_file_fixtures {
+        let test_documents_dir = &e2e_config.test_documents_dir;
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
 import os
@@ -188,9 +189,10 @@ from pathlib import Path
 # Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
-# Change to the test_documents directory so that fixture file paths like
-# "pdf/fake_memo.pdf" resolve correctly when running pytest from e2e/python/.
-_TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "test_documents"
+# Change to the configured test-documents directory so that fixture file
+# paths like "pdf/fake_memo.pdf" resolve correctly when running pytest
+# from e2e/python/.
+_TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "{test_documents_dir}"
 if _TEST_DOCUMENTS.is_dir():
     os.chdir(_TEST_DOCUMENTS)
 

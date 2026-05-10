@@ -13,9 +13,10 @@ if (file_exists($pkgAutoloader)) {
     require_once $pkgAutoloader;
 }{% if has_file_fixtures %}
 
-// Change to the test_documents directory so that fixture file paths like
-// "pdf/fake_memo.pdf" resolve correctly when running phpunit from e2e/php/.
-$_test_documents = __DIR__ . '/../../test_documents';
+// Change to the configured test-documents directory so that fixture file
+// paths like "pdf/fake_memo.pdf" resolve correctly when running phpunit
+// from e2e/php/.
+$_test_documents = __DIR__ . '/{{ test_documents_path }}';
 if (is_dir($_test_documents)) {
     chdir($_test_documents);
 }{% endif %}{% if has_http_fixtures %}

@@ -122,7 +122,7 @@ impl E2eCodegen for TypeScriptCodegen {
         if has_file_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_file_setup(),
+                content: render_file_setup(&e2e_config.test_documents_dir),
                 generated_header: true,
             });
         }

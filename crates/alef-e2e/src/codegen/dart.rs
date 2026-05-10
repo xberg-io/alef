@@ -256,9 +256,10 @@ fn render_test_file(
     let _ = writeln!(out, "  setUpAll(() async {{");
     let _ = writeln!(out, "    await RustLib.init();");
     if needs_chdir {
+        let test_docs_path = e2e_config.test_documents_relative_from(0);
         let _ = writeln!(
             out,
-            "    final _testDocs = Platform.environment['FIXTURES_DIR'] ?? '../../test_documents';"
+            "    final _testDocs = Platform.environment['FIXTURES_DIR'] ?? '{test_docs_path}';"
         );
         let _ = writeln!(out, "    final _dir = Directory(_testDocs);");
         let _ = writeln!(out, "    if (_dir.existsSync()) Directory.current = _dir;");

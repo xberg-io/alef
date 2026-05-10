@@ -52,6 +52,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         dep_mode: Default::default(),
         registry: Default::default(),
         exclude_categories: excluded.iter().map(|s| s.to_string()).collect(),
+        test_documents_dir: "test_documents".to_string(),
     }
 }
 

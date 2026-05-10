@@ -15,6 +15,7 @@ use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToSnakeCase;
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -100,7 +101,11 @@ impl E2eCodegen for RubyCodegen {
         if has_file_fixtures || has_http_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("spec").join("spec_helper.rb"),
-                content: render_spec_helper(has_file_fixtures, has_http_fixtures),
+                content: render_spec_helper(
+                    has_file_fixtures,
+                    has_http_fixtures,
+                    &e2e_config.test_documents_relative_from(1),
+                ),
                 generated_header: true,
             });
         }
@@ -202,22 +207,30 @@ fn render_gemfile(
     )
 }
 
-fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool) -> String {
+fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool, test_documents_path: &str) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
 
     if has_file_fixtures {
-        out.push_str(
-            r#"
-# Change to the test_documents directory so that fixture file paths like
-# "pdf/fake_memo.pdf" resolve correctly when running rspec from e2e/ruby/.
-# spec_helper.rb lives in e2e/ruby/spec/; test_documents lives at the
-# repository root, three directories up: spec/ -> e2e/ruby/ -> e2e/ -> root.
-_test_documents = File.expand_path('../../../test_documents', __dir__)
-Dir.chdir(_test_documents) if Dir.exist?(_test_documents)
-"#,
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "# Change to the configured test-documents directory so that fixture file paths like"
         );
+        let _ = writeln!(
+            out,
+            "# \"pdf/fake_memo.pdf\" resolve correctly when running rspec from e2e/ruby/."
+        );
+        let _ = writeln!(
+            out,
+            "# spec_helper.rb lives in e2e/ruby/spec/; the fixtures dir resolves three directories up."
+        );
+        let _ = writeln!(
+            out,
+            "_test_documents = File.expand_path('{test_documents_path}', __dir__)"
+        );
+        let _ = writeln!(out, "Dir.chdir(_test_documents) if Dir.exist?(_test_documents)");
     }
 
     if has_http_fixtures {

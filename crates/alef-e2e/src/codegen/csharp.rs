@@ -112,7 +112,7 @@ impl E2eCodegen for CSharpCodegen {
         // need it) spawns the mock-server binary.
         files.push(GeneratedFile {
             path: output_base.join("TestSetup.cs"),
-            content: render_test_setup(needs_mock_server),
+            content: render_test_setup(needs_mock_server, &e2e_config.test_documents_dir),
             generated_header: true,
         });
 
@@ -205,7 +205,7 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
     )
 }
 
-fn render_test_setup(needs_mock_server: bool) -> String {
+fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     out.push_str("using System;\n");
@@ -223,15 +223,24 @@ fn render_test_setup(needs_mock_server: bool) -> String {
     out.push_str("    [ModuleInitializer]\n");
     out.push_str("    internal static void Init()\n");
     out.push_str("    {\n");
-    out.push_str("        // Walk up from the assembly directory until we find the repo root\n");
-    out.push_str("        // (the directory containing test_documents/) so that fixture paths\n");
+    let _ = writeln!(
+        out,
+        "        // Walk up from the assembly directory until we find the repo root"
+    );
+    let _ = writeln!(
+        out,
+        "        // (the directory containing {test_documents_dir}/) so that fixture paths"
+    );
     out.push_str("        // like \"docx/fake.docx\" resolve regardless of where dotnet test\n");
     out.push_str("        // launched the runner from.\n");
     out.push_str("        var dir = new DirectoryInfo(AppContext.BaseDirectory);\n");
     out.push_str("        DirectoryInfo? repoRoot = null;\n");
     out.push_str("        while (dir != null)\n");
     out.push_str("        {\n");
-    out.push_str("            var candidate = Path.Combine(dir.FullName, \"test_documents\");\n");
+    let _ = writeln!(
+        out,
+        "            var candidate = Path.Combine(dir.FullName, \"{test_documents_dir}\");"
+    );
     out.push_str("            if (Directory.Exists(candidate))\n");
     out.push_str("            {\n");
     out.push_str("                repoRoot = dir;\n");
@@ -255,7 +264,10 @@ fn render_test_setup(needs_mock_server: bool) -> String {
         out.push_str("        }\n");
         out.push_str("        if (repoRoot == null)\n");
         out.push_str("        {\n");
-        out.push_str("            throw new InvalidOperationException(\"TestSetup: could not locate repo root (test_documents/ not found)\");\n");
+        let _ = writeln!(
+            out,
+            "            throw new InvalidOperationException(\"TestSetup: could not locate repo root ({test_documents_dir}/ not found)\");"
+        );
         out.push_str("        }\n");
         out.push_str("        var bin = Path.Combine(\n");
         out.push_str("            repoRoot.FullName,\n");

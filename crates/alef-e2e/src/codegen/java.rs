@@ -68,7 +68,13 @@ impl E2eCodegen for JavaCodegen {
         // Generate pom.xml.
         files.push(GeneratedFile {
             path: output_base.join("pom.xml"),
-            content: render_pom_xml(&pkg_name, &java_group_id, &pkg_version, e2e_config.dep_mode),
+            content: render_pom_xml(
+                &pkg_name,
+                &java_group_id,
+                &pkg_version,
+                e2e_config.dep_mode,
+                &e2e_config.test_documents_relative_from(0),
+            ),
             generated_header: false,
         });
 
@@ -190,6 +196,7 @@ fn render_pom_xml(
     java_group_id: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
+    test_documents_path: &str,
 ) -> String {
     // pkg_name may be in "groupId:artifactId" Maven format; split accordingly.
     let (dep_group_id, dep_artifact_id) = if let Some((g, a)) = pkg_name.split_once(':') {
@@ -230,6 +237,7 @@ fn render_pom_xml(
             jackson_version => tv::maven::JACKSON_E2E,
             build_helper_version => tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
             maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
+            test_documents_path => test_documents_path,
         },
     )
 }
