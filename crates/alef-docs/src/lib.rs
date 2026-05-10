@@ -472,6 +472,36 @@ fn generate_configuration_doc(
         out.push_str("---\n\n");
     }
 
+    // --- Enums referenced by config-type fields ---
+    let config_types_for_enum_filter: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| {
+            (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
+                && !t.is_opaque
+                && !is_update_type(&t.name)
+        })
+        .collect();
+
+    let mut referenced_enums: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|en| {
+            config_types_for_enum_filter
+                .iter()
+                .any(|ty| ty.fields.iter().any(|field| type_ref_contains_named(&field.ty, &en.name)))
+        })
+        .collect();
+    referenced_enums.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if !referenced_enums.is_empty() {
+        out.push_str("### Enums\n\n");
+        for en in &referenced_enums {
+            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str("\n---\n\n");
+        }
+    }
+
     Ok(GeneratedFile {
         path: PathBuf::from(format!("{output_dir}/configuration.md")),
         content: out,
@@ -511,13 +541,17 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
     // Collect non-update types
     let types_to_doc: Vec<&TypeDef> = api.types.iter().filter(|t| !is_update_type(&t.name)).collect();
 
-    if types_to_doc.is_empty() {
+    if types_to_doc.is_empty() && api.enums.is_empty() {
         out.push_str("No types defined.\n");
         return Ok(GeneratedFile {
             path: PathBuf::from(format!("{output_dir}/types.md")),
             content: out,
             generated_header: false,
         });
+    }
+
+    if types_to_doc.is_empty() {
+        out.push_str("No struct types defined.\n\n");
     }
 
     // Define category order
@@ -586,11 +620,74 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         }
     }
 
+    // --- Enums section ---
+    if !api.enums.is_empty() {
+        let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
+        sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
+
+        out.push_str("### Enums\n\n");
+        for en in &sorted_enums {
+            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str("\n---\n\n");
+        }
+    }
+
     Ok(GeneratedFile {
         path: PathBuf::from(format!("{output_dir}/types.md")),
         content: out,
         generated_header: false,
     })
+}
+
+/// Render an enum for shared (language-neutral) documentation pages.
+///
+/// Uses Rust-canonical variant names and type representations, matching the
+/// style used by `generate_types_doc` and `generate_configuration_doc`.
+fn render_enum_for_shared_doc(en: &EnumDef) -> String {
+    let mut out = String::new();
+
+    let _ = writeln!(out, "#### {}\n", en.name);
+
+    let doc = clean_doc(&en.doc, Language::Rust);
+    if !doc.is_empty() {
+        out.push_str(&doc);
+        out.push('\n');
+        out.push('\n');
+    }
+
+    out.push_str("| Variant | Description |\n");
+    out.push_str("|---------|-------------|\n");
+    for variant in &en.variants {
+        let mut vdoc = if !variant.doc.is_empty() {
+            clean_doc_inline(&variant.doc, Language::Rust)
+        } else {
+            generate_enum_variant_description(&variant.name)
+        };
+        if !variant.fields.is_empty() {
+            let fields_desc: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let fty = format_type_ref_rust(&f.ty, false);
+                    format!("`{}`: `{}`", f.name, fty)
+                })
+                .collect();
+            vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
+        }
+        let _ = writeln!(out, "| `{}` | {} |", variant.name, vdoc);
+    }
+
+    out
+}
+
+/// True if `ty` (or any wrapper layer of it: Option/Vec/Map) names the given type.
+fn type_ref_contains_named(ty: &TypeRef, name: &str) -> bool {
+    match ty {
+        TypeRef::Named(path) => path.rsplit("::").next().unwrap_or(path) == name,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_contains_named(inner, name),
+        TypeRef::Map(k, v) => type_ref_contains_named(k, name) || type_ref_contains_named(v, name),
+        _ => false,
+    }
 }
 
 /// Format a TypeRef as a Rust-like canonical type string (language-neutral).
@@ -850,6 +947,160 @@ mod tests {
             "Python variant must be SCREAMING_SNAKE"
         );
         assert!(lang_file.content.contains("PLAIN"));
+    }
+
+    #[test]
+    fn test_generate_types_doc_renders_enum_variants() {
+        use alef_core::ir::EnumVariant;
+        let api = ApiSurface {
+            crate_name: "test".into(),
+            version: "0.1.0".into(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "TableModel".into(),
+                rust_path: "test::TableModel".into(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Tatr".into(),
+                        fields: vec![],
+                        doc: "TATR transformer (default).".into(),
+                        is_default: true,
+                        serde_rename: None,
+                        is_tuple: false,
+                    },
+                    EnumVariant {
+                        name: "SlanetWired".into(),
+                        fields: vec![],
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: false,
+                    },
+                ],
+                doc: "Table structure model.".into(),
+                cfg: None,
+                is_copy: true,
+                has_serde: true,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+            }],
+            errors: vec![],
+        };
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let types_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("types"))
+            .unwrap();
+        assert!(types_file.content.contains("### Enums"));
+        assert!(types_file.content.contains("#### TableModel"));
+        assert!(types_file.content.contains("Table structure model."));
+        assert!(types_file.content.contains("`Tatr`"));
+        assert!(types_file.content.contains("TATR transformer"));
+        assert!(types_file.content.contains("`SlanetWired`"));
+    }
+
+    #[test]
+    fn test_generate_configuration_doc_renders_referenced_enums_only() {
+        use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef};
+        let api = ApiSurface {
+            crate_name: "mylib".into(),
+            version: "0.1.0".into(),
+            types: vec![TypeDef {
+                name: "ImageConfig".into(),
+                rust_path: "mylib::ImageConfig".into(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    name: "format".into(),
+                    ty: TypeRef::Named("mylib::ImageFormat".into()),
+                    optional: false,
+                    default: None,
+                    doc: "Output image format.".into(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Image config.".into(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+            }],
+            functions: vec![],
+            enums: vec![
+                EnumDef {
+                    name: "ImageFormat".into(),
+                    rust_path: "mylib::ImageFormat".into(),
+                    original_rust_path: String::new(),
+                    variants: vec![EnumVariant {
+                        name: "Png".into(),
+                        fields: vec![],
+                        doc: "PNG output.".into(),
+                        is_default: true,
+                        serde_rename: None,
+                        is_tuple: false,
+                    }],
+                    doc: "Image format enum.".into(),
+                    cfg: None,
+                    is_copy: true,
+                    has_serde: true,
+                    serde_tag: None,
+                    serde_untagged: false,
+                    serde_rename_all: None,
+                },
+                EnumDef {
+                    name: "Unrelated".into(),
+                    rust_path: "mylib::Unrelated".into(),
+                    original_rust_path: String::new(),
+                    variants: vec![EnumVariant {
+                        name: "A".into(),
+                        fields: vec![],
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: false,
+                    }],
+                    doc: "Not referenced by any config type.".into(),
+                    cfg: None,
+                    is_copy: true,
+                    has_serde: true,
+                    serde_tag: None,
+                    serde_untagged: false,
+                    serde_rename_all: None,
+                },
+            ],
+            errors: vec![],
+        };
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let cfg_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("configuration"))
+            .unwrap();
+        assert!(cfg_file.content.contains("### Enums"));
+        assert!(cfg_file.content.contains("#### ImageFormat"));
+        assert!(
+            !cfg_file.content.contains("#### Unrelated"),
+            "configuration.md must filter out enums not referenced by any config-type field"
+        );
     }
 
     #[test]
