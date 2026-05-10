@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - alef-codegen, alef-docs: add `serde_flatten: false` to test-site `FieldDef` literals that were missing the field after iter10's plumbing.
+- alef-e2e/java: add TCP-readiness probe to MockServerListener — polls the bound mock-server URL until accepting (max 5s, 50ms backoff) before releasing the JUnit launcher session, preventing intermittent `error sending request` failures under Surefire parallel execution.
+- alef-e2e/csharp: add TCP-readiness probe to TestSetup `[ModuleInitializer]` — same polling logic; eliminates intermittent failures under xUnit class-parallel default.
 
 - fix(csharp-backend): branch sealed-union `JsonConverter<T>` Read on variant shape — struct variants (named fields like `OcrDocument::Url { url: String }`) skip the `"Value"` wrap so `JsonSerializer.Deserialize<Variant>(...)` sees `{"url":"..."}` directly and can match the `[JsonPropertyName("url")]` annotation on the variant record's positional component. Tuple variants (single-field tuple of named struct, e.g. `Message::User(UserMessage)`) keep the `"Value"` wrap as before. Without this, every struct-variant tagged union failed to round-trip — Rust serde rejected the FFI request with `missing field 'url' at line 1 column 73` because the C# layer dropped the field on serialize when the converter could not even deserialize it on the way in. The Read method now produces both `flatJson` (no wrap) and `wrappedJson` and dispatches per variant via the `is_tuple` IR flag.
 
