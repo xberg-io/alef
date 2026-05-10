@@ -175,11 +175,11 @@ fn render_setup_fixtures() -> String {
     );
     let _ = writeln!(
         out,
-        ".kreuzberg_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
+        ".alef_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
     );
     let _ = writeln!(out, ".resolve_fixture <- function(path) {{");
-    let _ = writeln!(out, "  if (dir.exists(.kreuzberg_test_documents)) {{");
-    let _ = writeln!(out, "    file.path(.kreuzberg_test_documents, path)");
+    let _ = writeln!(out, "  if (dir.exists(.alef_test_documents)) {{");
+    let _ = writeln!(out, "    file.path(.alef_test_documents, path)");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    path");
     let _ = writeln!(out, "  }}");

@@ -5,10 +5,10 @@
 # so test_documents lives three directories up: tests/ -> e2e/r/ -> e2e/ -> repo root.
 # Each `test_that()` block has its working directory reset back to tests/, so
 # fixture lookups must be performed via this helper rather than relying on `setwd`.
-.kreuzberg_test_documents <- normalizePath("../../../test_documents", mustWork = FALSE)
+.alef_test_documents <- normalizePath("../../../test_documents", mustWork = FALSE)
 .resolve_fixture <- function(path) {
-  if (dir.exists(.kreuzberg_test_documents)) {
-    file.path(.kreuzberg_test_documents, path)
+  if (dir.exists(.alef_test_documents)) {
+    file.path(.alef_test_documents, path)
   } else {
     path
   }

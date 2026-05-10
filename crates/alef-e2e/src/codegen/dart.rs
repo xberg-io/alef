@@ -91,7 +91,7 @@ impl E2eCodegen for DartE2eCodegen {
             }
 
             let filename = format!("{}_test.dart", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, e2e_config, lang);
+            let content = render_test_file(&group.category, &active, e2e_config, lang, &pkg_name);
             files.push(GeneratedFile {
                 path: test_base.join(filename),
                 content,
@@ -147,7 +147,13 @@ dev_dependencies:
     )
 }
 
-fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig, lang: &str) -> String {
+fn render_test_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
+    lang: &str,
+    pkg_name: &str,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
@@ -181,12 +187,12 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     if has_batch_byte_items {
         let _ = writeln!(out, "import 'dart:typed_data';");
     }
-    let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
+    let _ = writeln!(out, "import 'package:{pkg_name}/{pkg_name}.dart';");
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
-    // It lives in the FRB-generated frb_generated.dart inside kreuzberg_bridge_generated/.
+    // It lives in the FRB-generated frb_generated.dart inside `{pkg_name}_bridge_generated/`.
     let _ = writeln!(
         out,
-        "import 'package:kreuzberg/src/kreuzberg_bridge_generated/frb_generated.dart' show RustLib;"
+        "import 'package:{pkg_name}/src/{pkg_name}_bridge_generated/frb_generated.dart' show RustLib;"
     );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");

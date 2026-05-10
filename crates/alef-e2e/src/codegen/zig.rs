@@ -122,7 +122,13 @@ impl E2eCodegen for ZigE2eCodegen {
                 .unwrap_or(1),
             GeneratedFile {
                 path: output_base.join("build.zig"),
-                content: render_build_zig(&test_filenames),
+                content: render_build_zig(
+                    &test_filenames,
+                    &pkg_name,
+                    &module_name,
+                    &config.ffi_lib_name(),
+                    &config.ffi_crate_path(),
+                ),
                 generated_header: false,
             },
         );
@@ -195,7 +201,13 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
     )
 }
 
-fn render_build_zig(test_filenames: &[String]) -> String {
+fn render_build_zig(
+    test_filenames: &[String],
+    pkg_name: &str,
+    module_name: &str,
+    ffi_lib_name: &str,
+    ffi_crate_path: &str,
+) -> String {
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
 
@@ -209,20 +221,52 @@ pub fn build(b: *std.Build) void {
         .to_string();
     }
 
+    // The Zig build script wires up three names that all derive from the
+    // crate config:
+    //   * `ffi_lib_name`     — the dynamic library to link (e.g. `mylib_ffi`).
+    //   * `pkg_name`         — the Zig package directory and source file stem
+    //                          under `packages/zig/src/<pkg_name>.zig`.
+    //   * `module_name`      — the Zig `@import("...")` identifier other test
+    //                          files use to import the binding module.
+    // Callers pass these in resolved form so this function never embeds a
+    // downstream crate's name.
     let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
-    content.push_str("    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing libkreuzberg_ffi\") orelse \"../../target/debug\";\n");
-    content.push_str("    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing kreuzberg FFI header\") orelse \"../../crates/kreuzberg-ffi/include\";\n\n");
-    content.push_str("    const kreuzberg_module = b.addModule(\"kreuzberg\", .{\n");
-    content.push_str("        .root_source_file = b.path(\"../../packages/zig/src/kreuzberg.zig\"),\n");
+    let _ = writeln!(
+        content,
+        "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/debug\";"
+    );
+    let _ = writeln!(
+        content,
+        "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
+    );
+    let _ = writeln!(content);
+    let _ = writeln!(
+        content,
+        "    const {module_name}_module = b.addModule(\"{module_name}\", .{{"
+    );
+    let _ = writeln!(
+        content,
+        "        .root_source_file = b.path(\"../../packages/zig/src/{pkg_name}.zig\"),"
+    );
     content.push_str("        .target = target,\n");
     content.push_str("        .optimize = optimize,\n");
     content.push_str("    });\n");
-    content.push_str("    kreuzberg_module.addLibraryPath(.{ .cwd_relative = ffi_path });\n");
-    content.push_str("    kreuzberg_module.addIncludePath(.{ .cwd_relative = ffi_include });\n");
-    content.push_str("    kreuzberg_module.linkSystemLibrary(\"kreuzberg_ffi\", .{});\n\n");
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"
+    );
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.addIncludePath(.{{ .cwd_relative = ffi_include }});"
+    );
+    let _ = writeln!(
+        content,
+        "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+    );
+    let _ = writeln!(content);
 
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
@@ -233,7 +277,7 @@ pub fn build(b: *std.Build) void {
         content.push_str("        .optimize = optimize,\n");
         content.push_str("    });\n");
         content.push_str(&format!(
-            "    {test_name}_module.addImport(\"kreuzberg\", kreuzberg_module);\n"
+            "    {test_name}_module.addImport(\"{module_name}\", {module_name}_module);\n"
         ));
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
