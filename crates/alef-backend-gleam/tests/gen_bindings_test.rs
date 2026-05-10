@@ -22,6 +22,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
         serde_rename: None,
+        serde_flatten: false,
     }
 }
 

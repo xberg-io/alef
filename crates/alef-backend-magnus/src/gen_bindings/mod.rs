@@ -682,6 +682,7 @@ gem_name = "test_lib"
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 }],
                 methods: vec![],
                 is_opaque: false,

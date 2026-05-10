@@ -181,6 +181,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -197,6 +198,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -213,6 +215,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -319,6 +322,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
 
         let result = gen_from_binding_to_core(&typ, "my_crate");
@@ -353,6 +357,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
 
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
@@ -496,6 +501,7 @@ mod tests {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             },
             FieldDef {
                 name: "structure".into(),
@@ -512,6 +518,7 @@ mod tests {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             },
         ];
         let config = ConversionConfig {
@@ -566,6 +573,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }
     }
 

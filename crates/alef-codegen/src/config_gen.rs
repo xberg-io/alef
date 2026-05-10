@@ -990,6 +990,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "enabled".to_string(),
@@ -1006,6 +1007,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "name".to_string(),
@@ -1022,6 +1024,7 @@ mod tests {
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
@@ -1057,6 +1060,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "True");
     }
@@ -1078,6 +1082,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "go"), "false");
     }
@@ -1099,6 +1104,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"hello\"");
         assert_eq!(default_value_for_field(&field, "java"), "\"hello\"");
@@ -1121,6 +1127,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert_eq!(result, "42");
@@ -1143,6 +1150,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "None");
         assert_eq!(default_value_for_field(&field, "go"), "nil");
@@ -1167,6 +1175,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"custom\"");
     }
@@ -1283,6 +1292,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert!(result.contains("1.5"));
@@ -1305,6 +1315,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         // Should fall back to type-based zero value
         assert_eq!(default_value_for_field(&field, "python"), "0");
@@ -1327,6 +1338,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         }
     }
 
@@ -1367,6 +1379,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "ruby"), "true");
         assert_eq!(default_value_for_field(&field, "php"), "true");
@@ -1392,6 +1405,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "r"), "FALSE");
     }
@@ -1413,6 +1427,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "rust"), "\"hello\".to_string()");
     }
@@ -1434,6 +1449,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "\"say \\\"hi\\\"\"");
     }
@@ -1456,6 +1472,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         let result = default_value_for_field(&field, "python");
         assert!(result.contains('.'), "whole-number float should contain '.': {result}");
@@ -1478,6 +1495,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "OutputFormat.JSON_OUTPUT");
         assert_eq!(default_value_for_field(&field, "ruby"), "OutputFormat::JsonOutput");
@@ -1506,6 +1524,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "[]");
         assert_eq!(default_value_for_field(&field, "ruby"), "[]");
@@ -1534,6 +1553,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "{}");
         assert_eq!(default_value_for_field(&field, "go"), "nil");
@@ -1558,6 +1578,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "False");
         assert_eq!(default_value_for_field(&field, "ruby"), "false");
@@ -1581,6 +1602,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "0.0");
     }
@@ -1602,6 +1624,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "rust"), "String::new()");
         assert_eq!(default_value_for_field(&field, "python"), "\"\"");
@@ -1624,6 +1647,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "b\"\"");
         assert_eq!(default_value_for_field(&field, "go"), "[]byte{}");
@@ -1647,6 +1671,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "python"), "{}");
         assert_eq!(default_value_for_field(&field, "ruby"), "{}");
@@ -1672,6 +1697,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         assert_eq!(default_value_for_field(&field, "ruby"), "nil");
         assert_eq!(default_value_for_field(&field, "php"), "null");
@@ -1858,6 +1884,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         // Optional field param is Option<String> and assigned directly
@@ -1884,6 +1911,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_magnus_positional_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -1911,6 +1939,7 @@ mod tests {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         // Make one field optional to exercise that branch in the hash constructor
@@ -2012,6 +2041,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2039,6 +2069,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2091,6 +2122,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2117,6 +2149,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2152,6 +2185,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output2 = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
         assert!(
@@ -2243,6 +2277,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         });
         let output = gen_go_functional_options(&typ, &simple_type_mapper);
         assert!(
@@ -2278,6 +2313,7 @@ mod tests {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         let typ = TypeDef {
@@ -2333,6 +2369,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         // Build a large type (>15 fields) so the hash constructor is used
         let mut fields: Vec<FieldDef> = (0..15)
@@ -2351,6 +2388,7 @@ mod tests {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
                 serde_rename: None,
+                serde_flatten: false,
             })
             .collect();
         fields.push(field);
@@ -2405,6 +2443,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
         let typ = TypeDef {
             name: "SmallUpdate".to_string(),

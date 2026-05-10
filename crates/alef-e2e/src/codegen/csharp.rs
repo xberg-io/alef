@@ -100,7 +100,10 @@ impl E2eCodegen for CSharpCodegen {
         // conftest spawn pattern. Without this, every fixture-bound test
         // failed with `LiterLlmException : builder error` because reqwest
         // rejected the relative URL when MOCK_SERVER_URL was unset.
-        let needs_mock_server = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.needs_mock_server());
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Emit a TestSetup.cs whose ModuleInitializer chdirs to test_documents
         // so fixture-relative paths like "docx/fake.docx" resolve correctly when
@@ -276,7 +279,9 @@ fn render_test_setup(needs_mock_server: bool) -> String {
         out.push_str("            UseShellExecute = false,\n");
         out.push_str("        };\n");
         out.push_str("        _mockServer = Process.Start(psi)\n");
-        out.push_str("            ?? throw new InvalidOperationException(\"TestSetup: failed to start mock-server\");\n");
+        out.push_str(
+            "            ?? throw new InvalidOperationException(\"TestSetup: failed to start mock-server\");\n",
+        );
         out.push_str("        // The mock-server prints `MOCK_SERVER_URL=<url>` as its first stdout\n");
         out.push_str("        // line, then `mock-server: loaded <N> routes from <dir>` etc. Read\n");
         out.push_str("        // until we see the URL line so it can race against startup.\n");
@@ -892,9 +897,7 @@ fn render_test_method(
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
-            client_factory_setup.push_str(
-                "        if (string.IsNullOrEmpty(apiKey)) { return; }\n",
-            );
+            client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
             ));
@@ -1053,9 +1056,7 @@ fn render_chat_stream_test_method(
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
-            client_factory_setup.push_str(
-                "        if (string.IsNullOrEmpty(apiKey)) { return; }\n",
-            );
+            client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
             ));

@@ -1115,6 +1115,7 @@ mod tests {
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
             serde_rename: None,
+            serde_flatten: false,
         };
 
         let out = gen_from_binding_to_core(&type_with_field(field), "crate");

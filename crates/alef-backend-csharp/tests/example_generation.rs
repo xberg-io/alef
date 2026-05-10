@@ -49,6 +49,7 @@ fn test_generated_code_example() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -65,6 +66,7 @@ fn test_generated_code_example() {
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
                     serde_rename: None,
+                    serde_flatten: false,
                 },
             ],
             methods: vec![],
