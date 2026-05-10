@@ -261,6 +261,8 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("import java.nio.charset.StandardCharsets;\n");
     out.push_str("import java.nio.file.Path;\n");
     out.push_str("import java.nio.file.Paths;\n");
+    out.push_str("import java.util.regex.Matcher;\n");
+    out.push_str("import java.util.regex.Pattern;\n");
     out.push_str("import org.junit.platform.launcher.LauncherSession;\n");
     out.push_str("import org.junit.platform.launcher.LauncherSessionListener;\n");
     out.push('\n');
@@ -304,8 +306,8 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
         "            throw new IllegalStateException(\"MockServerListener: failed to start mock-server\", e);\n",
     );
     out.push_str("        }\n");
-    out.push_str("        // Read until we see the MOCK_SERVER_URL=... line. Cap the loop so a\n");
-    out.push_str("        // misbehaving mock-server cannot block the launcher indefinitely.\n");
+    out.push_str("        // Read until we see MOCK_SERVER_URL= and optionally MOCK_SERVERS=.\n");
+    out.push_str("        // Cap the loop so a misbehaving mock-server cannot block indefinitely.\n");
     out.push_str("        BufferedReader stdout = new BufferedReader(new InputStreamReader(mockServer.getInputStream(), StandardCharsets.UTF_8));\n");
     out.push_str("        String url = null;\n");
     out.push_str("        try {\n");
@@ -314,6 +316,19 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("                if (line == null) break;\n");
     out.push_str("                if (line.startsWith(\"MOCK_SERVER_URL=\")) {\n");
     out.push_str("                    url = line.substring(\"MOCK_SERVER_URL=\".length()).trim();\n");
+    out.push_str("                } else if (line.startsWith(\"MOCK_SERVERS=\")) {\n");
+    out.push_str("                    String jsonVal = line.substring(\"MOCK_SERVERS=\".length()).trim();\n");
+    out.push_str("                    System.setProperty(\"mockServers\", jsonVal);\n");
+    out.push_str("                    // Parse JSON map of fixture_id -> url and expose as system properties.\n");
+    out.push_str("                    Pattern p = Pattern.compile(\"\\\"([^\\\"]+)\\\":\\\"([^\\\"]+)\\\"\");\n");
+    out.push_str("                    Matcher matcher = p.matcher(jsonVal);\n");
+    out.push_str("                    while (matcher.find()) {\n");
+    out.push_str("                        String fid = matcher.group(1);\n");
+    out.push_str("                        String furl = matcher.group(2);\n");
+    out.push_str("                        System.setProperty(\"mockServer.\" + fid, furl);\n");
+    out.push_str("                    }\n");
+    out.push_str("                    break;\n");
+    out.push_str("                } else if (url != null) {\n");
     out.push_str("                    break;\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
@@ -1070,7 +1085,7 @@ fn render_test_method(
     }
 
     let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, class_name, effective_options_type, &fixture.id);
+        build_args_and_setup(&fixture.input, args, class_name, effective_options_type, fixture);
 
     // Per-language `extra_args` from call overrides — verbatim trailing
     // expressions appended after the configured args (e.g. `null` for an
@@ -1173,9 +1188,15 @@ fn render_test_method(
         let fixture_id = &fixture.id;
         let mut setup: Vec<String> = Vec::new();
         if fixture.mock_response.is_some() || fixture.http.is_some() {
-            setup.push(format!(
-                "String mockUrl = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
-            ));
+            if fixture.has_host_root_route() {
+                setup.push(format!(
+                    "String mockUrl = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\");"
+                ));
+            } else {
+                setup.push(format!(
+                    "String mockUrl = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
+                ));
+            }
             setup.push(format!(
                 "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
             ));
@@ -1223,8 +1244,9 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     class_name: &str,
     options_type: Option<&str>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         return (Vec::new(), String::new());
     }
@@ -1234,10 +1256,17 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "String {} = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                setup_lines.push(format!(
+                    "String {} = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\");",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "String {} = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }

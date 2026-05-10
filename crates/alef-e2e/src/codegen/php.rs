@@ -815,7 +815,7 @@ fn render_test_method(
         args,
         class_name,
         enum_fields,
-        &fixture.id,
+        fixture,
         options_via,
         call_options_type,
     );
@@ -874,8 +874,16 @@ fn render_test_method(
     let client_factory = if let Some(factory) = php_client_factory {
         let fixture_id = &fixture.id;
         if has_mock {
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}')"
+                )
+            } else {
+                format!("getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}'")
+            };
             format!(
-                "$client = \\{namespace}\\{class_name}::{factory}('test-key', getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}');"
+                "$client = \\{namespace}\\{class_name}::{factory}('test-key', {base_url_expr});"
             )
         } else if let Some(var) = api_key_var {
             format!(
@@ -989,10 +997,11 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     class_name: &str,
     _enum_fields: &HashMap<String, String>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     options_via: &str,
     options_type: Option<&str>,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args configuration: pass the whole input only if it's non-empty.
         // Functions with no parameters (e.g. list_models) have empty input and get no args.
@@ -1030,10 +1039,18 @@ fn build_args_and_setup(
 
     for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "${} = getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "${} = getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "${} = getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';",
+                    arg.name,
+                ));
+            }
             parts.push(format!("${}", arg.name));
             continue;
         }

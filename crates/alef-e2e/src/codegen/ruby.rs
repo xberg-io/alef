@@ -236,6 +236,7 @@ fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool, test_doc
     if has_http_fixtures {
         out.push_str(
             r#"
+require 'json'
 require 'open3'
 
 # Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
@@ -247,8 +248,24 @@ RSpec.configure do |config|
       warn "mock-server binary not found at #{bin} — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release"
     end
     stdin, stdout, _stderr, _wait = Open3.popen3(bin, fixtures_dir)
-    url = stdout.readline.strip.split('=', 2).last
-    ENV['MOCK_SERVER_URL'] = url
+    # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.
+    url = nil
+    8.times do
+      line = stdout.readline.strip rescue break
+      if line.start_with?('MOCK_SERVER_URL=')
+        url = line.split('=', 2).last
+        ENV['MOCK_SERVER_URL'] = url
+      elsif line.start_with?('MOCK_SERVERS=')
+        json_val = line.split('=', 2).last
+        ENV['MOCK_SERVERS'] = json_val
+        JSON.parse(json_val).each do |fid, furl|
+          ENV["MOCK_SERVER_#{fid.upcase}"] = furl
+        end
+        break
+      elsif url
+        break
+      end
+    end
     # Drain stdout in background.
     Thread.new { stdout.read }
     # Store stdin so we can close it on teardown.
@@ -694,7 +711,7 @@ fn render_chat_stream_example(
         options_type,
         enum_fields,
         false,
-        &fixture.id,
+        fixture,
     );
 
     let mut final_args = args_str;
@@ -733,8 +750,16 @@ fn render_chat_stream_example(
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     if let Some(cf) = client_factory {
         if has_mock {
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(ENV.fetch('{env_key}', nil) || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')"
+                )
+            } else {
+                format!("ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}'")
+            };
             out.push_str(&format!(
-                "    client = {call_receiver}.{cf}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')\n"
+                "    client = {call_receiver}.{cf}('test-key', {base_url_expr})\n"
             ));
         } else if let Some(key_var) = api_key_var {
             out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
@@ -963,7 +988,7 @@ fn render_example(
         options_type,
         enum_fields,
         result_is_simple,
-        &fixture.id,
+        fixture,
     );
 
     // Build visitor if present and add to setup
@@ -1109,8 +1134,9 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty.
         // Functions with no parameters have empty input and must be called
@@ -1139,10 +1165,18 @@ fn build_args_and_setup(
                 parts.push("nil".to_string());
             }
             skipped_optional_count = 0;
-            setup_lines.push(format!(
-                "{} = \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "{} = ENV.fetch('{env_key}', nil) || \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} = \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }

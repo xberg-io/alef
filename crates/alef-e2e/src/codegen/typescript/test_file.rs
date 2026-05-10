@@ -561,7 +561,7 @@ fn render_test_case(
         &fixture.input,
         args,
         effective_options_type.as_deref(),
-        &fixture.id,
+        fixture,
         &effective_nested_types,
         lang,
         &effective_enum_fields,
@@ -623,7 +623,15 @@ fn render_test_case(
         format!("{function_name}({final_args})")
     };
 
-    let base_url_expr = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
+    let base_url_expr = if fixture.has_host_root_route() {
+        format!(
+            "process.env.MOCK_SERVER_{} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{}`",
+            fixture.id.to_uppercase(),
+            fixture.id
+        )
+    } else {
+        format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id)
+    };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_skipped = fixture.assertions.is_empty();
@@ -1030,7 +1038,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[ArgMapping],
     options_type: Option<&str>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
@@ -1038,6 +1046,7 @@ fn build_args_and_setup(
     handle_config_type: Option<&str>,
     type_defs: &[TypeDef],
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // When the call has no configured args and the fixture input is an
         // empty object, emit no positional arguments. This lets `extra_args`
@@ -1072,10 +1081,15 @@ fn build_args_and_setup(
 
     for (idx, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
-                arg.name,
-            ));
+            let url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "process.env.MOCK_SERVER_{} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`")
+            };
+            setup_lines.push(format!("const {} = {url_expr};", arg.name));
             parts.push(arg.name.clone());
             continue;
         }

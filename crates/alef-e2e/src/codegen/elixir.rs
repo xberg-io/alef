@@ -195,12 +195,37 @@ if File.exists?(mock_server_bin) do
     :line,
     args: [fixtures_dir]
   ])
-  receive do
-    {^port, {:data, {:eol, "MOCK_SERVER_URL=" <> url}}} ->
-      System.put_env("MOCK_SERVER_URL", url)
-  after
-    30_000 ->
-      raise "mock-server startup timeout"
+  # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.
+  {url, _} =
+    Enum.reduce_while(1..8, {nil, port}, fn _, {url_acc, p} ->
+      receive do
+        {^p, {:data, {:eol, "MOCK_SERVER_URL=" <> u}}} ->
+          {:cont, {u, p}}
+
+        {^p, {:data, {:eol, "MOCK_SERVERS=" <> json_val}}} ->
+          System.put_env("MOCK_SERVERS", json_val)
+          case Jason.decode(json_val) do
+            {:ok, servers} ->
+              Enum.each(servers, fn {fid, furl} ->
+                System.put_env("MOCK_SERVER_#{String.upcase(fid)}", furl)
+              end)
+
+            _ ->
+              :ok
+          end
+
+          {:halt, {url_acc, p}}
+
+        {^p, _other} when url_acc != nil ->
+          {:halt, {url_acc, p}}
+      after
+        30_000 ->
+          raise "mock-server startup timeout"
+      end
+    end)
+
+  if url != nil do
+    System.put_env("MOCK_SERVER_URL", url)
   end
 end
 "#
@@ -779,7 +804,7 @@ fn render_test_case(
         resolved_options_type,
         resolved_options_default_fn,
         resolved_enum_fields_ref,
-        &fixture.id,
+        fixture,
         resolved_handle_struct_type,
         resolved_handle_atom_list_fields_ref,
         &test_documents_path,
@@ -919,9 +944,17 @@ fn render_test_case(
     // Emit client creation when client_factory is configured.
     if let Some(factory) = client_factory {
         let fixture_id = &fixture.id;
+        let base_url_expr = if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            format!(
+                "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+            )
+        } else {
+            format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+        };
         let _ = writeln!(
             out,
-            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
         );
     }
 
@@ -1020,11 +1053,12 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     _handle_struct_type: Option<&str>,
     _handle_atom_list_fields: &std::collections::HashSet<String>,
     test_documents_path: &str,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty.
         // Functions with no parameters (e.g. language_count) have empty input
@@ -1045,10 +1079,18 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "{} = (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "{} = System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} = (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }

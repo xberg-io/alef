@@ -295,9 +295,8 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> Strin
         out.push_str(
             "            ?? throw new InvalidOperationException(\"TestSetup: failed to start mock-server\");\n",
         );
-        out.push_str("        // The mock-server prints `MOCK_SERVER_URL=<url>` as its first stdout\n");
-        out.push_str("        // line, then `mock-server: loaded <N> routes from <dir>` etc. Read\n");
-        out.push_str("        // until we see the URL line so it can race against startup.\n");
+        out.push_str("        // The mock-server prints MOCK_SERVER_URL=<url>, then optionally\n");
+        out.push_str("        // MOCK_SERVERS={...} for host-root fixtures. Read up to 16 lines.\n");
         out.push_str("        string? url = null;\n");
         out.push_str("        for (int i = 0; i < 16; i++)\n");
         out.push_str("        {\n");
@@ -306,10 +305,29 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> Strin
         out.push_str("            {\n");
         out.push_str("                break;\n");
         out.push_str("            }\n");
-        out.push_str("            const string prefix = \"MOCK_SERVER_URL=\";\n");
-        out.push_str("            if (line.StartsWith(prefix, StringComparison.Ordinal))\n");
+        out.push_str("            const string urlPrefix = \"MOCK_SERVER_URL=\";\n");
+        out.push_str("            const string serversPrefix = \"MOCK_SERVERS=\";\n");
+        out.push_str("            if (line.StartsWith(urlPrefix, StringComparison.Ordinal))\n");
         out.push_str("            {\n");
-        out.push_str("                url = line.Substring(prefix.Length).Trim();\n");
+        out.push_str("                url = line.Substring(urlPrefix.Length).Trim();\n");
+        out.push_str("            }\n");
+        out.push_str("            else if (line.StartsWith(serversPrefix, StringComparison.Ordinal))\n");
+        out.push_str("            {\n");
+        out.push_str("                var jsonVal = line.Substring(serversPrefix.Length).Trim();\n");
+        out.push_str("                Environment.SetEnvironmentVariable(\"MOCK_SERVERS\", jsonVal);\n");
+        out.push_str("                // Parse JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>).\n");
+        out.push_str("                var matches = System.Text.RegularExpressions.Regex.Matches(\n");
+        out.push_str("                    jsonVal, \"\\\"([^\\\"]+)\\\":\\\"([^\\\"]+)\\\"\");\n");
+        out.push_str("                foreach (System.Text.RegularExpressions.Match m in matches)\n");
+        out.push_str("                {\n");
+        out.push_str("                    Environment.SetEnvironmentVariable(\n");
+        out.push_str("                        \"MOCK_SERVER_\" + m.Groups[1].Value.ToUpperInvariant(),\n");
+        out.push_str("                        m.Groups[2].Value);\n");
+        out.push_str("                }\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("            else if (url != null)\n");
+        out.push_str("            {\n");
         out.push_str("                break;\n");
         out.push_str("            }\n");
         out.push_str("        }\n");
@@ -838,7 +856,7 @@ fn render_test_method(
         effective_options_via,
         enum_fields,
         nested_types,
-        &fixture.id,
+        fixture,
     );
 
     // Build visitor if present: instantiate in method body, declare class at file scope.
@@ -931,6 +949,13 @@ fn render_test_method(
             client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            client_factory_setup.push_str(&format!("        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"));
+            client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
             ));
         } else {
             client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
@@ -1061,7 +1086,7 @@ fn render_chat_stream_test_method(
         effective_options_via,
         enum_fields,
         nested_types,
-        &fixture.id,
+        fixture,
     );
 
     let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
@@ -1090,6 +1115,13 @@ fn render_chat_stream_test_method(
             client_factory_setup.push_str("        if (string.IsNullOrEmpty(apiKey)) { return; }\n");
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(apiKey, null, null, null, null);\n"
+            ));
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            client_factory_setup.push_str(&format!("        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"));
+            client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
             ));
         } else {
             client_factory_setup.push_str(&format!(
@@ -1350,8 +1382,9 @@ fn build_args_and_setup(
     options_via: Option<&str>,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     if args.is_empty() {
         return (Vec::new(), String::new());
     }
@@ -1390,10 +1423,23 @@ fn build_args_and_setup(
         }
 
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "var {} = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!(
+                    "var _pfUrl_{name} = Environment.GetEnvironmentVariable(\"{env_key}\");",
+                    name = arg.name,
+                ));
+                setup_lines.push(format!(
+                    "var {} = !string.IsNullOrEmpty(_pfUrl_{name}) ? _pfUrl_{name} : Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
+                    arg.name,
+                    name = arg.name,
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "var {} = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }

@@ -256,6 +256,7 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
     let _ = writeln!(out, "\t\"bufio\"");
+    let _ = writeln!(out, "\t\"encoding/json\"");
     let _ = writeln!(out, "\t\"io\"");
     let _ = writeln!(out, "\t\"os\"");
     let _ = writeln!(out, "\t\"os/exec\"");
@@ -322,6 +323,18 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
         out,
         "\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
     );
+    let _ = writeln!(out, "\t\t\t}} else if strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
+    let _ = writeln!(out, "\t\t\t\t_jsonVal := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
+    let _ = writeln!(out, "\t\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", _jsonVal)");
+    let _ = writeln!(out, "\t\t\t\t// Parse the JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>).");
+    let _ = writeln!(out, "\t\t\t\tvar _perFixture map[string]string");
+    let _ = writeln!(out, "\t\t\t\tif err := json.Unmarshal([]byte(_jsonVal), &_perFixture); err == nil {{");
+    let _ = writeln!(out, "\t\t\t\t\tfor _fid, _furl := range _perFixture {{");
+    let _ = writeln!(out, "\t\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(_fid), _furl)");
+    let _ = writeln!(out, "\t\t\t\t\t}}");
+    let _ = writeln!(out, "\t\t\t\t}}");
+    let _ = writeln!(out, "\t\t\t\tbreak");
+    let _ = writeln!(out, "\t\t\t}} else if os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
     let _ = writeln!(out, "\t\t\t\tbreak");
     let _ = writeln!(out, "\t\t\t}}");
     let _ = writeln!(out, "\t\t}}");
@@ -869,7 +882,7 @@ fn render_test_function(
         args,
         import_alias,
         call_options_type,
-        &fixture.id,
+        fixture,
         call_options_ptr,
         expects_error,
     );
@@ -933,6 +946,19 @@ fn render_test_function(
         // mock-server fixture URL and a fixed "test-key" instead.
         let (api_key_expr, base_url_expr) = if api_key_var.is_some() {
             ("apiKey".to_string(), "nil".to_string())
+        } else if fixture.has_host_root_route() {
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            let _ = writeln!(
+                out,
+                "\tmockURL := os.Getenv(\"{env_key}\")"
+            );
+            let _ = writeln!(out, "\tif mockURL == \"\" {{");
+            let _ = writeln!(
+                out,
+                "\t\tmockURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            let _ = writeln!(out, "\t}}");
+            ("\"test-key\"".to_string(), "&mockURL".to_string())
         } else {
             let _ = writeln!(
                 out,
@@ -1523,10 +1549,11 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     import_alias: &str,
     options_type: Option<&str>,
-    fixture_id: &str,
+    fixture: &crate::fixture::Fixture,
     options_ptr: bool,
     expects_error: bool,
 ) -> (Vec<String>, String) {
+    let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
 
     if args.is_empty() {
@@ -1538,10 +1565,19 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "{} := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
-                arg.name,
-            ));
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                setup_lines.push(format!("{} := os.Getenv(\"{env_key}\")", arg.name));
+                setup_lines.push(format!(
+                    "if {} == \"\" {{ {} = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\" }}",
+                    arg.name, arg.name
+                ));
+            } else {
+                setup_lines.push(format!(
+                    "{} := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
+                    arg.name,
+                ));
+            }
             parts.push(arg.name.clone());
             continue;
         }

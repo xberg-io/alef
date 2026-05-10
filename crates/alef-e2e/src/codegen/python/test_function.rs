@@ -116,9 +116,17 @@ pub(super) fn render_test_function(
     let call_expr = if let Some(ref factory) = client_factory {
         if fixture.mock_response.is_some() || fixture.http.is_some() {
             let fixture_id = &fixture.id;
+            let base_url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get(\"MOCK_SERVER_{}\") or os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"")
+            };
             let _ = writeln!(
                 client_setup,
-                "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
+                "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr})"
             );
         } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
             let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
@@ -345,9 +353,15 @@ fn build_args_and_setup(
 
         if arg.arg_type == "mock_url" {
             let fixture_id = &fixture.id;
-            arg_bindings.push(format!(
-                "    {var_name} = os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'"
-            ));
+            let url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get('MOCK_SERVER_{}') or os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'")
+            };
+            arg_bindings.push(format!("    {var_name} = {url_expr}"));
             kwarg_exprs.push(var_name.to_string());
             continue;
         }
