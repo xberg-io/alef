@@ -655,8 +655,17 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
         out.push('\n');
     }
 
-    out.push_str("| Variant | Description |\n");
-    out.push_str("|---------|-------------|\n");
+    let has_wire_rename = en.serde_rename_all.is_some()
+        || en.variants.iter().any(|v| v.serde_rename.is_some());
+
+    if has_wire_rename {
+        out.push_str("| Variant | Wire value | Description |\n");
+        out.push_str("|---------|------------|-------------|\n");
+    } else {
+        out.push_str("| Variant | Description |\n");
+        out.push_str("|---------|-------------|\n");
+    }
+
     for variant in &en.variants {
         let mut vdoc = if !variant.doc.is_empty() {
             clean_doc_inline(&variant.doc, Language::Rust)
@@ -674,10 +683,37 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
-        let _ = writeln!(out, "| `{}` | {} |", variant.name, vdoc);
+        if has_wire_rename {
+            let wire = wire_variant_value(&variant.name, en.serde_rename_all.as_deref(), variant.serde_rename.as_deref());
+            let _ = writeln!(out, "| `{}` | `{}` | {} |", variant.name, wire, vdoc);
+        } else {
+            let _ = writeln!(out, "| `{}` | {} |", variant.name, vdoc);
+        }
     }
 
     out
+}
+
+/// Compute the JSON/TOML wire value for an enum variant, applying
+/// `#[serde(rename = "...")]` first and then `#[serde(rename_all = "...")]`
+/// to the variant's PascalCase name. Falls back to the variant name verbatim
+/// when neither attribute applies.
+fn wire_variant_value(name: &str, rename_all: Option<&str>, explicit_rename: Option<&str>) -> String {
+    if let Some(r) = explicit_rename {
+        return r.to_string();
+    }
+    use heck::{ToKebabCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase};
+    match rename_all {
+        Some("lowercase") => name.to_lowercase(),
+        Some("UPPERCASE") => name.to_uppercase(),
+        Some("snake_case") => name.to_snake_case(),
+        Some("SCREAMING_SNAKE_CASE") => name.to_shouty_snake_case(),
+        Some("kebab-case") => name.to_kebab_case(),
+        Some("SCREAMING-KEBAB-CASE") => name.to_shouty_kebab_case(),
+        Some("camelCase") => to_camel_case(name),
+        Some("PascalCase") | None => name.to_string(),
+        Some(_) => name.to_string(),
+    }
 }
 
 /// True if `ty` (or any wrapper layer of it: Option/Vec/Map) names the given type.
@@ -1001,6 +1037,45 @@ mod tests {
         assert!(types_file.content.contains("`Tatr`"));
         assert!(types_file.content.contains("TATR transformer"));
         assert!(types_file.content.contains("`SlanetWired`"));
+    }
+
+    #[test]
+    fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set() {
+        use alef_core::ir::EnumVariant;
+        let en = EnumDef {
+            name: "HtmlTheme".into(),
+            rust_path: "test::HtmlTheme".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Default".into(),
+                    fields: vec![],
+                    doc: "Default theme.".into(),
+                    is_default: true,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Github".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: "HTML theme.".into(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: Some("lowercase".into()),
+        };
+        let out = render_enum_for_shared_doc(&en);
+        assert!(out.contains("| Variant | Wire value | Description |"));
+        assert!(out.contains("| `Default` | `default` |"));
+        assert!(out.contains("| `Github` | `github` |"));
     }
 
     #[test]
