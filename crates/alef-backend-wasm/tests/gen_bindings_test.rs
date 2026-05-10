@@ -1876,3 +1876,169 @@ fn extract_fn_snippet<'a>(content: &'a str, marker: &str) -> &'a str {
     let end = (start + 200).min(content.len());
     &content[start..end]
 }
+
+/// Synthetic `default()` factory must be emitted on every wasm struct with
+/// fields, regardless of whether the wasm-bindgen `(constructor)` requires
+/// arguments. Without this, JS callers who want an arg-free instance can only
+/// invoke `new WasmFoo()` — which throws when any field is non-Optional in the
+/// IR (e.g. `WasmChatCompletionTool { tool_type, function }`).
+#[test]
+fn test_default_factory_emitted_for_required_args_struct() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Tool".to_string(),
+            rust_path: "test_lib::Tool".to_string(),
+            original_rust_path: String::new(),
+            // Required (non-Optional) fields force the constructor to take
+            // positional args — exactly the case where `new WasmTool()` fails.
+            fields: vec![
+                make_field("kind", TypeRef::Named("ToolKind".to_string()), false),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "ToolKind".to_string(),
+            rust_path: "test_lib::ToolKind".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Function".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must include lib.rs");
+    let content = &lib_file.content;
+
+    // The constructor still takes the required positional args.
+    assert!(
+        content.contains("pub fn new("),
+        "Should still emit wasm_bindgen constructor;\n\
+         actual:\n{}",
+        extract_fn_snippet(content, "pub fn new")
+    );
+
+    // The synthetic default() factory must also be emitted, returning the
+    // binding wrapper via the derived Default impl.
+    assert!(
+        content.contains("pub fn default() -> WasmTool"),
+        "Should emit synthetic default() factory on wasm wrapper;\n\
+         actual:\n{}",
+        extract_fn_snippet(content, "pub fn default")
+    );
+    assert!(
+        content.contains("<WasmTool as ::core::default::Default>::default()"),
+        "default() factory must delegate to the derived Default impl;\n\
+         actual:\n{}",
+        extract_fn_snippet(content, "pub fn default")
+    );
+}
+
+/// When a struct already exposes an explicit static `default` method in its
+/// IR (e.g. one carried over from the source crate), the synthetic factory
+/// must NOT be emitted — duplicate `pub fn default` would fail to compile.
+#[test]
+fn test_default_factory_skipped_when_explicit_default_method_present() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Options".to_string(),
+            rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
+            methods: vec![MethodDef {
+                name: "default".to_string(),
+                params: vec![],
+                return_type: TypeRef::Named("Options".to_string()),
+                is_async: false,
+                is_static: true,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must include lib.rs");
+    let content = &lib_file.content;
+
+    // The synthetic delegating factory MUST NOT appear (would conflict with
+    // the explicit `default` method emitted via the methods loop).
+    assert!(
+        !content.contains("<WasmOptions as ::core::default::Default>::default()"),
+        "Synthetic default() factory must be skipped when an explicit default method exists;\n\
+         actual content:\n{}",
+        content
+    );
+}

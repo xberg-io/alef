@@ -929,13 +929,14 @@ fn ts_builder_expression_inner(
         return format!("{obj_literal} as {type_name}");
     }
 
-    // WASM path: construct the main type directly via its constructor
-    // (every wasm-bindgen-emitted struct exposes an all-optional positional
-    // ctor + per-field setters). Nested object values are constructed
-    // recursively the same way.
-    // For WASM config types, use the .default() factory if available to ensure
-    // the instance is properly initialized.
-    let init_stmt = if type_name.starts_with("Wasm") && type_name.ends_with("Config") {
+    // WASM path: construct the main type via its synthetic `default()` static
+    // factory rather than `new WasmFoo()`. wasm-bindgen's `(constructor)` mirrors
+    // the Rust ctor's arity, so any struct with a non-Optional field requires
+    // positional args — `new WasmChatCompletionTool()` (no args) throws
+    // because `tool_type` and `function` are required. The `default()` factory
+    // (emitted unconditionally on every wasm wrapper that derives `Default`)
+    // returns a fresh instance the test body can then drive via setters.
+    let init_stmt = if type_name.starts_with("Wasm") {
         format!("const _u = {type_name}.default();")
     } else {
         format!("const _u = new {type_name}();")
@@ -1392,6 +1393,59 @@ mod tests {
             class_names.contains(&"WasmFunctionDefinition".to_string()),
             "second-level WasmFunctionDefinition missing; got {:?}",
             derived
+        );
+    }
+
+    #[test]
+    fn ts_builder_uses_default_factory_for_all_wasm_classes_not_just_config() {
+        // WasmChatCompletionTool has required (non-Optional) fields, so
+        // wasm-bindgen's `(constructor)` requires positional args. The codegen
+        // must emit `WasmChatCompletionTool.default()` (the synthetic factory)
+        // instead of `new WasmChatCompletionTool()`, which would throw at JS
+        // runtime. Previously only `*Config` types used the factory.
+        let mut obj = serde_json::Map::new();
+        obj.insert("type".to_string(), serde_json::Value::String("function".to_string()));
+        let result = ts_builder_expression_inner(
+            &obj,
+            "WasmChatCompletionTool",
+            &std::collections::HashMap::new(),
+            "wasm",
+            &std::collections::HashMap::new(),
+            &std::collections::BTreeSet::new(),
+            &[],
+        );
+        assert!(
+            result.contains("const _u = WasmChatCompletionTool.default();"),
+            "wasm builder must instantiate via `.default()` for non-Config classes;\n\
+             actual:\n{result}",
+        );
+        assert!(
+            !result.contains("new WasmChatCompletionTool()"),
+            "wasm builder must NOT use no-arg `new` for non-Config classes;\n\
+             actual:\n{result}",
+        );
+    }
+
+    #[test]
+    fn ts_builder_uses_new_for_non_wasm_targets() {
+        // Node target keeps object-literal style — only WASM uses the
+        // factory pattern. Sanity check that our condition didn't widen.
+        let mut obj = serde_json::Map::new();
+        obj.insert("model".to_string(), serde_json::Value::String("gpt-4".to_string()));
+        let result = ts_builder_expression_inner(
+            &obj,
+            "ChatCompletionRequest",
+            &std::collections::HashMap::new(),
+            "node",
+            &std::collections::HashMap::new(),
+            &std::collections::BTreeSet::new(),
+            &[],
+        );
+        // Node path returns an object literal cast — no `default()` call.
+        assert!(
+            !result.contains(".default()"),
+            "non-wasm target must not use the wasm-only default factory pattern;\n\
+             actual:\n{result}",
         );
     }
 

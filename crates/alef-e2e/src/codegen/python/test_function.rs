@@ -216,12 +216,20 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &
         let _ = writeln!(out, "        {call_expr}");
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
-            // Match against the rendered exception message, not the class name —
-            // fixture values like "max_depth", "proxy", "urls", "connection" are
-            // substrings of the user-facing error text, not of the exception class
-            // name (e.g. `InvalidConfigError`). With NetworkErrorKind tagging in
-            // kreuzcrawl core, network-error messages now embed `[network:<kind>]`.
-            let _ = writeln!(out, "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101");
+            // Match against EITHER the rendered exception message OR the
+            // exception class name. Different downstream crates use different
+            // fixture-shape conventions:
+            //   * kreuzcrawl: fixture values like "max_depth", "proxy", "urls"
+            //     are substrings of the user-facing error message, never of
+            //     a class name like `InvalidConfigError`.
+            //   * liter-llm: fixture values like "Authentication", "BadRequest",
+            //     "ContentPolicy" are class-name prefixes (`AuthenticationError`,
+            //     `BadRequestError`, `ContentPolicyError`), not message text.
+            // The disjunction lets a single codegen path satisfy both.
+            let _ = writeln!(
+                out,
+                "    assert \"{escaped}\" in str(exc_info.value) or \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101"
+            );
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");

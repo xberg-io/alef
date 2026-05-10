@@ -1168,9 +1168,18 @@ fn render_chat_stream_test_method(
     body.push_str("                    streamContent.Append(delta.Content);\n");
     body.push_str("                }\n");
     if needs_finish_reason {
+        // Streaming accumulator must use the wire-form snake_case representation
+        // (e.g. `tool_calls`) so equality assertions against the fixture-side
+        // string match. `.ToString().ToLower()` collapses compound PascalCase
+        // names like `ToolCalls` to `toolcalls` (no underscore), causing
+        // assertion failures. `JsonNamingPolicy.SnakeCaseLower.ConvertName`
+        // mirrors the policy used by the global `JsonStringEnumConverter`,
+        // matching exactly what serde would emit on the wire.
         body.push_str("                if (choice.FinishReason != null)\n");
         body.push_str("                {\n");
-        body.push_str("                    lastFinishReason = choice.FinishReason?.ToString()?.ToLower();\n");
+        body.push_str(
+            "                    lastFinishReason = JsonNamingPolicy.SnakeCaseLower.ConvertName(choice.FinishReason.ToString()!);\n",
+        );
         body.push_str("                }\n");
     }
     if needs_tool_calls_json || needs_tool_calls_0_function_name {

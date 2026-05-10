@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(alef-backend-wasm): emit a synthetic `pub fn default()` static factory on every wasm-bindgen wrapper struct that derives `Default`. wasm-bindgen mirrors the Rust `(constructor)` arity, so structs with non-Optional fields (e.g. `WasmChatCompletionTool { tool_type, function }`) can only be instantiated with positional args from JS — `new WasmChatCompletionTool()` throws. The factory delegates to `<Self as ::core::default::Default>::default()` so JS callers can obtain a fresh instance and drive it via setters. Skipped automatically when the IR already exposes an explicit `default` method to avoid impl-block conflicts.
+
+### Fixed
+
+- fix(alef-e2e/typescript): use `.default()` factory for all wasm class instantiations in test bodies, not just `*Config` types. The previous `new WasmFoo()` pattern only worked for structs whose fields were all `Option<T>`; structs with required fields (e.g. `WasmChatCompletionTool`, `WasmFunctionDefinition`, `WasmResponseTool`) caused ~9 e2e tests to fail with "expected instance of WasmFoo" or constructor-arity TypeError. Combined with the new synthetic `default()` factory, `_u = WasmFoo.default()` now works uniformly.
+- fix(alef-e2e/python): error-assertion compares the fixture value against EITHER `str(exc_info.value)` OR `type(exc_info.value).__name__`. Different downstream crates use different fixture-shape conventions — kreuzcrawl fixture values are message substrings (`"max_depth"`, `"proxy"`), liter-llm fixture values are class-name prefixes (`"Authentication"`, `"BadRequest"`). The disjunction lets a single codegen path satisfy both without a config flag.
+- fix(alef-e2e/csharp): streaming `lastFinishReason` accumulator now uses `JsonNamingPolicy.SnakeCaseLower.ConvertName(...)` instead of `.ToString().ToLower()`. The latter collapses compound PascalCase enum names like `ToolCalls` to `toolcalls` (no underscore), causing equality assertions against fixture wire-form values like `"tool_calls"` to fail. The new emission matches the policy used by the global `JsonStringEnumConverter` and the non-streaming assertion path at `csharp.rs:2087-2094`.
+
 ## [0.15.25] - 2026-05-10
 
 ### Fixed

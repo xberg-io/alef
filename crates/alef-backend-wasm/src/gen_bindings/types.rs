@@ -395,6 +395,12 @@ pub(super) fn gen_struct_methods(
 
     if !typ.fields.is_empty() {
         impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types, prefix));
+        // Skip synthetic Default factory when the IR already exposes an
+        // explicit static method named `default` (it will be emitted below
+        // through the methods loop and would otherwise conflict).
+        if !typ.methods.iter().any(|m| m.name == "default") {
+            impl_builder.add_method(&gen_default_method(typ, prefix));
+        }
     }
 
     // Collect enum names for Copy detection in getters.
@@ -469,6 +475,23 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], 
 
     format!(
         "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
+        typ.name, typ.name
+    )
+}
+
+/// Generate a `default()` static factory method.
+///
+/// wasm-bindgen's `#[wasm_bindgen(constructor)]` follows the Rust constructor's
+/// arity, so types with required (non-Optional) fields expose a JS constructor
+/// with required positional args. Test codegen and other JS callers want an
+/// arg-free way to obtain a fresh instance and then drive it via setters; the
+/// inherent `default()` factory (delegating to the derived `Default` impl)
+/// supplies that without disturbing the constructor signature. Every wasm
+/// struct derives `Default` (see `gen_struct.jinja`), so the factory can be
+/// emitted unconditionally for structs with fields.
+fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
+    format!(
+        "#[wasm_bindgen]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
     )
 }
