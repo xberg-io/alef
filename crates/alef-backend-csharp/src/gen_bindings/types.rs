@@ -483,6 +483,7 @@ fn gen_opaque_method(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_record_type(
     typ: &TypeDef,
     namespace: &str,
