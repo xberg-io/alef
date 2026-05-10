@@ -84,7 +84,7 @@
                 <version>{{ maven_surefire_version }}</version>
                 <configuration>
                     <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=${project.basedir}/../../target/release</argLine>
-                    <workingDirectory>${project.basedir}/{{ test_documents_path }}</workingDirectory>
+                    <workingDirectory>${project.basedir}/{{ test_documents_path | safe }}</workingDirectory>
                 </configuration>
             </plugin>
         </plugins>
