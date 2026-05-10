@@ -128,20 +128,33 @@ import_alias = "kreuzcrawl"
 }
 
 fn groups_with(fixtures: Vec<Fixture>) -> Vec<FixtureGroup> {
-    vec![FixtureGroup { category: "smoke".to_string(), fixtures }]
+    vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures,
+    }]
 }
 
-fn generate_all(codegen: &dyn E2eCodegen, language: &str, fixtures: Vec<Fixture>) -> Vec<alef_core::backend::GeneratedFile> {
+fn generate_all(
+    codegen: &dyn E2eCodegen,
+    language: &str,
+    fixtures: Vec<Fixture>,
+) -> Vec<alef_core::backend::GeneratedFile> {
     let (e2e, resolved) = build_config(language);
     let groups = groups_with(fixtures);
-    codegen.generate(&groups, &e2e, &resolved, &[]).expect("generation succeeds")
+    codegen
+        .generate(&groups, &e2e, &resolved, &[])
+        .expect("generation succeeds")
 }
 
 // ── Python ────────────────────────────────────────────────────────────────────
 
 #[test]
 fn python_host_root_fixture_url_uses_mock_server_env_key() {
-    let files = generate_all(&PythonE2eCodegen, "python", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &PythonE2eCodegen,
+        "python",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let test_file = files
         .iter()
         .find(|f| f.path.to_str().unwrap_or("").ends_with(".py") && f.path.to_str().unwrap_or("").contains("test_"))
@@ -169,7 +182,11 @@ fn python_plain_fixture_url_uses_namespaced_pattern() {
 
 #[test]
 fn python_conftest_emits_mock_servers_parsing() {
-    let files = generate_all(&PythonE2eCodegen, "python", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &PythonE2eCodegen,
+        "python",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let conftest = files
         .iter()
         .find(|f| f.path.ends_with("conftest.py"))
@@ -185,7 +202,11 @@ fn python_conftest_emits_mock_servers_parsing() {
 
 #[test]
 fn typescript_host_root_fixture_url_uses_mock_server_env_key() {
-    let files = generate_all(&TypeScriptCodegen, "node", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &TypeScriptCodegen,
+        "node",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let test_file = files
         .iter()
         .find(|f| {
@@ -202,7 +223,11 @@ fn typescript_host_root_fixture_url_uses_mock_server_env_key() {
 
 #[test]
 fn typescript_global_setup_emits_mock_servers_parsing() {
-    let files = generate_all(&TypeScriptCodegen, "node", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &TypeScriptCodegen,
+        "node",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let global_setup = files
         .iter()
         .find(|f| f.path.ends_with("globalSetup.ts"))
@@ -251,7 +276,11 @@ fn go_main_test_emits_mock_servers_parsing() {
 
 #[test]
 fn java_mock_server_listener_emits_mock_servers_parsing() {
-    let files = generate_all(&JavaCodegen, "java", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &JavaCodegen,
+        "java",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let listener = files
         .iter()
         .find(|f| f.path.to_str().unwrap_or("").ends_with("MockServerListener.java"))
@@ -267,7 +296,11 @@ fn java_mock_server_listener_emits_mock_servers_parsing() {
 
 #[test]
 fn csharp_host_root_fixture_url_uses_mock_server_env_key() {
-    let files = generate_all(&CSharpCodegen, "csharp", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &CSharpCodegen,
+        "csharp",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     // Test class file is e.g. SmokeTests.cs — not TestSetup.cs
     let test_file = files
         .iter()
@@ -285,7 +318,11 @@ fn csharp_host_root_fixture_url_uses_mock_server_env_key() {
 
 #[test]
 fn csharp_test_setup_emits_mock_servers_parsing() {
-    let files = generate_all(&CSharpCodegen, "csharp", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &CSharpCodegen,
+        "csharp",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let setup = files
         .iter()
         .find(|f| f.path.ends_with("TestSetup.cs"))
@@ -317,7 +354,11 @@ fn php_bootstrap_emits_mock_servers_parsing() {
 
 #[test]
 fn ruby_spec_helper_emits_mock_servers_parsing() {
-    let files = generate_all(&RubyCodegen, "ruby", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &RubyCodegen,
+        "ruby",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let spec_helper = files
         .iter()
         .find(|f| f.path.ends_with("spec_helper.rb"))
@@ -333,7 +374,11 @@ fn ruby_spec_helper_emits_mock_servers_parsing() {
 
 #[test]
 fn elixir_test_helper_emits_mock_servers_parsing() {
-    let files = generate_all(&ElixirCodegen, "elixir", vec![make_host_root_fixture("robots_disallow_path")]);
+    let files = generate_all(
+        &ElixirCodegen,
+        "elixir",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
     let test_helper = files
         .iter()
         .find(|f| f.path.ends_with("test_helper.exs"))

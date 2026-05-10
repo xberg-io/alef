@@ -7,6 +7,9 @@
         if (code == 1) return new InvalidInputException(message);
 {%- endif %}
 {%- if has_base_error %}
+{%- for line in variant_dispatch_lines %}
+{{ line }}
+{%- endfor %}
         if (code == 2) return new {{ base_exception_class }}(message);
 {%- endif %}
         return new {{ exception_name }}(code, message);

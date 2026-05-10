@@ -99,9 +99,7 @@ impl FfiBridgeGenerator {
         let slice_cache_fields: Vec<String> = spec
             .required_methods()
             .into_iter()
-            .filter(|m| {
-                m.returns_ref && matches!(&m.return_type, alef_core::ir::TypeRef::Vec(_))
-            })
+            .filter(|m| m.returns_ref && matches!(&m.return_type, alef_core::ir::TypeRef::Vec(_)))
             .map(|m| format!("    {}_strs: &'static [&'static str],\n", m.name))
             .collect();
 

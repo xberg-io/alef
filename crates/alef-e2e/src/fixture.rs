@@ -686,7 +686,10 @@ mod tests {
             "assertions": []
         }"#;
         let fixture: Fixture = serde_json::from_str(json).unwrap();
-        assert!(!fixture.has_host_root_route(), "expected false for single mock_response schema");
+        assert!(
+            !fixture.has_host_root_route(),
+            "expected false for single mock_response schema"
+        );
     }
 
     #[test]

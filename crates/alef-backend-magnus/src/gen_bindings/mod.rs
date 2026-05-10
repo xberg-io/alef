@@ -215,6 +215,26 @@ impl Backend for MagnusBackend {
             .map(|t| t.name.as_str())
             .collect();
 
+        // Emit a single module-level `default_timeout` helper when any struct field
+        // references it (per the `request_timeout` / `timeout` u64 default pattern in
+        // struct_def.rs.jinja). Skipping this when no struct uses it avoids dead-code
+        // warnings; emitting it here (rather than per-struct) avoids duplicate
+        // definitions when multiple structs share the helper.
+        let needs_default_timeout = api.types.iter().filter(|t| !t.is_trait && !t.is_opaque).any(|t| {
+            t.fields.iter().any(|f| {
+                let is_timeout_named = f.name == "request_timeout" || f.name == "timeout";
+                let is_u64_or_duration = matches!(
+                    f.ty,
+                    alef_core::ir::TypeRef::Primitive(alef_core::ir::PrimitiveType::U64)
+                        | alef_core::ir::TypeRef::Duration
+                );
+                is_timeout_named && is_u64_or_duration
+            })
+        });
+        if needs_default_timeout {
+            builder.add_item("fn default_timeout() -> u64 {\n    30000\n}");
+        }
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(typ.name.as_str()) {
                 continue;

@@ -326,11 +326,20 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     let _ = writeln!(out, "\t\t\t}} else if strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
     let _ = writeln!(out, "\t\t\t\t_jsonVal := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
     let _ = writeln!(out, "\t\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", _jsonVal)");
-    let _ = writeln!(out, "\t\t\t\t// Parse the JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>).");
+    let _ = writeln!(
+        out,
+        "\t\t\t\t// Parse the JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>)."
+    );
     let _ = writeln!(out, "\t\t\t\tvar _perFixture map[string]string");
-    let _ = writeln!(out, "\t\t\t\tif err := json.Unmarshal([]byte(_jsonVal), &_perFixture); err == nil {{");
+    let _ = writeln!(
+        out,
+        "\t\t\t\tif err := json.Unmarshal([]byte(_jsonVal), &_perFixture); err == nil {{"
+    );
     let _ = writeln!(out, "\t\t\t\t\tfor _fid, _furl := range _perFixture {{");
-    let _ = writeln!(out, "\t\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(_fid), _furl)");
+    let _ = writeln!(
+        out,
+        "\t\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(_fid), _furl)"
+    );
     let _ = writeln!(out, "\t\t\t\t\t}}");
     let _ = writeln!(out, "\t\t\t\t}}");
     let _ = writeln!(out, "\t\t\t\tbreak");
@@ -958,10 +967,7 @@ fn render_test_function(
             ("apiKey".to_string(), "nil".to_string())
         } else if fixture.has_host_root_route() {
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-            let _ = writeln!(
-                out,
-                "\tmockURL := os.Getenv(\"{env_key}\")"
-            );
+            let _ = writeln!(out, "\tmockURL := os.Getenv(\"{env_key}\")");
             let _ = writeln!(out, "\tif mockURL == \"\" {{");
             let _ = writeln!(
                 out,
