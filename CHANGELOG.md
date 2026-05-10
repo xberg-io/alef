@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.26] - 2026-05-10
+
 ### Added
 
 - feat(alef-backend-gleam): emit `unregister_fn` and `clear_fn` external Gleam declarations from `TraitBridgeConfig` when the fields are set; short-circuits to no output when `None`. Closes the gap where Gleam silently ignored the optional unregister/clear lifecycle config that other backends already honored.
