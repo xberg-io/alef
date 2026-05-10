@@ -7,16 +7,93 @@ use super::FfiBridgeGenerator;
 
 impl FfiBridgeGenerator {
     /// Generate the `impl {Bridge} { pub unsafe fn new(...) }` constructor block.
+    ///
+    /// For required methods that return `&[T]` (IR: `Vec(T)` + `returns_ref = true`), an
+    /// extra cache-and-leak block is emitted: the vtable fn pointer is called once at
+    /// construction, the JSON result is deserialised into a `Vec<String>`, each string is
+    /// leaked into a `'static str`, and the resulting slice is stored in the bridge struct.
+    /// The trait impl then returns from that field directly, satisfying the `&[&str]` return
+    /// type without any per-call vtable overhead or lifetime gymnastics.
     pub(super) fn gen_constructor_impl(&self, spec: &TraitBridgeSpec) -> String {
         let bridge = self.bridge_name(spec);
         let vtable = self.vtable_name(spec);
 
-        crate::template_env::render(
-            "constructor_impl.jinja",
-            minijinja::context! {
-                bridge_name => &bridge,
-                vtable_name => &vtable,
-            },
+        // Collect required methods with `Vec(T) + returns_ref` that need a cache field.
+        let slice_cache_methods: Vec<&alef_core::ir::MethodDef> = spec
+            .required_methods()
+            .into_iter()
+            .filter(|m| m.returns_ref && matches!(&m.return_type, alef_core::ir::TypeRef::Vec(_)))
+            .collect();
+
+        if slice_cache_methods.is_empty() {
+            return crate::template_env::render(
+                "constructor_impl.jinja",
+                minijinja::context! {
+                    bridge_name => &bridge,
+                    vtable_name => &vtable,
+                },
+            );
+        }
+
+        // Build the slice-cache initialisation blocks and the field initialisers.
+        let mut cache_init_blocks = String::new();
+        let mut field_inits = String::new();
+
+        for method in &slice_cache_methods {
+            let fname = &method.name;
+            let field = format!("{fname}_strs");
+
+            // Emit the block that calls the vtable fn once and leaks the result into
+            // `&'static [&'static str]`.  The block is safe to emit in an `unsafe fn`
+            // context; individual unsafe sub-expressions are annotated inline.
+            cache_init_blocks.push_str(&format!(
+                r#"        // Cache {fname}() result for the lifetime of the bridge (required: returns &[&str]).
+        let {field}: &'static [&'static str] = if let Some(fp) = vtable.{fname} {{
+            let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();
+            // SAFETY: fp is a valid non-null function pointer; user_data validity is the caller's
+            // responsibility (documented in the vtable API contract).
+            let _rc = unsafe {{ fp(user_data, &mut _out_result) }};
+            if _out_result.is_null() {{
+                &[]
+            }} else {{
+                // SAFETY: out_result was written by the callee as a valid NUL-terminated string.
+                let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+                let json = cs.to_string_lossy();
+                let owned: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+                // Leak each string into a `'static str`; these live for the process lifetime.
+                // The bridge struct is expected to live for the duration of the program
+                // (registered plugins are not typically removed), so this is acceptable.
+                let leaked: Vec<&'static str> = owned
+                    .into_iter()
+                    .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})
+                    .collect();
+                Box::leak(leaked.into_boxed_slice())
+            }}
+        }} else {{
+            &[]
+        }};
+"#
+            ));
+
+            field_inits.push_str(&format!("            {field},\n"));
+        }
+
+        // Generate the constructor with cache init blocks injected before `Self { ... }`.
+        format!(
+            r#"impl {bridge} {{
+    /// Create a new bridge from a vtable and opaque user_data pointer.
+    ///
+    /// # Safety
+    ///
+    /// `vtable` must remain valid for the lifetime of the returned bridge.
+    /// `user_data` must be valid for any thread that calls methods on this bridge.
+    /// All required fn pointers in `vtable` must be non-null.
+    pub unsafe fn new(name: String, vtable: {vtable}, user_data: *const std::ffi::c_void) -> Self {{
+{cache_init_blocks}
+        Self {{ vtable, user_data, cached_name: name, cached_version: String::new(), {field_inits}}}
+    }}
+}}
+"#
         )
     }
 
@@ -112,16 +189,26 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        self.gen_vtable_call_body(method, spec)
+        // `inside_closure = false`: errors must use the trait's actual error type,
+        // not `Box<dyn Error>`, because the body is emitted directly in the trait impl.
+        self.gen_vtable_call_body(method, spec, false)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        // Short-circuit: slice-cache methods (returns_ref + Vec) return from a pre-populated
+        // `&'static [&'static str]` field.  No async work is needed.
+        if method.returns_ref && matches!(&method.return_type, TypeRef::Vec(_)) {
+            return format!("self.{}_strs\n", method.name);
+        }
+
         // For async methods we block-on inside a spawn_blocking call, mirroring
         // the Go/Java/C# strategy of running synchronous C callbacks on a thread pool.
         // The sync body references `self.vtable.*` and `self.user_data`; inside the
         // closure we have local `vtable` / `user_data` bindings instead.
         let sync_body = self
-            .gen_vtable_call_body(method, spec)
+            // `inside_closure = true`: the body runs inside a `_SendFn` closure
+            // whose return type is `Box<dyn Error + Send + Sync>`, so `Box::from` is correct.
+            .gen_vtable_call_body(method, spec, true)
             .replace("self.vtable.", "vtable.")
             .replace("self.user_data", "user_data");
         let has_error = method.error_type.is_some();

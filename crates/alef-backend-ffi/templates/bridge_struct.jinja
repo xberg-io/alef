@@ -6,6 +6,9 @@ pub struct {{ bridge_name }} {
     user_data: *const std::ffi::c_void,
     cached_name: String,
     cached_version: String,
+{%- if extra_fields %}
+{{ extra_fields -}}
+{%- endif %}
 }
 
 impl std::fmt::Debug for {{ bridge_name }} {

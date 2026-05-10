@@ -6,11 +6,45 @@ use alef_core::ir::{MethodDef, PrimitiveType, TypeRef};
 use super::{FfiBridgeGenerator, helpers::default_for_type};
 
 impl FfiBridgeGenerator {
-    /// Generate the body of a sync method that calls through the vtable.
-    pub(super) fn gen_vtable_call_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let mut out = String::with_capacity(512);
+    /// Generate the body of a vtable-forwarding method call.
+    ///
+    /// When `inside_closure` is `true` the body will be inlined inside a
+    /// `_SendFn` closure whose return type is
+    /// `Box<dyn std::error::Error + Send + Sync>`.  Error construction then uses
+    /// `Box::from(msg)` which satisfies that type.
+    ///
+    /// When `inside_closure` is `false` the body is emitted directly as the
+    /// trait method body, whose return type is `Result<T, ErrorType>`.  Error
+    /// construction then uses `spec.make_error(...)` to construct the trait's
+    /// actual error type (e.g. `KreuzbergError::Plugin { ... }`).
+    pub(super) fn gen_vtable_call_body(
+        &self,
+        method: &MethodDef,
+        spec: &TraitBridgeSpec,
+        inside_closure: bool,
+    ) -> String {
         let name = &method.name;
+
+        // Short-circuit: methods that return `&[T]` (Vec(T) + returns_ref) are pre-cached
+        // at construction time.  The body simply returns the cached field directly,
+        // bypassing the vtable call entirely.
+        if method.returns_ref && matches!(&method.return_type, TypeRef::Vec(_)) {
+            return format!("self.{name}_strs\n");
+        }
+
+        let mut out = String::with_capacity(512);
         let has_error = method.error_type.is_some();
+
+        // Helper: emit an error expression appropriate for the calling context.
+        // Inside the async _SendFn closure the return type is Box<dyn Error + Send + Sync>;
+        // outside (sync method body) it is Result<T, TraitErrorType>.
+        let make_err = |msg_literal: String| -> String {
+            if inside_closure {
+                format!("return Err(Box::from({msg_literal}));\n")
+            } else {
+                format!("return Err({});\n", spec.make_error(&msg_literal))
+            }
+        };
 
         // Extract the vtable fn pointer — return an error / default if it's None.
         out.push_str(&crate::template_env::render(
@@ -20,9 +54,7 @@ impl FfiBridgeGenerator {
             },
         ));
         if has_error {
-            out.push_str(&format!(
-                "return Err(Box::from(\"vtable.{name} is null — bridge not initialised\"));\n"
-            ));
+            out.push_str(&make_err(format!("\"vtable.{name} is null — bridge not initialised\"")));
         } else {
             // For infallible methods, return the Rust default value
             let default_expr = default_for_type(&method.return_type);
@@ -124,12 +156,8 @@ impl FfiBridgeGenerator {
 ",
                         );
                         if has_error {
-                            out.push_str(&crate::template_env::render(
-                                "ffi_nul_byte_param_err.jinja",
-                                minijinja::context! {
-                                    name => &p.name,
-                                },
-                            ));
+                            let param_name = &p.name;
+                            out.push_str(&make_err(format!("\"nul byte in param {param_name}\"")));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::template_env::render(
@@ -176,12 +204,8 @@ impl FfiBridgeGenerator {
 ",
                         );
                         if has_error {
-                            out.push_str(&crate::template_env::render(
-                                "ffi_nul_byte_json_err.jinja",
-                                minijinja::context! {
-                                    name => &p.name,
-                                },
-                            ));
+                            let param_name = &p.name;
+                            out.push_str(&make_err(format!("\"nul byte in serialized param {param_name}\"")));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::template_env::render(
@@ -327,10 +351,7 @@ impl FfiBridgeGenerator {
                 "    };
 ",
             );
-            out.push_str(
-                "    return Err(Box::from(msg));
-",
-            );
+            out.push_str(&make_err("msg".to_string()));
             out.push_str(
                 "}
 ",
@@ -373,9 +394,7 @@ impl FfiBridgeGenerator {
                         "if _out_result.is_null() {
 ",
                     );
-                    out.push_str(&format!(
-                        "return Err(Box::from(\"vtable.{name} returned null out_result\"));\n"
-                    ));
+                    out.push_str(&make_err(format!("\"vtable.{name} returned null out_result\"")));
                     out.push_str(
                         "}
 ",
@@ -389,12 +408,21 @@ impl FfiBridgeGenerator {
                         "let json = cs.to_string_lossy();
 ",
                     );
-                    out.push_str(&crate::template_env::render(
-                        "ffi_serde_from_str_err.jinja",
-                        minijinja::context! {
-                            ret_ty => &ret_ty,
-                        },
-                    ));
+                    if inside_closure {
+                        // Inside the _SendFn closure the return type is Box<dyn Error>
+                        out.push_str(&crate::template_env::render(
+                            "ffi_serde_from_str_err.jinja",
+                            minijinja::context! {
+                                ret_ty => &ret_ty,
+                            },
+                        ));
+                    } else {
+                        // Sync method body — error type is the trait's ErrorType
+                        let err_constructor = spec.make_error("e.to_string()");
+                        out.push_str(&format!(
+                            "serde_json::from_str::<{ret_ty}>(&json).map_err(|e| {err_constructor})\n"
+                        ));
+                    }
                 }
                 TypeRef::Primitive(PrimitiveType::Bool) => {
                     out.push_str(
@@ -599,7 +627,7 @@ mod tests {
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
-        let body = generator.gen_vtable_call_body(&method, &spec);
+        let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(body.contains("self.vtable.run"), "must access vtable fn ptr");
         assert!(body.contains("else {"), "must check for None fn ptr");
     }
@@ -612,10 +640,10 @@ mod tests {
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
-        let body = generator.gen_vtable_call_body(&method, &spec);
+        let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(
             body.contains("Err(Box::from("),
-            "fallible method must return Err on failure"
+            "fallible method must return Err on failure (inside_closure=true)"
         );
         assert!(body.contains("_out_error"), "must use out_error param");
     }
@@ -654,7 +682,7 @@ mod tests {
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
-        let body = generator.gen_vtable_call_body(&method, &spec);
+        let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(body.contains("CString::new"), "string param must convert to CString");
         assert!(body.contains("msg_ptr"), "must create _ptr binding for string param");
     }
@@ -667,7 +695,7 @@ mod tests {
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
-        let body = generator.gen_vtable_call_body(&method, &spec);
+        let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(body.contains("_rc != 0"), "bool return must compare rc to 0");
     }
 }

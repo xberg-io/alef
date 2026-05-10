@@ -247,6 +247,7 @@ fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths:
             &method.return_type,
             error_override.as_deref(),
             type_paths,
+            method.returns_ref,
         );
 
         let arg_list = build_arg_list(method, core_import, type_paths);

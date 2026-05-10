@@ -9,7 +9,12 @@ use std::collections::HashMap;
 /// naively constructing `{source_crate}::{name}`, which only works for types
 /// re-exported at the crate root.
 ///
-/// The lookup covers both structs (`api.types`) and enums (`api.enums`).
+/// The lookup covers structs (`api.types`), enums (`api.enums`), and excluded types
+/// (`api.excluded_type_paths`).  Excluded types are not part of the binding surface
+/// (e.g. `InternalDocument`) but may still be referenced by trait method signatures;
+/// including them here ensures their fully-qualified paths are available to backends
+/// that generate trait bridge impls.
+///
 /// When `rust_path` is empty the entry is omitted; callers fall back to
 /// `{source_crate}::{name}` for those cases.
 pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
@@ -22,6 +27,13 @@ pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
     for en in &api.enums {
         if !en.rust_path.is_empty() {
             paths.insert(en.name.clone(), en.rust_path.replace('-', "_"));
+        }
+    }
+    // Include excluded types so trait bridge impls that reference them (e.g. `&InternalDocument`)
+    // emit fully-qualified paths rather than bare type names.
+    for (name, path) in &api.excluded_type_paths {
+        if !path.is_empty() {
+            paths.insert(name.clone(), path.replace('-', "_"));
         }
     }
     paths

@@ -185,6 +185,13 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
+        // Include excluded types so trait methods that reference them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
+        )
         .collect();
 
     let generator = FfiBridgeGenerator {
@@ -914,5 +921,263 @@ mod tests {
         // No error out-param
         assert!(!out_params.iter().any(|p| p.contains("out_error")));
         let _ = ret;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Bug-regression tests: one per fixed bug so regressions are caught immediately.
+    // ---------------------------------------------------------------------------
+
+    /// Bug 1: Bare excluded-type references.
+    ///
+    /// When a trait method references a type that was excluded from the binding surface
+    /// (present in `api.excluded_type_paths`), the generated trait impl must use the
+    /// fully-qualified Rust path, not the bare type name.
+    ///
+    /// Example: `fn render(&self, doc: &InternalDocument)` must emit
+    /// `&my_lib::internal::InternalDocument`, not `&InternalDocument`.
+    #[test]
+    fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
+        let internal_doc_method = MethodDef {
+            name: "render".to_string(),
+            params: vec![alef_core::ir::ParamDef {
+                name: "doc".to_string(),
+                ty: TypeRef::Named("InternalDocument".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("Renderer", vec![internal_doc_method]);
+        let bridge_cfg = sample_bridge_cfg("Renderer");
+
+        // Include InternalDocument as an excluded type path
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: {
+                let mut m = ::std::collections::HashMap::new();
+                m.insert(
+                    "InternalDocument".to_string(),
+                    "my_lib::internal::InternalDocument".to_string(),
+                );
+                m
+            },
+        };
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        assert!(
+            code.contains("&my_lib::internal::InternalDocument"),
+            "excluded type must be fully-qualified, not bare;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            !code.contains("&InternalDocument"),
+            "bare type reference must not appear in generated trait impl;\n\
+             actual code:\n{code}"
+        );
+    }
+
+    /// Bug 2: Sync method bodies must use the trait's error type, not `Box::from`.
+    ///
+    /// `gen_vtable_call_body(inside_closure=false)` is used for synchronous trait method
+    /// bodies.  Those methods return `Result<T, KreuzbergError>`, so error construction
+    /// must call `spec.make_error(...)` (e.g. `MyError::from(...)`), not `Box::from(...)`.
+    /// `Box::from` is correct only inside the async `_SendFn` closure where the return type
+    /// is `Box<dyn Error + Send + Sync>`.
+    #[test]
+    fn bug2_sync_method_body_uses_trait_error_type_not_box_from() {
+        use alef_codegen::generators::trait_bridge::TraitBridgeSpec;
+
+        let method = MethodDef {
+            name: "run".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: Some("MyError".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("Backend", vec![method.clone()]);
+        let bridge_cfg = sample_bridge_cfg("Backend");
+
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge_cfg,
+            core_import: "my_lib",
+            wrapper_prefix: "Ml",
+            type_paths: ::std::collections::HashMap::new(),
+            error_type: "MyError".to_string(),
+            error_constructor: "MyError::from({msg})".to_string(),
+        };
+
+        let generator = FfiBridgeGenerator {
+            prefix: "ml".to_string(),
+            core_import: "my_lib".to_string(),
+            type_paths: ::std::collections::HashMap::new(),
+            error_type: "MyError".to_string(),
+            plugin_error_constructor: None,
+        };
+
+        // Sync body (inside_closure = false): must use MyError::from, not Box::from
+        let sync_body = generator.gen_vtable_call_body(&method, &spec, false);
+        assert!(
+            sync_body.contains("MyError::from("),
+            "sync method body must use the trait's error constructor;\n\
+             actual body:\n{sync_body}"
+        );
+        assert!(
+            !sync_body.contains("Err(Box::from("),
+            "sync method body must NOT use Box::from (that's for the async closure);\n\
+             actual body:\n{sync_body}"
+        );
+
+        // Closure body (inside_closure = true): must use Box::from, not MyError::from
+        let closure_body = generator.gen_vtable_call_body(&method, &spec, true);
+        assert!(
+            closure_body.contains("Err(Box::from("),
+            "async closure body must use Box::from;\n\
+             actual body:\n{closure_body}"
+        );
+    }
+
+    /// Bug 3: `Vec<String> + returns_ref` methods must emit `&[&str]` in the trait impl,
+    /// and the bridge struct must gain a `{method_name}_strs: &'static [&'static str]` field
+    /// populated at construction time.
+    #[test]
+    fn bug3_returns_ref_vec_string_emits_slice_ref_and_cache_field() {
+        let method = MethodDef {
+            name: "supported_mime_types".to_string(),
+            params: vec![],
+            return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: true, // `fn supported_mime_types(&self) -> &[&str]`
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("DocumentExtractor", vec![method]);
+        let bridge_cfg = sample_bridge_cfg("DocumentExtractor");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "kr",
+            "kreuzberg",
+            "KreuzbergError",
+            "KreuzbergError::from({msg})",
+            None,
+            &api,
+        );
+
+        // The trait impl return type must be `&[&str]`, not `Vec<String>`
+        assert!(
+            code.contains("fn supported_mime_types(&self) -> &[&str]"),
+            "returns_ref Vec<String> must produce &[&str] in trait impl;\n\
+             actual code:\n{code}"
+        );
+
+        // The bridge struct must have the cache field
+        assert!(
+            code.contains("supported_mime_types_strs: &'static [&'static str]"),
+            "bridge struct must have supported_mime_types_strs cache field;\n\
+             actual code:\n{code}"
+        );
+
+        // The trait impl body must return from the cache field
+        assert!(
+            code.contains("self.supported_mime_types_strs"),
+            "trait impl body must return from the cached field;\n\
+             actual code:\n{code}"
+        );
+
+        // The constructor must populate the cache field by calling the vtable
+        assert!(
+            code.contains("Box::leak"),
+            "constructor must use Box::leak to build &'static [&'static str];\n\
+             actual code:\n{code}"
+        );
+    }
+
+    /// Bug 4: Methods with `has_default_impl = true` must NOT get a generated body.
+    ///
+    /// When a trait provides a default implementation, the bridge should let the
+    /// trait's own default take effect rather than generating a vtable-forwarding body.
+    #[test]
+    fn bug4_has_default_impl_method_not_generated_in_trait_impl() {
+        let required = make_method("run", TypeRef::String, true, false); // required
+        let optional = make_method("shutdown", TypeRef::Unit, false, true); // has default
+        let trait_def = make_trait_def("Backend", vec![required, optional]);
+        let bridge_cfg = sample_bridge_cfg("Backend");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        // Required method must appear in the trait impl
+        assert!(
+            code.contains("fn run("),
+            "required method must appear in trait impl;\n\
+             actual code:\n{code}"
+        );
+
+        // Default method must NOT appear — let the trait's own default take effect
+        assert!(
+            !code.contains("fn shutdown("),
+            "method with has_default_impl=true must NOT get a generated body;\n\
+             actual code:\n{code}"
+        );
     }
 }

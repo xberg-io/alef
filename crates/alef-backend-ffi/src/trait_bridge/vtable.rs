@@ -85,9 +85,27 @@ impl FfiBridgeGenerator {
     }
 
     /// Generate the bridge struct with `vtable`, `user_data`, `cached_name`, and `cached_version`.
+    ///
+    /// For required trait methods that return `&[T]` (represented as `TypeRef::Vec(T)` with
+    /// `returns_ref = true`), an extra `{method_name}_strs: &'static [&'static str]` field is
+    /// emitted.  The values are populated once at construction time and returned directly from the
+    /// trait impl — avoiding per-call vtable round-trips and satisfying the borrowed return type.
     pub(super) fn gen_bridge_struct(&self, spec: &TraitBridgeSpec) -> String {
         let vtable = self.vtable_name(spec);
         let bridge = self.bridge_name(spec);
+
+        // Detect required methods with a `&[T]` return (Vec(T) + returns_ref = true).
+        // Only `Vec(String)` → `&[&str]` is supported; other element types degrade gracefully.
+        let slice_cache_fields: Vec<String> = spec
+            .required_methods()
+            .into_iter()
+            .filter(|m| {
+                m.returns_ref && matches!(&m.return_type, alef_core::ir::TypeRef::Vec(_))
+            })
+            .map(|m| format!("    {}_strs: &'static [&'static str],\n", m.name))
+            .collect();
+
+        let extra_fields = slice_cache_fields.join("");
 
         crate::template_env::render(
             "bridge_struct.jinja",
@@ -95,6 +113,7 @@ impl FfiBridgeGenerator {
                 trait_name => &spec.trait_def.name,
                 bridge_name => &bridge,
                 vtable_name => &vtable,
+                extra_fields => extra_fields,
             },
         )
     }

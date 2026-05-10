@@ -281,26 +281,30 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
 
 /// Generate `impl Trait for Wrapper` dispatching each method through the generator.
 ///
-/// Every method on the trait (including those with `has_default_impl`) gets a
-/// generated body that forwards to the foreign object.
+/// Methods with `has_default_impl = true` are NOT emitted — the trait's own default
+/// implementation is used instead.  Only required (non-defaulted) own methods get a
+/// generated vtable-forwarding body.
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
 
     // Check if the trait has async methods (needed for async_trait macro compatibility).
+    // Only own, required (non-default) methods need this check — those are the ones we emit.
     let has_async_methods = spec
         .trait_def
         .methods
         .iter()
-        .any(|m| m.is_async && m.trait_source.is_none());
+        .any(|m| m.is_async && m.trait_source.is_none() && !m.has_default_impl);
     let async_trait_is_send = generator.async_trait_is_send();
 
-    // Filter out methods inherited from super-traits (they're handled by gen_bridge_plugin_impl)
+    // Filter out:
+    // - Methods inherited from super-traits (handled by gen_bridge_plugin_impl)
+    // - Methods with a default impl (let the trait's own default take effect)
     let own_methods: Vec<_> = spec
         .trait_def
         .methods
         .iter()
-        .filter(|m| m.trait_source.is_none())
+        .filter(|m| m.trait_source.is_none() && !m.has_default_impl)
         .collect();
 
     // Build method code with proper indentation
@@ -337,8 +341,14 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         // Return type — override the IR's error type with the configured crate error type
         // so the impl matches the actual trait definition (the IR may extract a different
         // error type like anyhow::Error from re-exports or type alias resolution).
+        // Pass `returns_ref` so Vec<T> is emitted as `&[elem]` when the trait returns a slice.
         let error_override = method.error_type.as_ref().map(|_| spec.error_path());
-        let ret = format_return_type(&method.return_type, error_override.as_deref(), &spec.type_paths);
+        let ret = format_return_type(
+            &method.return_type,
+            error_override.as_deref(),
+            &spec.type_paths,
+            method.returns_ref,
+        );
 
         // Generate body: async methods use Box::pin, sync methods call directly
         let body = if method.is_async {
@@ -551,12 +561,40 @@ pub fn format_type_ref(ty: &alef_core::ir::TypeRef, type_paths: &HashMap<String,
 }
 
 /// Format a return type, wrapping in `Result` when an error type is present.
+///
+/// When `returns_ref` is `true` and the IR type is `Vec(T)`, the trait method
+/// actually returns `&[T]` (the IR collapses `&[T]` into `Vec<T>` + `returns_ref`
+/// flag). This function emits the correct reference slice type in that case so the
+/// generated bridge impl signature matches the actual trait definition.
+///
+/// For the FFI bridge the concrete element type of a `Vec<String>` with `returns_ref`
+/// is `&str`, yielding a return type of `&[&str]`.
 pub fn format_return_type(
     ty: &alef_core::ir::TypeRef,
     error_type: Option<&str>,
     type_paths: &HashMap<String, String>,
+    returns_ref: bool,
 ) -> String {
-    let inner = format_type_ref(ty, type_paths);
+    let inner = if returns_ref {
+        // Rewrite Vec<T> → &[elem_type] where elem_type is the ref-form of T.
+        if let alef_core::ir::TypeRef::Vec(elem) = ty {
+            let elem_str = match elem.as_ref() {
+                alef_core::ir::TypeRef::String => "&str".to_string(),
+                alef_core::ir::TypeRef::Bytes => "&[u8]".to_string(),
+                alef_core::ir::TypeRef::Named(name) => {
+                    let qualified =
+                        type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                    format!("&{qualified}")
+                }
+                other => format_type_ref(other, type_paths),
+            };
+            format!("&[{elem_str}]")
+        } else {
+            format_type_ref(ty, type_paths)
+        }
+    } else {
+        format_type_ref(ty, type_paths)
+    };
     match error_type {
         Some(err) => format!("std::result::Result<{inner}, {err}>"),
         None => inner,
@@ -1322,19 +1360,20 @@ mod tests {
 
     #[test]
     fn test_format_return_type_without_error() {
-        let result = format_return_type(&TypeRef::String, None, &HashMap::new());
+        let result = format_return_type(&TypeRef::String, None, &HashMap::new(), false);
         assert_eq!(result, "String");
     }
 
     #[test]
     fn test_format_return_type_with_error() {
-        let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new());
+        let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new(), false);
         assert_eq!(result, "std::result::Result<String, MyError>");
     }
 
     #[test]
     fn test_format_return_type_unit_with_error() {
-        let result = format_return_type(&TypeRef::Unit, Some("Box<dyn std::error::Error>"), &HashMap::new());
+        let result =
+            format_return_type(&TypeRef::Unit, Some("Box<dyn std::error::Error>"), &HashMap::new(), false);
         assert_eq!(result, "std::result::Result<(), Box<dyn std::error::Error>>");
     }
 
@@ -1342,8 +1381,27 @@ mod tests {
     fn test_format_return_type_named_with_type_paths_and_error() {
         let mut paths = HashMap::new();
         paths.insert("Output".to_string(), "mylib::Output".to_string());
-        let result = format_return_type(&TypeRef::Named("Output".to_string()), Some("mylib::MyError"), &paths);
+        let result =
+            format_return_type(&TypeRef::Named("Output".to_string()), Some("mylib::MyError"), &paths, false);
         assert_eq!(result, "std::result::Result<mylib::Output, mylib::MyError>");
+    }
+
+    #[test]
+    fn test_format_return_type_vec_string_with_returns_ref() {
+        // `fn supported_mime_types(&self) -> &[&str]` is extracted as
+        // `return_type = Vec(String), returns_ref = true`.
+        // The generated impl signature must emit `&[&str]`, not `Vec<String>`.
+        let result =
+            format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), true);
+        assert_eq!(result, "&[&str]", "Vec<String> + returns_ref must yield &[&str]");
+    }
+
+    #[test]
+    fn test_format_return_type_vec_no_returns_ref_unchanged() {
+        // Without returns_ref the type is unchanged.
+        let result =
+            format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), false);
+        assert_eq!(result, "Vec<String>", "Vec<String> without returns_ref must stay Vec<String>");
     }
 
     // ---------------------------------------------------------------------------

@@ -237,6 +237,13 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
