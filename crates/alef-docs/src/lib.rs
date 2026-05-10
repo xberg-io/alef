@@ -487,9 +487,11 @@ fn generate_configuration_doc(
         .enums
         .iter()
         .filter(|en| {
-            config_types_for_enum_filter
-                .iter()
-                .any(|ty| ty.fields.iter().any(|field| type_ref_contains_named(&field.ty, &en.name)))
+            config_types_for_enum_filter.iter().any(|ty| {
+                ty.fields
+                    .iter()
+                    .any(|field| type_ref_contains_named(&field.ty, &en.name))
+            })
         })
         .collect();
     referenced_enums.sort_by(|a, b| a.name.cmp(&b.name));
@@ -655,8 +657,7 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
         out.push('\n');
     }
 
-    let has_wire_rename = en.serde_rename_all.is_some()
-        || en.variants.iter().any(|v| v.serde_rename.is_some());
+    let has_wire_rename = en.serde_rename_all.is_some() || en.variants.iter().any(|v| v.serde_rename.is_some());
 
     if has_wire_rename {
         out.push_str("| Variant | Wire value | Description |\n");
@@ -684,7 +685,11 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
         if has_wire_rename {
-            let wire = wire_variant_value(&variant.name, en.serde_rename_all.as_deref(), variant.serde_rename.as_deref());
+            let wire = wire_variant_value(
+                &variant.name,
+                en.serde_rename_all.as_deref(),
+                variant.serde_rename.as_deref(),
+            );
             let _ = writeln!(out, "| `{}` | `{}` | {} |", variant.name, wire, vdoc);
         } else {
             let _ = writeln!(out, "| `{}` | {} |", variant.name, vdoc);

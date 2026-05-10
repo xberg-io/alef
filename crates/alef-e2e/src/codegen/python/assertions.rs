@@ -616,7 +616,15 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("not_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), &HashMap::new(), false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            &HashSet::new(),
+            &HashMap::new(),
+            false,
+        );
         assert!(out.contains("assert result"), "got: {out}");
     }
 
@@ -625,7 +633,15 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), &HashMap::new(), false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            &HashSet::new(),
+            &HashMap::new(),
+            false,
+        );
         assert!(out.contains(".strip()"), "got: {out}");
     }
 
