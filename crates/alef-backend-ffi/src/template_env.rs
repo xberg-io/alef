@@ -25,6 +25,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("enum_free.jinja", include_str!("../templates/enum_free.jinja")),
     ("enum_to_json.jinja", include_str!("../templates/enum_to_json.jinja")),
     (
+        "enum_to_string.jinja",
+        include_str!("../templates/enum_to_string.jinja"),
+    ),
+    (
         "enum_from_json.jinja",
         include_str!("../templates/enum_from_json.jinja"),
     ),

@@ -1,0 +1,26 @@
+/// Render a heap-allocated `{{ enum_name }}` as its string representation
+/// (the unit-variant name as serialized by serde — e.g. `"completed"`,
+/// without surrounding JSON quotes).
+/// # Safety
+/// `ptr` must be a valid, non-null pointer returned by a `{{ prefix }}` function.
+/// The returned string must be freed with `{{ prefix }}_free_string`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_{{ enum_snake }}_to_string(ptr: *const {{ qualified }}) -> *mut c_char {
+    if ptr.is_null() {
+        set_last_error(1, "Null pointer passed to {{ prefix }}_{{ enum_snake }}_to_string");
+        return std::ptr::null_mut();
+    }
+    // SAFETY: null check above guarantees ptr is valid; no mutable aliases held.
+    let val = unsafe { &*ptr };
+    let s: String = serde_json::to_value(val)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    match CString::new(s) {
+        Ok(cs) => cs.into_raw(),
+        Err(_) => {
+            set_last_error(1, "{{ enum_name }} variant contained interior NUL byte");
+            std::ptr::null_mut()
+        }
+    }
+}

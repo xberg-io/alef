@@ -19,8 +19,8 @@ use helpers::{
     gen_version,
 };
 use types::{
-    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_field_accessor,
-    gen_type_free, gen_type_from_json, gen_type_to_json,
+    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_enum_to_string,
+    gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
 };
 
 pub struct FfiBackend;
@@ -425,11 +425,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             let needs_from_json = enum_pointer_param.contains(&enum_def.name);
             let has_serde = enum_def.has_serde;
 
-            // Generate _free (and _to_json for serialization) for return-type enums.
+            // Generate _free (and _to_json / _to_string for serialization) for return-type enums.
             if needs_free && emitted_enum_free.insert(enum_def.name.clone()) {
                 builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
                 if has_serde {
                     builder.add_item(&gen_enum_to_json(enum_def, prefix, &core_import));
+                    // _to_string yields the bare unit-variant string (no JSON quotes).
+                    // Required by C callers that compare enum values to fixture strings.
+                    if alef_codegen::conversions::can_generate_enum_conversion(enum_def) {
+                        builder.add_item(&gen_enum_to_string(enum_def, prefix, &core_import));
+                    }
                 }
             }
             if needs_from_json && has_serde {
@@ -832,6 +837,130 @@ sources = ["src/lib.rs"]
         assert!(lib.content.contains("my_lib_extract"));
         assert!(lib.content.contains("my_lib_output_format_from_i32"));
         assert!(lib.content.contains("my_lib_output_format_from_str"));
+    }
+
+    /// Build an `ApiSurface` whose only function returns the unit-variant enum
+    /// `Color` (`has_serde: true`) by pointer. Used to exercise emission of
+    /// `_to_string` accessors alongside `_free` / `_to_json`.
+    fn enum_return_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "current_color".to_string(),
+                rust_path: "my_lib::current_color".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Named("Color".to_string()),
+                is_async: false,
+                error_type: None,
+                doc: "Currently selected color.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            }],
+            enums: vec![EnumDef {
+                name: "Color".to_string(),
+                rust_path: "my_lib::Color".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Red".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                    EnumVariant {
+                        name: "Green".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                ],
+                doc: "Colors.".to_string(),
+                cfg: None,
+                is_copy: false,
+                has_serde: true,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_emits_enum_to_string_for_pointer_return_enum() {
+        let api = enum_return_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Sanity: pointer-return enum lifecycle helpers are emitted.
+        assert!(
+            lib.content.contains("my_lib_color_free"),
+            "expected my_lib_color_free in emitted lib.rs"
+        );
+        assert!(
+            lib.content.contains("my_lib_color_to_json"),
+            "expected my_lib_color_to_json in emitted lib.rs"
+        );
+
+        // The new accessor: takes *const Color, returns *mut c_char.
+        assert!(
+            lib.content.contains("pub unsafe extern \"C\" fn my_lib_color_to_string("),
+            "expected pub unsafe extern \"C\" fn my_lib_color_to_string in emitted lib.rs"
+        );
+        assert!(
+            lib.content.contains("ptr: *const my_lib::Color)"),
+            "to_string should accept *const Color"
+        );
+        assert!(
+            lib.content.contains("-> *mut c_char"),
+            "to_string should return *mut c_char"
+        );
+        // Body should extract the unit-variant name via serde, not via JSON-with-quotes.
+        assert!(
+            lib.content.contains("serde_json::to_value(val)"),
+            "to_string should use serde_json::to_value"
+        );
+        assert!(
+            lib.content.contains(".as_str()"),
+            "to_string should call .as_str() to strip JSON quotes"
+        );
+    }
+
+    #[test]
+    fn test_omits_enum_to_string_when_enum_not_returned() {
+        // The default sample_api() uses `OutputFormat` only as a non-return enum
+        // (no function returns it, no struct field has it), so neither _free nor
+        // _to_string should be emitted.
+        let api = sample_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(
+            !lib.content.contains("my_lib_output_format_to_string"),
+            "expected NO my_lib_output_format_to_string when enum is not returned by pointer"
+        );
+        assert!(
+            !lib.content.contains("my_lib_output_format_free"),
+            "expected NO my_lib_output_format_free when enum is not returned by pointer"
+        );
     }
 
     #[test]
