@@ -388,6 +388,11 @@ fn render_spec_file(
                 // `speech` (returns bytes) take precedence over the top-level call default.
                 let fixture_result_is_simple =
                     fixture_call.result_is_simple || fixture_call_overrides.is_some_and(|o| o.result_is_simple);
+                // Per-call enum_fields take precedence — e.g. `[crates.e2e.calls.create_batch.overrides.ruby] enum_fields`
+                // labels `status = "BatchStatus"` for the batch lifecycle, but the global
+                // `[crates.e2e.call.overrides.ruby]` map only carries chat-shape entries.
+                let fixture_enum_fields: &HashMap<String, String> =
+                    fixture_call_overrides.map(|o| &o.enum_fields).unwrap_or(enum_fields);
                 let example = if is_streaming {
                     render_chat_stream_example(
                         fixture,
@@ -395,7 +400,7 @@ fn render_spec_file(
                         &call_receiver,
                         fixture_args,
                         fixture_options_type,
-                        enum_fields,
+                        fixture_enum_fields,
                         e2e_config,
                         fixture_client_factory,
                         &fixture_extra_args,
@@ -409,7 +414,7 @@ fn render_spec_file(
                         fixture_args,
                         field_resolver,
                         fixture_options_type,
-                        enum_fields,
+                        fixture_enum_fields,
                         fixture_result_is_simple,
                         e2e_config,
                         fixture_client_factory,

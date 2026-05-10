@@ -616,6 +616,7 @@ fn render_test_file(
     let _ = writeln!(out, "/* E2e tests for category: {category} */");
     let _ = writeln!(out);
     let _ = writeln!(out, "#include <assert.h>");
+    let _ = writeln!(out, "#include <stdint.h>");
     let _ = writeln!(out, "#include <string.h>");
     let _ = writeln!(out, "#include <stdio.h>");
     let _ = writeln!(out, "#include <stdlib.h>");
@@ -1730,14 +1731,18 @@ fn render_chat_stream_test_function(
             out,
             "    snprintf(base_url, sizeof(base_url), \"%s/fixtures/{fixture_id}\", mock_base);"
         );
+        // Pass UINT64_MAX/UINT32_MAX (≡ -1ULL/-1U) as the FFI's None sentinel for
+        // optional numeric primitives — passing literal 0 makes the binding see
+        // Some(0), which Rust core treats as `Duration::from_secs(0)` (immediate
+        // request deadline) and breaks every HTTP fixture.
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", base_url, 0, 0, NULL);"
+            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     } else {
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", NULL, 0, 0, NULL);"
+            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");

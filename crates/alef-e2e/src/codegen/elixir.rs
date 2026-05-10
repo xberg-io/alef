@@ -934,10 +934,29 @@ fn render_test_case(
     }
 
     // Non-validation expects_error fixtures (error_*, etc.): engine creation succeeds.
-    // Emit setup as-is and assert that the *operation under test* fails.
+    // Emit setup as-is and assert that the *operation under test* fails. The
+    // call body still references `client` (e.g. `defaultclient_chat_async(client, …)`),
+    // so we must emit the same `{:ok, client} = create_client(...)` line that the
+    // non-error path below uses — without it the generated test fails to compile
+    // with `undefined variable "client"`.
     if expects_error {
         for line in &setup_lines {
             let _ = writeln!(out, "      {line}");
+        }
+        if let Some(factory) = client_factory {
+            let fixture_id = &fixture.id;
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+            );
         }
         let _ = writeln!(
             out,
@@ -1004,6 +1023,7 @@ fn render_test_case(
             field_resolver,
             &module_path,
             &e2e_config.fields_enum,
+            resolved_enum_fields_ref,
             result_is_simple,
         );
     }
@@ -1282,6 +1302,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     module_path: &str,
     fields_enum: &std::collections::HashSet<String>,
+    per_call_enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
@@ -1460,10 +1481,16 @@ fn render_assertion(
     let is_numeric = is_numeric_expr(&field_expr);
     // Detect whether the field resolves to an enum type. Rustler binds Rust
     // enums as atoms (e.g. `:stop`), so calling `String.trim/1` on them raises
-    // FunctionClauseError. Coerce via `to_string/1` before string ops.
+    // FunctionClauseError. Coerce via `to_string/1` before string ops. Look up
+    // both the global `[crates.e2e] fields_enum` set AND the per-call override
+    // `[crates.e2e.calls.<x>.overrides.elixir] enum_fields = { ... }` so a single
+    // config entry already populated for the C#/Java/Python sides applies here.
     let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
-        fields_enum.contains(f) || fields_enum.contains(resolved)
+        fields_enum.contains(f)
+            || fields_enum.contains(resolved)
+            || per_call_enum_fields.contains_key(f)
+            || per_call_enum_fields.contains_key(resolved)
     });
     let coerced_field_expr = if field_is_enum {
         format!("to_string({field_expr})")
