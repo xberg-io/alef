@@ -38,11 +38,21 @@ impl FfiBridgeGenerator {
         // Helper: emit an error expression appropriate for the calling context.
         // Inside the async _SendFn closure the return type is Box<dyn Error + Send + Sync>;
         // outside (sync method body) it is Result<T, TraitErrorType>.
+        //
+        // When inside_closure=false the error constructor wraps a String (e.g.
+        // `KreuzbergError::Other(String)`).  If msg_literal is a bare string literal
+        // (starts with `"`) we append `.to_string()` so the generated code compiles
+        // regardless of whether the error variant accepts `&str` or `String`.
         let make_err = |msg_literal: String| -> String {
             if inside_closure {
                 format!("return Err(Box::from({msg_literal}));\n")
             } else {
-                format!("return Err({});\n", spec.make_error(&msg_literal))
+                let coerced = if msg_literal.starts_with('"') {
+                    format!("{msg_literal}.to_string()")
+                } else {
+                    msg_literal
+                };
+                format!("return Err({});\n", spec.make_error(&coerced))
             }
         };
 
@@ -697,5 +707,71 @@ mod tests {
 
         let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(body.contains("_rc != 0"), "bool return must compare rc to 0");
+    }
+
+    /// Regression: sync method bodies (inside_closure=false) must not emit bare &'static str
+    /// literals when the error constructor wraps a String (e.g. `MyError::Other(String)`).
+    ///
+    /// Before the fix, `make_err("\"some message\"")` with `inside_closure=false` produced
+    /// `MyError::from("some message")` — a `&'static str` — which fails to compile when the
+    /// error variant requires a `String`.  After the fix every static-string error path emits
+    /// `"some message".to_string()`.
+    #[test]
+    fn bug_sync_static_error_literal_coerced_to_string() {
+        let generator = make_generator();
+        let bridge_cfg = make_bridge_cfg();
+        // A fallible method with a Named (JSON-serialised) param so we exercise the
+        // "nul byte in serialized param" code path as well as the "null vtable fn" path.
+        let method = MethodDef {
+            name: "submit".to_string(),
+            params: vec![ParamDef {
+                name: "doc".to_string(),
+                ty: TypeRef::Named("MyDoc".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: Some("MyError".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
+        let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
+
+        // Sync body (inside_closure=false): every static-string error must call .to_string()
+        let sync_body = generator.gen_vtable_call_body(&method, &spec, false);
+
+        // The vtable-null path and the nul-byte path must both emit .to_string()
+        assert!(
+            sync_body.contains("\".to_string()"),
+            "sync body must coerce string literals to String via .to_string();\n\
+             actual body:\n{sync_body}"
+        );
+
+        // Verify the specific error paths all end with .to_string()
+        // (i.e. no string literal is passed to make_error without coercion)
+        for line in sync_body.lines() {
+            if line.contains("MyError::from(\"") {
+                assert!(
+                    line.contains(".to_string()"),
+                    "string literal passed to error constructor without .to_string():\n  {line}\n\
+                     full body:\n{sync_body}"
+                );
+            }
+        }
     }
 }

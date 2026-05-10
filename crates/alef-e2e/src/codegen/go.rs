@@ -610,9 +610,10 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        // Fixtures whose assertions include an `error` assertion emit
+        // Validation-category fixtures with an `error` assertion emit
         // `assert.Error(t, createErr)` in their setup block, requiring testify.
-        if f.assertions.iter().any(|a| a.assertion_type == "error") {
+        // Other categories (e.g. `error`) use t.Errorf/t.Fatalf and do NOT need testify.
+        if f.resolved_category() == "validation" && f.assertions.iter().any(|a| a.assertion_type == "error") {
             return true;
         }
         f.assertions.iter().any(|a| {

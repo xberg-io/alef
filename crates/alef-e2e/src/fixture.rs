@@ -331,24 +331,53 @@ impl Fixture {
             }) {
                 return true;
             }
-            // 3xx Location header pointing to a host-root path: the engine resolves the
-            // Location against the origin (not the /fixtures/<id>/ namespace), so the
-            // fixture must serve at host root for the redirect target to resolve.
+            // Any response that triggers an intra-fixture redirect to a host-root path:
+            // the engine resolves the redirect target against the origin (not the
+            // /fixtures/<id>/ namespace), so the fixture must serve at host root for the
+            // follow-up GET to hit the correct route. Three trigger shapes are detected:
+            //   - 3xx with Location: /...
+            //   - any status with Refresh: <s>;url=/...
+            //   - 200 HTML with <meta http-equiv="refresh" content="...url=/...">
             return arr.iter().any(|entry| {
                 let status = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(0);
-                if !(300..400).contains(&status) {
-                    return false;
-                }
-                entry
-                    .get("headers")
-                    .and_then(|v| v.as_object())
+                let headers = entry.get("headers").and_then(|v| v.as_object());
+                let location_redirect = (300..400).contains(&status)
+                    && headers
+                        .map(|hdrs| {
+                            hdrs.iter().any(|(name, value)| {
+                                name.eq_ignore_ascii_case("location")
+                                    && value.as_str().is_some_and(|s| s.starts_with('/'))
+                            })
+                        })
+                        .unwrap_or(false);
+                let refresh_redirect = headers
                     .map(|hdrs| {
                         hdrs.iter().any(|(name, value)| {
-                            name.eq_ignore_ascii_case("location")
-                                && value.as_str().is_some_and(|s| s.starts_with('/'))
+                            if !name.eq_ignore_ascii_case("refresh") {
+                                return false;
+                            }
+                            value
+                                .as_str()
+                                .and_then(|s| s.to_ascii_lowercase().find("url=").map(|i| (s.to_owned(), i)))
+                                .map(|(s, idx)| s[idx + 4..].trim_start().starts_with('/'))
+                                .unwrap_or(false)
                         })
                     })
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let meta_refresh = entry
+                    .get("body_inline")
+                    .and_then(|v| v.as_str())
+                    .map(|body| {
+                        let lower = body.to_ascii_lowercase();
+                        lower
+                            .split("http-equiv=\"refresh\"")
+                            .nth(1)
+                            .and_then(|s| s.split("content=").nth(1))
+                            .map(|s| s.trim_start_matches(['"', '\'']).contains("url=/"))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                location_redirect || refresh_redirect || meta_refresh
             });
         }
         false

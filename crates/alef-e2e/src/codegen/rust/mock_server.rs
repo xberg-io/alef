@@ -739,13 +739,34 @@ fn load_routes_recursive(
                 //     /fixtures/<id>/ namespace, so host-root serving is required for the
                 //     follow-up GET to hit the correct route).
                 let has_intra_fixture_redirect = resolved_routes.iter().any(|r| {
-                    let is_redirect_status = (300..400).contains(&r.response.status);
-                    if !is_redirect_status {
-                        return false;
-                    }
-                    r.response.headers.iter().any(|(name, value)| {
-                        name.eq_ignore_ascii_case("location") && value.starts_with('/')
-                    })
+                    // 3xx with relative Location header
+                    let location_redirect = (300..400).contains(&r.response.status)
+                        && r.response.headers.iter().any(|(name, value)| {
+                            name.eq_ignore_ascii_case("location") && value.starts_with('/')
+                        });
+                    // Refresh header with url=/...
+                    let refresh_redirect = r.response.headers.iter().any(|(name, value)| {
+                        if !name.eq_ignore_ascii_case("refresh") {
+                            return false;
+                        }
+                        let lower = value.to_ascii_lowercase();
+                        lower
+                            .find("url=")
+                            .map(|idx| value[idx + 4..].trim_start().starts_with('/'))
+                            .unwrap_or(false)
+                    });
+                    // HTML meta-refresh tag pointing to /...
+                    let body_lower_lossy = String::from_utf8_lossy(&r.body_bytes).to_ascii_lowercase();
+                    let meta_refresh = body_lower_lossy
+                        .split("http-equiv=\"refresh\"")
+                        .nth(1)
+                        .and_then(|s| s.split("content=").nth(1))
+                        .map(|s| {
+                            let trimmed = s.trim_start_matches(['"', '\'']);
+                            trimmed.contains("url=/")
+                        })
+                        .unwrap_or(false);
+                    location_redirect || refresh_redirect || meta_refresh
                 });
                 let has_host_root = has_intra_fixture_redirect
                     || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
@@ -832,16 +853,16 @@ async fn main() {
     // Print the shared URL so the parent process can read it.
     println!("MOCK_SERVER_URL=http://{shared_addr}");
 
-    // Print per-fixture URLs as a sorted JSON object if any exist.
-    if !fixture_urls.is_empty() {
-        let mut sorted_pairs: Vec<(&String, &String)> = fixture_urls.iter().collect();
-        sorted_pairs.sort_by_key(|(k, _)| k.as_str());
-        let json_entries: Vec<String> = sorted_pairs
-            .iter()
-            .map(|(k, v)| format!("\"{}\":\"{}\"", k, v))
-            .collect();
-        println!("MOCK_SERVERS={{{}}}", json_entries.join(","));
-    }
+    // Always print MOCK_SERVERS=... (empty `{}` when there are no host-root
+    // fixtures) so parent parsers — which read until they see this sentinel
+    // line — never block on a readline that never comes.
+    let mut sorted_pairs: Vec<(&String, &String)> = fixture_urls.iter().collect();
+    sorted_pairs.sort_by_key(|(k, _)| k.as_str());
+    let json_entries: Vec<String> = sorted_pairs
+        .iter()
+        .map(|(k, v)| format!("\"{}\":\"{}\"", k, v))
+        .collect();
+    println!("MOCK_SERVERS={{{}}}", json_entries.join(","));
 
     // Flush stdout explicitly so the parent does not block waiting.
     use std::io::Write;
