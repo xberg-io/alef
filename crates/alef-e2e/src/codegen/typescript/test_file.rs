@@ -91,13 +91,17 @@ pub fn render_test_file(
     // For the WASM path, auto-derive additional nested_types from the IR
     // registry so their class names are included in the import statement.
     // This mirrors the derivation in `ts_builder_expression_inner` — we
-    // collect from every options_type seen in this file.
+    // collect from every options_type seen in this file. The walk is
+    // transitive: when a derived class itself has class-typed fields
+    // (e.g. WasmChatCompletionRequest.tools[].function: WasmFunctionDefinition),
+    // those second-level classes are also referenced by the test body's
+    // builder expressions and must appear in the import statement, or the
+    // test fails at runtime with `ReferenceError: WasmFunctionDefinition
+    // is not defined`. The BFS uses a seen-set to terminate on cycles.
     if lang == "wasm" {
-        for opts_type in &all_options_types.clone() {
-            let derived = derive_nested_types_for_wasm(opts_type, type_defs);
-            for (k, v) in derived {
-                all_nested_types.entry(k).or_insert(v);
-            }
+        let derived_all = collect_transitive_nested_types_for_wasm(&all_options_types, type_defs);
+        for (k, v) in derived_all {
+            all_nested_types.entry(k).or_insert(v);
         }
     }
 
@@ -831,6 +835,38 @@ fn wasm_class_name(ir_type_name: &str) -> String {
 /// - `TypeRef::Option(inner)` → unwrap recursively; if inner is class-typed,
 ///   the field should still be mapped.
 /// - Everything else (primitives, strings, maps, etc.) → skip.
+/// BFS over the wasm class graph starting from each `seed_wasm_type` and walking
+/// every struct-typed field. Returns a flat field-name → wasm-class-name map
+/// covering EVERY transitively-reachable nested class.
+///
+/// The single-level [`derive_nested_types_for_wasm`] only inspects the seed
+/// type's immediate fields. That's insufficient for the import block, because
+/// the test body's builder expressions construct nested classes recursively:
+/// `WasmChatCompletionRequest.tools[].function = new WasmFunctionDefinition()`.
+/// Without this transitive walk, `WasmFunctionDefinition` was emitted in the
+/// test body but missing from the import statement, causing
+/// `ReferenceError: WasmFunctionDefinition is not defined` at runtime.
+///
+/// Termination is guaranteed by a `seen` set on wasm class names.
+fn collect_transitive_nested_types_for_wasm(
+    seed_wasm_types: &std::collections::BTreeSet<String>,
+    type_defs: &[TypeDef],
+) -> std::collections::HashMap<String, String> {
+    let mut result: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut queue: Vec<String> = seed_wasm_types.iter().cloned().collect();
+    let mut seen: std::collections::HashSet<String> = queue.iter().cloned().collect();
+    while let Some(wasm_type) = queue.pop() {
+        let derived = derive_nested_types_for_wasm(&wasm_type, type_defs);
+        for (k, v) in derived {
+            if seen.insert(v.clone()) {
+                queue.push(v.clone());
+            }
+            result.entry(k).or_insert(v);
+        }
+    }
+    result
+}
+
 fn derive_nested_types_for_wasm(
     wasm_type_name: &str,
     type_defs: &[TypeDef],
@@ -1321,6 +1357,55 @@ mod tests {
     fn derive_nested_types_returns_empty_for_unknown_type() {
         let derived = derive_nested_types_for_wasm("WasmUnknownType", &[]);
         assert!(derived.is_empty());
+    }
+
+    #[test]
+    fn collect_transitive_nested_types_walks_two_levels_deep() {
+        // FunctionDefinition is nested inside ChatTool, which is nested inside ChatRequest.
+        // Single-level derivation only catches WasmChatTool; transitive must also catch
+        // WasmFunctionDefinition so the test-body `new WasmFunctionDefinition()` resolves.
+        let function_def = make_type("FunctionDefinition", vec![]);
+        let chat_tool = make_type(
+            "ChatTool",
+            vec![make_field("function", TypeRef::Named("FunctionDefinition".to_string()))],
+        );
+        let chat_request = make_type(
+            "ChatRequest",
+            vec![make_field(
+                "tools",
+                TypeRef::Vec(Box::new(TypeRef::Named("ChatTool".to_string()))),
+            )],
+        );
+        let type_defs = vec![function_def, chat_tool, chat_request];
+
+        let mut seeds = std::collections::BTreeSet::new();
+        seeds.insert("WasmChatRequest".to_string());
+        let derived = collect_transitive_nested_types_for_wasm(&seeds, &type_defs);
+
+        let class_names: std::collections::HashSet<&String> = derived.values().collect();
+        assert!(
+            class_names.contains(&"WasmChatTool".to_string()),
+            "first-level WasmChatTool missing; got {:?}",
+            derived
+        );
+        assert!(
+            class_names.contains(&"WasmFunctionDefinition".to_string()),
+            "second-level WasmFunctionDefinition missing; got {:?}",
+            derived
+        );
+    }
+
+    #[test]
+    fn collect_transitive_nested_types_terminates_on_cycles() {
+        // Self-referential type A -> A. BFS must terminate via the seen set.
+        let recursive = make_type(
+            "Recursive",
+            vec![make_field("child", TypeRef::Optional(Box::new(TypeRef::Named("Recursive".to_string()))))],
+        );
+        let mut seeds = std::collections::BTreeSet::new();
+        seeds.insert("WasmRecursive".to_string());
+        let derived = collect_transitive_nested_types_for_wasm(&seeds, &[recursive]);
+        assert_eq!(derived.get("child"), Some(&"WasmRecursive".to_string()));
     }
 
     #[test]

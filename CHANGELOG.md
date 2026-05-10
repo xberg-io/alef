@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-e2e/typescript): recursively walk nested type fields for wasm imports — class types referenced two or more levels deep (e.g. `WasmChatCompletionRequest.tools[].function: WasmFunctionDefinition`) were emitted in test bodies via `new WasmFunctionDefinition()` but missing from the import statement, causing `ReferenceError: WasmFunctionDefinition is not defined` at runtime. The single-level `derive_nested_types_for_wasm` is now wrapped by `collect_transitive_nested_types_for_wasm`, a BFS over the wasm class graph that follows every struct-typed field through `Vec`/`Optional`. Terminates on cycles via a `seen` set on wasm class names.
+
 ## [0.15.24] - 2026-05-10
 
 ### Added
