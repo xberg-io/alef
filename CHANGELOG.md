@@ -25,7 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - alef-codegen, alef-docs: add `serde_flatten: false` to test-site `FieldDef` literals that were missing the field after iter10's plumbing.
-- alef-e2e/csharp: emit `xunit.runner.json` with `parallelizeTestCollections: false` so test classes serialize against the shared mock-server.
 - alef-e2e/java: add TCP-readiness probe to MockServerListener — polls the bound mock-server URL until accepting (max 5s, 50ms backoff) before releasing the JUnit launcher session, preventing intermittent `error sending request` failures under Surefire parallel execution.
 - alef-e2e/csharp: add TCP-readiness probe to TestSetup `[ModuleInitializer]` — same polling logic; eliminates intermittent failures under xUnit class-parallel default.
 - alef-e2e/typescript: emit numeric bracket access for digit-only JSON pointer segments in test assertions — e.g. `result.results[0]` instead of `result.results["0"]`. The string-keyed access returned `undefined`, breaking array-element assertions.
