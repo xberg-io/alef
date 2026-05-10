@@ -432,15 +432,14 @@ fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]) {
     for typ in &mut api.types {
         let original_count = typ.fields.len();
         let cfg_count = typ.fields.iter().filter(|f| f.cfg.is_some()).count();
-        // Retain non-cfg fields and cfg fields whose feature condition is satisfied.
+        // Retain non-cfg fields and cfg fields whose feature condition is satisfied
+        // by the source crate. Per-binding feature filtering happens later in codegen,
+        // which evaluates `field.cfg` against each binding's effective feature set —
+        // so we keep the cfg attribute on retained fields rather than clearing it.
         typ.fields.retain(|f| match &f.cfg {
             None => true,
             Some(cfg_str) => cfg_condition_enabled(cfg_str, enabled_features),
         });
-        // Clear cfg on retained fields so codegen treats them as unconditional.
-        for field in &mut typ.fields {
-            field.cfg = None;
-        }
         // Mark if any cfg fields were actually stripped (not enabled).
         if cfg_count > 0 && typ.fields.len() < original_count {
             typ.has_stripped_cfg_fields = true;
