@@ -321,11 +321,33 @@ impl Fixture {
     pub fn has_host_root_route(&self) -> bool {
         // Array schema: input.mock_responses[*].path
         if let Some(arr) = self.input.get("mock_responses").and_then(|v| v.as_array()) {
-            return arr.iter().any(|entry| {
+            // Direct host-root paths (/robots*, /sitemap*).
+            if arr.iter().any(|entry| {
                 entry
                     .get("path")
                     .and_then(|v| v.as_str())
                     .map(is_host_root_path)
+                    .unwrap_or(false)
+            }) {
+                return true;
+            }
+            // 3xx Location header pointing to a host-root path: the engine resolves the
+            // Location against the origin (not the /fixtures/<id>/ namespace), so the
+            // fixture must serve at host root for the redirect target to resolve.
+            return arr.iter().any(|entry| {
+                let status = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(0);
+                if !(300..400).contains(&status) {
+                    return false;
+                }
+                entry
+                    .get("headers")
+                    .and_then(|v| v.as_object())
+                    .map(|hdrs| {
+                        hdrs.iter().any(|(name, value)| {
+                            name.eq_ignore_ascii_case("location")
+                                && value.as_str().is_some_and(|s| s.starts_with('/'))
+                        })
+                    })
                     .unwrap_or(false)
             });
         }

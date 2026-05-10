@@ -746,6 +746,10 @@ fn render_test_case(
     };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    // Validation-category fixtures expect engine creation itself to fail (bad config).
+    // Other expects_error fixtures (e.g. error_*) construct a valid engine and expect the
+    // *operation under test* to fail. We need different shapes for these two cases.
+    let validation_creation_failure = expects_error && fixture.resolved_category() == "validation";
 
     // When the fixture uses a named call, use the args and options from that call's config.
     let (
@@ -897,19 +901,13 @@ fn render_test_case(
         let _ = writeln!(out, "      else");
     }
 
-    // For expects_error fixtures, engine/handle creation (lines starting with `{:ok,`)
-    // would crash via a match error before reaching the assertion. Instead, transform
-    // handle-creation setup lines into the error assertion itself and return early.
-    // Config setup lines (e.g. `engine_config = "..."`) are safe to emit as-is before
-    // the transformed assertion.
-    if expects_error {
-        // Emit non-handle setup lines (config assignments, etc.) as-is.
-        // Transform handle-creation lines (`{:ok, name} = Module.create_X(...)`) into
-        // `assert {:error, _} = Module.create_X(...)`.
+    // Validation-category fixtures: engine/handle creation itself is expected to fail.
+    // Transform the first `{:ok, _} = ...` setup line into `assert {:error, _} = ...`
+    // and stop emission there, since the rest of the test body would be unreachable.
+    if validation_creation_failure {
         let mut emitted_error_assertion = false;
         for line in &setup_lines {
-            if line.starts_with("{:ok,") {
-                // Strip the `{:ok, varname} = ` prefix, keep the RHS as the error assertion.
+            if !emitted_error_assertion && line.starts_with("{:ok,") {
                 if let Some(rhs) = line.splitn(2, '=').nth(1) {
                     let rhs = rhs.trim();
                     let _ = writeln!(out, "      assert {{:error, _}} = {rhs}");
@@ -921,14 +919,30 @@ fn render_test_case(
                 let _ = writeln!(out, "      {line}");
             }
         }
-        // If no handle-creation setup line was found, fall back to asserting on the
-        // main function call (e.g. validation error raised by the function itself).
         if !emitted_error_assertion {
             let _ = writeln!(
                 out,
                 "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
             );
         }
+        if needs_api_key_skip {
+            let _ = writeln!(out, "      end");
+        }
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
+    // Non-validation expects_error fixtures (error_*, etc.): engine creation succeeds.
+    // Emit setup as-is and assert that the *operation under test* fails.
+    if expects_error {
+        for line in &setup_lines {
+            let _ = writeln!(out, "      {line}");
+        }
+        let _ = writeln!(
+            out,
+            "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
+        );
         if needs_api_key_skip {
             let _ = writeln!(out, "      end");
         }

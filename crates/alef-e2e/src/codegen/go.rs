@@ -610,6 +610,11 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
+        // Fixtures whose assertions include an `error` assertion emit
+        // `assert.Error(t, createErr)` in their setup block, requiring testify.
+        if f.assertions.iter().any(|a| a.assertion_type == "error") {
+            return true;
+        }
         f.assertions.iter().any(|a| {
             let field_valid = a
                 .field
@@ -866,6 +871,10 @@ fn render_test_function(
     });
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    // Validation-category fixtures expect engine *creation* to fail. Other expects_error
+    // fixtures (error_*) construct a valid engine and expect the *operation* to fail —
+    // engine creation should not be wrapped in assert.Error there.
+    let validation_creation_failure = expects_error && fixture.resolved_category() == "validation";
 
     // Client factory: when set, the test creates a client via `pkg.Factory("test-key", baseURL)`
     // and calls methods on the instance rather than top-level package functions.
@@ -884,7 +893,7 @@ fn render_test_function(
         call_options_type,
         fixture,
         call_options_ptr,
-        expects_error,
+        validation_creation_failure,
     );
 
     // Build visitor if present — integrate into options instead of separate parameter.

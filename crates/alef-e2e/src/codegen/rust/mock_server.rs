@@ -732,7 +732,23 @@ fn load_routes_recursive(
 
             for fixture in fixtures {
                 let resolved_routes = fixture.as_routes(fixtures_root);
-                let has_host_root = resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
+                // A fixture needs host-root routing if either:
+                //  1. it serves a path the crawler fetches at host root (/robots*, /sitemap*), OR
+                //  2. it returns a 3xx Location header pointing to a host-root path inside the
+                //     same fixture (the engine resolves the Location against the host, not the
+                //     /fixtures/<id>/ namespace, so host-root serving is required for the
+                //     follow-up GET to hit the correct route).
+                let has_intra_fixture_redirect = resolved_routes.iter().any(|r| {
+                    let is_redirect_status = (300..400).contains(&r.response.status);
+                    if !is_redirect_status {
+                        return false;
+                    }
+                    r.response.headers.iter().any(|(name, value)| {
+                        name.eq_ignore_ascii_case("location") && value.starts_with('/')
+                    })
+                });
+                let has_host_root = has_intra_fixture_redirect
+                    || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
 
                 for resolved in resolved_routes {
                     let stream_chunks = resolved.response
