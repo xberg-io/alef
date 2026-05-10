@@ -334,6 +334,7 @@ pub(crate) fn gen_native_lib(
     let mut trait_handles = Vec::new();
     let mut emitted_register_handles: AHashSet<String> = AHashSet::new();
     let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
+    let mut emitted_clear_handles: AHashSet<String> = AHashSet::new();
 
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg
@@ -362,20 +363,40 @@ pub(crate) fn gen_native_lib(
             trait_handles.push(handle_code);
         }
 
-        // Unregister handle
-        let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
-        let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
-        if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
-            // Use orElse(null): the unregister symbol may be absent when the trait bridge
-            // is not compiled into the dylib. Callers must null-check before invoking.
-            let handle_code = crate::template_env::render(
-                "method_handle_unregister.jinja",
-                minijinja::context! {
-                    handle_name => unregister_handle_name,
-                    ffi_name => unregister_ffi_name,
-                },
-            );
-            trait_handles.push(handle_code);
+        // Unregister handle — only emitted when unregister_fn is configured.
+        if bridge_cfg.unregister_fn.is_some() {
+            let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
+            let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
+            if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
+                // Use orElse(null): the unregister symbol may be absent when the trait bridge
+                // is not compiled into the dylib. Callers must null-check before invoking.
+                let handle_code = crate::template_env::render(
+                    "method_handle_unregister.jinja",
+                    minijinja::context! {
+                        handle_name => unregister_handle_name,
+                        ffi_name => unregister_ffi_name,
+                    },
+                );
+                trait_handles.push(handle_code);
+            }
+        }
+
+        // Clear handle — only emitted when clear_fn is configured.
+        if bridge_cfg.clear_fn.is_some() {
+            let clear_handle_name = format!("{}_CLEAR_{}", prefix.to_uppercase(), trait_upper);
+            let clear_ffi_name = format!("{}_clear_{}", prefix, trait_snake);
+            if emitted_clear_handles.insert(clear_handle_name.clone()) {
+                // Use orElse(null): the clear symbol may be absent when the trait bridge
+                // is not compiled into the dylib. Callers must null-check before invoking.
+                let handle_code = crate::template_env::render(
+                    "method_handle_clear.jinja",
+                    minijinja::context! {
+                        handle_name => clear_handle_name,
+                        ffi_name => clear_ffi_name,
+                    },
+                );
+                trait_handles.push(handle_code);
+            }
         }
     }
 

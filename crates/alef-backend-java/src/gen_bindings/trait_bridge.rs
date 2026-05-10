@@ -25,11 +25,82 @@ pub struct BridgeFiles {
 }
 
 /// Generate both the managed interface file and the bridge class file for one trait.
-pub fn gen_trait_bridge_files(trait_def: &TypeDef, prefix: &str, package: &str, has_super_trait: bool) -> BridgeFiles {
+///
+/// `unregister_fn` is the configured name of the host-crate unregister function (e.g.
+/// `"unregister_ocr_backend"`). When `Some`, a `public static void unregister{Trait}(String
+/// name)` helper is emitted in the bridge class. When `None`, the method is omitted.
+///
+/// `clear_fn` is the configured name of the host-crate clear-all function (e.g.
+/// `"clear_ocr_backends"`). When `Some`, a `public static void clearAll{Trait}()` helper is
+/// emitted. When `None`, the method is omitted.
+pub fn gen_trait_bridge_files(
+    trait_def: &TypeDef,
+    prefix: &str,
+    package: &str,
+    has_super_trait: bool,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+) -> BridgeFiles {
     BridgeFiles {
         interface_content: gen_interface_file(trait_def, package, has_super_trait),
-        bridge_content: gen_bridge_file(trait_def, prefix, package, has_super_trait),
+        bridge_content: gen_bridge_file(trait_def, prefix, package, has_super_trait, unregister_fn, clear_fn),
     }
+}
+
+/// Generate the Java `unregister{Trait}` static helper body.
+///
+/// Returns an empty string when `unregister_fn` is `None` (opt-in; not all bridges need it).
+/// The emitted method calls `NativeLib.{PREFIX}_UNREGISTER_{TRAIT}` via Panama FFM, mirrors
+/// the local registry removal, and closes the bridge's arena.
+pub fn gen_unregistration_fn(
+    trait_pascal: &str,
+    trait_snake_upper: &str,
+    prefix_upper: &str,
+    bridge_class: &str,
+    registry_field: &str,
+    unregister_fn: Option<&str>,
+) -> String {
+    if unregister_fn.is_none() {
+        return String::new();
+    }
+    template_env::render(
+        "bridge_unregister_method.jinja",
+        minijinja::context! {
+            trait_pascal => trait_pascal,
+            trait_snake_upper => trait_snake_upper,
+            prefix_upper => prefix_upper,
+            bridge_class => bridge_class,
+            registry_field => registry_field,
+        },
+    )
+}
+
+/// Generate the Java `clearAll{Trait}` static helper body.
+///
+/// Returns an empty string when `clear_fn` is `None` (opt-in). The emitted method calls
+/// `NativeLib.{PREFIX}_CLEAR_{TRAIT}` via Panama FFM (no arguments other than the out-error
+/// pointer), then closes and removes every live bridge from the local registry.
+pub fn gen_clear_fn(
+    trait_pascal: &str,
+    trait_snake_upper: &str,
+    prefix_upper: &str,
+    bridge_class: &str,
+    registry_field: &str,
+    clear_fn: Option<&str>,
+) -> String {
+    if clear_fn.is_none() {
+        return String::new();
+    }
+    template_env::render(
+        "bridge_clear_method.jinja",
+        minijinja::context! {
+            trait_pascal => trait_pascal,
+            trait_snake_upper => trait_snake_upper,
+            prefix_upper => prefix_upper,
+            bridge_class => bridge_class,
+            registry_field => registry_field,
+        },
+    )
 }
 
 /// Generate the standalone managed `I{Trait}` interface compilation unit.
@@ -87,8 +158,15 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
 }
 
 /// Generate the bridge class compilation unit with upcall stubs, registry, and
-/// register/unregister helpers all nested inside the public top-level class.
-fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_trait: bool) -> String {
+/// register/unregister/clear helpers all nested inside the public top-level class.
+fn gen_bridge_file(
+    trait_def: &TypeDef,
+    prefix: &str,
+    package: &str,
+    has_super_trait: bool,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
     let trait_snake = trait_def.name.to_snake_case();
     let prefix_upper = prefix.to_uppercase();
@@ -283,11 +361,29 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     let num_vtable_fields = num_super_slots + num_methods + 1;
     let register_takes_name = has_super_trait;
 
+    let trait_snake_upper = trait_snake.to_uppercase();
+    let unregister_method = gen_unregistration_fn(
+        &trait_pascal,
+        &trait_snake_upper,
+        &prefix_upper,
+        &bridge_class,
+        &registry_field,
+        unregister_fn,
+    );
+    let clear_method = gen_clear_fn(
+        &trait_pascal,
+        &trait_snake_upper,
+        &prefix_upper,
+        &bridge_class,
+        &registry_field,
+        clear_fn,
+    );
+
     let ctx = minijinja::context! {
         package => package,
         imports => imports,
         trait_pascal => &trait_pascal,
-        trait_snake_upper => trait_snake.to_uppercase(),
+        trait_snake_upper => &trait_snake_upper,
         bridge_class => &bridge_class,
         registry_field => &registry_field,
         prefix_upper => &prefix_upper,
@@ -299,6 +395,8 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         methods => methods,
         register_takes_name => register_takes_name,
         name_expr => if has_super_trait { "impl.name()" } else { "name" },
+        unregister_method => &unregister_method,
+        clear_method => &clear_method,
     };
 
     template_env::render("trait_bridge.jinja", ctx)
@@ -408,7 +506,7 @@ mod tests {
     #[test]
     fn interface_emits_package_and_lifecycle_when_super_trait() {
         let trait_def = make_trait("OcrBackend", vec![make_method("process", TypeRef::String, vec![])]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None);
         assert!(files.interface_content.starts_with("package dev.kreuzberg;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));
         assert!(files.interface_content.contains("String name();"));
@@ -419,7 +517,7 @@ mod tests {
     #[test]
     fn interface_omits_lifecycle_when_no_super_trait() {
         let trait_def = make_trait("Filter", vec![make_method("apply", TypeRef::String, vec![])]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None);
         assert!(!files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("String apply()"));
     }
@@ -427,15 +525,86 @@ mod tests {
     #[test]
     fn bridge_class_has_register_helper_and_registry() {
         let trait_def = make_trait("OcrBackend", vec![]);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
+        // No unregister/clear configured: neither method should appear
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None);
         let body = files.bridge_content.as_str();
         assert!(body.starts_with("package dev.kreuzberg;"));
         assert!(body.contains("public final class OcrBackendBridge"));
         assert!(body.contains("public static void registerOcrBackend(final IOcrBackend impl)"));
-        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
         assert!(body.contains("ConcurrentHashMap<String, OcrBackendBridge>"));
         assert!(body.contains("OCR_BACKEND_BRIDGES = new ConcurrentHashMap<>()"));
         assert!(body.contains("KRZ_REGISTER_OCR_BACKEND"));
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_method_when_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            Some("unregister_ocr_backend"),
+            None,
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(body.contains("KRZ_UNREGISTER_OCR_BACKEND"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.remove(name)"));
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
+    }
+
+    #[test]
+    fn gen_unregistration_fn_omits_method_when_none() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None);
+        let body = files.bridge_content.as_str();
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_method_when_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            None,
+            Some("clear_ocr_backends"),
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void clearAllOcrBackend()"));
+        assert!(body.contains("KRZ_CLEAR_OCR_BACKEND"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.values().forEach(OcrBackendBridge::close)"));
+        assert!(body.contains("OCR_BACKEND_BRIDGES.clear()"));
+        assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
+    }
+
+    #[test]
+    fn gen_clear_fn_omits_method_when_none() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None);
+        let body = files.bridge_content.as_str();
+        assert!(!body.contains("public static void clearAllOcrBackend()"));
+    }
+
+    #[test]
+    fn both_unregister_and_clear_emitted_when_both_configured() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.kreuzberg",
+            true,
+            Some("unregister_ocr_backend"),
+            Some("clear_ocr_backends"),
+        );
+        let body = files.bridge_content.as_str();
+        assert!(body.contains("public static void unregisterOcrBackend(String name)"));
+        assert!(body.contains("public static void clearAllOcrBackend()"));
     }
 
     #[test]
@@ -491,7 +660,7 @@ mod tests {
                 ],
             )],
         );
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None);
         let body = files.bridge_content.as_str();
         assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
         assert!(body.contains("OcrConfig"));
@@ -533,7 +702,7 @@ mod tests {
                 ],
             )],
         );
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None);
         let body = files.bridge_content.as_str();
         // The handler signature should have `byte level`, not `MemorySegment level_in`
         assert!(body.contains(

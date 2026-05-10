@@ -320,7 +320,14 @@ impl Backend for JavaBackend {
                 let trait_bridge::BridgeFiles {
                     interface_content,
                     bridge_content,
-                } = trait_bridge::gen_trait_bridge_files(trait_def, &prefix, &package, has_super_trait);
+                } = trait_bridge::gen_trait_bridge_files(
+                    trait_def,
+                    &prefix,
+                    &package,
+                    has_super_trait,
+                    bridge_cfg.unregister_fn.as_deref(),
+                    bridge_cfg.clear_fn.as_deref(),
+                );
 
                 files.push(GeneratedFile {
                     path: base_path.join(format!("I{}.java", trait_def.name)),

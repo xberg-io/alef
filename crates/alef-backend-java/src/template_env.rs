@@ -179,6 +179,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/method_handle_unregister.jinja"),
     ),
     (
+        "method_handle_clear.jinja",
+        include_str!("../templates/method_handle_clear.jinja"),
+    ),
+    (
+        "bridge_clear_method.jinja",
+        include_str!("../templates/bridge_clear_method.jinja"),
+    ),
+    (
         "marshal_string.jinja",
         include_str!("../templates/marshal_string.jinja"),
     ),
