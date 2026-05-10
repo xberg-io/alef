@@ -132,6 +132,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -218,6 +219,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -299,6 +301,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -343,6 +346,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -404,6 +408,7 @@ fn test_function_with_error_type() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -442,6 +447,7 @@ fn test_empty_api_surface() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -528,6 +534,7 @@ fn test_module_registration() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -615,6 +622,7 @@ fn test_async_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -674,6 +682,7 @@ fn test_async_function_with_error() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -771,6 +780,7 @@ fn test_methods_generation() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -847,6 +857,7 @@ fn test_async_method() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -910,6 +921,7 @@ fn test_error_types() {
             ],
             doc: "Error type for processing".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -977,6 +989,7 @@ fn test_opaque_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1043,6 +1056,7 @@ fn test_optional_and_vec_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1119,6 +1133,7 @@ fn test_static_method() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1182,6 +1197,7 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1322,6 +1338,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -1523,6 +1540,7 @@ fn make_api_surface() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -2201,6 +2219,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -2308,6 +2327,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -2382,6 +2402,7 @@ fn test_sanitized_field_gets_serde_skip() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -2444,6 +2465,7 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -2527,6 +2549,7 @@ fn test_api_py_uses_keyword_arguments() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -2615,6 +2638,7 @@ fn test_async_function_emits_async_def_and_await() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -2704,6 +2728,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -2854,6 +2879,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).expect("generate public API");

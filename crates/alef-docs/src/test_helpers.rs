@@ -96,6 +96,7 @@ pub(crate) fn empty_api() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -122,5 +123,6 @@ pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }

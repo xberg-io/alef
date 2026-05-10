@@ -241,7 +241,7 @@ fn render_test_setup(needs_mock_server: bool) -> String {
     out.push_str("            dir = dir.Parent;\n");
     out.push_str("        }\n");
     if needs_mock_server {
-        out.push_str("\n");
+        out.push('\n');
         out.push_str("        // Spawn the mock-server binary before any test loads, mirroring the\n");
         out.push_str("        // Ruby spec_helper / Python conftest pattern. Honors a pre-set\n");
         out.push_str("        // MOCK_SERVER_URL (e.g. set by `task` or CI) by skipping the spawn.\n");

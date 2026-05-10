@@ -842,6 +842,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
 
@@ -923,6 +924,7 @@ mod tests {
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -975,6 +977,7 @@ mod tests {
                 serde_rename_all: None,
             }],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1029,6 +1032,7 @@ mod tests {
                 serde_rename_all: None,
             }],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1168,6 +1172,7 @@ mod tests {
                 },
             ],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1227,6 +1232,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1273,6 +1279,7 @@ mod tests {
                 ],
                 doc: "Errors from the conversion API.".to_string(),
             }],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1340,6 +1347,7 @@ mod tests {
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

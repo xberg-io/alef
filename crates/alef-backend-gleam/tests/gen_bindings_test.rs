@@ -108,6 +108,7 @@ fn struct_emits_record_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -143,6 +144,7 @@ fn function_emits_external_binding() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -193,6 +195,7 @@ fn enum_emits_custom_type() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -214,6 +217,7 @@ fn optional_field_imports_option() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -256,6 +260,7 @@ fn error_emits_custom_type() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -304,6 +309,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -342,6 +348,7 @@ fn nif_module_override_uses_custom_name() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_nif("custom_nif_atom");
@@ -458,6 +465,7 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -514,6 +522,7 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![ocr_bridge, embedding_bridge]);
@@ -561,6 +570,7 @@ fn trait_bridge_emits_per_method_response_shim() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -603,6 +613,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         functions: vec![],
         enums: vec![],
         errors: vec![ocr_error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -638,6 +649,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         functions: vec![],
         enums: vec![],
         errors: vec![my_error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -669,6 +681,7 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -710,6 +723,7 @@ fn trait_bridge_response_shim_includes_doc_comment() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);

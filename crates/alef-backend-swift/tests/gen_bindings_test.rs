@@ -98,6 +98,7 @@ fn struct_with_primitive_fields_emits_public_struct() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -143,6 +144,7 @@ fn struct_with_optional_array_and_dict_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -170,6 +172,7 @@ fn struct_with_serde_derives_codable() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -191,6 +194,7 @@ fn empty_struct_emits_single_line() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -244,6 +248,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -295,6 +300,7 @@ fn data_bearing_enum_emits_associated_values() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -332,6 +338,7 @@ fn sync_function_emits_public_static_func() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -372,6 +379,7 @@ fn async_function_emits_async_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -408,6 +416,7 @@ fn error_throwing_function_emits_throws() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -444,6 +453,7 @@ fn async_throws_function_emits_both_qualifiers() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -492,6 +502,7 @@ fn error_enum_conforms_to_error_protocol() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -567,6 +578,7 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -616,6 +628,7 @@ fn bytes_overload_with_string_return_does_not_append_to_string() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -658,6 +671,7 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -698,6 +712,7 @@ fn path_first_param_emits_string_path_overload() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -734,6 +749,7 @@ fn no_bytes_or_path_functions_emits_no_wrapper_section() {
         )],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -779,6 +795,7 @@ fn async_bytes_function_is_not_a_candidate() {
         functions: vec![async_fn],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -801,6 +818,7 @@ fn output_path_uses_pascal_case_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();

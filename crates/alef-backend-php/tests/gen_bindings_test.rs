@@ -161,6 +161,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -237,6 +238,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -313,6 +315,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -345,6 +348,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -448,6 +452,7 @@ fn test_methods_generation() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -526,6 +531,7 @@ fn test_error_types() {
             ],
             doc: "Errors during processing".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -606,6 +612,7 @@ fn test_async_function() {
             }],
             doc: "Fetch error".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -679,6 +686,7 @@ fn test_opaque_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -744,6 +752,7 @@ fn test_default_config() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -888,6 +897,7 @@ fn test_multiple_types_with_shared_error() {
         functions: vec![],
         enums: vec![],
         errors: vec![shared_error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -978,6 +988,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1049,6 +1060,7 @@ fn test_generate_public_api_delegates_to_api_class() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1145,6 +1157,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         ],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1265,6 +1278,7 @@ fn make_api_php() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -1607,6 +1621,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         functions: vec![],
         enums: vec![message_enum],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1767,6 +1782,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         functions: vec![],
         enums: vec![data_enum],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1882,6 +1898,7 @@ fn test_stubs_non_void_methods_have_return_statements() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1982,6 +1999,7 @@ fn test_vec_named_struct_parameter() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();

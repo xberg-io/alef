@@ -1400,7 +1400,10 @@ mod tests {
         // Self-referential type A -> A. BFS must terminate via the seen set.
         let recursive = make_type(
             "Recursive",
-            vec![make_field("child", TypeRef::Optional(Box::new(TypeRef::Named("Recursive".to_string()))))],
+            vec![make_field(
+                "child",
+                TypeRef::Optional(Box::new(TypeRef::Named("Recursive".to_string()))),
+            )],
         );
         let mut seeds = std::collections::BTreeSet::new();
         seeds.insert("WasmRecursive".to_string());

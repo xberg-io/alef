@@ -896,6 +896,7 @@ sources = ["src/lib.rs"]
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_config();
         let files = WasmBackend.generate_bindings(&api, &config).unwrap();

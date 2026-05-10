@@ -1884,6 +1884,7 @@ package_name = "testlib"
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 

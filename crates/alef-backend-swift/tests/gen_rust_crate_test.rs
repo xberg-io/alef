@@ -117,6 +117,7 @@ fn cargo_toml_contains_swift_bridge_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -148,6 +149,7 @@ fn cargo_toml_contains_crate_name_and_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -174,6 +176,7 @@ fn cargo_toml_has_cdylib_and_staticlib() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -202,6 +205,7 @@ fn lib_rs_contains_bridge_module() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -237,6 +241,7 @@ fn lib_rs_has_extern_rust_block_per_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -274,6 +279,7 @@ fn lib_rs_type_has_constructor_and_getters() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -325,6 +331,7 @@ fn lib_rs_has_free_function_shim() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -371,6 +378,7 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -423,6 +431,7 @@ fn lib_rs_result_function_has_map_err_chain() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -451,6 +460,7 @@ fn build_rs_calls_parse_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -479,6 +489,7 @@ fn emit_returns_three_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -511,6 +522,7 @@ fn lib_rs_has_generated_header_comment() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -538,6 +550,7 @@ fn lib_rs_has_wrapper_newtype_for_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -565,6 +578,7 @@ fn lib_rs_enum_extern_block_and_wrapper() {
         functions: vec![],
         enums: vec![make_enum("Status", vec!["Active", "Inactive"])],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -678,6 +692,7 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let cfg = config_with_bridge("Validator");
@@ -742,6 +757,7 @@ fn trait_bridge_async_method_emits_block_on() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let cfg = config_with_bridge("Processor");
@@ -801,6 +817,7 @@ fn cargo_toml_has_license_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
@@ -822,6 +839,7 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -847,6 +865,7 @@ fn cargo_toml_includes_serde_json_dep() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -907,6 +926,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();

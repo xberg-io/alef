@@ -95,6 +95,7 @@ fn cargo_toml_contains_frb_version() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -135,6 +136,7 @@ fn lib_rs_emits_mirror_struct_per_ir_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -172,6 +174,7 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -215,6 +218,7 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -250,6 +254,7 @@ fn lib_rs_result_fn_uses_map_err_to_string() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -304,6 +309,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -327,6 +333,7 @@ fn build_rs_is_emitted() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -344,6 +351,7 @@ fn frb_yaml_is_emitted_with_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -376,6 +384,7 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -474,6 +483,7 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("Validator");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -532,6 +542,7 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("OcrBackend");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -594,6 +605,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
@@ -664,6 +676,7 @@ fn lib_rs_does_not_emit_register_forwarder_without_register_fn() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     // make_config_with_bridge() leaves register_fn = None.
     let config = make_config_with_bridge("Validator");
@@ -700,6 +713,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
@@ -748,6 +762,7 @@ fn cargo_toml_has_license_field() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -768,6 +783,7 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -790,6 +806,7 @@ fn cargo_toml_does_not_include_anyhow_without_trait_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -823,6 +840,7 @@ fn cargo_toml_does_not_include_anyhow_with_trait_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config_with_bridge("OcrBackend");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -852,6 +870,7 @@ fn cargo_toml_does_not_include_serde_json() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();

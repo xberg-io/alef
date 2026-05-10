@@ -776,6 +776,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let code = gen_struct(&typ, &mapper, "TestLib", &api, false);
         assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");

@@ -1426,6 +1426,7 @@ app_name = "my_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 

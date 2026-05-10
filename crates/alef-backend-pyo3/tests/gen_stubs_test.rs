@@ -132,6 +132,7 @@ fn test_basic_stubs() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -226,6 +227,7 @@ fn test_optional_field_stubs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -317,6 +319,7 @@ fn test_enum_stubs() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -365,6 +368,7 @@ fn test_stubs_with_no_stubs_config() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Config WITHOUT stubs configuration
@@ -416,6 +420,7 @@ fn test_type_stubs_with_vec_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -507,6 +512,7 @@ fn test_function_stubs_with_multiple_params() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -597,6 +603,7 @@ fn test_opaque_type_stubs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -634,6 +641,7 @@ fn test_stubs_generated_header_flag() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -685,6 +693,7 @@ fn test_python_keyword_escaping_function_name() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -758,6 +767,7 @@ fn test_static_method_stubs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -948,6 +958,7 @@ fn test_multiple_types_and_functions() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -1020,6 +1031,7 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -1077,6 +1089,7 @@ fn test_async_function_stub_uses_async_def() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -1144,6 +1157,7 @@ fn test_async_method_stub_uses_async_def() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();

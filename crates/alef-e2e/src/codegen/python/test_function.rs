@@ -221,10 +221,7 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &
             // substrings of the user-facing error text, not of the exception class
             // name (e.g. `InvalidConfigError`). With NetworkErrorKind tagging in
             // kreuzcrawl core, network-error messages now embed `[network:<kind>]`.
-            let _ = writeln!(
-                out,
-                "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101"
-            );
+            let _ = writeln!(out, "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101");
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");

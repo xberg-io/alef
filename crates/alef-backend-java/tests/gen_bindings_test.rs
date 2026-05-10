@@ -149,6 +149,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = resolved_one(
@@ -248,6 +249,7 @@ fn test_package_default_when_unconfigured() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // No java package and no scaffold repository configured
@@ -375,6 +377,7 @@ fn test_optional_field_defaults_in_builder() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = resolved_one(
@@ -500,6 +503,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             variants: vec![],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = backend
@@ -716,6 +720,7 @@ type = "ChatCompletionRequest"
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let backend = JavaBackend;

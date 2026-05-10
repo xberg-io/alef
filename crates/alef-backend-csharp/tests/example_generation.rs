@@ -155,6 +155,7 @@ fn test_generated_code_example() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_kreuzberg_config();

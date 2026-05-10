@@ -92,6 +92,7 @@ fn struct_emits_zig_struct() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -132,6 +133,7 @@ fn string_param_allocates_z_string_and_frees() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -185,6 +187,7 @@ fn bytes_param_passes_ptr_and_len() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -231,6 +234,7 @@ fn vec_param_takes_json_slice() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -289,6 +293,7 @@ fn result_function_checks_last_error_code() {
             }],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -339,6 +344,7 @@ fn async_function_is_skipped_with_header_comment() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -366,6 +372,7 @@ fn helpers_are_always_emitted() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -428,6 +435,7 @@ fn enum_emits_zig_enum_or_union() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -449,6 +457,7 @@ fn optional_field_uses_zig_optional_syntax() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -490,6 +499,7 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();

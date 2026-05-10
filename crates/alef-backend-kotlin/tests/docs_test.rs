@@ -54,6 +54,7 @@ fn test_kdoc_emitted_for_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();

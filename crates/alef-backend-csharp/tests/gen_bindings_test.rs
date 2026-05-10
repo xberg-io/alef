@@ -139,6 +139,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Create test config
@@ -234,6 +235,7 @@ fn test_namespace_resolution() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my-lib", Some("MyCompany.MyLib"), false);
@@ -262,6 +264,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -382,6 +385,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -473,6 +477,7 @@ fn test_tuple_struct_fields_skipped() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -557,6 +562,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("test", None, false);
@@ -657,6 +663,7 @@ fn test_duration_field_emits_single_nullable_not_double() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -728,6 +735,7 @@ fn test_optional_ulong_field_emits_single_nullable() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -819,6 +827,7 @@ fn test_plain_enum_with_default_emits_single_nullable() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = minimal_csharp_config("test");
@@ -884,6 +893,7 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("kreuzberg", Some("Kreuzberg"), true);

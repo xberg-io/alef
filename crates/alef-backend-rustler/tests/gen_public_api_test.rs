@@ -213,6 +213,7 @@ fn test_generate_public_api_creates_all_files() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -306,6 +307,7 @@ fn test_native_ex_has_all_nif_stubs() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -430,6 +432,7 @@ fn test_struct_module_has_defstruct() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -506,6 +509,7 @@ fn test_main_module_has_method_wrappers() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -572,6 +576,7 @@ fn test_opaque_types_not_get_struct_module() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -628,6 +633,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -706,6 +712,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -767,6 +774,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -802,6 +810,7 @@ fn test_native_ex_force_build_line_within_98_chars() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");
@@ -885,6 +894,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config("my_lib");

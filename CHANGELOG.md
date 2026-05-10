@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.25] - 2026-05-10
+
 ### Fixed
 
+- fix(alef-e2e/typescript): emit `globalSetup` when any fixture uses mock-server — Vitest config now includes the global-setup hook for HTTP-bound or `mock_response`-tagged fixtures so the mock-server binary actually spawns before the test run starts.
+- fix(alef-e2e/python): wrap `arg_bindings` in `pytest.raises(...)` and assert on `str(exc_info.value)` — error fixtures that include argument-construction expressions now catch deserialize-time failures inside the `with` block instead of letting them escape before the assertion.
 - fix(alef-e2e/typescript): recursively walk nested type fields for wasm imports — class types referenced two or more levels deep (e.g. `WasmChatCompletionRequest.tools[].function: WasmFunctionDefinition`) were emitted in test bodies via `new WasmFunctionDefinition()` but missing from the import statement, causing `ReferenceError: WasmFunctionDefinition is not defined` at runtime. The single-level `derive_nested_types_for_wasm` is now wrapped by `collect_transitive_nested_types_for_wasm`, a BFS over the wasm class graph that follows every struct-typed field through `Vec`/`Optional`. Terminates on cycles via a `seen` set on wasm class names.
+- fix(alef-cli): merge `excluded_type_paths` from each per-crate extraction in the multi-source extract pipeline so trait_bridge codegen can resolve qualified paths for excluded types referenced across crate boundaries.
+- chore(alef): add `excluded_type_paths` field to all `ApiSurface { ... }` test literals across the workspace (~50 backend test/bench files) and `serde_flatten: false` to the matching `FieldDef` literals in the bench/snapshot suites. Mass-fix follow-up to the `feat(extract): preserve excluded type paths for trait_bridge codegen` IR change so `cargo check` and `cargo test` both stay green.
+
+### Changed
+
+- chore: cargo fmt sweep and sync `Cargo.lock` to 0.15.24 release pin.
 
 ## [0.15.24] - 2026-05-10
 

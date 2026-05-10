@@ -959,6 +959,7 @@ gem_name = "test_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
         assert!(code.contains("fn process("), "must emit function name");
@@ -976,6 +977,7 @@ gem_name = "test_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let code = gen_function(&func, &mapper, &Default::default(), "test_lib", &api);
         assert!(code.contains("Result<"), "error function must return Result");
@@ -991,6 +993,7 @@ gem_name = "test_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let code = gen_module_init(
             "TestLib",

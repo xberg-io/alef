@@ -792,6 +792,7 @@ visitor_callbacks = true
                 serde_rename_all: None,
             }],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -1184,6 +1185,7 @@ header_name = "mylib.h"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -1281,6 +1283,7 @@ header_name = "mylib.h"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 
@@ -1475,6 +1478,7 @@ core_import = "my_custom_lib"
             }],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -1586,6 +1590,7 @@ type = "ChatRequest"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let backend = FfiBackend;
 

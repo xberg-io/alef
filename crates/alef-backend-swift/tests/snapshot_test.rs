@@ -143,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
             ],
             doc: "Errors emitted by demo operations.".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -236,6 +237,7 @@ fn snapshot_conversion_struct_with_named_types() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -308,6 +310,7 @@ fn snapshot_conversion_enum_with_data() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -366,6 +369,7 @@ fn snapshot_conversion_vec_of_named() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_basic_config();
@@ -541,6 +545,7 @@ fn snapshot_trait_bridge_inbound() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let toml = r#"

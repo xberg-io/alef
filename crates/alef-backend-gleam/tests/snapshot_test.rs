@@ -143,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
             ],
             doc: "Errors emitted by demo operations.".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 

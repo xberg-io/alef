@@ -167,6 +167,7 @@ fn test_basic_rbs_stubs() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -274,6 +275,7 @@ fn test_type_mapping_in_stubs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -382,6 +384,7 @@ fn test_enum_stubs() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -497,6 +500,7 @@ fn test_opaque_type_stubs() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -545,6 +549,7 @@ fn test_rbs_stubs_without_config() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Create config WITHOUT stubs enabled
@@ -650,6 +655,7 @@ fn test_type_with_methods_and_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -749,6 +755,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config_with_stubs();
@@ -808,6 +815,7 @@ fn test_module_naming_from_crate_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = resolved_one(

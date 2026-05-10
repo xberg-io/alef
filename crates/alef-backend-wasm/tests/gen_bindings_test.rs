@@ -131,6 +131,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -213,6 +214,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -287,6 +289,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -340,6 +343,7 @@ fn test_generated_header() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -415,6 +419,7 @@ fn test_async_function() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -468,6 +473,7 @@ fn test_async_function_with_error() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -546,6 +552,7 @@ fn test_methods_generation() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -622,6 +629,7 @@ fn test_async_methods() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -674,6 +682,7 @@ fn test_error_types() {
             ],
             doc: "Validation errors".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -720,6 +729,7 @@ fn test_opaque_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -780,6 +790,7 @@ fn test_exclude_functions() {
         ],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Create config with exclude_functions set
@@ -855,6 +866,7 @@ fn test_exclude_types() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     // Create config with exclude_types set
@@ -955,6 +967,7 @@ fn make_api_wasm() -> ApiSurface {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     }
 }
 
@@ -1237,6 +1250,7 @@ fn test_generate_bindings_cargo_toml_includes_js_sys() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config();
 
@@ -1326,6 +1340,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -1403,6 +1418,7 @@ fn test_vec_string_is_ref_serde_path_emits_refs_binding() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1479,6 +1495,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1587,6 +1604,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -1624,6 +1642,7 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut config = make_config();
     config.name = "mylib".to_string();
@@ -1784,6 +1803,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         functions: vec![process_fn],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();

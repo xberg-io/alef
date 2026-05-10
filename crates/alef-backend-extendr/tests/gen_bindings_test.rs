@@ -133,6 +133,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -225,6 +226,7 @@ fn test_type_mapping() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -295,6 +297,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -379,6 +382,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -469,6 +473,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             serde_rename_all: None,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -523,6 +528,7 @@ fn test_generated_header() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -652,6 +658,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = make_config();
@@ -699,6 +706,7 @@ mod trait_bridge {
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         }
     }
 

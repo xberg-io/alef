@@ -93,6 +93,7 @@ fn struct_with_primitive_fields_emits_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -145,6 +146,7 @@ fn struct_with_optional_vec_map_fields() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -173,6 +175,7 @@ fn empty_struct_emits_empty_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -220,6 +223,7 @@ fn unit_enum_emits_dart_enum() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -275,6 +279,7 @@ fn data_bearing_enum_emits_sealed_class() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -321,6 +326,7 @@ fn simple_sync_function_emits_static_method() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -373,6 +379,7 @@ fn async_function_emits_future_return_and_async_keyword() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -416,6 +423,7 @@ fn error_returning_function_emits_doc_comment() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -470,6 +478,7 @@ fn error_type_emits_sealed_class_hierarchy() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -503,6 +512,7 @@ fn bytes_field_adds_typed_data_import() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -526,6 +536,7 @@ fn output_path_uses_module_name() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
     let mut config = make_config();
     config.name = "my-lib".to_string();
@@ -620,6 +631,7 @@ fn no_trait_bridges_does_not_emit_traits_dart() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -649,6 +661,7 @@ fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -689,6 +702,7 @@ fn traits_dart_path_is_under_lib_src() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -735,6 +749,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -815,6 +830,7 @@ fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let mut config = make_config();
@@ -863,6 +879,7 @@ fn traits_dart_includes_typed_data_import_for_bytes_param() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -899,6 +916,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend
@@ -959,6 +977,7 @@ fn enum_variant_named_default_is_escaped() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1008,6 +1027,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1078,6 +1098,7 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();

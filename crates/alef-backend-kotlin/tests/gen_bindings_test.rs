@@ -107,6 +107,7 @@ fn struct_emits_data_class() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -146,6 +147,7 @@ fn function_emits_object_member() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -200,6 +202,7 @@ fn unit_enum_emits_enum_class() {
             has_serde: false,
         }],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -222,6 +225,7 @@ fn optional_field_uses_kotlin_nullable() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -257,6 +261,7 @@ fn async_function_emits_suspend() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -306,6 +311,7 @@ fn unit_error_variant_emits_sealed_class() {
             ],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -341,6 +347,7 @@ fn error_variant_with_fields_emits_data_class() {
             }],
             doc: String::new(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -375,6 +382,7 @@ fn function_imports_native_facade() {
         }],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();

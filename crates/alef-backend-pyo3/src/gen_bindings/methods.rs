@@ -141,6 +141,7 @@ module_name = "_test_lib"
             functions: vec![],
             enums: vec![],
             errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
         };
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);

@@ -255,7 +255,7 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("import java.nio.file.Paths;\n");
     out.push_str("import org.junit.platform.launcher.LauncherSession;\n");
     out.push_str("import org.junit.platform.launcher.LauncherSessionListener;\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("/**\n");
     out.push_str(" * Spawns the mock-server binary once per JUnit launcher session and\n");
     out.push_str(" * exposes its URL as the `mockServerUrl` system property. Generated\n");
@@ -267,7 +267,7 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str(" */\n");
     out.push_str("public class MockServerListener implements LauncherSessionListener {\n");
     out.push_str("    private Process mockServer;\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    @Override\n");
     out.push_str("    public void launcherSessionOpened(LauncherSession session) {\n");
     out.push_str("        String preset = System.getenv(\"MOCK_SERVER_URL\");\n");
@@ -347,7 +347,7 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("        drainErr.setDaemon(true);\n");
     out.push_str("        drainErr.start();\n");
     out.push_str("    }\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    @Override\n");
     out.push_str("    public void launcherSessionClosed(LauncherSession session) {\n");
     out.push_str("        if (mockServer == null) return;\n");
@@ -361,7 +361,7 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("            mockServer.destroyForcibly();\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    private static Path locateRepoRoot() {\n");
     out.push_str("        Path dir = Paths.get(\"\").toAbsolutePath();\n");
     out.push_str("        while (dir != null) {\n");
@@ -373,7 +373,7 @@ fn render_mock_server_listener(java_group_id: &str) -> String {
     out.push_str("        }\n");
     out.push_str("        return null;\n");
     out.push_str("    }\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    private static void drain(BufferedReader reader) {\n");
     out.push_str("        try {\n");
     out.push_str("            char[] buf = new char[1024];\n");
@@ -2000,6 +2000,7 @@ fn default_java_nested_types() -> std::collections::HashMap<String, String> {
 
 /// Recursively collect enum types and nested option types used in a builder expression.
 /// Enums are keyed in the enum_fields map by camelCase names (e.g., "codeBlockStyle" → "CodeBlockStyle").
+#[allow(dead_code)]
 fn collect_enum_and_nested_types(
     obj: &serde_json::Map<String, serde_json::Value>,
     enum_fields: &std::collections::HashMap<String, String>,

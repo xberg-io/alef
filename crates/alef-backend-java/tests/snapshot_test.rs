@@ -279,6 +279,7 @@ fn print_generated_java_code() {
             ],
             doc: "Error types".to_string(),
         }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
     let config = resolved_one(
