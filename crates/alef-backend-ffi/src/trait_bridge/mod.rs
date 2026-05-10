@@ -1181,4 +1181,158 @@ mod tests {
              actual code:\n{code}"
         );
     }
+
+    /// Bug 5: Async method with a `&str` param must clone the param with `.to_string()`
+    /// before moving it into the `spawn_blocking` closure, not with `.clone()`.
+    ///
+    /// `.clone()` on `&str` returns `&str` — the original borrow escapes into the closure,
+    /// triggering E0521 ("borrowed data escapes outside of method").  `.to_string()`
+    /// produces an owned `String` that is `'static` and safe to move into the closure.
+    #[test]
+    fn bug5_async_str_param_uses_to_string_not_clone() {
+        let method = MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "mime_type".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,  // &str — the borrow that escapes without .to_string()
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: true,  // async method — closure must own all captured data
+            is_static: false,
+            error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("Backend", vec![method]);
+        let bridge_cfg = sample_bridge_cfg("Backend");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        // The closure capture must convert &str to String, not clone the borrow.
+        assert!(
+            code.contains("let mime_type = mime_type.to_string()"),
+            "async &str param must be captured via .to_string() to avoid E0521;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            !code.contains("let mime_type = mime_type.clone()"),
+            "async &str param must NOT use .clone() (returns &str, still borrows);\n\
+             actual code:\n{code}"
+        );
+    }
+
+    /// Bug 6: Async method whose trait return type is an excluded Named type must:
+    ///   (a) emit the fully-qualified path in the method SIGNATURE, and
+    ///   (b) deserialize JSON from the C ABI back to that type in the closure BODY.
+    ///
+    /// Before the fix the generator emitted `Result<String, _>` in the signature and
+    /// `Ok(cs.to_string_lossy().into_owned())` in the body — both wrong for Named returns.
+    #[test]
+    fn bug6_async_excluded_type_return_signature_and_deserialization() {
+        let method = MethodDef {
+            name: "extract_bytes".to_string(),
+            params: vec![ParamDef {
+                name: "content".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Named("InternalDocument".to_string()),
+            is_async: true,
+            is_static: false,
+            error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("Extractor", vec![method]);
+        let bridge_cfg = sample_bridge_cfg("Extractor");
+
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: {
+                let mut m = ::std::collections::HashMap::new();
+                m.insert(
+                    "InternalDocument".to_string(),
+                    "my_lib::internal::InternalDocument".to_string(),
+                );
+                m
+            },
+        };
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        // Signature must use the fully-qualified path, not String.
+        assert!(
+            code.contains("-> std::result::Result<my_lib::internal::InternalDocument,"),
+            "async method return type must be qualified excluded type in signature;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            !code.contains("-> std::result::Result<String,"),
+            "async method return type must NOT be String for Named return types;\n\
+             actual code:\n{code}"
+        );
+
+        // Closure body must deserialize JSON back to InternalDocument, not pass String through.
+        assert!(
+            code.contains("serde_json::from_str::<my_lib::internal::InternalDocument>"),
+            "async closure body must deserialize JSON to InternalDocument;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            !code.contains("Ok(cs.to_string_lossy().into_owned())"),
+            "async closure body must NOT return raw String for Named return types;\n\
+             actual code:\n{code}"
+        );
+    }
 }
