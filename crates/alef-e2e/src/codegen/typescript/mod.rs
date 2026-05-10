@@ -93,7 +93,17 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
-        let needs_global_setup = client_factory.is_some() || has_http_fixtures;
+        // globalSetup spawns the mock-server binary and exposes its URL via
+        // MOCK_SERVER_URL. Required whenever any fixture's call uses the mock
+        // server — either via http blocks (real HTTP test fixtures), via
+        // mock_response/mock_responses (function-call tests that build their
+        // own URLs against MOCK_SERVER_URL), or because a client_factory is
+        // wired to point at the mock server's `/fixtures/<id>` prefix.
+        let any_needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
+        let needs_global_setup = client_factory.is_some() || has_http_fixtures || any_needs_mock_server;
 
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
