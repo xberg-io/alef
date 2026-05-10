@@ -900,7 +900,7 @@ pub(super) fn gen_free_function(
 /// Using `_` in these positions causes type-inference failures when the deserialized
 /// value is immediately coerced (e.g. `Vec<String>` converted to `Vec<&str>`).
 /// Concrete types let the compiler resolve the full chain without ambiguity.
-fn type_ref_to_rust_type(ty: &TypeRef) -> String {
+fn type_ref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
@@ -919,14 +919,14 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Named(name) => format!("kreuzberg::{name}"),
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Named(name) => format!("{core_import}::{name}"),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Map(key, val) => format!(
             "std::collections::HashMap<{}, {}>",
-            type_ref_to_rust_type(key),
-            type_ref_to_rust_type(val)
+            type_ref_to_rust_type(key, core_import),
+            type_ref_to_rust_type(val, core_import)
         ),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Duration => "std::time::Duration".to_string(),
@@ -943,7 +943,7 @@ pub(super) fn gen_param_conversion(
     has_error: bool,
     is_bytes_result: bool,
     return_type: &TypeRef,
-    _core_import: &str,
+    core_import: &str,
 ) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
@@ -1061,7 +1061,7 @@ pub(super) fn gen_param_conversion(
                 // Optional Vec/Map: deserialize from JSON string
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
@@ -1174,7 +1174,7 @@ pub(super) fn gen_param_conversion(
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
