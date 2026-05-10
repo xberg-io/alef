@@ -73,6 +73,34 @@ pub(crate) fn emit_trait_bridge_shims(
         out.push('\n');
     }
 
+    // Unregistration function — only when unregister_fn is configured.
+    // Takes a `name: String` identifying the plugin to remove and returns
+    // `Result(Nil, String)` so callers can handle unknown-name errors.
+    if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+        out.push_str(&crate::template_env::render(
+            "unregister_fn.jinja",
+            minijinja::context! {
+                nif_module => nif_module,
+                unregister_fn => unregister_fn,
+            },
+        ));
+        out.push('\n');
+    }
+
+    // Clear function — only when clear_fn is configured.
+    // Takes no arguments and returns `Result(Nil, String)`.
+    // Typically used in test teardown to remove all registered plugins.
+    if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+        out.push_str(&crate::template_env::render(
+            "clear_fn.jinja",
+            minijinja::context! {
+                nif_module => nif_module,
+                clear_fn => clear_fn,
+            },
+        ));
+        out.push('\n');
+    }
+
     // Per-method response shims.
     //
     // For every method defined on the trait, emit a typed helper that the consumer's

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(alef-backend-gleam): emit `unregister_fn` and `clear_fn` external Gleam declarations from `TraitBridgeConfig` when the fields are set; short-circuits to no output when `None`. Closes the gap where Gleam silently ignored the optional unregister/clear lifecycle config that other backends already honored.
+- feat(alef-backend-go): emit `unregister_fn` and `clear_fn` Go wrappers from `TraitBridgeConfig` when set; short-circuits empty when `None`. Generated wrappers delegate to the host crate's C-exported `kreuzberg_unregister_*(name, &err)` and `kreuzberg_clear_*(&err)` symbols via cgo.
+- feat(alef-backend-csharp): replace hardcoded `Unregister{Trait}` P/Invoke generation with config-driven lookup of `bridge_config.unregister_fn`. Previously every C# trait-bridge always emitted an `Unregister*` declaration regardless of host capability; now the declaration and the static `Unregister(name)` C# method are conditional on the config field being set, matching the contract every other backend already honored.
+- feat(alef-backend-java): emit `unregister_fn` and `clear_fn` Panama FFM downcall handles + Java methods from `TraitBridgeConfig` when set. Each emits a `Method.invoke(...)` over the configured C symbol with the `FunctionDescriptor.of(JAVA_INT, ADDRESS)` shape and drains the local Java-side bridge map on clear.
 - feat(alef-backend-wasm): emit a synthetic `pub fn default()` static factory on every wasm-bindgen wrapper struct that derives `Default`. wasm-bindgen mirrors the Rust `(constructor)` arity, so structs with non-Optional fields (e.g. `WasmChatCompletionTool { tool_type, function }`) can only be instantiated with positional args from JS — `new WasmChatCompletionTool()` throws. The factory delegates to `<Self as ::core::default::Default>::default()` so JS callers can obtain a fresh instance and drive it via setters. Skipped automatically when the IR already exposes an explicit `default` method to avoid impl-block conflicts.
 
 ### Fixed
