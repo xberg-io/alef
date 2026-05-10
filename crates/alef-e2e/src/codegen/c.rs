@@ -14,7 +14,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
 use heck::{ToPascalCase, ToSnakeCase};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -46,6 +46,62 @@ fn is_primitive_c_type(t: &str) -> bool {
             | "bool"
             | "int"
     )
+}
+
+/// Try to emit an enum-aware field accessor: when `raw_field`/`resolved_field`
+/// is registered in `fields_enum` AND `fields_c_types[parent.field]` resolves
+/// to a non-primitive PascalCase type name, treat the accessor return as an
+/// opaque enum pointer and convert it to `char*` via the FFI's
+/// `{prefix}_{enum_snake}_to_string` accessor.
+///
+/// Without this, the C codegen would default-declare the accessor result as
+/// `char* status = literllm_batch_object_status(result);` and string-compare
+/// it — but the FFI returns `LITERLLMBatchStatus*` (an opaque enum struct
+/// pointer), not a C string. The mismatch causes immediate `Abort trap: 6` /
+/// `strcmp(NULL,...)` failures in every assertion that targets an enum field.
+///
+/// Returns `true` when an accessor was emitted (caller must NOT emit the
+/// default `char*` declaration). When emitted, the opaque-enum handle is
+/// pushed to `intermediate_handles` so the existing cleanup loop frees it via
+/// `{prefix}_{enum_snake}_free(...)` after the test body runs.
+#[allow(clippy::too_many_arguments)]
+fn try_emit_enum_accessor(
+    out: &mut String,
+    prefix: &str,
+    prefix_upper: &str,
+    raw_field: &str,
+    resolved_field: &str,
+    parent_snake_type: &str,
+    accessor_fn: &str,
+    parent_handle: &str,
+    local_var: &str,
+    fields_c_types: &HashMap<String, String>,
+    fields_enum: &HashSet<String>,
+    intermediate_handles: &mut Vec<(String, String)>,
+) -> bool {
+    if !(fields_enum.contains(raw_field) || fields_enum.contains(resolved_field)) {
+        return false;
+    }
+    let lookup_key = format!("{parent_snake_type}.{resolved_field}");
+    let Some(enum_pascal) = fields_c_types.get(&lookup_key) else {
+        return false;
+    };
+    if is_primitive_c_type(enum_pascal) || enum_pascal == "char*" {
+        return false;
+    }
+    let enum_snake = enum_pascal.to_snake_case();
+    let handle_var = format!("{local_var}_handle");
+    let _ = writeln!(
+        out,
+        "    {prefix_upper}{enum_pascal}* {handle_var} = {accessor_fn}({parent_handle});"
+    );
+    let _ = writeln!(out, "    assert({handle_var} != NULL);");
+    let _ = writeln!(
+        out,
+        "    char* {local_var} = {prefix}_{enum_snake}_to_string({handle_var});"
+    );
+    intermediate_handles.push((handle_var, enum_snake));
+    true
 }
 
 impl E2eCodegen for CCodegen {
@@ -644,6 +700,7 @@ fn render_test_file(
             &call_info.args,
             field_resolver,
             &e2e_config.fields_c_types,
+            &e2e_config.fields_enum,
             &call_info.result_type_name,
             &call_info.options_type_name,
             call_info.client_factory.as_deref(),
@@ -672,6 +729,7 @@ fn render_test_function(
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     fields_c_types: &HashMap<String, String>,
+    fields_enum: &HashSet<String>,
     result_type_name: &str,
     options_type_name: &str,
     client_factory: Option<&str>,
@@ -704,6 +762,7 @@ fn render_test_function(
             result_var,
             field_resolver,
             fields_c_types,
+            fields_enum,
             result_type_name,
             config_type,
             expects_error,
@@ -898,8 +957,10 @@ fn render_test_function(
                             &local_var,
                             result_var,
                             fields_c_types,
+                            fields_enum,
                             &mut intermediate_handles,
                             result_type_name,
+                            f,
                         );
                         if let Some(prim) = leaf_primitive {
                             primitive_locals.insert(local_var.clone(), prim);
@@ -911,6 +972,21 @@ fn render_test_function(
                         if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                             let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                             primitive_locals.insert(local_var.clone(), t.clone());
+                        } else if try_emit_enum_accessor(
+                            out,
+                            prefix,
+                            &prefix_upper,
+                            f,
+                            resolved,
+                            &result_type_snake,
+                            &accessor_fn,
+                            result_var,
+                            &local_var,
+                            fields_c_types,
+                            fields_enum,
+                            &mut intermediate_handles,
+                        ) {
+                            // accessor emitted with enum-to-string conversion
                         } else {
                             let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                         }
@@ -1233,8 +1309,10 @@ fn render_test_function(
                         &local_var,
                         result_var,
                         fields_c_types,
+                        fields_enum,
                         &mut intermediate_handles,
                         result_type_name,
+                        f,
                     );
                     if let Some(prim) = leaf_primitive {
                         primitive_locals.insert(local_var.clone(), prim);
@@ -1246,6 +1324,21 @@ fn render_test_function(
                     if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                         let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                         primitive_locals.insert(local_var.clone(), t.clone());
+                    } else if try_emit_enum_accessor(
+                        out,
+                        prefix,
+                        &prefix_upper,
+                        f,
+                        resolved,
+                        &result_type_snake,
+                        &accessor_fn,
+                        result_var,
+                        &local_var,
+                        fields_c_types,
+                        fields_enum,
+                        &mut intermediate_handles,
+                    ) {
+                        // accessor emitted with enum-to-string conversion
                     } else {
                         let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                     }
@@ -1313,6 +1406,7 @@ fn render_engine_factory_test_function(
     result_var: &str,
     field_resolver: &FieldResolver,
     fields_c_types: &HashMap<String, String>,
+    fields_enum: &HashSet<String>,
     result_type_name: &str,
     config_type: &str,
     _expects_error: bool,
@@ -1407,8 +1501,10 @@ fn render_engine_factory_test_function(
                         &local_var,
                         result_var,
                         fields_c_types,
+                        fields_enum,
                         &mut intermediate_handles,
                         result_type_name,
+                        f,
                     );
                     if let Some(prim) = leaf_primitive {
                         primitive_locals.insert(local_var.clone(), prim);
@@ -1420,6 +1516,21 @@ fn render_engine_factory_test_function(
                     if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                         let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({result_var});");
                         primitive_locals.insert(local_var.clone(), t.clone());
+                    } else if try_emit_enum_accessor(
+                        out,
+                        prefix,
+                        &prefix_upper,
+                        f,
+                        resolved,
+                        &result_type_snake,
+                        &accessor_fn,
+                        result_var,
+                        &local_var,
+                        fields_c_types,
+                        fields_enum,
+                        &mut intermediate_handles,
+                    ) {
+                        // accessor emitted with enum-to-string conversion
                     } else {
                         let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                     }
@@ -2091,8 +2202,10 @@ fn emit_nested_accessor(
     local_var: &str,
     result_var: &str,
     fields_c_types: &HashMap<String, String>,
+    fields_enum: &HashSet<String>,
     intermediate_handles: &mut Vec<(String, String)>,
     result_type_name: &str,
+    raw_field: &str,
 ) -> Option<String> {
     let segments: Vec<&str> = resolved.split('.').collect();
     let prefix_upper = prefix.to_uppercase();
@@ -2173,6 +2286,23 @@ fn emit_nested_accessor(
             if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
                 let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({current_handle});");
                 return Some(t.clone());
+            }
+            // Enum leaf: opaque enum pointer that needs `_to_string` conversion.
+            if try_emit_enum_accessor(
+                out,
+                prefix,
+                &prefix_upper,
+                raw_field,
+                &seg_snake,
+                &current_snake_type,
+                &accessor_fn,
+                &current_handle,
+                local_var,
+                fields_c_types,
+                fields_enum,
+                intermediate_handles,
+            ) {
+                return None;
             }
             let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({current_handle});");
         } else {

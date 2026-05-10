@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/c): when a fixture assertion targets a field that is registered in `[crates.e2e] fields_enum` AND the field's resolved type in `[crates.e2e] fields_c_types` is a non-primitive PascalCase enum name (e.g. `BatchStatus`), emit an opaque-handle declaration plus a `{prefix}_{enum_snake}_to_string({handle})` conversion call rather than declaring the accessor return as `char*`. The previous output (`char* status = literllm_batch_object_status(result); assert(str_trim_eq(status, "completed") == 0);`) treated the FFI's `LITERLLMBatchStatus*` opaque pointer as a C string, causing immediate `Abort trap: 6` / NULL-deref in every C e2e fixture that compared an enum field. Applied to all four accessor sites: `render_test_function` (default-client and legacy paths), `render_engine_factory_test_function`, and the leaf branch of `emit_nested_accessor`. Cleanup: the opaque handle is registered in `intermediate_handles` so the existing reverse-order free loop calls `{prefix}_{enum_snake}_free(...)`; the `to_string` result is a heap `char*` freed by `{prefix}_free_string` like any other accessor result.
+
 ## [0.15.30] - 2026-05-10
 
 ### Fixed
