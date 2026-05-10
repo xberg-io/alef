@@ -911,7 +911,7 @@ fn render_test_case(
         let mut emitted_error_assertion = false;
         for line in &setup_lines {
             if !emitted_error_assertion && line.starts_with("{:ok,") {
-                if let Some(rhs) = line.splitn(2, '=').nth(1) {
+                if let Some(rhs) = line.split_once('=').map(|x| x.1) {
                     let rhs = rhs.trim();
                     let _ = writeln!(out, "      assert {{:error, _}} = {rhs}");
                     emitted_error_assertion = true;

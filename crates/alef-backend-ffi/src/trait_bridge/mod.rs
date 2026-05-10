@@ -1199,13 +1199,13 @@ mod tests {
                 default: None,
                 sanitized: false,
                 typed_default: None,
-                is_ref: true,  // &str — the borrow that escapes without .to_string()
+                is_ref: true, // &str — the borrow that escapes without .to_string()
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
             }],
             return_type: TypeRef::Unit,
-            is_async: true,  // async method — closure must own all captured data
+            is_async: true, // async method — closure must own all captured data
             is_static: false,
             error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
             doc: String::new(),

@@ -632,10 +632,7 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
         " * its surrounding braces, or NULL if the key is missing or its value is a"
     );
     let _ = writeln!(out, " * primitive. Caller must free() the returned string.");
-    let _ = writeln!(
-        out,
-        " *"
-    );
+    let _ = writeln!(out, " *");
     let _ = writeln!(
         out,
         " * Used by chained-accessor codegen for intermediate object extraction:"
@@ -677,7 +674,10 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
     let _ = writeln!(out, "    const char *end = found;");
     let _ = writeln!(out, "    for (; *end; end++) {{");
     let _ = writeln!(out, "        if (in_string) {{");
-    let _ = writeln!(out, "            if (*end == '\\\\' && *(end + 1)) {{ end++; continue; }}");
+    let _ = writeln!(
+        out,
+        "            if (*end == '\\\\' && *(end + 1)) {{ end++; continue; }}"
+    );
     let _ = writeln!(out, "            if (*end == '\"') in_string = 0;");
     let _ = writeln!(out, "            continue;");
     let _ = writeln!(out, "        }}");
@@ -713,19 +713,28 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
         "static inline char *alef_json_array_get_index(const char *json, int index) {{"
     );
     let _ = writeln!(out, "    if (json == NULL || index < 0) return NULL;");
-    let _ = writeln!(out, "    while (*json == ' ' || *json == '\\t' || *json == '\\n') json++;");
+    let _ = writeln!(
+        out,
+        "    while (*json == ' ' || *json == '\\t' || *json == '\\n') json++;"
+    );
     let _ = writeln!(out, "    if (*json != '[') return NULL;");
     let _ = writeln!(out, "    json++;");
     let _ = writeln!(out, "    int current = 0;");
     let _ = writeln!(out, "    while (*json) {{");
-    let _ = writeln!(out, "        while (*json == ' ' || *json == '\\t' || *json == '\\n') json++;");
+    let _ = writeln!(
+        out,
+        "        while (*json == ' ' || *json == '\\t' || *json == '\\n') json++;"
+    );
     let _ = writeln!(out, "        if (*json == ']') return NULL;");
     let _ = writeln!(out, "        const char *elem_start = json;");
     let _ = writeln!(out, "        int depth = 0;");
     let _ = writeln!(out, "        int in_string = 0;");
     let _ = writeln!(out, "        for (; *json; json++) {{");
     let _ = writeln!(out, "            if (in_string) {{");
-    let _ = writeln!(out, "                if (*json == '\\\\' && *(json + 1)) {{ json++; continue; }}");
+    let _ = writeln!(
+        out,
+        "                if (*json == '\\\\' && *(json + 1)) {{ json++; continue; }}"
+    );
     let _ = writeln!(out, "                if (*json == '\"') in_string = 0;");
     let _ = writeln!(out, "                continue;");
     let _ = writeln!(out, "            }}");
@@ -2476,11 +2485,8 @@ fn emit_nested_accessor(
             // pick the first occurrence (matters for fixtures with multiple
             // array elements like `data[0]`/`data[1]`).
             let (bare_segment, bracket_key): (&str, Option<&str>) = match segment.find('[') {
-                Some(pos) => (
-                    &segment[..pos],
-                    Some(segment[pos + 1..].trim_end_matches(']')),
-                ),
-                None => (segment.as_ref(), None),
+                Some(pos) => (&segment[..pos], Some(segment[pos + 1..].trim_end_matches(']'))),
+                None => (segment, None),
             };
             let seg_snake = bare_segment.to_snake_case();
             if is_leaf {

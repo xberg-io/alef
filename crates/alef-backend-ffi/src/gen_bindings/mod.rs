@@ -940,7 +940,8 @@ sources = ["src/lib.rs"]
 
         // The new accessor: takes *const Color, returns *mut c_char.
         assert!(
-            lib.content.contains("pub unsafe extern \"C\" fn my_lib_color_to_string("),
+            lib.content
+                .contains("pub unsafe extern \"C\" fn my_lib_color_to_string("),
             "expected pub unsafe extern \"C\" fn my_lib_color_to_string in emitted lib.rs"
         );
         assert!(

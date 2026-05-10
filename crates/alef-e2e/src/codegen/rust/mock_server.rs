@@ -120,7 +120,14 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             return;
         }
 
-        routes.push((path.to_string(), method.to_string(), status, body_str, header_tuples, None));
+        routes.push((
+            path.to_string(),
+            method.to_string(),
+            status,
+            body_str,
+            header_tuples,
+            None,
+        ));
     } else {
         return;
     }
