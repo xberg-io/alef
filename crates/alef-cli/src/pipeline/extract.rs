@@ -153,6 +153,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         functions: vec![],
         enums: vec![],
         errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
     };
 
     for (crate_name, sources) in &groups {
@@ -162,6 +163,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         merged.functions.extend(api.functions);
         merged.enums.extend(api.enums);
         merged.errors.extend(api.errors);
+        merged.excluded_type_paths.extend(api.excluded_type_paths);
     }
 
     Ok(merged)
