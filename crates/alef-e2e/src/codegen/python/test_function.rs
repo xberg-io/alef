@@ -14,7 +14,8 @@ use crate::fixture::Fixture;
 
 use super::assertions::render_assertion;
 use super::helpers::{
-    BytesKind, classify_bytes_value, is_skipped, resolve_client_factory, resolve_function_name_for_call,
+    BytesKind, classify_bytes_value, is_skipped, resolve_assert_enum_fields, resolve_client_factory,
+    resolve_function_name_for_call,
 };
 use super::json::json_to_python_literal;
 use super::visitors::emit_python_visitor_method;
@@ -264,6 +265,7 @@ fn emit_result_and_assertions(
     let _ = writeln!(out, "    {py_result_var} = {call_expr}");
 
     let fields_enum = &e2e_config.fields_enum;
+    let assert_enum_fields = resolve_assert_enum_fields(call_config);
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {
             if !call_config.returns_result {
@@ -277,6 +279,7 @@ fn emit_result_and_assertions(
             result_var,
             field_resolver,
             fields_enum,
+            assert_enum_fields,
             result_is_simple,
         );
     }

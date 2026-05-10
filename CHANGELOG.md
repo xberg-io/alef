@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat(java-backend, csharp-backend): emit language-native `#[serde(flatten)] serde_json::Value` support — Java records get `@JsonAnyGetter Map<String, Object>` on the record component plus a matching `@JsonAnySetter <field>Entry(String, Object)` on the builder (with `@JsonIgnore` on the regular `with<Field>(Map)` setter so a wire field of the same name is not miscast as a Map). C# classes get `[JsonExtensionData] Dictionary<string, JsonElement>` instead of `[JsonPropertyName(...)]`. Both implement the serde flatten semantic for types like `ResponseTool { tool_type, #[serde(flatten)] config: Value }` whose wire JSON is `{"type":"function","name":"f","description":"d"}` — without this, Jackson rejected `Unrecognized field "description" (class ResponseToolBuilder)` on every chat-tools request.
 
+- alef-core: `CallOverride.assert_enum_fields` per-call override for routing result-field enum types in assertions.
+- alef-e2e/python: thread per-call `assert_enum_fields` through `render_assertion` so same-named fields (e.g. `status`) can be enum in one call and string in another.
+
 ### Fixed
 
 - alef-codegen, alef-docs: add `serde_flatten: false` to test-site `FieldDef` literals that were missing the field after iter10's plumbing.

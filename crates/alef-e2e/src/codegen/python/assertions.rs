@@ -1,6 +1,6 @@
 //! Assertion rendering for Python e2e tests.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
 use crate::field_access::FieldResolver;
@@ -15,6 +15,7 @@ pub(super) fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     fields_enum: &HashSet<String>,
+    assert_enum_fields: &HashMap<String, String>,
     result_is_simple: bool,
 ) {
     // When result_is_simple, skip fields that reference struct sub-fields.
@@ -69,6 +70,10 @@ pub(super) fn render_assertion(
     };
 
     let field_is_enum = assertion.field.as_deref().is_some_and(|f| {
+        // Per-call assertion override wins over the global set.
+        if assert_enum_fields.contains_key(f) {
+            return true;
+        }
         if fields_enum.contains(f) {
             return true;
         }
@@ -611,7 +616,7 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("not_empty", None, None);
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
+        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), &HashMap::new(), false);
         assert!(out.contains("assert result"), "got: {out}");
     }
 
@@ -620,7 +625,7 @@ mod tests {
         let resolver = empty_resolver();
         let assertion = make_assertion("equals", None, Some(serde_json::Value::String("hello".into())));
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
+        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), &HashMap::new(), false);
         assert!(out.contains(".strip()"), "got: {out}");
     }
 
@@ -633,7 +638,15 @@ mod tests {
             Some(serde_json::Value::String("Function".into())),
         );
         let mut out = String::new();
-        render_assertion(&mut out, &assertion, "result", &resolver, &HashSet::new(), false);
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            &resolver,
+            &HashSet::new(),
+            &HashMap::new(),
+            false,
+        );
 
         assert!(out.contains("_alef_e2e_item_texts(item)"), "got: {out}");
         assert!(out.contains("for item in result.structure"), "got: {out}");

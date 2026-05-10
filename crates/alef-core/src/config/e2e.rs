@@ -419,6 +419,11 @@ pub struct CallOverride {
     /// The generator imports these types and maps string values to enum constants.
     #[serde(default)]
     pub enum_fields: HashMap<String, String>,
+    /// Maps result-type field names to their enum type names for assertion routing.
+    /// Per-call so e.g. `BatchObject.status` (enum) and `ResponseObject.status` (string)
+    /// can be disambiguated.
+    #[serde(default)]
+    pub assert_enum_fields: HashMap<String, String>,
     /// Module to import enum types from (if different from the main module).
     /// E.g., "html_to_markdown._html_to_markdown" for PyO3 native enums.
     #[serde(default)]
