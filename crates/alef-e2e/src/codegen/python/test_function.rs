@@ -136,9 +136,15 @@ pub(super) fn render_test_function(
     let arg_bindings_str = format!("{client_setup}{arg_bindings_str}");
 
     if has_error_assertion {
-        // Build error assertion block
+        // For error-assertion fixtures, the engine creation and other arg bindings
+        // must happen INSIDE the `pytest.raises` block — otherwise validation
+        // errors raised at engine-creation time fly past the assertion uncaught
+        // and crash the test (e.g. `validation_max_depth_too_high` raises in
+        // `create_engine(CrawlConfig(max_depth=200))` before the `await scrape(...)`
+        // call ever runs). Pass arg_bindings_str to emit_error_assertion so it
+        // can emit them indented one level deeper, inside the with block.
         let mut error_assertion_block = String::new();
-        emit_error_assertion(&mut error_assertion_block, fixture, &call_expr);
+        emit_error_assertion(&mut error_assertion_block, fixture, &arg_bindings_str, &call_expr);
 
         let ctx = minijinja::context! {
             skip_decorator => skip_decorator,
@@ -147,7 +153,7 @@ pub(super) fn render_test_function(
             fn_name => fn_name,
             docstring => desc_with_period,
             visitor_class => visitor_class,
-            arg_bindings => arg_bindings_str,
+            arg_bindings => String::new(),
             call_expr => call_expr,
             is_error_assertion => true,
             error_assertion_block => error_assertion_block,
@@ -188,25 +194,41 @@ pub(super) fn render_test_function(
     out.push_str(&rendered);
 }
 
-fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {
+fn emit_error_assertion(out: &mut String, fixture: &Fixture, arg_bindings_str: &str, call_expr: &str) {
     let error_assertion = fixture.assertions.iter().find(|a| a.assertion_type == "error");
     let has_message = error_assertion
         .and_then(|a| a.value.as_ref())
         .and_then(|v| v.as_str())
         .is_some();
 
+    // Re-indent arg_bindings by an extra 4 spaces so they land inside the `with`
+    // block. arg_bindings already begin with 4 spaces (function-body level);
+    // prepending 4 more puts them at the with-body level (8 spaces).
+    let indented_bindings: String = arg_bindings_str
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| format!("    {l}\n"))
+        .collect();
+
     if has_message {
         let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:  # noqa: B017");
+        out.push_str(&indented_bindings);
         let _ = writeln!(out, "        {call_expr}");
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
+            // Match against the rendered exception message, not the class name —
+            // fixture values like "max_depth", "proxy", "urls", "connection" are
+            // substrings of the user-facing error text, not of the exception class
+            // name (e.g. `InvalidConfigError`). With NetworkErrorKind tagging in
+            // kreuzcrawl core, network-error messages now embed `[network:<kind>]`.
             let _ = writeln!(
                 out,
-                "    assert \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101"
+                "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101"
             );
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
+        out.push_str(&indented_bindings);
         let _ = writeln!(out, "        {call_expr}");
     }
 }
