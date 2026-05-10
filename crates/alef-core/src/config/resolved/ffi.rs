@@ -65,6 +65,20 @@ impl ResolvedCrateConfig {
             .unwrap_or_else(|| format!("{}.h", self.ffi_prefix()))
     }
 
+    /// Resolve the Rust expression used by FFI plugin shims
+    /// (`plugin_impl_initialize`, `plugin_impl_shutdown`) to construct an
+    /// error value from a runtime `String` named `msg`.
+    ///
+    /// Returns `[ffi] plugin_error_constructor` verbatim when set; otherwise
+    /// `None` so callers can fall back to a generic constructor that doesn't
+    /// depend on a specific error variant shape.
+    pub fn ffi_plugin_error_constructor(&self) -> Option<String> {
+        self.ffi
+            .as_ref()
+            .and_then(|f| f.plugin_error_constructor.as_ref())
+            .cloned()
+    }
+
     /// Get the relative path to the FFI crate from the e2e test directory.
     ///
     /// Used by C e2e tests to locate the compiled FFI library when building

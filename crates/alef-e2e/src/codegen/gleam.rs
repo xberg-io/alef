@@ -167,6 +167,19 @@ impl E2eCodegen for GleamE2eCodegen {
                 &e2e_config.fields_array,
                 &e2e_config.fields_method_calls,
             );
+            // Look up gleam-specific config for element_type → record-constructor
+            // recipes. Empty slice when the downstream hasn't configured any.
+            let element_constructors: &[alef_core::config::GleamElementConstructor] = config
+                .gleam
+                .as_ref()
+                .map(|g| g.element_constructors.as_slice())
+                .unwrap_or(&[]);
+            // Optional wrapper template used when a json_object arg has no
+            // matching element_type recipe.
+            let json_object_wrapper: Option<&str> = config
+                .gleam
+                .as_ref()
+                .and_then(|g| g.json_object_wrapper.as_deref());
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -177,6 +190,8 @@ impl E2eCodegen for GleamE2eCodegen {
                 &e2e_config.call.args,
                 &field_resolver,
                 &e2e_config.fields_enum,
+                element_constructors,
+                json_object_wrapper,
             );
             files.push(GeneratedFile {
                 path: output_base.join("test").join(filename),
@@ -289,6 +304,8 @@ fn render_test_file(
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
+    element_constructors: &[alef_core::config::GleamElementConstructor],
+    json_object_wrapper: Option<&str>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -439,6 +456,8 @@ fn render_test_file(
                 args,
                 field_resolver,
                 enum_fields,
+                element_constructors,
+                json_object_wrapper,
             );
         }
         let _ = writeln!(out);
@@ -679,6 +698,8 @@ fn render_test_case(
     _args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
+    element_constructors: &[alef_core::config::GleamElementConstructor],
+    json_object_wrapper: Option<&str>,
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
@@ -706,8 +727,14 @@ fn render_test_case(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let test_documents_path = e2e_config.test_documents_relative_from(0);
-    let (setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, &fixture.id, &test_documents_path);
+    let (setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        &fixture.id,
+        &test_documents_path,
+        element_constructors,
+        json_object_wrapper,
+    );
 
     // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
     // emit one function per fixture so failures point at the offending fixture.
@@ -775,6 +802,8 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     _fixture_id: &str,
     test_documents_path: &str,
+    element_constructors: &[alef_core::config::GleamElementConstructor],
+    json_object_wrapper: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -848,17 +877,55 @@ fn build_args_and_setup(
                 }
             }
             "json_object" => {
-                // Generic JSON-object handling: serialise to a string literal
-                // containing the JSON form. Downstreams whose Gleam binding
-                // accepts a structured config record rather than a JSON string
-                // need their own extension layer — alef-e2e does not embed any
-                // downstream-specific record-constructor knowledge here.
-                if arg.optional && (val.is_none() || val == Some(&serde_json::Value::Null)) {
+                // Look up a per-`element_type` constructor recipe declared in
+                // `[crates.gleam.element_constructors]`. When present, build a
+                // record literal from the recipe; otherwise fall back to a
+                // generic JSON-string emission via `json_to_gleam`.
+                let element_type = arg.element_type.as_deref().unwrap_or("");
+                let recipe = if element_type.is_empty() {
+                    None
+                } else {
+                    element_constructors
+                        .iter()
+                        .find(|r| r.element_type == element_type)
+                };
+
+                if let Some(recipe) = recipe {
+                    // List-of-records emission: each JSON-array item becomes
+                    // one constructor call; non-array values produce an empty
+                    // list (preserving the iter15 behaviour).
+                    let items_expr = match val {
+                        Some(serde_json::Value::Array(arr)) => {
+                            let items: Vec<String> = arr
+                                .iter()
+                                .map(|item| {
+                                    render_gleam_element_constructor(item, recipe, test_documents_path)
+                                })
+                                .collect();
+                            format!("[{}]", items.join(", "))
+                        }
+                        _ => "[]".to_string(),
+                    };
+                    if arg.optional && (val.is_none() || val == Some(&serde_json::Value::Null)) {
+                        parts.push("[]".to_string());
+                    } else {
+                        parts.push(items_expr);
+                    }
+                } else if arg.optional && (val.is_none() || val == Some(&serde_json::Value::Null)) {
                     parts.push("option.None".to_string());
                 } else {
                     let empty_obj = serde_json::Value::Object(Default::default());
                     let config_val = val.unwrap_or(&empty_obj);
-                    parts.push(json_to_gleam(config_val));
+                    let json_literal = json_to_gleam(config_val);
+                    // When the downstream has configured a wrapper (e.g.
+                    // `kreuzberg.config_from_json_string({json})`), substitute
+                    // the placeholder; otherwise emit the bare JSON-string
+                    // literal.
+                    let emitted = match json_object_wrapper {
+                        Some(template) => template.replace("{json}", &json_literal),
+                        None => json_literal,
+                    };
+                    parts.push(emitted);
                 }
             }
             "int" | "integer" => match val {
@@ -887,6 +954,72 @@ fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
+}
+
+/// Render a single Gleam record-constructor call for one item of a
+/// `json_object` list arg, driven by a `[crates.gleam.element_constructors]`
+/// entry. Each field is dispatched by its `kind`:
+///
+/// * `file_path` — emits a Gleam string literal; relative paths are prefixed
+///   with `test_documents_path` so they resolve from the e2e working dir.
+/// * `byte_array` — emits a Gleam BitArray literal `<<n1, n2, ...>>` from a
+///   JSON array of unsigned integers.
+/// * `string` — emits a Gleam string literal; missing/null falls back to
+///   the field's `default` (or `""`).
+/// * `literal` — emits the field's `value` verbatim.
+fn render_gleam_element_constructor(
+    item: &serde_json::Value,
+    recipe: &alef_core::config::GleamElementConstructor,
+    test_documents_path: &str,
+) -> String {
+    let mut field_exprs: Vec<String> = Vec::with_capacity(recipe.fields.len());
+    for field in &recipe.fields {
+        let expr = match field.kind.as_str() {
+            "file_path" => {
+                let json_field = field.json_field.as_deref().unwrap_or("");
+                let path = item.get(json_field).and_then(|v| v.as_str()).unwrap_or("");
+                let full = if path.starts_with('/') {
+                    path.to_string()
+                } else {
+                    format!("{test_documents_path}/{path}")
+                };
+                format!("\"{}\"", escape_gleam(&full))
+            }
+            "byte_array" => {
+                let json_field = field.json_field.as_deref().unwrap_or("");
+                let bytes: Vec<String> = item
+                    .get(json_field)
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().map(|b| b.as_u64().unwrap_or(0).to_string()).collect())
+                    .unwrap_or_default();
+                if bytes.is_empty() {
+                    "<<>>".to_string()
+                } else {
+                    format!("<<{}>>", bytes.join(", "))
+                }
+            }
+            "string" => {
+                let json_field = field.json_field.as_deref().unwrap_or("");
+                let value = item
+                    .get(json_field)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| field.default.clone())
+                    .unwrap_or_default();
+                format!("\"{}\"", escape_gleam(&value))
+            }
+            "literal" => field.value.clone().unwrap_or_default(),
+            other => {
+                // Unknown kind — fall back to a verbatim literal of the value
+                // field if present, else an empty string. Surfacing the
+                // unsupported kind in the generated code makes the error
+                // visible at compile-time rather than failing silently.
+                field.value.clone().unwrap_or_else(|| format!("\"<unsupported kind: {other}>\""))
+            }
+        };
+        field_exprs.push(format!("{}: {}", field.gleam_field, expr));
+    }
+    format!("{}({})", recipe.constructor, field_exprs.join(", "))
 }
 
 /// Render an assertion for a field that traverses a tagged-union variant.
@@ -1529,5 +1662,180 @@ fn json_to_gleam(value: &serde_json::Value) -> String {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             format!("\"{}\"", escape_gleam(&json_str))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::{GleamElementConstructor, GleamElementField};
+
+    fn batch_file_item_recipe() -> GleamElementConstructor {
+        GleamElementConstructor {
+            element_type: "BatchFileItem".to_string(),
+            constructor: "kreuzberg.BatchFileItem".to_string(),
+            fields: vec![
+                GleamElementField {
+                    gleam_field: "path".to_string(),
+                    kind: "file_path".to_string(),
+                    json_field: Some("path".to_string()),
+                    default: None,
+                    value: None,
+                },
+                GleamElementField {
+                    gleam_field: "config".to_string(),
+                    kind: "literal".to_string(),
+                    json_field: None,
+                    default: None,
+                    value: Some("option.None".to_string()),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn render_element_constructor_file_path_relative_path_gets_test_documents_prefix() {
+        let item = serde_json::json!({ "path": "docx/fake.docx" });
+        let out = render_gleam_element_constructor(&item, &batch_file_item_recipe(), "../../test_documents");
+        assert_eq!(
+            out,
+            "kreuzberg.BatchFileItem(path: \"../../test_documents/docx/fake.docx\", config: option.None)"
+        );
+    }
+
+    #[test]
+    fn render_element_constructor_file_path_absolute_path_passes_through() {
+        let item = serde_json::json!({ "path": "/etc/some/absolute" });
+        let out = render_gleam_element_constructor(&item, &batch_file_item_recipe(), "../../test_documents");
+        assert!(
+            out.contains("\"/etc/some/absolute\""),
+            "absolute paths must NOT receive the test_documents prefix; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_element_constructor_byte_array_emits_bitarray() {
+        let recipe = GleamElementConstructor {
+            element_type: "BatchBytesItem".to_string(),
+            constructor: "kreuzberg.BatchBytesItem".to_string(),
+            fields: vec![
+                GleamElementField {
+                    gleam_field: "content".to_string(),
+                    kind: "byte_array".to_string(),
+                    json_field: Some("content".to_string()),
+                    default: None,
+                    value: None,
+                },
+                GleamElementField {
+                    gleam_field: "mime_type".to_string(),
+                    kind: "string".to_string(),
+                    json_field: Some("mime_type".to_string()),
+                    default: Some("text/plain".to_string()),
+                    value: None,
+                },
+                GleamElementField {
+                    gleam_field: "config".to_string(),
+                    kind: "literal".to_string(),
+                    json_field: None,
+                    default: None,
+                    value: Some("option.None".to_string()),
+                },
+            ],
+        };
+        let item = serde_json::json!({ "content": [72, 105], "mime_type": "text/html" });
+        let out = render_gleam_element_constructor(&item, &recipe, "../../test_documents");
+        assert_eq!(
+            out,
+            "kreuzberg.BatchBytesItem(content: <<72, 105>>, mime_type: \"text/html\", config: option.None)"
+        );
+    }
+
+    #[test]
+    fn build_args_with_json_object_wrapper_substitutes_placeholder() {
+        use crate::config::ArgMapping;
+        let arg = ArgMapping {
+            name: "config".to_string(),
+            field: "config".to_string(),
+            arg_type: "json_object".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+        };
+        let input = serde_json::json!({
+            "config": { "use_cache": true, "force_ocr": false }
+        });
+        let (_setup, args_str) = build_args_and_setup(
+            &input,
+            &[arg],
+            "test_fixture",
+            "../../test_documents",
+            &[],
+            Some("k.config_from_json_string({json})"),
+        );
+        // The wrapper template substitutes {json} with the JSON-string literal
+        // emitted by json_to_gleam.
+        assert!(
+            args_str.starts_with("k.config_from_json_string("),
+            "wrapper must envelop the JSON literal; got:\n{args_str}"
+        );
+        assert!(
+            args_str.contains("use_cache"),
+            "JSON payload must reach the wrapper; got:\n{args_str}"
+        );
+    }
+
+    #[test]
+    fn build_args_without_json_object_wrapper_emits_bare_json_string() {
+        use crate::config::ArgMapping;
+        let arg = ArgMapping {
+            name: "config".to_string(),
+            field: "config".to_string(),
+            arg_type: "json_object".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+        };
+        let input = serde_json::json!({ "config": { "x": 1 } });
+        let (_setup, args_str) = build_args_and_setup(
+            &input,
+            &[arg],
+            "test_fixture",
+            "../../test_documents",
+            &[],
+            None,
+        );
+        // Default behaviour: bare JSON-string literal, no wrapper. The
+        // emission must NOT contain any function-call shape from a wrapper.
+        assert!(
+            !args_str.contains("from_json_string"),
+            "no wrapper configured must not synthesise one; got:\n{args_str}"
+        );
+        assert!(
+            args_str.starts_with('"'),
+            "bare emission is a Gleam string literal starting with a quote; got:\n{args_str}"
+        );
+    }
+
+    #[test]
+    fn render_element_constructor_string_falls_back_to_default() {
+        let recipe = GleamElementConstructor {
+            element_type: "BatchBytesItem".to_string(),
+            constructor: "k.BatchBytesItem".to_string(),
+            fields: vec![GleamElementField {
+                gleam_field: "mime_type".to_string(),
+                kind: "string".to_string(),
+                json_field: Some("mime_type".to_string()),
+                default: Some("text/plain".to_string()),
+                value: None,
+            }],
+        };
+        let item = serde_json::json!({});
+        let out = render_gleam_element_constructor(&item, &recipe, "../../test_documents");
+        assert!(
+            out.contains("mime_type: \"text/plain\""),
+            "missing string field must fall back to default; got:\n{out}"
+        );
     }
 }

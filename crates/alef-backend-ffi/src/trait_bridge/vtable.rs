@@ -142,12 +142,21 @@ impl FfiBridgeGenerator {
             minijinja::context! {},
         ));
 
+        // The configured plugin_error_constructor takes precedence; otherwise
+        // fall back to a generic `core_import::error_type::from(msg)` shape
+        // (works for any error type that implements `From<String>`).
+        let plugin_error_expr = self
+            .plugin_error_constructor
+            .clone()
+            .unwrap_or_else(|| format!("<{core_import}::{error_type} as ::core::convert::From<String>>::from(msg)"));
+
         // plugin_impl_initialize
         out.push_str(&crate::template_env::render(
             "plugin_impl_initialize.jinja",
             minijinja::context! {
                 core_import => core_import,
                 error_type => error_type,
+                plugin_error_expr => plugin_error_expr,
             },
         ));
 
@@ -157,6 +166,7 @@ impl FfiBridgeGenerator {
             minijinja::context! {
                 core_import => core_import,
                 error_type => error_type,
+                plugin_error_expr => plugin_error_expr,
             },
         ));
 
@@ -242,6 +252,7 @@ mod tests {
             core_import: "my_lib".to_string(),
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
+            plugin_error_constructor: None,
         }
     }
 
@@ -370,5 +381,64 @@ mod tests {
         assert!(out.contains("fn name(&self)"), "must have name()");
         assert!(out.contains("fn initialize(&self)"), "must have initialize()");
         assert!(out.contains("fn shutdown(&self)"), "must have shutdown()");
+        // Default (no plugin_error_constructor configured) emits the generic
+        // `From<String>` fallback so non-kreuzberg downstreams compile.
+        assert!(
+            out.contains("<my_lib::MyError as ::core::convert::From<String>>::from(msg)"),
+            "default plugin error path must use From<String> fallback;\n\
+             actual:\n{out}"
+        );
+        assert!(
+            !out.contains("KreuzbergError::Plugin"),
+            "default emission must not embed downstream-specific kreuzberg literals;\n\
+             actual:\n{out}"
+        );
+    }
+
+    /// When the FFI config provides an explicit `plugin_error_constructor`
+    /// expression, the plugin shim emits that verbatim instead of the
+    /// `From<String>` fallback. This is the kreuzberg compatibility path —
+    /// kreuzberg's `KreuzbergError::Plugin` is a struct variant with two
+    /// fields and cannot be constructed via `From<String>`.
+    #[test]
+    fn gen_ffi_plugin_impl_uses_configured_plugin_error_constructor() {
+        let generator = FfiBridgeGenerator {
+            prefix: "ml".to_string(),
+            core_import: "my_lib".to_string(),
+            type_paths: HashMap::new(),
+            error_type: "MyError".to_string(),
+            plugin_error_constructor: Some(
+                "my_lib::MyError::Plugin { message: msg, plugin_name: String::new() }".to_string(),
+            ),
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "Backend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: None,
+            register_fn: None,
+            unregister_fn: None,
+            clear_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let trait_def = make_trait_def("Backend", vec![]);
+        let spec = make_spec(&trait_def, &bridge_cfg);
+
+        let out = generator.gen_ffi_plugin_impl(&spec).expect("must produce Some");
+        assert!(
+            out.contains("my_lib::MyError::Plugin { message: msg, plugin_name: String::new() }"),
+            "plugin shim must inline the configured constructor verbatim;\n\
+             actual:\n{out}"
+        );
+        assert!(
+            !out.contains("From<String>"),
+            "configured constructor takes precedence over the From<String> fallback;\n\
+             actual:\n{out}"
+        );
     }
 }

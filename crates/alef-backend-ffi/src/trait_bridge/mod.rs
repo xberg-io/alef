@@ -45,6 +45,13 @@ pub struct FfiBridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"KreuzbergError"`).
     pub error_type: String,
+    /// Optional Rust expression that constructs an `error_type` value from a
+    /// `String` named `msg`, used by the Plugin super-trait `initialize` and
+    /// `shutdown` shims. Sourced from `[ffi] plugin_error_constructor` in the
+    /// crate config. When `None`, the plugin shims fall back to a generic
+    /// `format!`-style constructor that doesn't depend on a specific error
+    /// variant shape.
+    pub plugin_error_constructor: Option<String>,
 }
 
 impl FfiBridgeGenerator {
@@ -166,6 +173,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     error_constructor: &str,
+    plugin_error_constructor: Option<&str>,
     api: &ApiSurface,
 ) -> String {
     let type_paths: HashMap<String, String> = api
@@ -184,6 +192,7 @@ pub fn gen_trait_bridge(
         core_import: core_import.to_string(),
         type_paths: type_paths.clone(),
         error_type: error_type.to_string(),
+        plugin_error_constructor: plugin_error_constructor.map(str::to_string),
     };
 
     let spec = TraitBridgeSpec {
@@ -429,6 +438,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -458,6 +468,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -490,6 +501,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -512,6 +524,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -536,6 +549,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -562,6 +576,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -601,6 +616,7 @@ mod tests {
             "kreuzberg",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -646,6 +662,7 @@ mod tests {
             "kreuzberg",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -689,6 +706,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -734,6 +752,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -773,6 +792,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -799,6 +819,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 
@@ -851,6 +872,7 @@ mod tests {
             "my_lib",
             "MyError",
             "MyError::from({msg})",
+            None,
             &api,
         );
 

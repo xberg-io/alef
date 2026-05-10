@@ -9,7 +9,7 @@
                 let cs = unsafe { std::ffi::CString::from_raw(_out_error) };
                 cs.to_string_lossy().into_owned()
             };
-            return Err(kreuzberg::KreuzbergError::Plugin { message: msg, plugin_name: String::new() });
+            return Err({{ plugin_error_expr | safe }});
         }
         Ok(())
     }

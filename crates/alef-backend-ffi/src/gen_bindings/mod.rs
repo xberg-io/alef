@@ -581,6 +581,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
 
         let error_type_name = config.error_type_name();
         let error_constructor = config.error_constructor_expr();
+        let plugin_error_constructor = config.ffi_plugin_error_constructor();
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_def) = trait_map.get(bridge_cfg.trait_name.as_str()) {
                 let bridge_code = crate::trait_bridge::gen_trait_bridge(
@@ -590,6 +591,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     &core_import,
                     &error_type_name,
                     &error_constructor,
+                    plugin_error_constructor.as_deref(),
                     api,
                 );
                 builder.add_item(&bridge_code);

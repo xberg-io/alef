@@ -158,6 +158,7 @@ fn test_gen_trait_bridge_vtable_is_repr_c() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -187,6 +188,7 @@ fn test_gen_trait_bridge_vtable_has_function_pointer_fields_for_each_method() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -217,6 +219,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_are_optional_extern_c() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -247,6 +250,7 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_take_user_data_first() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -277,6 +281,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -319,6 +324,7 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -358,6 +364,7 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -389,6 +396,7 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -438,6 +446,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -489,6 +498,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -524,6 +534,7 @@ fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -554,6 +565,7 @@ fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -596,6 +608,7 @@ fn test_gen_trait_bridge_safety_comments_present() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -618,6 +631,7 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -645,6 +659,7 @@ fn test_gen_trait_bridge_generates_trait_impl() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 
@@ -690,6 +705,7 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         "my_lib",
         "Error",
         "Error::from({msg})",
+        None,
         &api,
     );
 

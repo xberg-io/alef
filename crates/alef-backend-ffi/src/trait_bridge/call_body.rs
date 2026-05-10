@@ -522,6 +522,7 @@ mod tests {
             core_import: "my_lib".to_string(),
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
+            plugin_error_constructor: None,
         }
     }
 

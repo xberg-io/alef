@@ -89,6 +89,8 @@ fn make_config_with_nif(nif_module: &str) -> ResolvedCrateConfig {
         exclude_types: Vec::new(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        element_constructors: Vec::new(),
+        json_object_wrapper: None,
     });
     config
 }

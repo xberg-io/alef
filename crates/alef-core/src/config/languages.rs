@@ -338,6 +338,30 @@ pub struct FfiConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Rust expression used to construct an error value of this crate's
+    /// `error_type` from a runtime `String` message inside generated FFI
+    /// trait-bridge plugin shims (`plugin_impl_initialize`, `plugin_impl_shutdown`).
+    ///
+    /// The expression has access to a local variable `msg: String` containing
+    /// the underlying error message and is interpolated verbatim. Example
+    /// values:
+    ///
+    /// ```toml
+    /// # downstream whose error type has a struct variant with two fields:
+    /// plugin_error_constructor = """
+    /// kreuzberg::KreuzbergError::Plugin { message: msg, plugin_name: String::new() }
+    /// """
+    ///
+    /// # downstream whose error type implements `From<String>`:
+    /// plugin_error_constructor = "MyError::from(msg)"
+    /// ```
+    ///
+    /// Defaults to `None`. When unset, the plugin shim still emits — backends
+    /// fall back to a `format!("{}: {}", prefix, msg)`-style construction via
+    /// the configured `error_constructor`. Downstreams that don't expose
+    /// trait-bridged plugins can ignore this knob entirely.
+    #[serde(default)]
+    pub plugin_error_constructor: Option<String>,
 }
 
 fn default_error_style() -> String {
@@ -601,6 +625,97 @@ pub struct GleamConfig {
     /// Extra paths to append to default lint commands.
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Per-`element_type` Gleam record-constructor recipes used by the e2e
+    /// generator when emitting `json_object` arg literals. Each entry maps a
+    /// fixture-side `element_type` string (e.g. `"BatchFileItem"`) to a
+    /// structured constructor description that the codegen interpolates per
+    /// JSON-array item. Without an entry the codegen falls back to the
+    /// `json_object_wrapper` (or a plain `json_to_gleam`).
+    ///
+    /// Example:
+    ///
+    /// ```toml
+    /// [[crates.gleam.element_constructors]]
+    /// element_type = "BatchFileItem"
+    /// constructor = "kreuzberg.BatchFileItem"
+    /// [[crates.gleam.element_constructors.fields]]
+    /// gleam_field = "path"
+    /// kind = "file_path"
+    /// json_field = "path"
+    /// [[crates.gleam.element_constructors.fields]]
+    /// gleam_field = "config"
+    /// kind = "literal"
+    /// value = "option.None"
+    /// ```
+    #[serde(default)]
+    pub element_constructors: Vec<GleamElementConstructor>,
+    /// Optional Gleam expression template used to wrap `json_object` arg
+    /// values when no `element_type` recipe matches. The placeholder
+    /// `{json}` is replaced with a Gleam string literal containing the JSON
+    /// form of the arg value, allowing the downstream's Gleam binding to do
+    /// its own parsing.
+    ///
+    /// Example:
+    ///
+    /// ```toml
+    /// [crates.gleam]
+    /// json_object_wrapper = "kreuzberg.config_from_json_string({json})"
+    /// ```
+    ///
+    /// When `None`, the codegen emits `{json}` verbatim (a plain Gleam
+    /// string), matching the iter15 default.
+    #[serde(default)]
+    pub json_object_wrapper: Option<String>,
+}
+
+/// One per-`element_type` Gleam record-constructor recipe. Keyed by the
+/// fixture-side `element_type` string and consumed by the e2e Gleam codegen
+/// when building `json_object` arg literals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GleamElementConstructor {
+    /// Fixture-side `element_type` value this recipe applies to (e.g.
+    /// `"BatchFileItem"`).
+    pub element_type: String,
+    /// Fully-qualified Gleam constructor identifier (e.g.
+    /// `"kreuzberg.BatchFileItem"`). Emitted verbatim before the `(...)` field
+    /// list.
+    pub constructor: String,
+    /// Ordered list of fields to emit inside the constructor's `(...)` block,
+    /// in argument-position order. Each field describes how its value is
+    /// derived from the per-item JSON object.
+    pub fields: Vec<GleamElementField>,
+}
+
+/// One field inside a [`GleamElementConstructor`]'s argument list.
+///
+/// `kind` selects the source/encoding strategy:
+/// * `"file_path"` — read `json_field` from the JSON object as a string,
+///   prefix with the configured `test_documents_dir` when the value does not
+///   start with `/`, and emit as a Gleam string literal.
+/// * `"byte_array"` — read `json_field` from the JSON object as a JSON
+///   `Array(Number)` and emit as a Gleam BitArray literal `<<n1, n2, …>>`.
+/// * `"string"` — read `json_field` as a string, emit as a Gleam string
+///   literal; falls back to `default` (or empty) if missing.
+/// * `"literal"` — emit `value` verbatim (no JSON lookup). Use for
+///   constant fields like `config: option.None`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GleamElementField {
+    /// Gleam record field name (e.g. `"path"`, `"config"`).
+    pub gleam_field: String,
+    /// Source/encoding strategy. See struct doc.
+    pub kind: String,
+    /// JSON object key to read, when `kind` is one of the JSON-driven
+    /// strategies. Required for `"file_path"`, `"byte_array"`, `"string"`;
+    /// ignored for `"literal"`.
+    #[serde(default)]
+    pub json_field: Option<String>,
+    /// Default Gleam expression when `json_field` is missing/null. Only
+    /// honoured by the `"string"` strategy today.
+    #[serde(default)]
+    pub default: Option<String>,
+    /// Verbatim Gleam expression to emit when `kind = "literal"`.
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
