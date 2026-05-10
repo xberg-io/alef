@@ -1035,6 +1035,7 @@ fn render_example(
             field_resolver,
             result_is_simple,
             e2e_config,
+            enum_fields,
         );
     }
 
@@ -1336,6 +1337,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     e2e_config: &E2eConfig,
+    per_call_enum_fields: &HashMap<String, String>,
 ) {
     // For simple-result methods (e.g. `speech` returning bytes), every field-based
     // assertion targets the result itself — there's no struct to access. Drop
@@ -1545,10 +1547,17 @@ fn render_assertion(
 
     // For string equality, strip trailing whitespace to handle trailing newlines
     // from the converter. Ruby enum fields (Magnus binds Rust enums as Symbols),
-    // are coerced to String via .to_s so `eq("stop")` matches `:stop`.
+    // are coerced to String via .to_s so `eq("stop")` matches `:stop`. Look up the
+    // field in both the global `[crates.e2e] fields_enum` set AND the per-call
+    // override `[crates.e2e.calls.<x>.overrides.<lang>] enum_fields = { ... }` —
+    // downstream config that already labels e.g. `status = "BatchStatus"` for the
+    // Java/C#/Python sides should apply here too without a Ruby-only duplicate.
     let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
-        e2e_config.fields_enum.contains(f) || e2e_config.fields_enum.contains(resolved)
+        e2e_config.fields_enum.contains(f)
+            || e2e_config.fields_enum.contains(resolved)
+            || per_call_enum_fields.contains_key(f)
+            || per_call_enum_fields.contains_key(resolved)
     });
     let stripped_field_expr = if result_is_simple {
         format!("{field_expr}.to_s.strip")
