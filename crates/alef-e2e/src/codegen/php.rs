@@ -138,7 +138,7 @@ impl E2eCodegen for PhpCodegen {
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -370,7 +370,7 @@ fn render_test_file(
 
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
     let needs_crawl_config_import = fixtures.iter().any(|f| {
-        let call = e2e_config.resolve_call(f.call.as_deref());
+        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         call.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
             let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
@@ -384,7 +384,7 @@ fn render_test_file(
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
-            let call = e2e_config.resolve_call(f.call.as_deref());
+            let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             let php_override = call.overrides.get(lang);
             let opt_type = php_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
                 e2e_config
@@ -764,7 +764,7 @@ fn render_test_method(
     options_via: &str,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let call_overrides = call_config.overrides.get(lang);
     let has_override = call_overrides.is_some_and(|o| o.function.is_some());
     // Per-call result_is_simple override wins over the language-level default,

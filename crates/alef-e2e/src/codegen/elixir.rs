@@ -82,7 +82,7 @@ impl E2eCodegen for ElixirCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let elixir_override = cc
                     .overrides
                     .get("elixir")
@@ -661,7 +661,7 @@ fn render_test_case(
     }
 
     // Resolve per-fixture call config (falls back to default if fixture.call is None).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "elixir";
     let call_overrides = call_config.overrides.get(lang);
 
@@ -1819,7 +1819,7 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let elixir_override = call_config
         .overrides
         .get("elixir")

@@ -181,6 +181,29 @@ impl E2eConfig {
         }
     }
 
+    /// Resolve the call config for a fixture, applying `select_when` auto-routing.
+    ///
+    /// When the fixture has an explicit `call` name, that named config is returned
+    /// (same as [`resolve_call`]).  When the fixture has no explicit call, the method
+    /// scans named calls for a [`SelectWhen`] condition that matches the fixture input
+    /// and returns the first match.  If no condition matches, it falls back to the
+    /// default `[e2e.call]`.
+    pub fn resolve_call_for_fixture(&self, call_name: Option<&str>, fixture_input: &serde_json::Value) -> &CallConfig {
+        if let Some(name) = call_name {
+            return self.calls.get(name).unwrap_or(&self.call);
+        }
+        // Auto-route by select_when condition.
+        for call_config in self.calls.values() {
+            if let Some(SelectWhen::InputHas(key)) = &call_config.select_when {
+                let val = fixture_input.get(key.as_str()).unwrap_or(&serde_json::Value::Null);
+                if !val.is_null() {
+                    return call_config;
+                }
+            }
+        }
+        &self.call
+    }
+
     /// Resolve the effective package reference for a language.
     ///
     /// In registry mode, entries from `[e2e.registry.packages]` are merged on
@@ -303,6 +326,19 @@ pub struct CallConfig {
     /// When `true`, the function returns `Option<T>`.
     #[serde(default)]
     pub result_is_option: bool,
+    /// Automatic fixture-routing condition.
+    ///
+    /// When set, a fixture whose `call` field is `None` is routed to this named call config
+    /// if the condition is satisfied.  This avoids the need to tag every fixture with
+    /// `"call": "batch_scrape"` when the fixture shape already identifies the call.
+    ///
+    /// Example (`alef.toml`):
+    /// ```toml
+    /// [e2e.calls.batch_scrape]
+    /// select_when = { input_has = "batch_urls" }
+    /// ```
+    #[serde(default)]
+    pub select_when: Option<SelectWhen>,
 }
 
 fn default_result_var() -> String {
@@ -311,6 +347,23 @@ fn default_result_var() -> String {
 
 fn default_returns_result() -> bool {
     false
+}
+
+/// Condition for auto-selecting a named call config when the fixture matches.
+///
+/// When a fixture does not specify `"call"`, the codegen normally uses the default
+/// `[e2e.call]`.  A `SelectWhen` condition on a named call allows automatic routing
+/// based on the fixture's input shape:
+///
+/// ```toml
+/// [e2e.calls.batch_scrape]
+/// select_when = { input_has = "batch_urls" }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectWhen {
+    /// Select this call when the fixture input contains the named key with a non-null value.
+    InputHas(String),
 }
 
 /// Maps a fixture input field to a function argument.

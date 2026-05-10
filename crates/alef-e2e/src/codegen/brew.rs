@@ -360,7 +360,7 @@ fn render_test_function(
     let _ = writeln!(out, "    # {description}");
 
     // Resolve fixture-specific call config if provided, otherwise use defaults.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
 
     // Build the CLI command using the resolved call config.
     let cmd_parts = build_cli_command(

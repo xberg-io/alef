@@ -249,7 +249,7 @@ fn render_test_file(
     // `FIXTURES_DIR` first, otherwise resolve against the current directory.
     // Mirrors the Ruby/Python conftest pattern that chdirs to test_documents.
     let needs_chdir = fixtures.iter().any(|f| {
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         call_config
             .args
             .iter()
@@ -555,7 +555,7 @@ fn render_test_method(
     enum_fields: &HashSet<String>,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "swift";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

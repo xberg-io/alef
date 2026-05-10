@@ -320,7 +320,7 @@ fn render_test_file(
             continue; // Skip HTTP fixtures for assertion analysis.
         }
         // Determine if any args use `bytes` arg type — requires e2e_gleam file reader.
-        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         let has_bytes_arg = call_config.args.iter().any(|a| a.arg_type == "bytes");
         // Optional string args emit option.Some(...)/option.None — need option import.
         let has_optional_string_arg = call_config.args.iter().any(|a| a.arg_type == "string" && a.optional);
@@ -675,7 +675,7 @@ fn render_test_case(
     enum_fields: &HashSet<String>,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "gleam";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides

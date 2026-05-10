@@ -71,7 +71,7 @@ pub fn render_test_file(
         all_options_types.insert(opts.to_string());
     }
     for fixture in fixtures.iter() {
-        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         if let Some(o) = cc.overrides.get(lang) {
             if let Some(opts) = &o.options_type {
                 all_options_types.insert(opts.clone());
@@ -103,7 +103,7 @@ pub fn render_test_file(
 
     let needs_options_import = !all_options_types.is_empty()
         && fixtures.iter().any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args.iter().any(|arg| {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                 let val = if field == "input" {
@@ -132,14 +132,13 @@ pub fn render_test_file(
             vec![function_name.to_string()]
         };
 
-        // Also import any additional function names used by per-fixture call overrides.
+        // Also import any additional function names used by per-fixture call overrides or
+        // select_when auto-selected calls.
         for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
-            if fixture.call.is_some() {
-                let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-                let fixture_fn = resolve_node_function_name(call_config);
-                if client_factory.is_none() && !imports.contains(&fixture_fn) {
-                    imports.push(fixture_fn);
-                }
+            let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+            let fixture_fn = resolve_node_function_name(call_config);
+            if client_factory.is_none() && !imports.contains(&fixture_fn) {
+                imports.push(fixture_fn);
             }
         }
 
@@ -166,7 +165,7 @@ pub fn render_test_file(
 
         // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
         for fixture in fixtures.iter() {
-            let cc = e2e_config.resolve_call(fixture.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
             for arg in &cc.args {
                 if let Some(elem_type) = &arg.element_type {
                     if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !imports.contains(elem_type) {
@@ -221,7 +220,7 @@ pub fn render_test_file(
             }
             // Also import handle config types for WASM
             for fixture in fixtures.iter() {
-                let cc = e2e_config.resolve_call(fixture.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
                 if let Some(o) = cc.overrides.get("wasm") {
                     if let Some(config_type) = &o.handle_config_type {
                         if !imports.contains(config_type) {
@@ -493,7 +492,7 @@ fn render_test_case(
     result_enum_fields: &std::collections::HashMap<String, String>,
     type_defs: &[TypeDef],
 ) {
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
     let call_is_async = call_config.r#async;
@@ -1181,7 +1180,7 @@ fn build_args_and_setup(
 /// Returns (has_clean_cache, has_configure).
 fn detect_cache_isolation_needs(fixtures: &[&Fixture], e2e_config: &E2eConfig) -> (bool, bool) {
     let has_clean_cache = fixtures.iter().any(|fixture| {
-        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         resolve_node_function_name(call_config) == "cleanCache"
     });
 

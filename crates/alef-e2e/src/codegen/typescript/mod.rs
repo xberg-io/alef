@@ -69,7 +69,7 @@ impl E2eCodegen for TypeScriptCodegen {
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")

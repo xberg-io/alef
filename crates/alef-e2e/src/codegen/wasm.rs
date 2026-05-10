@@ -95,7 +95,7 @@ impl E2eCodegen for WasmCodegen {
                     // export that function and any test file referencing it
                     // would fail TS resolution. Drop the fixture entirely.
                     .filter(|f| {
-                        let cc = e2e_config.resolve_call(f.call.as_deref());
+                        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                         !cc.skip_languages.iter().any(|l| l == lang)
                     })
                     .filter(|f| {
@@ -126,7 +126,7 @@ impl E2eCodegen for WasmCodegen {
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
         let has_file_fixtures = active_per_group.iter().flatten().any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")

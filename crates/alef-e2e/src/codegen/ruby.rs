@@ -90,7 +90,7 @@ impl E2eCodegen for RubyCodegen {
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.args
                 .iter()
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
@@ -312,7 +312,7 @@ fn render_spec_file(
             examples.push(out);
         } else {
             // Resolve per-fixture call config so we can detect streaming up front.
-            let fixture_call = e2e_config.resolve_call(fixture.call.as_deref());
+            let fixture_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
             let fixture_call_overrides = fixture_call.overrides.get("ruby");
             let raw_function_name = fixture_call_overrides
                 .and_then(|o| o.function.as_ref())

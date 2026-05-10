@@ -590,7 +590,7 @@ fn render_test_method(
     }
 
     // Resolve per-fixture call config (supports named calls via fixture.call field).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "kotlin";
     let call_overrides = call_config.overrides.get(lang);
 

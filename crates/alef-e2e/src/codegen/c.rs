@@ -264,7 +264,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
 /// setting. We fall back to the default `[e2e.call]` override's client_factory so that
 /// all methods on the same client use the same pattern.
 fn resolve_fixture_call_info(fixture: &Fixture, e2e_config: &E2eConfig, lang: &str) -> ResolvedCallInfo {
-    let call = e2e_config.resolve_call(fixture.call.as_deref());
+    let call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let mut info = resolve_call_info(call, lang);
 
     let default_overrides = e2e_config.call.overrides.get(lang);

@@ -79,7 +79,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
         if f.needs_mock_server() {
             return true;
         }
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let python_override = cc
             .overrides
             .get("python")
@@ -88,7 +88,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     });
 
     let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         cc.args
             .iter()
             .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")

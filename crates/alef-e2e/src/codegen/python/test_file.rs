@@ -30,7 +30,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     // Prefer the global override; fall back to the first fixture's per-call override.
     let effective_options_type: Option<String> = options_type.clone().or_else(|| {
         fixtures.iter().find_map(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             cc.overrides.get("python").and_then(|o| o.options_type.clone())
         })
     });
@@ -40,7 +40,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
         fixtures
             .iter()
             .find_map(|f| {
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 cc.overrides.get("python").and_then(|o| o.options_via.as_deref())
             })
             .unwrap_or(options_via)
@@ -69,7 +69,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let global_python_async_override = e2e_config.call.overrides.get("python").and_then(|o| o.r#async);
     let is_async = global_python_async_override.unwrap_or_else(|| {
         fixtures.iter().any(|f| {
-            let cc = e2e_config.resolve_call(f.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
             let per_fixture_override = cc.overrides.get("python").and_then(|o| o.r#async);
             per_fixture_override.unwrap_or(cc.r#async)
         }) || e2e_config.call.r#async
@@ -100,13 +100,13 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
         .and_then(|o| o.from_json_module.clone())
         .or_else(|| {
             fixtures.iter().find_map(|f| {
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 cc.overrides.get("python").and_then(|o| o.from_json_module.clone())
             })
         });
 
     let needs_path_import = fixtures.iter().any(|f| {
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         cc.args.iter().any(|arg| {
             if arg.arg_type != "bytes" {
                 return false;
@@ -117,7 +117,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
         })
     });
     let needs_base64_import = fixtures.iter().any(|f| {
-        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         cc.args.iter().any(|arg| {
             if arg.arg_type != "bytes" {
                 return false;
@@ -317,7 +317,7 @@ fn build_thirdparty_imports(
         import_names.push(factory.to_string());
     } else {
         for fixture in fixtures.iter() {
-            let cc = e2e_config.resolve_call(fixture.call.as_deref());
+            let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
             let fn_name = resolve_function_name_for_call(cc);
             if !import_names.contains(&fn_name) {
                 import_names.push(fn_name);
@@ -335,7 +335,7 @@ fn build_thirdparty_imports(
 
     // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
     for fixture in fixtures.iter() {
-        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         for arg in &cc.args {
             if let Some(elem_type) = &arg.element_type {
                 if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !import_names.contains(elem_type)
@@ -434,7 +434,7 @@ fn build_thirdparty_imports(
     // This handles test files where different calls use different request types.
     let mut extra_from_json_types: BTreeSet<String> = BTreeSet::new();
     for fixture in fixtures.iter() {
-        let cc = e2e_config.resolve_call(fixture.call.as_deref());
+        let cc = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         if let Some(py_override) = cc.overrides.get("python") {
             if py_override.options_via.as_deref() == Some("from_json") {
                 if let Some(opts_type) = &py_override.options_type {

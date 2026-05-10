@@ -35,7 +35,7 @@ pub(super) fn render_test_function(
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let function_name = resolve_function_name_for_call(call_config);
     let result_var = &call_config.result_var;
 

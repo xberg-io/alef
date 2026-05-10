@@ -156,7 +156,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     // Check if any fixture needs Uint8List.fromList (batch item byte arrays).
     let has_batch_byte_items = fixtures.iter().any(|f| {
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         call_config.args.iter().any(|a| {
             a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
         })
@@ -169,7 +169,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         if f.is_http_test() {
             return false;
         }
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         call_config
             .args
             .iter()
@@ -282,7 +282,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     }
 
     // Non-HTTP fixtures: render a call-based test using the resolved call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let call_overrides = call_config.overrides.get(lang);
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())

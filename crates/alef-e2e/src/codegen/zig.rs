@@ -492,7 +492,7 @@ fn render_test_fn(
     module_name: &str,
 ) {
     // Resolve per-fixture call config.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "zig";
     let call_overrides = call_config.overrides.get(lang);
     let function_name = call_overrides
