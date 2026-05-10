@@ -491,7 +491,13 @@ fn render_typescript(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("[\"{key}\"]"));
+                // Numeric (digit-only) keys index into arrays as integers, not as
+                // string-keyed object properties; emit `[0]` not `["0"]`.
+                if !key.is_empty() && key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!("[\"{key}\"]"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".length");
@@ -1069,6 +1075,26 @@ mod tests {
         assert_eq!(
             r.accessor("og_tag", "typescript", "result"),
             "result.metadata.openGraphTags[\"og_title\"]"
+        );
+    }
+
+    #[test]
+    fn test_accessor_typescript_numeric_index_is_unquoted() {
+        // Digit-only map-access keys (e.g. JSON pointer segments like `results.0`)
+        // must emit numeric bracket access (`[0]`) not string-keyed access
+        // (`["0"]`), which would return undefined on arrays.
+        let mut fields = HashMap::new();
+        fields.insert("first_score".to_string(), "results[0].relevance_score".to_string());
+        let r = FieldResolver::new(
+            &fields,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert_eq!(
+            r.accessor("first_score", "typescript", "result"),
+            "result.results[0].relevanceScore"
         );
     }
 
