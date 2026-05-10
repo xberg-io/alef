@@ -166,6 +166,7 @@ pub fn gen_ffi_set_out_error_helper() -> String {
 /// (`vtable + user_data + cached_name`) vs. the standard `inner + cached_name`
 /// produced by `gen_bridge_wrapper_struct`.  Instead it calls the shared helpers
 /// individually and generates the struct/constructor/drop manually.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
