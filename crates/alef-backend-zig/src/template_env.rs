@@ -225,6 +225,12 @@ static TEMPLATES: &[(&str, &str)] = &[
         "unregister_fn_body.jinja",
         include_str!("../templates/unregister_fn_body.jinja"),
     ),
+    ("clear_fn_doc.jinja", include_str!("../templates/clear_fn_doc.jinja")),
+    (
+        "clear_fn_signature.jinja",
+        include_str!("../templates/clear_fn_signature.jinja"),
+    ),
+    ("clear_fn_body.jinja", include_str!("../templates/clear_fn_body.jinja")),
     (
         "make_vtable_doc_header.jinja",
         include_str!("../templates/make_vtable_doc_header.jinja"),

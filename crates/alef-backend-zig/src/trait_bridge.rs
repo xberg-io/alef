@@ -10,7 +10,16 @@
 //! `c.{prefix}_register_{trait_snake}` — the symbol exposed by the
 //! `kreuzberg-ffi` C layer (pattern: `{crate_prefix}_register_{trait_snake}`).
 //! If the actual symbol differs, override the generated call site.
+//!
+//! # `TraitBridgeGenerator` implementation
+//!
+//! [`ZigTraitBridgeGenerator`] implements the shared [`TraitBridgeGenerator`]
+//! trait so that the shared codegen driver can invoke the Zig-specific
+//! `gen_unregistration_fn` and `gen_clear_fn` overrides.  The other required
+//! methods are stubs — Zig code is produced through the standalone
+//! [`emit_trait_bridge`] free function, not the shared driver.
 
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -483,6 +492,128 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     emit_make_vtable(trait_name, has_super_trait, trait_def, out);
 }
 
+// ---------------------------------------------------------------------------
+// TraitBridgeGenerator implementation for the Zig backend
+// ---------------------------------------------------------------------------
+
+/// Zig-specific [`TraitBridgeGenerator`] implementation.
+///
+/// Carries the FFI symbol prefix (e.g., `"kreuzberg"`) used when deriving the
+/// C symbol for `unregister_*` and `clear_*` wrappers.
+///
+/// The required trait methods that produce *Rust* source (`gen_sync_method_body`,
+/// `gen_async_method_body`, `gen_constructor`, `gen_registration_fn`) return
+/// empty strings because Zig bridge code is produced by the standalone
+/// [`emit_trait_bridge`] free function, not the shared driver.
+pub struct ZigTraitBridgeGenerator {
+    /// FFI symbol prefix (e.g., `"kreuzberg"`).
+    pub prefix: String,
+}
+
+impl ZigTraitBridgeGenerator {
+    /// Construct a new generator for the given FFI symbol prefix.
+    pub fn new(prefix: impl Into<String>) -> Self {
+        Self { prefix: prefix.into() }
+    }
+}
+
+impl TraitBridgeGenerator for ZigTraitBridgeGenerator {
+    // ------------------------------------------------------------------
+    // Stub methods — Zig bridge code is emitted by `emit_trait_bridge`.
+    // ------------------------------------------------------------------
+
+    fn foreign_object_type(&self) -> &str {
+        ""
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn gen_sync_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_async_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_constructor(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_registration_fn(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    // ------------------------------------------------------------------
+    // Zig-specific overrides
+    // ------------------------------------------------------------------
+
+    /// Emit a Zig wrapper that calls `c.{prefix}_{unregister_fn}(name, out_error)`.
+    ///
+    /// Returns an empty string when `spec.bridge_config.unregister_fn` is `None`.
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let c_unregister = format!("c.{}_{}", self.prefix, unregister_fn);
+
+        let mut out = String::new();
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_doc.jinja",
+            minijinja::context! {
+                trait_name => spec.trait_def.name.as_str(),
+            },
+        ));
+        // Emit the signature directly: the configured `unregister_fn` is the
+        // complete Zig function name, not just the trait-snake suffix.
+        out.push_str(&format!(
+            "pub fn {unregister_fn}(name: [*c]const u8, out_error: ?*?[*c]u8) i32 {{\n"
+        ));
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_body.jinja",
+            minijinja::context! {
+                c_unregister => &c_unregister,
+            },
+        ));
+        out.push_str("}\n");
+        out
+    }
+
+    /// Emit a Zig wrapper that calls `c.{prefix}_{clear_fn}(out_error)`.
+    ///
+    /// Returns an empty string when `spec.bridge_config.clear_fn` is `None`.
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let c_clear = format!("c.{}_{}", self.prefix, clear_fn);
+
+        let mut out = String::new();
+        out.push_str(&crate::template_env::render(
+            "clear_fn_doc.jinja",
+            minijinja::context! {
+                trait_name => spec.trait_def.name.as_str(),
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "clear_fn_signature.jinja",
+            minijinja::context! {
+                clear_fn => clear_fn,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "clear_fn_body.jinja",
+            minijinja::context! {
+                c_clear => &c_clear,
+            },
+        ));
+        out.push_str("}\n");
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,6 +948,143 @@ mod tests {
         assert!(
             out.contains("return self.count()"),
             "primitive return must be forwarded directly: {out}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // ZigTraitBridgeGenerator tests
+    // -----------------------------------------------------------------
+
+    fn make_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) -> TraitBridgeSpec<'a> {
+        use alef_codegen::generators::trait_bridge::TraitBridgeSpec;
+        use std::collections::HashMap;
+        TraitBridgeSpec {
+            trait_def,
+            bridge_config: bridge_cfg,
+            core_import: "kreuzberg",
+            wrapper_prefix: "Zig",
+            type_paths: HashMap::new(),
+            error_type: "KreuzbergError".to_string(),
+            error_constructor: "KreuzbergError::msg({msg})".to_string(),
+        }
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_wrapper_when_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.unregister_fn = Some("unregister_ocr_backend".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(!out.is_empty(), "expected non-empty output when unregister_fn is set");
+        assert!(
+            out.contains("pub fn unregister_ocr_backend("),
+            "wrong function name: {out}"
+        );
+        assert!(
+            out.contains("c.kreuzberg_unregister_ocr_backend("),
+            "wrong C symbol: {out}"
+        );
+        assert!(
+            out.contains("out_error: ?*?[*c]u8") || out.contains("out_error"),
+            "missing out_error param: {out}"
+        );
+        assert!(out.contains("return "), "missing return statement: {out}");
+        assert!(out.ends_with("}\n"), "missing closing brace: {out}");
+    }
+
+    #[test]
+    fn gen_unregistration_fn_returns_empty_when_not_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None); // unregister_fn is None
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(
+            out.is_empty(),
+            "expected empty output when unregister_fn is None, got: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_wrapper_when_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(!out.is_empty(), "expected non-empty output when clear_fn is set");
+        assert!(out.contains("pub fn clear_ocr_backends("), "wrong function name: {out}");
+        assert!(out.contains("c.kreuzberg_clear_ocr_backends("), "wrong C symbol: {out}");
+        assert!(
+            out.contains("out_error: ?*?[*c]u8") || out.contains("out_error"),
+            "missing out_error param: {out}"
+        );
+        assert!(out.contains("return "), "missing return statement: {out}");
+        assert!(out.ends_with("}\n"), "missing closing brace: {out}");
+    }
+
+    #[test]
+    fn gen_clear_fn_returns_empty_when_not_configured() {
+        let trait_def = make_trait_def("OcrBackend", vec![]);
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None); // clear_fn is None
+
+        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(
+            out.is_empty(),
+            "expected empty output when clear_fn is None, got: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_unregistration_fn_uses_snake_case_function_name_verbatim() {
+        // The configured `unregister_fn` name is used as-is (not re-derived from the trait).
+        let trait_def = make_trait_def("DocumentExtractor", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
+        bridge_cfg.unregister_fn = Some("unregister_extractor".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("demo");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_unregistration_fn(&spec);
+
+        assert!(
+            out.contains("pub fn unregister_extractor("),
+            "must use configured fn name verbatim: {out}"
+        );
+        assert!(
+            out.contains("c.demo_unregister_extractor("),
+            "must use configured fn name in C symbol: {out}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_uses_configured_fn_name_verbatim() {
+        let trait_def = make_trait_def("DocumentExtractor", vec![]);
+        let mut bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
+        bridge_cfg.clear_fn = Some("clear_all_extractors".to_string());
+
+        let generator = ZigTraitBridgeGenerator::new("demo");
+        let spec = make_spec(&trait_def, &bridge_cfg);
+        let out = generator.gen_clear_fn(&spec);
+
+        assert!(
+            out.contains("pub fn clear_all_extractors("),
+            "must use configured fn name verbatim: {out}"
+        );
+        assert!(
+            out.contains("c.demo_clear_all_extractors("),
+            "must use configured fn name in C symbol: {out}"
         );
     }
 }

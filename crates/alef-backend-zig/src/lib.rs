@@ -9,3 +9,4 @@ mod trait_bridge;
 mod type_map;
 
 pub use gen_bindings::ZigBackend;
+pub use trait_bridge::ZigTraitBridgeGenerator;
