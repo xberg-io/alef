@@ -50,11 +50,17 @@
     expect({{ field_expr }}).not.toContain({{ js_val }});
 {% endif %}
 {% elif assertion_type == "not_empty" %}
-{% if field_is_optional %}
-    expect(({{ field_expr }} ?? "").length).toBeGreaterThan(0);
-{% else %}
-    expect({{ field_expr }}.length).toBeGreaterThan(0);
-{% endif %}
+{# Polymorphic check: strings/arrays use length, objects use defined+non-null. #}
+{# Treats `{}` as "set" — fixture authors use `not_empty` on objects to assert the field is populated, not the object's key-count. #}
+    {
+        const _v = {{ field_expr }};
+        if (typeof _v === "string" || Array.isArray(_v)) {
+            expect(_v.length).toBeGreaterThan(0);
+        } else {
+            expect(_v).toBeDefined();
+            expect(_v).not.toBeNull();
+        }
+    }
 {% elif assertion_type == "is_empty" %}
     expect(({{ field_expr }} ?? "").length).toBe(0);
 {% elif assertion_type == "contains_any" %}
