@@ -13,3 +13,4 @@ mod template_env;
 mod type_map;
 
 pub use gen_bindings::KotlinBackend;
+pub use gen_bindings::trait_bridge::KotlinJvmBridgeGenerator;
