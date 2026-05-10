@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(alef-backend-ffi): emit `{prefix}_{enum}_to_string(*const Enum) -> *mut c_char` for unit-variant enums (`has_serde = true`) that are returned as heap-allocated pointers. The function uses `serde_json::to_value(val).as_str()` to extract the bare variant name (e.g. `"completed"`) without surrounding JSON quotes, so C/Zig/Dart e2e callers can string-compare an enum field accessor against a fixture string without reaching for `_to_json` (which yields a JSON-quoted form). Sibling helper to existing `_to_json`/`_free`; emitted only when the enum is in `enum_pointer_return` AND `can_generate_enum_conversion` (gates out compound enums whose serde shape is not a plain string).
+
 ### Fixed
 
 ## [0.15.30] - 2026-05-10

@@ -343,6 +343,29 @@ pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &s
     )
 }
 
+/// Generate a `_to_string` function for an enum type returned as a heap-allocated pointer.
+///
+/// Renders the unit-variant name as serde would serialize it (e.g.
+/// `BatchStatus::Completed` → `"completed"`), but stripped of the surrounding
+/// JSON quotes so plain C string-comparison works. Only generated for enums
+/// whose runtime serialization yields a string (`has_serde`); compound enums
+/// would JSON-encode as objects and `as_str()` returns `None`.
+pub(super) fn gen_enum_to_string(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let enum_name = &enum_def.name;
+    let qualified = core_enum_path(enum_def, core_import);
+
+    crate::template_env::render(
+        "enum_to_string.jinja",
+        context! {
+            enum_name => enum_name,
+            enum_snake => enum_snake,
+            prefix => prefix,
+            qualified => qualified,
+        },
+    )
+}
+
 /// Generate a `_from_json` function for an enum type (for parameter passing from Java).
 ///
 /// Deserializes the enum from a JSON string. Only generated for enums that
