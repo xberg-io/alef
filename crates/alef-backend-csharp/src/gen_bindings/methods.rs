@@ -96,16 +96,45 @@ pub(super) fn gen_wrapper_class(
 
     // Add error handling helper — dispatches typed exceptions by error code
     let has_base_error = !api.errors.is_empty();
-    let (base_exception_class, has_invalid_input_variant) = if has_base_error {
+    let (base_exception_class, has_invalid_input_variant, variant_dispatch_lines) = if has_base_error {
         let base_error = &api.errors[0];
         let base_ex = format!("{}Exception", base_error.name.to_pascal_case());
         let has_invalid = base_error
             .variants
             .iter()
             .any(|v| v.name.to_pascal_case() == "InvalidInput");
-        (base_ex, has_invalid)
+        // Build per-variant message-prefix dispatch. Each thiserror Display template starts
+        // with a literal prefix (e.g. `"not_found: {0}"`), giving the runtime message a stable
+        // prefix the binding can match on. Skip the InvalidInput variant — that one is dispatched
+        // via the explicit `code == 1` arm above. Order by descending prefix length so that
+        // overlapping prefixes (e.g. `"forbidden: waf/blocked: "` vs `"forbidden: "`) match the
+        // longer one first.
+        let mut variants_with_prefix: Vec<(String, String)> = base_error
+            .variants
+            .iter()
+            .filter(|v| v.name.to_pascal_case() != "InvalidInput")
+            .filter_map(|v| {
+                let template = v.message_template.as_deref()?;
+                let prefix_end = template.find('{').unwrap_or(template.len());
+                let prefix = template[..prefix_end].trim_end().to_string();
+                if prefix.is_empty() {
+                    return None;
+                }
+                Some((format!("{}Exception", v.name.to_pascal_case()), prefix))
+            })
+            .collect();
+        // Longest prefix first so e.g. "forbidden: waf/blocked: " wins over "forbidden: ".
+        variants_with_prefix.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        let dispatch_lines: Vec<String> = variants_with_prefix
+            .into_iter()
+            .map(|(class, prefix)| {
+                let escaped_prefix = prefix.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("        if (message.StartsWith(\"{escaped_prefix}\")) return new {class}(message);")
+            })
+            .collect();
+        (base_ex, has_invalid, dispatch_lines)
     } else {
-        (String::new(), false)
+        (String::new(), false, Vec::new())
     };
 
     out.push_str(&render(
@@ -115,6 +144,7 @@ pub(super) fn gen_wrapper_class(
             "has_base_error": has_base_error,
             "base_exception_class": base_exception_class,
             "has_invalid_input_variant": has_invalid_input_variant,
+            "variant_dispatch_lines": variant_dispatch_lines,
         })),
     ));
 

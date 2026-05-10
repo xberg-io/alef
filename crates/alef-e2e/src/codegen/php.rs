@@ -876,15 +876,11 @@ fn render_test_method(
         if has_mock {
             let base_url_expr = if fixture.has_host_root_route() {
                 let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-                format!(
-                    "(getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}')"
-                )
+                format!("(getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}')")
             } else {
                 format!("getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}'")
             };
-            format!(
-                "$client = \\{namespace}\\{class_name}::{factory}('test-key', {base_url_expr});"
-            )
+            format!("$client = \\{namespace}\\{class_name}::{factory}('test-key', {base_url_expr});")
         } else if let Some(var) = api_key_var {
             format!(
                 "$apiKey = getenv('{var}');\n        if (!$apiKey) {{ $this->markTestSkipped('{var} not set'); return; }}\n        $client = \\{namespace}\\{class_name}::{factory}($apiKey);"

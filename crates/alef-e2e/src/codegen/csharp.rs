@@ -952,7 +952,9 @@ fn render_test_method(
             ));
         } else if fixture.has_host_root_route() {
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-            client_factory_setup.push_str(&format!("        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"));
+            client_factory_setup.push_str(&format!(
+                "        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"
+            ));
             client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
@@ -1118,7 +1120,9 @@ fn render_chat_stream_test_method(
             ));
         } else if fixture.has_host_root_route() {
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-            client_factory_setup.push_str(&format!("        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"));
+            client_factory_setup.push_str(&format!(
+                "        var _perFixtureUrl = System.Environment.GetEnvironmentVariable(\"{env_key}\");\n"
+            ));
             client_factory_setup.push_str(&format!("        var baseUrl = !string.IsNullOrEmpty(_perFixtureUrl) ? _perFixtureUrl : (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"

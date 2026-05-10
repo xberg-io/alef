@@ -121,10 +121,7 @@ fn ruby_validation_setup_lines_are_inside_expect_block() {
     let content = generate_content(&RubyCodegen, "ruby");
 
     // The expect { } block must contain setup lines (engine creation) before call_expr.
-    assert!(
-        content.contains("expect {"),
-        "expect block opener missing:\n{content}"
-    );
+    assert!(content.contains("expect {"), "expect block opener missing:\n{content}");
     assert!(
         content.contains("}.to raise_error"),
         "expect block closer missing:\n{content}"
@@ -182,9 +179,7 @@ fn csharp_validation_setup_lines_are_inside_throws_lambda() {
 
     // The lambda body must contain the engine creation.
     // Verify create_engine appears after the lambda opener `=> {` or `async () =>`.
-    let throws_pos = content
-        .find("Assert.ThrowsAny")
-        .expect("ThrowsAny not found");
+    let throws_pos = content.find("Assert.ThrowsAny").expect("ThrowsAny not found");
     let create_engine_pos = content.find("CreateEngine").or_else(|| content.find("create_engine"));
     let create_engine_pos = create_engine_pos.expect("engine creation not found in C# output");
     assert!(

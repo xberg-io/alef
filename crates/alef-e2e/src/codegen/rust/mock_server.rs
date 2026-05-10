@@ -58,7 +58,9 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
                     rust_raw_string("{}")
                 };
 
-                routes.push((path, method, status, body_str, headers));
+                let delay_ms = obj.get("delay_ms").and_then(|v| v.as_u64());
+
+                routes.push((path, method, status, body_str, headers, delay_ms));
             }
         }
     } else if let Some(mock) = fixture.mock_response.as_ref() {
@@ -112,19 +114,24 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
                 let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
             }
             let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        delay_ms: None,");
             let _ = writeln!(out, "    }};");
             let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
             return;
         }
 
-        routes.push((path.to_string(), method.to_string(), status, body_str, header_tuples));
+        routes.push((path.to_string(), method.to_string(), status, body_str, header_tuples, None));
     } else {
         return;
     }
 
     // Emit all routes (array schema produces multiple; single schema produces one).
     if routes.len() == 1 {
-        let (path, method, status, body_str, header_entries) = routes.pop().unwrap();
+        let (path, method, status, body_str, header_entries, delay_ms) = routes.pop().unwrap();
+        let delay_literal = match delay_ms {
+            Some(ms) => format!("Some({ms})"),
+            None => "None".to_string(),
+        };
         let _ = writeln!(out, "    let mock_route = MockRoute {{");
         let _ = writeln!(out, "        path: \"{path}\",");
         let _ = writeln!(out, "        method: \"{method}\",");
@@ -138,12 +145,17 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
             let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
         }
         let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "        delay_ms: {delay_literal},");
         let _ = writeln!(out, "    }};");
         let _ = writeln!(out, "    let mock_server = MockServer::start(vec![mock_route]).await;");
     } else {
         // Multiple routes from array schema.
         let _ = writeln!(out, "    let mut mock_routes = vec![];");
-        for (path, method, status, body_str, header_entries) in routes {
+        for (path, method, status, body_str, header_entries, delay_ms) in routes {
+            let delay_literal = match delay_ms {
+                Some(ms) => format!("Some({ms})"),
+                None => "None".to_string(),
+            };
             let _ = writeln!(out, "    mock_routes.push(MockRoute {{");
             let _ = writeln!(out, "        path: \"{path}\",");
             let _ = writeln!(out, "        method: \"{method}\",");
@@ -157,6 +169,7 @@ pub fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config:
                 let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
             }
             let _ = writeln!(out, "        ],");
+            let _ = writeln!(out, "        delay_ms: {delay_literal},");
             let _ = writeln!(out, "    }});");
         }
         let _ = writeln!(out, "    let mock_server = MockServer::start(mock_routes).await;");
@@ -199,6 +212,9 @@ pub struct MockRoute {
     /// Response headers to apply (name, value) pairs.
     /// Multiple entries with the same name produce multiple header lines.
     pub headers: Vec<(String, String)>,
+    /// Optional artificial response delay in milliseconds. Used by timeout-error
+    /// fixtures to force a client-side request timeout.
+    pub delay_ms: Option<u64>,
 }
 
 struct ServerState {
@@ -257,6 +273,9 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
             || (path.starts_with(route.path)
                 && path.as_bytes().get(route.path.len()) == Some(&b'/'));
         if path_matches && route.method.to_uppercase() == method {
+            if let Some(delay_ms) = route.delay_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
             let status =
                 StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
@@ -356,6 +375,10 @@ struct MockResponse {
     stream_chunks: Option<Vec<serde_json::Value>>,
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Optional artificial delay (milliseconds) applied before sending the response.
+    /// Used by timeout-error fixtures to force the client request to time out.
+    #[serde(default)]
+    delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -413,6 +436,7 @@ impl Fixture {
                 body: mock.body.clone(),
                 stream_chunks: mock.stream_chunks.clone(),
                 headers: mock.headers.clone(),
+                delay_ms: mock.delay_ms,
             });
         }
         if let Some(http) = &self.http {
@@ -421,6 +445,7 @@ impl Fixture {
                 body: http.expected_response.body.clone(),
                 stream_chunks: None,
                 headers: http.expected_response.headers.clone(),
+                delay_ms: None,
             });
         }
         None
@@ -518,6 +543,8 @@ impl Fixture {
                         Vec::new()
                     };
 
+                    let delay_ms = entry.get("delay_ms").and_then(|v| v.as_u64());
+
                     routes.push(ResolvedRoute {
                         path: namespaced_path,
                         original_path,
@@ -526,6 +553,7 @@ impl Fixture {
                             body: None,
                             stream_chunks: None,
                             headers,
+                            delay_ms,
                         },
                         body_bytes,
                     });
@@ -547,6 +575,11 @@ struct MockRoute {
     body: Vec<u8>,
     stream_chunks: Vec<String>,
     headers: Vec<(String, String)>,
+    /// Optional artificial delay applied before the handler returns. When set,
+    /// the handler `tokio::time::sleep`s for this many milliseconds before
+    /// constructing the response — used by timeout-error fixtures to force
+    /// client-side request timeouts.
+    delay_ms: Option<u64>,
 }
 
 type RouteTable = Arc<HashMap<String, MockRoute>>;
@@ -560,6 +593,9 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
 
     // Try exact match first
     if let Some(route) = routes.get(&path) {
+        if let Some(delay_ms) = route.delay_ms {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
         return serve_route(route);
     }
 
@@ -567,6 +603,9 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
     // This allows /fixtures/basic_chat/v1/chat/completions to match /fixtures/basic_chat
     for (route_path, route) in routes.iter() {
         if path.starts_with(route_path) && (path.len() == route_path.len() || path.as_bytes()[route_path.len()] == b'/') {
+            if let Some(delay_ms) = route.delay_ms {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
             return serve_route(route);
         }
     }
@@ -789,6 +828,7 @@ fn load_routes_recursive(
                         body: resolved.body_bytes,
                         stream_chunks,
                         headers,
+                        delay_ms: resolved.response.delay_ms,
                     };
 
                     // Always insert into the shared namespaced table.

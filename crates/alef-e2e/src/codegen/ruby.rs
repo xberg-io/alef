@@ -757,9 +757,7 @@ fn render_chat_stream_example(
         if has_mock {
             let base_url_expr = if fixture.has_host_root_route() {
                 let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-                format!(
-                    "(ENV.fetch('{env_key}', nil) || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')"
-                )
+                format!("(ENV.fetch('{env_key}', nil) || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')")
             } else {
                 format!("ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}'")
             };
