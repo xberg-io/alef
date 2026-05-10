@@ -5,6 +5,7 @@ use crate::escape::{escape_js, expand_fixture_templates, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::Fixture;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::ir::{TypeDef, TypeRef};
 use heck::ToUpperCamelCase;
 
 use super::assertions::render_assertion;
@@ -15,6 +16,12 @@ use super::visitors::build_typescript_visitor;
 ///
 /// `lang` is the language key used for per-fixture call override resolution
 /// (e.g. `"node"` for TypeScript, `"wasm"` for WASM tests).
+///
+/// `type_defs` is the IR type registry from the source crate. For the WASM
+/// language path it is used to auto-derive `nested_types` (class-typed field
+/// mappings) so plain object literals are not passed where wasm-bindgen expects
+/// class instances. Pass an empty slice when not available; the generator
+/// falls back to explicit call-override mappings.
 #[allow(clippy::too_many_arguments)]
 pub fn render_test_file(
     lang: &str,
@@ -28,6 +35,7 @@ pub fn render_test_file(
     field_resolver: &FieldResolver,
     client_factory: Option<&str>,
     e2e_config: &E2eConfig,
+    type_defs: &[TypeDef],
 ) -> String {
     // `lang` is used for wasm visitor arg placement and override routing
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
@@ -76,6 +84,19 @@ pub fn render_test_file(
             }
             for v in o.result_enum_fields.values() {
                 all_result_enum_classes.insert(v.clone());
+            }
+        }
+    }
+
+    // For the WASM path, auto-derive additional nested_types from the IR
+    // registry so their class names are included in the import statement.
+    // This mirrors the derivation in `ts_builder_expression_inner` — we
+    // collect from every options_type seen in this file.
+    if lang == "wasm" {
+        for opts_type in &all_options_types.clone() {
+            let derived = derive_nested_types_for_wasm(opts_type, type_defs);
+            for (k, v) in derived {
+                all_nested_types.entry(k).or_insert(v);
             }
         }
     }
@@ -249,6 +270,7 @@ pub fn render_test_file(
                 &nested_types,
                 &enum_fields,
                 &result_enum_fields,
+                type_defs,
             );
         }
         if i + 1 < fixtures.len() {
@@ -469,6 +491,7 @@ fn render_test_case(
     nested_types: &std::collections::HashMap<String, String>,
     enum_fields: &std::collections::HashMap<String, String>,
     result_enum_fields: &std::collections::HashMap<String, String>,
+    type_defs: &[TypeDef],
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = resolve_node_function_name(call_config);
@@ -541,6 +564,7 @@ fn render_test_case(
         &effective_enum_fields,
         &effective_bigint_fields,
         handle_config_type.as_deref(),
+        type_defs,
     );
 
     if !extra_args.is_empty() {
@@ -753,8 +777,17 @@ fn ts_builder_expression(
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
+    type_defs: &[TypeDef],
 ) -> String {
-    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields, bigint_fields)
+    ts_builder_expression_inner(
+        obj,
+        type_name,
+        nested_types,
+        lang,
+        enum_fields,
+        bigint_fields,
+        type_defs,
+    )
 }
 
 /// Convert a JS numeric literal expression to a BigInt-compatible literal
@@ -774,6 +807,62 @@ fn to_bigint_literal(value_expr: &str) -> String {
     format!("BigInt({trimmed})")
 }
 
+/// Return the WASM binding class name for an IR type name.
+///
+/// wasm-bindgen emits each exported Rust type as a JS class named
+/// `Wasm<TypeName>`.  For example, the IR type `ChatMessage` is exposed as
+/// `WasmChatMessage`.  This mirrors the `wasm_class_name` helper used
+/// elsewhere in the wasm-bindgen backend.
+fn wasm_class_name(ir_type_name: &str) -> String {
+    format!("Wasm{ir_type_name}")
+}
+
+/// Derive `nested_types` entries from the IR type registry for a given
+/// WASM class name.
+///
+/// For each field in the named IR type whose `TypeRef` is (or contains) a
+/// `Named` variant, map `field.name → wasm_class_name(ir_named_type)`.
+/// This eliminates the need for manual `nested_types` entries in alef.toml
+/// call overrides.
+///
+/// Rules:
+/// - `TypeRef::Named(n)` → field is a direct struct instance; map it.
+/// - `TypeRef::Vec(Named(n))` → field is a slice of struct instances; map it
+///   (the array-element wrapping path uses the same key).
+/// - `TypeRef::Option(inner)` → unwrap recursively; if inner is class-typed,
+///   the field should still be mapped.
+/// - Everything else (primitives, strings, maps, etc.) → skip.
+fn derive_nested_types_for_wasm(
+    wasm_type_name: &str,
+    type_defs: &[TypeDef],
+) -> std::collections::HashMap<String, String> {
+    // Strip the `Wasm` prefix to get the IR type name.
+    let ir_name = wasm_type_name.strip_prefix("Wasm").unwrap_or(wasm_type_name);
+    let Some(type_def) = type_defs.iter().find(|t| t.name == ir_name) else {
+        return std::collections::HashMap::new();
+    };
+    let mut map = std::collections::HashMap::new();
+    for field in &type_def.fields {
+        if let Some(class_name) = class_name_from_type_ref(&field.ty) {
+            map.insert(field.name.clone(), wasm_class_name(&class_name));
+        }
+    }
+    map
+}
+
+/// Recursively inspect a `TypeRef` to find the innermost named type, if any.
+///
+/// Returns the IR type name (without the `Wasm` prefix) when the type
+/// resolves to a struct/class, or `None` for primitives and other scalars.
+fn class_name_from_type_ref(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Named(name) => Some(name.clone()),
+        TypeRef::Vec(inner) => class_name_from_type_ref(inner),
+        TypeRef::Optional(inner) => class_name_from_type_ref(inner),
+        _ => None,
+    }
+}
+
 fn ts_builder_expression_inner(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
@@ -781,6 +870,7 @@ fn ts_builder_expression_inner(
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
+    type_defs: &[TypeDef],
 ) -> String {
     if lang == "node" {
         let mut fields = Vec::new();
@@ -807,12 +897,24 @@ fn ts_builder_expression_inner(
     } else {
         format!("const _u = new {type_name}();")
     };
+
+    // Build derived nested_types from the IR registry and merge with the
+    // explicit overrides (explicit wins on collision).
+    let derived = derive_nested_types_for_wasm(type_name, type_defs);
+    let effective_nested_types: std::collections::HashMap<String, String> = {
+        let mut m = derived;
+        for (k, v) in nested_types {
+            m.insert(k.clone(), v.clone());
+        }
+        m
+    };
+
     let mut stmts: Vec<String> = vec![init_stmt];
     for (key, val) in obj {
         let camel_key = snake_to_camel(key);
         let is_bigint = bigint_fields.contains(&camel_key) || bigint_fields.contains(key);
         if let serde_json::Value::Object(nested_obj) = val {
-            if let Some(nested_type) = nested_types.get(key.as_str()) {
+            if let Some(nested_type) = effective_nested_types.get(key.as_str()) {
                 let nested_expr = ts_builder_expression_inner(
                     nested_obj,
                     nested_type,
@@ -820,6 +922,7 @@ fn ts_builder_expression_inner(
                     lang,
                     enum_fields,
                     bigint_fields,
+                    type_defs,
                 );
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
@@ -828,10 +931,10 @@ fn ts_builder_expression_inner(
         } else if let serde_json::Value::Array(items) = val {
             // wasm-bindgen rejects plain object literals where it expects class
             // instances. When the array element type is a known binding class
-            // (registered in `nested_types`), wrap each object element via the
-            // same builder-expression emitter; primitive elements pass through
-            // as JS literals.
-            if let Some(elem_type) = nested_types.get(key.as_str()) {
+            // (registered in `effective_nested_types`), wrap each object element
+            // via the same builder-expression emitter; primitive elements pass
+            // through as JS literals.
+            if let Some(elem_type) = effective_nested_types.get(key.as_str()) {
                 let element_exprs: Vec<String> = items
                     .iter()
                     .map(|item| {
@@ -843,6 +946,7 @@ fn ts_builder_expression_inner(
                                 lang,
                                 enum_fields,
                                 bigint_fields,
+                                type_defs,
                             )
                         } else {
                             json_to_js(item)
@@ -888,6 +992,7 @@ fn build_args_and_setup(
     enum_fields: &std::collections::HashMap<String, String>,
     bigint_fields: &std::collections::BTreeSet<String>,
     handle_config_type: Option<&str>,
+    type_defs: &[TypeDef],
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         // When the call has no configured args and the fixture input is an
@@ -1036,8 +1141,15 @@ fn build_args_and_setup(
                         } else if let Some(obj) = v.as_object() {
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
-                            let ts_code =
-                                ts_builder_expression(obj, opts_type, nested_types, lang, enum_fields, bigint_fields);
+                            let ts_code = ts_builder_expression(
+                                obj,
+                                opts_type,
+                                nested_types,
+                                lang,
+                                enum_fields,
+                                bigint_fields,
+                                type_defs,
+                            );
                             parts.push(ts_code);
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
@@ -1085,6 +1197,130 @@ mod tests {
     use super::*;
     use crate::escape::sanitize_filename;
     use crate::fixture::FixtureGroup;
+    use alef_core::ir::{FieldDef, PrimitiveType};
+
+    fn make_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: alef_core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+        }
+    }
+
+    fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            fields,
+            methods: Vec::new(),
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn derive_nested_types_maps_named_field_to_wasm_class() {
+        let message_type = make_type("ChatMessage", vec![]);
+        let request_type = make_type(
+            "ChatRequest",
+            vec![make_field(
+                "messages",
+                TypeRef::Vec(Box::new(TypeRef::Named("ChatMessage".to_string()))),
+            )],
+        );
+        let type_defs = vec![message_type, request_type];
+
+        let derived = derive_nested_types_for_wasm("WasmChatRequest", &type_defs);
+        assert_eq!(derived.get("messages"), Some(&"WasmChatMessage".to_string()));
+    }
+
+    #[test]
+    fn derive_nested_types_maps_optional_named_field() {
+        let config_type = make_type("ExtractionConfig", vec![]);
+        let request_type = make_type(
+            "ExtractionRequest",
+            vec![make_field(
+                "config",
+                TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+            )],
+        );
+        let type_defs = vec![config_type, request_type];
+
+        let derived = derive_nested_types_for_wasm("WasmExtractionRequest", &type_defs);
+        assert_eq!(derived.get("config"), Some(&"WasmExtractionConfig".to_string()));
+    }
+
+    #[test]
+    fn derive_nested_types_skips_primitive_fields() {
+        let request_type = make_type(
+            "SimpleRequest",
+            vec![
+                make_field("count", TypeRef::Primitive(PrimitiveType::U32)),
+                make_field("name", TypeRef::String),
+            ],
+        );
+        let derived = derive_nested_types_for_wasm("WasmSimpleRequest", &[request_type]);
+        assert!(derived.is_empty(), "primitives must not produce nested_types entries");
+    }
+
+    #[test]
+    fn derive_nested_types_explicit_overrides_derived() {
+        let inner_type = make_type("Message", vec![]);
+        let outer_type = make_type(
+            "Request",
+            vec![make_field("message", TypeRef::Named("Message".to_string()))],
+        );
+        let type_defs = vec![inner_type, outer_type];
+
+        // Explicit override provides a different class name.
+        let explicit: std::collections::HashMap<String, String> =
+            [("message".to_string(), "CustomMessage".to_string())]
+                .into_iter()
+                .collect();
+
+        let derived = derive_nested_types_for_wasm("WasmRequest", &type_defs);
+        // Merge: explicit wins on collision.
+        let mut effective = derived;
+        for (k, v) in &explicit {
+            effective.insert(k.clone(), v.clone());
+        }
+        assert_eq!(effective.get("message"), Some(&"CustomMessage".to_string()));
+    }
+
+    #[test]
+    fn derive_nested_types_returns_empty_for_unknown_type() {
+        let derived = derive_nested_types_for_wasm("WasmUnknownType", &[]);
+        assert!(derived.is_empty());
+    }
+
+    #[test]
+    fn wasm_class_name_prepends_wasm_prefix() {
+        assert_eq!(wasm_class_name("ChatMessage"), "WasmChatMessage");
+        assert_eq!(wasm_class_name("EmbeddingRequest"), "WasmEmbeddingRequest");
+    }
 
     #[test]
     fn resolve_node_function_name_converts_snake_to_camel() {

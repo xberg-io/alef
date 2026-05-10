@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- alef-e2e/typescript: auto-derive nested-type wrapping from IR field types — `ts_builder_expression_inner` now resolves class-typed fields (`TypeRef::Named` and `TypeRef::Vec(Named)`) from the type registry, removing the need for manual `nested_types` mappings in alef.toml call overrides. Explicit overrides still win on collision.
+
 ### Added
 
 - feat(alef-core/ir): plumb `FieldDef.serde_flatten: bool` from the Rust source through the IR. Backends use this to emit language-native flatten support — see `feat(java-backend, csharp-backend)` below. The extractor recognises `#[serde(flatten)]` (also under `#[cfg_attr(...)]`) by anchoring on the `flatten` token boundary in the token-stream string.

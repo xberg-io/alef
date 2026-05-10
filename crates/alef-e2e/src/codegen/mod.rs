@@ -41,6 +41,7 @@ use crate::config::E2eConfig;
 use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
+use alef_core::ir::TypeDef;
 use anyhow::Result;
 
 /// Check if a fixture should be included for the given language.
@@ -94,11 +95,17 @@ pub(crate) fn normalize_json_keys_to_snake_case(value: &serde_json::Value) -> se
 /// Trait for per-language e2e test code generation.
 pub trait E2eCodegen: Send + Sync {
     /// Generate all e2e test project files for this language.
+    ///
+    /// `type_defs` is the IR type registry extracted from the source crate.
+    /// It is used by backends that need to introspect struct field types at
+    /// codegen time (e.g. the TypeScript/WASM generator uses it to
+    /// auto-derive `nested_types` mappings for wasm-bindgen class wrapping).
     fn generate(
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        type_defs: &[TypeDef],
     ) -> Result<Vec<GeneratedFile>>;
 
     /// Language name for display and directory naming.

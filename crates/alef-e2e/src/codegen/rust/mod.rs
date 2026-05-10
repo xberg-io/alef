@@ -37,6 +37,7 @@ impl E2eCodegen for RustE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
+        _type_defs: &[alef_core::ir::TypeDef],
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
         let output_base = PathBuf::from(e2e_config.effective_output()).join("rust");

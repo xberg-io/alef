@@ -94,7 +94,7 @@ fn c_result_type_does_not_double_prefix() {
     let (resolved, e2e) = resolve_one(&cfg);
     let groups = vec![build_simple_fixture()];
     let files = CCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("C generation succeeds");
     let test_file = files
         .iter()
@@ -148,7 +148,7 @@ result_type = "ConversionResult"
     let (resolved, e2e) = resolve_one(&cfg);
     let groups = vec![build_simple_fixture()];
     let files = CCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("C generation succeeds");
     let test_file = files
         .iter()

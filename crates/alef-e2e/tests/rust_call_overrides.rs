@@ -89,7 +89,7 @@ fn render_smoke_test(cfg: &NewAlefConfig, assertions: Vec<Assertion>) -> String 
     let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture_with_assertions("bug_regression", assertions)];
     let files = RustE2eCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
     let test_file = files
         .iter()
@@ -171,7 +171,7 @@ fn render_rust_test(cfg: &NewAlefConfig) -> String {
     let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture()];
     let files = RustE2eCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
     let test_file = files
         .iter()

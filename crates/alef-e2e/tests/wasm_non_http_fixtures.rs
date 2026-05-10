@@ -82,7 +82,7 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
     let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
 
     let smoke = files
@@ -118,7 +118,7 @@ fn wasm_codegen_emits_setup_ts_when_file_path_args_are_used() {
     let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
 
     // setup.ts must be emitted so that vitest chdir's to test_documents
@@ -145,7 +145,7 @@ fn wasm_codegen_skips_globalsetup_when_no_http_fixtures() {
     let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &e2e, &resolved)
+        .generate(&groups, &e2e, &resolved, &[])
         .expect("generation succeeds");
 
     // Without any HTTP fixtures, we must not emit globalSetup.ts (which spawns

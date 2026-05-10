@@ -1294,7 +1294,7 @@ fn main() -> Result<()> {
                     }
 
                     eprintln!("Generating e2e test suites...");
-                    let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None)?;
+                    let files = alef_e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types)?;
                     e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
                     alef_e2e::format::run_formatters(&files, e2e_config);
                     for file in &files {
@@ -1472,7 +1472,7 @@ fn main() -> Result<()> {
                             this_e2e_config
                         };
                         let languages = lang.as_deref();
-                        let files = alef_e2e::generate_e2e(e2e_crate, e2e_ref, languages)?;
+                        let files = alef_e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
