@@ -520,6 +520,15 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                 )
             }
         }
+        // Map<K, Bytes>: binding uses Vec<u8> or napi Buffer, core uses bytes::Bytes (or Vec<u8>).
+        // `.to_vec().into()` converts Buffer→Vec<u8> (napi) or is identity for Vec<u8>→Vec<u8>.
+        TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Bytes) => {
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.to_vec().into())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v.to_vec().into())).collect()")
+            }
+        }
         // Optional with inner
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Json => format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"),

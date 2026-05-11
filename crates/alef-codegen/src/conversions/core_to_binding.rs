@@ -400,6 +400,15 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
             }
         }
+        // Map<K, Bytes>: core uses bytes::Bytes (or Vec<u8>), binding uses Vec<u8> or napi Buffer.
+        // `.to_vec().into()` converts Bytes→Vec<u8> (identity for Vec<u8>) or Bytes→Buffer (napi).
+        TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Bytes) => {
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.to_vec().into())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v.to_vec().into())).collect()")
+            }
+        }
         // Map<K, Named>: each value needs .into() to convert core→binding
         TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
             if optional {
