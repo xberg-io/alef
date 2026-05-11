@@ -458,6 +458,16 @@ fn render_test_file(
                     });
                     if has_opt_prefix {
                         needed_modules.insert("option");
+                        // For not_empty/is_empty on optional-prefix fields, the import
+                        // depends on whether the field is a list or a string.
+                        if matches!(assertion.assertion_type.as_str(), "not_empty" | "is_empty") {
+                            let resolved = field_resolver.resolve(f);
+                            if field_resolver.is_array(f) || field_resolver.is_array(resolved) {
+                                needed_modules.insert("list");
+                            } else {
+                                needed_modules.insert("string");
+                            }
+                        }
                     }
                 }
             }
@@ -1448,7 +1458,12 @@ fn render_assertion(
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "      {inner_expr} |> list.is_empty |> should.equal(False)");
+                        let is_arr = field_resolver.is_array(f) || field_resolver.is_array(field_resolver.resolve(f));
+                        if is_arr {
+                            let _ = writeln!(out, "      {inner_expr} |> list.is_empty |> should.equal(False)");
+                        } else {
+                            let _ = writeln!(out, "      {inner_expr} |> string.is_empty |> should.equal(False)");
+                        }
                     }
                     "min_length" => {
                         if let Some(val) = &assertion.value {
