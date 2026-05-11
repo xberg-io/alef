@@ -349,34 +349,11 @@ fn api_has_e2e_types(api: &ApiSurface) -> bool {
 /// Wired into `emit_lib_rs` only when the api surface exposes all three serde-enabled
 /// types — see `api_has_e2e_types`. Crate-agnostic by structure.
 fn emit_json_factory_shims(source_crate: &str, out: &mut String) {
-    out.push_str("// JSON factory shims for e2e test layer.\n");
-    out.push_str("// These let generated tests deserialise fixture JSON into opaque swift-bridge types.\n\n");
-
-    // ExtractionConfig
-    out.push_str(&format!(
-        "pub fn extraction_config_from_json(json: String) -> Result<ExtractionConfig, String> {{\n\
-             serde_json::from_str::<{source_crate}::ExtractionConfig>(&json)\n\
-                 .map_err(|e| e.to_string())\n\
-                 .map(ExtractionConfig)\n\
-         }}\n\n"
-    ));
-
-    // BatchBytesItem
-    out.push_str(&format!(
-        "pub fn batch_bytes_item_from_json(json: String) -> Result<BatchBytesItem, String> {{\n\
-             serde_json::from_str::<{source_crate}::BatchBytesItem>(&json)\n\
-                 .map_err(|e| e.to_string())\n\
-                 .map(BatchBytesItem)\n\
-         }}\n\n"
-    ));
-
-    // BatchFileItem
-    out.push_str(&format!(
-        "pub fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String> {{\n\
-             serde_json::from_str::<{source_crate}::BatchFileItem>(&json)\n\
-                 .map_err(|e| e.to_string())\n\
-                 .map(BatchFileItem)\n\
-         }}\n\n"
+    out.push_str(&crate::template_env::render(
+        "json_factory_shims.rs.jinja",
+        minijinja::context! {
+            source_crate => source_crate,
+        },
     ));
 }
 

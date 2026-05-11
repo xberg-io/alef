@@ -1,0 +1,6 @@
+/// Convenience overload: accepts a file path as a `String`.
+public func {{ wrapper_name }}(
+    path: String{{ trailing_params }}
+){{ throws_clause }} -> {{ return_ty }} {
+    return try {{ inner_call }}(path{{ trailing_args }}){{ return_suffix }}
+}

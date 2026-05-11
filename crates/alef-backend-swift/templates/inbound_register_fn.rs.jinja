@@ -1,0 +1,11 @@
+/// Register a Swift class implementation as a `{{ trait_name }}` plugin.
+///
+/// Wraps the Swift handle in `Arc<SwiftXxxWrapper>` and inserts it into the host registry.
+/// Errors from the registry are stringified for swift-bridge transport.
+pub fn {{ register_fn }}(swift_box: ffi::{{ box_name }}) -> Result<(), String> {
+    let arc: ::std::sync::Arc<dyn {{ trait_path }}> = ::std::sync::Arc::new({{ wrapper_name }}::new(swift_box));
+    let registry = {{ registry_getter }}();
+    let mut guard = registry.write();
+    guard.register(arc{{ extra_args }}).map_err(|e| e.to_string())
+}
+

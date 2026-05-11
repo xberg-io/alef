@@ -787,10 +787,10 @@ fn trait_bridge_async_method_emits_block_on() {
         "async trait method trampoline must call block_on: {}",
         lib.content
     );
-    // Result-returning method must have map_err.
+    // Result-returning method must return a JSON envelope for swift-bridge transport.
     assert!(
-        lib.content.contains("map_err(|e| e.to_string())"),
-        "async Result trampoline must have map_err: {}",
+        lib.content.contains(r#"format!("{{\"ok\": {}}}""#) && lib.content.contains(r#"format!("{{\"err\": {}}}""#),
+        "async Result trampoline must emit JSON envelope: {}",
         lib.content
     );
 }

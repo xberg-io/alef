@@ -254,6 +254,19 @@ pub(crate) fn emit_default_construction_body(
                 "default_field_bytes_assign.jinja",
                 minijinja::context! { name => &name },
             ));
+        } else if matches!(f.ty, TypeRef::Duration) {
+            // Duration bridges as u64 (millis) but the field type is std::time::Duration.
+            if f.optional {
+                out.push_str(&crate::template_env::render(
+                    "default_field_optional_duration_assign.jinja",
+                    minijinja::context! { param => &param, name => &name },
+                ));
+            } else {
+                out.push_str(&crate::template_env::render(
+                    "default_field_duration_assign.jinja",
+                    minijinja::context! { param => &param, name => &name },
+                ));
+            }
         } else {
             out.push_str(&crate::template_env::render(
                 "default_field_generic_assign.jinja",
@@ -368,6 +381,13 @@ pub(crate) fn emit_direct_field_inits(
             } else if matches!(f.ty, TypeRef::Bytes) {
                 // bytes::Bytes != Vec<u8>; convert with .into().
                 format!("            {name}: {name}.into()")
+            } else if matches!(f.ty, TypeRef::Duration) {
+                // Duration bridges as u64 (millis); convert back to std::time::Duration.
+                if f.optional {
+                    format!("            {name}: {name}.map(std::time::Duration::from_millis)")
+                } else {
+                    format!("            {name}: std::time::Duration::from_millis({name})")
+                }
             } else {
                 format!("            {name}")
             }

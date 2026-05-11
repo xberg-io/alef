@@ -274,6 +274,25 @@ fn emit_getters(
                     },
                 ));
             }
+        } else if matches!(field.ty, TypeRef::Duration) {
+            // Duration field: bridge type is u64 (millis), core type is std::time::Duration.
+            if field.optional {
+                out.push_str(&crate::template_env::render(
+                    "getter_optional_duration.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        name => &ctx.name,
+                    },
+                ));
+            } else {
+                out.push_str(&crate::template_env::render(
+                    "getter_duration.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        name => &ctx.name,
+                    },
+                ));
+            }
         } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
             // Vec<T> or Primitive fields in serde structs: use serde JSON round-trip.
             if field.optional {

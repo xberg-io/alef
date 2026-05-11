@@ -606,29 +606,34 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
     let return_suffix = swift_return_conversion_suffix(&func.return_type);
 
-    // ── String overload ──────────────────────────────────────────────────────
-    out.push_str("/// Convenience overload: accepts a UTF-8 `String` and converts it to bytes.\n");
-    out.push_str(&format!("public func {wrapper_name}(\n"));
-    out.push_str("    content: String");
-    emit_trailing_params(trailing_params.iter().copied(), out);
-    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!("    return try {inner_call}(makeByteVec(Array(content.utf8))"));
-    for p in &trailing_params {
-        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
-    }
-    out.push_str(&format!("){return_suffix}\n}}\n\n"));
+    let trailing_param_text = render_trailing_params(trailing_params.iter().copied());
+    let trailing_args = render_trailing_args(trailing_params.iter().copied());
 
-    // ── [UInt8] overload ─────────────────────────────────────────────────────
-    out.push_str("/// Convenience overload: accepts a `[UInt8]` byte array.\n");
-    out.push_str(&format!("public func {wrapper_name}(\n"));
-    out.push_str("    content: [UInt8]");
-    emit_trailing_params(trailing_params.iter().copied(), out);
-    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!("    return try {inner_call}(makeByteVec(content)"));
-    for p in &trailing_params {
-        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
-    }
-    out.push_str(&format!("){return_suffix}\n}}\n\n"));
+    out.push_str(&crate::template_env::render(
+        "swift_bytes_string_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
+
+    out.push_str(&crate::template_env::render(
+        "swift_bytes_array_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
 }
 
 /// Emits a String path convenience overload for a function whose first param is
@@ -653,21 +658,27 @@ fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet
     let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
     let return_suffix = swift_return_conversion_suffix(&func.return_type);
 
-    out.push_str("/// Convenience overload: accepts a file path as a `String`.\n");
-    out.push_str(&format!("public func {wrapper_name}(\n"));
-    out.push_str("    path: String");
-    emit_trailing_params_with_defaults(trailing_params.iter().copied(), out);
-    out.push_str(&format!("\n){throws_clause} -> {return_ty} {{\n"));
-    out.push_str(&format!("    return try {inner_call}(path"));
-    for p in &trailing_params {
-        out.push_str(&format!(", {}", p.name.to_lower_camel_case()));
-    }
-    out.push_str(&format!("){return_suffix}\n}}\n"));
+    let trailing_param_text = render_trailing_params_with_defaults(trailing_params.iter().copied());
+    let trailing_args = render_trailing_args(trailing_params.iter().copied());
+
+    out.push_str(&crate::template_env::render(
+        "swift_path_overload.jinja",
+        minijinja::context! {
+            wrapper_name => &wrapper_name,
+            trailing_params => &trailing_param_text,
+            throws_clause => throws_clause,
+            return_ty => &return_ty,
+            inner_call => &inner_call,
+            trailing_args => &trailing_args,
+            return_suffix => &return_suffix,
+        },
+    ));
 }
 
 /// Emits trailing parameters (after the first) as `, paramName: Type` additions
 /// to the current function signature line, without default values.
-fn emit_trailing_params<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>, out: &mut String) {
+fn render_trailing_params<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
     for p in params {
         let swift_name = p.name.to_lower_camel_case();
         let ty_str = if p.optional {
@@ -675,23 +686,58 @@ fn emit_trailing_params<'a>(params: impl Iterator<Item = &'a alef_core::ir::Para
         } else {
             swift_type_name(&p.ty)
         };
-        out.push_str(&format!(",\n    {swift_name}: {ty_str}"));
+        out.push_str(&crate::template_env::render(
+            "swift_trailing_param.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+                ty_str => &ty_str,
+            },
+        ));
     }
+    out
 }
 
 /// Like `emit_trailing_params` but emits ` = nil` for optional parameters,
 /// producing Swift-idiomatic default arguments.
-fn emit_trailing_params_with_defaults<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>, out: &mut String) {
+fn render_trailing_params_with_defaults<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
     for p in params {
         let swift_name = p.name.to_lower_camel_case();
         if p.optional {
             let ty_str = swift_type_name(&p.ty);
-            out.push_str(&format!(",\n    {swift_name}: {ty_str}? = nil"));
+            out.push_str(&crate::template_env::render(
+                "swift_trailing_param_optional_default.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                    ty_str => &ty_str,
+                },
+            ));
         } else {
             let ty_str = swift_type_name(&p.ty);
-            out.push_str(&format!(",\n    {swift_name}: {ty_str}"));
+            out.push_str(&crate::template_env::render(
+                "swift_trailing_param.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                    ty_str => &ty_str,
+                },
+            ));
         }
     }
+    out
+}
+
+fn render_trailing_args<'a>(params: impl Iterator<Item = &'a alef_core::ir::ParamDef>) -> String {
+    let mut out = String::new();
+    for p in params {
+        let swift_name = p.name.to_lower_camel_case();
+        out.push_str(&crate::template_env::render(
+            "swift_trailing_arg.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+            },
+        ));
+    }
+    out
 }
 
 /// Maps a `TypeRef` to its Swift type name string for use in function signatures.

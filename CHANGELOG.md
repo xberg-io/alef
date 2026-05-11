@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- refactor(alef-backend-swift): move remaining Swift backend generated-code blocks for inbound plugin bridges, JSON factory shims, and Swift convenience overloads from inline string assembly into Jinja templates.
+
 - refactor(alef-backend-magnus,alef-backend-php,alef-backend-rustler): move more generated function-body, registration, serde-binding, and enum-conversion emission from inline `format!` assembly into Jinja templates while preserving generated output behavior.
 
 - refactor(alef-backend-csharp,alef-backend-dart,alef-backend-ffi,alef-backend-java,alef-codegen): move additional generated-code emission blocks from inline `push_str`/`format!` assembly into Jinja templates while preserving the existing generated output contracts.
@@ -44,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-e2e/zig): the `mock_url` arg type in the Zig e2e codegen now emits `const {name} = try std.fmt.allocPrint(allocator, ...)` + `defer allocator.free({name})` instead of the previously invalid `var {} = try allocator.alloc(u8, std.fmt.bufPrint(undefined, ...) catch 0)`. The old pattern produced a Zig syntax error (`expected ';' after statement`) and an incorrect allocation size. The new pattern uses `std.fmt.allocPrint` which allocates exactly the right number of bytes for the formatted URL string.
 
 - fix(alef-backend-dart): Vec<Json> (e.g. `MarkdownResult.tables: Vec<serde_json::Value>`) fields in core→mirror `From` impls now emit `.map(|j| serde_json::to_string(&j).unwrap_or_default())` instead of falling through to the identity return (`v.{name}`). Previously, `TypeRef::Json` inside a `Vec` was treated as a pass-through, producing `E0308 mismatched types: expected Vec<String>, found Vec<Value>`.
+
+- fix(alef-backend-swift): `Duration`-typed struct fields now emit correct constructor and getter code. The constructor body emits `__target.{name} = std::time::Duration::from_millis({param});` (or `.map(std::time::Duration::from_millis)` for optional) via two new Jinja templates (`default_field_duration_assign.jinja`, `default_field_optional_duration_assign.jinja`). Getters emit `self.0.{name}.as_millis() as u64` (or `.map(|d| d.as_millis() as u64)` for optional) via `getter_duration.jinja` and `getter_optional_duration.jinja`. Previously both paths fell through to generic templates that emitted `__target.timeout = timeout` / `self.0.timeout.clone()`, producing `E0308 mismatched types` for any struct with a `Duration` field (e.g. `BrowserConfig.timeout`, `CrawlConfig.request_timeout`).
 
 - fix(alef-backend-dart): opaque handle types (e.g. `CrawlEngineHandle`) now emit a `#[frb(opaque)] pub struct {Name} { pub(crate) inner: source::{Name} }` wrapper instead of `#[frb(mirror({Name}))] pub struct {Name} {}` (an empty zero-sized struct). The empty mirror pattern caused `E0308` for return values (`CrawlEngineHandle::from(v)` with no `From` impl) and would have silently destroyed the engine value via an unsound zero-sized transmute. Bridge functions now use `&engine.inner` (input) and `|inner| Name { inner }` (return) instead of transmute/From.
 

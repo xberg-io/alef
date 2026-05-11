@@ -80,22 +80,37 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
     block.push_str("    extern \"Rust\" {\n");
     if let Some(register_fn) = bridge_config.register_fn.as_deref() {
         let camel = heck::AsLowerCamelCase(register_fn).to_string();
-        block.push_str(&format!(
-            "        #[swift_bridge(swift_name = \"{camel}\")]\n        fn {register_fn}(swift_box: {box_name}) -> Result<(), String>;\n"
+        block.push_str(&crate::template_env::render(
+            "inbound_registration_fn.rs.jinja",
+            minijinja::context! {
+                camel => &camel,
+                fn_name => register_fn,
+                params => format!("swift_box: {box_name}"),
+            },
         ));
         has_any = true;
     }
     if let Some(unregister_fn) = bridge_config.unregister_fn.as_deref() {
         let camel = heck::AsLowerCamelCase(unregister_fn).to_string();
-        block.push_str(&format!(
-            "        #[swift_bridge(swift_name = \"{camel}\")]\n        fn {unregister_fn}(name: String) -> Result<(), String>;\n"
+        block.push_str(&crate::template_env::render(
+            "inbound_registration_fn.rs.jinja",
+            minijinja::context! {
+                camel => &camel,
+                fn_name => unregister_fn,
+                params => "name: String",
+            },
         ));
         has_any = true;
     }
     if let Some(clear_fn) = bridge_config.clear_fn.as_deref() {
         let camel = heck::AsLowerCamelCase(clear_fn).to_string();
-        block.push_str(&format!(
-            "        #[swift_bridge(swift_name = \"{camel}\")]\n        fn {clear_fn}() -> Result<(), String>;\n"
+        block.push_str(&crate::template_env::render(
+            "inbound_registration_fn.rs.jinja",
+            minijinja::context! {
+                camel => &camel,
+                fn_name => clear_fn,
+                params => "",
+            },
         ));
         has_any = true;
     }
@@ -114,7 +129,12 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef) -> String {
 
     let mut block = String::new();
     block.push_str("    extern \"Swift\" {\n");
-    block.push_str(&format!("        type {box_name};\n"));
+    block.push_str(&crate::template_env::render(
+        "inbound_swift_type.rs.jinja",
+        minijinja::context! {
+            box_name => &box_name,
+        },
+    ));
 
     // Plugin super-trait shims (always emitted — every plugin trait extends Plugin).
     // We declare these as `&self` methods so swift-bridge treats them as instance methods
@@ -142,8 +162,13 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef) -> String {
 
         let return_ty = inbound_return_type(method);
         let params_str = params.join(", ");
-        block.push_str(&format!(
-            "        fn alef_{method_snake}({params_str}) -> {return_ty};\n"
+        block.push_str(&crate::template_env::render(
+            "inbound_swift_method.rs.jinja",
+            minijinja::context! {
+                method_snake => &method_snake,
+                params => &params_str,
+                return_ty => &return_ty,
+            },
         ));
         let _ = box_name; // silence unused if no methods iter has it
     }
@@ -185,55 +210,36 @@ pub(crate) fn emit_inbound_wrapper(
     let mut out = String::new();
 
     // 1. Wrapper struct with name cache + Send/Sync.
-    out.push_str(&format!(
-        "/// Rust-side wrapper around a Swift class implementing the `{trait_name}` plugin protocol.\n"
+    out.push_str(&crate::template_env::render(
+        "inbound_wrapper_struct.rs.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            wrapper_name => &wrapper_name,
+            box_name => &box_name,
+        },
     ));
-    out.push_str("///\n");
-    out.push_str("/// The Swift instance is held via a `swift-bridge` opaque handle that retains\n");
-    out.push_str("/// the underlying ARC reference for the lifetime of this struct. Send + Sync are\n");
-    out.push_str("/// asserted unsafely: Swift classes used as kreuzberg plugins must be thread-safe\n");
-    out.push_str("/// (the `Plugin` super-trait requires it), and ARC handles themselves are safe to share.\n");
-    out.push_str(&format!("pub struct {wrapper_name} {{\n"));
-    out.push_str(&format!("    inner: ffi::{box_name},\n"));
-    out.push_str("    /// Cached `Plugin::name()` — required because the trait returns `&str` but\n");
-    out.push_str("    /// the Swift FFI shim returns an owned `String`. Populated lazily on first access.\n");
-    out.push_str("    name_cache: ::std::sync::OnceLock<String>,\n");
-    out.push_str("}\n");
-    out.push_str(&format!("unsafe impl Send for {wrapper_name} {{}}\n"));
-    out.push_str(&format!("unsafe impl Sync for {wrapper_name} {{}}\n\n"));
-
-    out.push_str(&format!("impl {wrapper_name} {{\n"));
-    out.push_str(&format!(
-        "    /// Construct a new wrapper from a Swift `{box_name}` handle.\n"
-    ));
-    out.push_str(&format!("    pub fn new(inner: ffi::{box_name}) -> Self {{\n"));
-    out.push_str("        Self { inner, name_cache: ::std::sync::OnceLock::new() }\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
 
     // 2. Plugin super-trait impl.
-    out.push_str(&format!("impl {plugin_path} for {wrapper_name} {{\n"));
-    out.push_str("    fn name(&self) -> &str {\n");
-    out.push_str("        self.name_cache.get_or_init(|| self.inner.alef_name()).as_str()\n");
-    out.push_str("    }\n\n");
-    out.push_str("    fn version(&self) -> String {\n");
-    out.push_str("        self.inner.alef_version()\n");
-    out.push_str("    }\n\n");
-    out.push_str(&format!("    fn initialize(&self) -> {source_crate}::Result<()> {{\n"));
-    out.push_str("        decode_inbound_envelope::<()>(&self.inner.alef_initialize()).map(|_| ())\n");
-    out.push_str("    }\n\n");
-    out.push_str(&format!("    fn shutdown(&self) -> {source_crate}::Result<()> {{\n"));
-    out.push_str("        decode_inbound_envelope::<()>(&self.inner.alef_shutdown()).map(|_| ())\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
+    out.push_str(&crate::template_env::render(
+        "inbound_plugin_impl.rs.jinja",
+        minijinja::context! {
+            plugin_path => &plugin_path,
+            wrapper_name => &wrapper_name,
+            source_crate => source_crate,
+        },
+    ));
     let _ = trait_snake;
 
     // 3. Trait impl.
     let has_async = trait_def.methods.iter().any(|m| m.is_async);
-    if has_async {
-        out.push_str("#[async_trait::async_trait]\n");
-    }
-    out.push_str(&format!("impl {trait_path} for {wrapper_name} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "inbound_trait_impl_open.rs.jinja",
+        minijinja::context! {
+            has_async => has_async,
+            trait_path => &trait_path,
+            wrapper_name => &wrapper_name,
+        },
+    ));
     for method in &trait_def.methods {
         emit_inbound_method_impl(&mut out, method, &trait_snake, source_crate, type_paths);
     }
@@ -247,26 +253,18 @@ pub(crate) fn emit_inbound_wrapper(
                 .as_deref()
                 .map(|a| format!(", {a}"))
                 .unwrap_or_default();
-            out.push_str(&format!(
-                "/// Register a Swift class implementation as a `{trait_name}` plugin.\n"
+            out.push_str(&crate::template_env::render(
+                "inbound_register_fn.rs.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                    register_fn => register_fn,
+                    box_name => &box_name,
+                    trait_path => &trait_path,
+                    wrapper_name => &wrapper_name,
+                    registry_getter => registry_getter,
+                    extra_args => &extra_args,
+                },
             ));
-            out.push_str("///\n");
-            out.push_str(
-                "/// Wraps the Swift handle in `Arc<SwiftXxxWrapper>` and inserts it into the host registry.\n",
-            );
-            out.push_str("/// Errors from the registry are stringified for swift-bridge transport.\n");
-            out.push_str(&format!(
-                "pub fn {register_fn}(swift_box: ffi::{box_name}) -> Result<(), String> {{\n"
-            ));
-            out.push_str(&format!(
-                "    let arc: ::std::sync::Arc<dyn {trait_path}> = ::std::sync::Arc::new({wrapper_name}::new(swift_box));\n"
-            ));
-            out.push_str(&format!("    let registry = {registry_getter}();\n"));
-            out.push_str("    let mut guard = registry.write();\n");
-            out.push_str(&format!(
-                "    guard.register(arc{extra_args}).map_err(|e| e.to_string())\n"
-            ));
-            out.push_str("}\n\n");
         }
     }
 
@@ -320,31 +318,11 @@ fn build_bridge_spec<'a>(
 /// JSON envelopes also gives us a uniform way to ferry typed Ok values without per-method
 /// FFI plumbing.
 pub(crate) fn emit_plugin_error_helper(source_crate: &str) -> String {
-    format!(
-        "/// Convert a stringified Swift error into the source crate's `KreuzbergError::Plugin`.\n\
-         #[allow(dead_code)]\n\
-         fn plugin_error_from_string(message: String) -> {source_crate}::KreuzbergError {{\n\
-             {source_crate}::KreuzbergError::Plugin {{ message, plugin_name: \"swift\".to_string() }}\n\
-         }}\n\n\
-         /// JSON envelope returned by every fallible Swift trait method. Carries `Ok(T)`\n\
-         /// as `{{\"ok\": <serialised T>}}` and `Err(String)` as `{{\"err\": \"<message>\"}}`.\n\
-         /// Avoids swift-bridge 0.1.59's broken `Result<RustString, RustString>` codegen.\n\
-         #[allow(dead_code)]\n\
-         #[derive(::serde::Deserialize)]\n\
-         #[serde(rename_all = \"snake_case\")]\n\
-         enum InboundEnvelope<T> {{ Ok(T), Err(String) }}\n\n\
-         /// Deserialise a JSON envelope returned from a Swift FFI shim into a typed Result.\n\
-         #[allow(dead_code)]\n\
-         fn decode_inbound_envelope<T>(json: &str) -> {source_crate}::Result<T>\n\
-         where\n\
-             T: ::serde::de::DeserializeOwned,\n\
-         {{\n\
-             match ::serde_json::from_str::<InboundEnvelope<T>>(json) {{\n\
-                 Ok(InboundEnvelope::Ok(value)) => Ok(value),\n\
-                 Ok(InboundEnvelope::Err(message)) => Err(plugin_error_from_string(message)),\n\
-                 Err(e) => Err(plugin_error_from_string(format!(\"swift returned malformed envelope: {{e}}\"))),\n\
-             }}\n\
-         }}\n\n"
+    crate::template_env::render(
+        "plugin_error_helper.rs.jinja",
+        minijinja::context! {
+            source_crate => source_crate,
+        },
     )
 }
 
@@ -383,15 +361,26 @@ fn emit_inbound_method_impl(
     let return_ty = inbound_impl_return_type(method, source_crate, type_paths);
 
     let async_kw = if method.is_async { "async " } else { "" };
-    out.push_str(&format!(
-        "    {async_kw}fn {method_snake}({}) -> {return_ty} {{\n",
-        sig_params.join(", ")
+    let params = sig_params.join(", ");
+    out.push_str(&crate::template_env::render(
+        "inbound_method_open.rs.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            method_snake => &method_snake,
+            params => &params,
+            return_ty => &return_ty,
+        },
     ));
 
     // Emit per-param conversions (owned values for FFI).
     for p in &method.params {
         if let Some(line) = inbound_param_to_bridge(p) {
-            out.push_str(&format!("        {line}\n"));
+            out.push_str(&crate::template_env::render(
+                "inbound_method_binding.rs.jinja",
+                minijinja::context! {
+                    line => &line,
+                },
+            ));
         }
     }
 
@@ -408,34 +397,57 @@ fn emit_inbound_method_impl(
         // Fallible methods receive a JSON envelope String; decode_inbound_envelope deserialises
         // `{"ok": <value>}` or `{"err": "<message>"}` into a `Result<T, KreuzbergError::Plugin>`.
         if matches!(method.return_type, TypeRef::Unit) {
-            out.push_str(&format!("        let envelope = {call_expr};\n"));
-            out.push_str("        decode_inbound_envelope::<()>(&envelope).map(|_| ())\n");
+            out.push_str(&crate::template_env::render(
+                "inbound_method_result_unit.rs.jinja",
+                minijinja::context! {
+                    call_expr => &call_expr,
+                },
+            ));
         } else {
             let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
-            out.push_str(&format!("        let envelope = {call_expr};\n"));
-            out.push_str(&format!("        decode_inbound_envelope::<{native_ty}>(&envelope)\n"));
+            out.push_str(&crate::template_env::render(
+                "inbound_method_result_value.rs.jinja",
+                minijinja::context! {
+                    call_expr => &call_expr,
+                    native_ty => &native_ty,
+                },
+            ));
         }
     } else if is_mime_types_pattern {
         // &[&str] return: the Swift FFI shim returns Vec<String>; Box::leak it into
         // a 'static slice so the &[&str] borrow lifetime requirement is satisfied.
         // supported_mime_types() is called once per registration and the data is process-global.
-        out.push_str(&format!("        let __types: Vec<String> = {call_expr};\n"));
-        out.push_str(
-            "        let __strs: Vec<&'static str> = __types.into_iter()\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20    .map(|s| -> &'static str { Box::leak(s.into_boxed_str()) })\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20    .collect();\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20Box::leak(__strs.into_boxed_slice())\n",
-        );
+        out.push_str(&crate::template_env::render(
+            "inbound_method_mime_types.rs.jinja",
+            minijinja::context! {
+                call_expr => &call_expr,
+            },
+        ));
     } else if needs_inbound_json_bridge(&method.return_type) {
         let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
-        out.push_str(&format!("        let json = {call_expr};\n"));
-        out.push_str(&format!(
-            "        ::serde_json::from_str::<{native_ty}>(&json).expect(\"swift {trait_snake}.{method_snake} returned invalid JSON\")\n"
+        out.push_str(&crate::template_env::render(
+            "inbound_method_json_return.rs.jinja",
+            minijinja::context! {
+                call_expr => &call_expr,
+                native_ty => &native_ty,
+                trait_snake => trait_snake,
+                method_snake => &method_snake,
+            },
         ));
     } else {
         match &method.return_type {
-            TypeRef::Unit => out.push_str(&format!("        {call_expr};\n")),
-            _ => out.push_str(&format!("        {call_expr}\n")),
+            TypeRef::Unit => out.push_str(&crate::template_env::render(
+                "inbound_method_unit_call.rs.jinja",
+                minijinja::context! {
+                    call_expr => &call_expr,
+                },
+            )),
+            _ => out.push_str(&crate::template_env::render(
+                "inbound_method_value_call.rs.jinja",
+                minijinja::context! {
+                    call_expr => &call_expr,
+                },
+            )),
         }
     }
 

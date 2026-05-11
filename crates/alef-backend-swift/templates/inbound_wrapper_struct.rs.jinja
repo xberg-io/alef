@@ -1,0 +1,22 @@
+/// Rust-side wrapper around a Swift class implementing the `{{ trait_name }}` plugin protocol.
+///
+/// The Swift instance is held via a `swift-bridge` opaque handle that retains
+/// the underlying ARC reference for the lifetime of this struct. Send + Sync are
+/// asserted unsafely: Swift classes used as kreuzberg plugins must be thread-safe
+/// (the `Plugin` super-trait requires it), and ARC handles themselves are safe to share.
+pub struct {{ wrapper_name }} {
+    inner: ffi::{{ box_name }},
+    /// Cached `Plugin::name()` — required because the trait returns `&str` but
+    /// the Swift FFI shim returns an owned `String`. Populated lazily on first access.
+    name_cache: ::std::sync::OnceLock<String>,
+}
+unsafe impl Send for {{ wrapper_name }} {}
+unsafe impl Sync for {{ wrapper_name }} {}
+
+impl {{ wrapper_name }} {
+    /// Construct a new wrapper from a Swift `{{ box_name }}` handle.
+    pub fn new(inner: ffi::{{ box_name }}) -> Self {
+        Self { inner, name_cache: ::std::sync::OnceLock::new() }
+    }
+}
+

@@ -41,6 +41,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/getter_simple_clone.jinja"),
     ),
     (
+        "getter_duration.jinja",
+        include_str!("../templates/getter_duration.jinja"),
+    ),
+    (
+        "getter_optional_duration.jinja",
+        include_str!("../templates/getter_optional_duration.jinja"),
+    ),
+    (
         "getter_optional_named.jinja",
         include_str!("../templates/getter_optional_named.jinja"),
     ),
@@ -192,6 +200,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "default_field_bytes_assign.jinja",
         include_str!("../templates/default_field_bytes_assign.jinja"),
+    ),
+    (
+        "default_field_duration_assign.jinja",
+        include_str!("../templates/default_field_duration_assign.jinja"),
+    ),
+    (
+        "default_field_optional_duration_assign.jinja",
+        include_str!("../templates/default_field_optional_duration_assign.jinja"),
     ),
     (
         "default_field_generic_assign.jinja",
@@ -350,6 +366,98 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "default_field_vec_serde_round_trip.jinja",
         include_str!("../templates/default_field_vec_serde_round_trip.jinja"),
+    ),
+    (
+        "swift_bytes_string_overload.jinja",
+        include_str!("../templates/swift_bytes_string_overload.jinja"),
+    ),
+    (
+        "swift_bytes_array_overload.jinja",
+        include_str!("../templates/swift_bytes_array_overload.jinja"),
+    ),
+    (
+        "swift_path_overload.jinja",
+        include_str!("../templates/swift_path_overload.jinja"),
+    ),
+    (
+        "swift_trailing_param.jinja",
+        include_str!("../templates/swift_trailing_param.jinja"),
+    ),
+    (
+        "swift_trailing_param_optional_default.jinja",
+        include_str!("../templates/swift_trailing_param_optional_default.jinja"),
+    ),
+    (
+        "swift_trailing_arg.jinja",
+        include_str!("../templates/swift_trailing_arg.jinja"),
+    ),
+    (
+        "json_factory_shims.rs.jinja",
+        include_str!("../templates/json_factory_shims.rs.jinja"),
+    ),
+    (
+        "inbound_registration_fn.rs.jinja",
+        include_str!("../templates/inbound_registration_fn.rs.jinja"),
+    ),
+    (
+        "inbound_swift_type.rs.jinja",
+        include_str!("../templates/inbound_swift_type.rs.jinja"),
+    ),
+    (
+        "inbound_swift_method.rs.jinja",
+        include_str!("../templates/inbound_swift_method.rs.jinja"),
+    ),
+    (
+        "inbound_wrapper_struct.rs.jinja",
+        include_str!("../templates/inbound_wrapper_struct.rs.jinja"),
+    ),
+    (
+        "inbound_plugin_impl.rs.jinja",
+        include_str!("../templates/inbound_plugin_impl.rs.jinja"),
+    ),
+    (
+        "inbound_trait_impl_open.rs.jinja",
+        include_str!("../templates/inbound_trait_impl_open.rs.jinja"),
+    ),
+    (
+        "inbound_register_fn.rs.jinja",
+        include_str!("../templates/inbound_register_fn.rs.jinja"),
+    ),
+    (
+        "plugin_error_helper.rs.jinja",
+        include_str!("../templates/plugin_error_helper.rs.jinja"),
+    ),
+    (
+        "inbound_method_open.rs.jinja",
+        include_str!("../templates/inbound_method_open.rs.jinja"),
+    ),
+    (
+        "inbound_method_binding.rs.jinja",
+        include_str!("../templates/inbound_method_binding.rs.jinja"),
+    ),
+    (
+        "inbound_method_result_unit.rs.jinja",
+        include_str!("../templates/inbound_method_result_unit.rs.jinja"),
+    ),
+    (
+        "inbound_method_result_value.rs.jinja",
+        include_str!("../templates/inbound_method_result_value.rs.jinja"),
+    ),
+    (
+        "inbound_method_mime_types.rs.jinja",
+        include_str!("../templates/inbound_method_mime_types.rs.jinja"),
+    ),
+    (
+        "inbound_method_json_return.rs.jinja",
+        include_str!("../templates/inbound_method_json_return.rs.jinja"),
+    ),
+    (
+        "inbound_method_unit_call.rs.jinja",
+        include_str!("../templates/inbound_method_unit_call.rs.jinja"),
+    ),
+    (
+        "inbound_method_value_call.rs.jinja",
+        include_str!("../templates/inbound_method_value_call.rs.jinja"),
     ),
 ];
 
