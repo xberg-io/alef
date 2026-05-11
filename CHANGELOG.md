@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.33] - 2026-05-11
+
 ### Changed
 
 - refactor(alef-backend-swift): move remaining Swift backend generated-code blocks for inbound plugin bridges, JSON factory shims, and Swift convenience overloads from inline string assembly into Jinja templates.
