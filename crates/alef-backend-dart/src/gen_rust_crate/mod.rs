@@ -40,6 +40,11 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
+    let stub_methods: Vec<String> = config
+        .dart
+        .as_ref()
+        .map(|c| c.stub_methods.clone())
+        .unwrap_or_default();
 
     Ok(vec![
         emit_cargo_toml(&rust_dir, api, config, &source_crate_name),
@@ -50,6 +55,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
             &source_crate_name,
             &exclude_functions,
             &exclude_types,
+            &stub_methods,
         ),
         emit_build_rs(&rust_dir),
         emit_frb_yaml(&rust_dir, &module_name),
@@ -71,6 +77,7 @@ fn emit_lib_rs(
     source_crate_name: &str,
     exclude_functions: &std::collections::HashSet<String>,
     exclude_types: &std::collections::HashSet<String>,
+    stub_methods: &[String],
 ) -> GeneratedFile {
     let mut content = String::new();
     // batch_extract_bytes* functions use unimplemented!() for the items argument,
@@ -202,7 +209,10 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        .filter(|f| !has_unbridgeable_param(f))
+        // Skip functions with unbridgeable parameters UNLESS they are in stub_methods.
+        // Stub methods emit `unimplemented!()` bodies and do not attempt argument conversion,
+        // so their unbridgeable parameters are irrelevant.
+        .filter(|f| !has_unbridgeable_param(f) || stub_methods.contains(&f.name))
     {
         content.push('\n');
         emit_bridge_fn(
@@ -212,6 +222,7 @@ fn emit_lib_rs(
             &type_paths,
             &types_needing_from_conversion,
             &opaque_type_names,
+            stub_methods,
         );
     }
 

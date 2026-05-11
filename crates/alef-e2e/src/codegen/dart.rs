@@ -486,6 +486,36 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         }
     }
 
+    // Resolve client_factory: when set, tests create a client instance and call
+    // methods on it rather than using static bridge-class calls. This mirrors the
+    // go/python/zig pattern for stateful clients (e.g. liter-llm).
+    let client_factory: Option<&str> = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
+
+    // Convert factory name to camelCase (same rule as function_name above).
+    let client_factory_camel: Option<String> = client_factory.map(|f| {
+        f.split('_')
+            .enumerate()
+            .map(|(i, part)| {
+                if i == 0 {
+                    part.to_string()
+                } else {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    });
+
     // All bridge methods return Future<T> because FRB v2 wraps every Rust
     // function as async in Dart — even "sync" Rust functions. Always emit an async
     // test body and await the call so the test framework waits for the future.
@@ -497,7 +527,50 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .cloned()
         .unwrap_or_else(|| bridge_class.to_string());
 
-    if expects_error && !setup_lines.is_empty() {
+    // When client_factory is set, determine the mock URL and emit client instantiation.
+    // The mock URL derivation follows the same has_host_root_route / plain-fixture split
+    // used by the mock_url arg handler above.
+    let (receiver, extra_setup): (String, Option<String>) = if let Some(factory) = &client_factory_camel {
+        let has_mock_url = call_config.args.iter().any(|a| a.arg_type == "mock_url");
+        let mock_url_setup = if !has_mock_url {
+            // No explicit mock_url arg — derive the URL inline.
+            if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                Some(format!(
+                    "final _mockUrl = Platform.environment[\"{env_key}\"] ?? (Platform.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\");"
+                ))
+            } else {
+                Some(format!(
+                    r#"final _mockUrl = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                ))
+            }
+        } else {
+            None
+        };
+        let url_expr = if has_mock_url {
+            // A mock_url arg was emitted into setup_lines already — reuse the variable name
+            // from the first mock_url arg definition so we don't duplicate the URL.
+            call_config
+                .args
+                .iter()
+                .find(|a| a.arg_type == "mock_url")
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| "_mockUrl".to_string())
+        } else {
+            "_mockUrl".to_string()
+        };
+        let create_line = format!("final _client = await {receiver_class}.{factory}('test-key', baseUrl: {url_expr});");
+        let full_setup = if let Some(url_line) = mock_url_setup {
+            Some(format!("{url_line}\n    {create_line}"))
+        } else {
+            Some(create_line)
+        };
+        ("_client".to_string(), full_setup)
+    } else {
+        (receiver_class.clone(), None)
+    };
+
+    if expects_error && (!setup_lines.is_empty() || extra_setup.is_some()) {
         // Wrap setup + call in an async lambda so any exception at any step is caught.
         // flutter_rust_bridge 2.x decodes Rust errors as raw String values (not Exception
         // subtypes), so throwsException will not match. Use throwsA(anything) instead.
@@ -505,21 +578,36 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         for line in &setup_lines {
             let _ = writeln!(out, "      {line}");
         }
-        let _ = writeln!(out, "      return {receiver_class}.{function_name}({args_str});");
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "      {line}");
+            }
+        }
+        let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
         let _ = writeln!(out, "    }}(), throwsA(anything));");
     } else if expects_error {
         // No setup lines, direct call — same throwsA(anything) rationale as above.
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+        }
         let _ = writeln!(
             out,
-            "    await expectLater({receiver_class}.{function_name}({args_str}), throwsA(anything));"
+            "    await expectLater({receiver}.{function_name}({args_str}), throwsA(anything));"
         );
     } else {
         for line in &setup_lines {
             let _ = writeln!(out, "    {line}");
         }
+        if let Some(extra) = &extra_setup {
+            for line in extra.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+        }
         let _ = writeln!(
             out,
-            "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
+            "    final {result_var} = await {receiver}.{function_name}({args_str});"
         );
     }
 

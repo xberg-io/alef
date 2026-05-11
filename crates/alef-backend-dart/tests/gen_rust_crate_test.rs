@@ -971,3 +971,86 @@ fn cargo_toml_does_not_include_serde_json() {
         "Cargo.toml must not list serde_json (unused dep); got:\n{cargo}"
     );
 }
+
+/// When a function name appears in `[crates.dart].stub_methods`, the generated
+/// bridge fn body must be replaced with `unimplemented!()` rather than attempting
+/// argument conversion. The function signature (params + return type) must still
+/// be emitted so the FRB codegen can see the function.
+#[test]
+fn lib_rs_stub_methods_emits_unimplemented_body() {
+    let toml = r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.dart]
+stub_methods = ["process_bytes_batch"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "process_bytes_batch".into(),
+                rust_path: "demo::process_bytes_batch".into(),
+                original_rust_path: String::new(),
+                params: vec![make_param("items", TypeRef::Vec(Box::new(TypeRef::Bytes)))],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+            FunctionDef {
+                name: "greet".into(),
+                rust_path: "demo::greet".into(),
+                original_rust_path: String::new(),
+                params: vec![make_param("name", TypeRef::String)],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // The stub function must still be present with its signature.
+    assert!(lib.contains("pub fn process_bytes_batch"), "stub fn must still be emitted: {lib}");
+    // The body must be unimplemented!(), not a real call.
+    assert!(
+        lib.contains("unimplemented!"),
+        "stub fn body must contain unimplemented!(): {lib}"
+    );
+    assert!(
+        !lib.contains("demo::process_bytes_batch("),
+        "stub fn must NOT call the core fn: {lib}"
+    );
+
+    // Non-stub functions must not be affected.
+    assert!(lib.contains("pub fn greet"), "non-stub fn must still be emitted: {lib}");
+    assert!(lib.contains("demo::greet("), "non-stub fn must call core fn: {lib}");
+}

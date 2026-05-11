@@ -10,6 +10,7 @@ pub(crate) fn emit_bridge_fn(
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
     opaque_type_names: &std::collections::HashSet<String>,
+    stub_methods: &[String],
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
@@ -54,6 +55,17 @@ pub(crate) fn emit_bridge_fn(
     } else {
         f.rust_path.replace('-', "_")
     };
+
+    // When the function is listed in `stub_methods`, emit an `unimplemented!()` body
+    // immediately. These functions have FFI signatures (e.g. nested tuples containing
+    // `Vec<u8>`) that cannot be reconstructed from the FRB wire format. Rather than
+    // emitting partially-broken argument conversions, replace the entire body with a
+    // clear unimplemented marker so the crate still compiles for code-gen consumers.
+    if stub_methods.contains(fn_name) {
+        out.push_str("    ::std::unimplemented!(\"this method is listed in dart.stub_methods and cannot be bridged through FRB\")\n");
+        out.push_str("}\n");
+        return;
+    }
 
     // Build call-site arguments. Named types (structs/enums declared with
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
