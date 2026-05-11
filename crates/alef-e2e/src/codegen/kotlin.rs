@@ -209,9 +209,7 @@ fn render_build_gradle(
     let jackson = maven::JACKSON_E2E;
     let jvm_target = toolchain::JVM_TARGET;
     let launcher_dep = if needs_mock_server {
-        format!(
-            r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#
-        )
+        format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#)
     } else {
         String::new()
     };

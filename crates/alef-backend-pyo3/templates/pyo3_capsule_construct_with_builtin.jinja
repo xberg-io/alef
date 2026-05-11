@@ -1,0 +1,3 @@
+    let _dep = {{ dep_expr }};
+    let _cls = py.eval("{{ python_type }}", None, None)?;
+    Ok(_cls.call1((_dep,))?.unbind())

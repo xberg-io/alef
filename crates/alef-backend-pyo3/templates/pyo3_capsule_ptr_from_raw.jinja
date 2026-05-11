@@ -1,0 +1,7 @@
+    // SAFETY: raw_ptr is valid for program lifetime (static registry).
+    let capsule_ptr = unsafe { pyo3::ffi::PyCapsule_New(raw_ptr as *mut _, {{ cstr }}_NAME.as_ptr(), None) };
+    if capsule_ptr.is_null() {
+        return Err(pyo3::exceptions::PyRuntimeError::new_err("Failed to create PyCapsule"));
+    }
+    // SAFETY: capsule_ptr is a valid, non-null Python object we just created.
+    Ok(unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) }.unbind())
