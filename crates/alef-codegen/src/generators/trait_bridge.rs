@@ -351,10 +351,29 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         );
 
         // Generate body: async methods use Box::pin, sync methods call directly
-        let body = if method.is_async {
+        let raw_body = if method.is_async {
             generator.gen_async_method_body(method, spec)
         } else {
             generator.gen_sync_method_body(method, spec)
+        };
+
+        // When the trait method returns `&[&str]` (i.e. Vec<String> + returns_ref), the
+        // foreign bridge body returns an owned Vec<String> (via unwrap_or_default or similar).
+        // Wrap it with Box::leak so the &'static str slice satisfies the return type.
+        // This is correct for the plugin registration pattern: supported_mime_types() is
+        // called once per registration and the data is process-global.
+        let body = if method.returns_ref
+            && matches!(&method.return_type, alef_core::ir::TypeRef::Vec(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::String))
+        {
+            format!(
+                "let __types: Vec<String> = {{ {raw_body} }};\n\
+                 let __strs: Vec<&'static str> = __types.into_iter()\n\
+                     .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})\n\
+                     .collect();\n\
+                 Box::leak(__strs.into_boxed_slice())"
+            )
+        } else {
+            raw_body
         };
 
         // Indent body lines
