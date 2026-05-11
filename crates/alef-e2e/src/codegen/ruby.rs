@@ -7,7 +7,9 @@ use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm, ValidationErrorExpectation,
+};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -2037,17 +2039,21 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
     };
 
     // Pre-compute action type and values
-    let (action_type, action_value) = match action {
-        CallbackAction::Skip => ("skip", String::new()),
-        CallbackAction::Continue => ("continue", String::new()),
-        CallbackAction::PreserveHtml => ("preserve_html", String::new()),
+    let (action_type, action_value, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), "dict"),
         CallbackAction::Custom { output } => {
             let escaped = ruby_string_literal(output);
-            ("custom", escaped)
+            ("custom", escaped, "dict")
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             let interpolated = ruby_template_to_interpolation(template);
-            ("custom", format!("\"{interpolated}\""))
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", format!("\"{interpolated}\""), form)
         }
     };
 
@@ -2058,6 +2064,7 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
             params => params,
             action_type => action_type,
             action_value => action_value,
+            return_form => return_form,
         },
     );
     for line in rendered.lines() {

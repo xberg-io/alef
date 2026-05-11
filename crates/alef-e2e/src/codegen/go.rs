@@ -556,7 +556,7 @@ fn render_test_file(
     let needs_fmt = fixtures.iter().any(|f| {
         f.visitor.as_ref().is_some_and(|v| {
             v.callbacks.values().any(|action| {
-                if let CallbackAction::CustomTemplate { template } = action {
+                if let CallbackAction::CustomTemplate { template, .. } = action {
                     template.contains('{')
                 } else {
                     false
@@ -3078,7 +3078,7 @@ fn emit_go_visitor_method(
             let escaped = go_string_literal(output);
             let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped})");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             // Convert {var} placeholders to %s format verbs and collect arg names.
             // E.g. `QUOTE: "{text}"` → fmt.Sprintf("QUOTE: \"%s\"", text)
             //

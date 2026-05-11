@@ -2157,7 +2157,7 @@ fn emit_java_visitor_method(
         CallbackAction::Continue => ("continue", String::new(), Vec::new()),
         CallbackAction::PreserveHtml => ("preserve_html", String::new(), Vec::new()),
         CallbackAction::Custom { output } => ("custom_literal", escape_java(output), Vec::new()),
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             // Extract {placeholder} names from the template (in order of appearance).
             let mut format_str = String::with_capacity(template.len());
             let mut format_args: Vec<String> = Vec::new();

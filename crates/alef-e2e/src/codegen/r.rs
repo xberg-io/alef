@@ -1061,7 +1061,7 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
             let escaped = escape_r(output);
             let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             let r_expr = r_template_to_paste0(template);
             let _ = writeln!(out, "      list(custom = {r_expr})");
         }

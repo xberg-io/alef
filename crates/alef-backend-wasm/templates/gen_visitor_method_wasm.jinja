@@ -29,7 +29,7 @@ fn {{ name }}({{ sig }}) -> {{ ret_ty }} {
                     "continue" => {{ ret_ty }}::Continue,
                     "skip" => {{ ret_ty }}::Skip,
                     "preserve_html" | "preservehtml" => {{ ret_ty }}::PreserveHtml,
-                    other => {{ ret_ty }}::Custom(other.to_string()),
+                    _ => {{ ret_ty }}::Custom(s),
                 }
             } else if val.is_object() {
                 let custom_key = wasm_bindgen::JsValue::from_str("custom");

@@ -22,7 +22,7 @@
                         "continue" => {{ return_type }}::Continue,
                         "skip" => {{ return_type }}::Skip,
                         "preserve_html" | "preservehtml" => {{ return_type }}::PreserveHtml,
-                        other => {{ return_type }}::Custom(other.to_string()),
+                        _ => {{ return_type }}::Custom(s.to_string()),
                     }
                 } else if val.is_null() || val.is_na() {
                     {{ return_type }}::Continue

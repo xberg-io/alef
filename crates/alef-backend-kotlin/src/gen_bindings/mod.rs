@@ -68,10 +68,13 @@ pub(crate) fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut
 pub(crate) fn emit_jvm_client_class(api: &ApiSurface, config: &ResolvedCrateConfig) -> Option<GeneratedFile> {
     // A type qualifies for a coroutine-friendly wrapper class only when:
     //   * it is opaque-handle (constructed via a factory and freed via close),
+    //   * AND it is not a trait (trait types are not emitted as concrete
+    //     Java classes — referencing them would dangle),
     //   * AND it has at least one non-sanitized, non-static instance method.
     // Non-opaque value types (e.g. kreuzberg `ExtractionConfig` with a
     // `default()` static) keep flowing through the Java typealias as before.
-    let is_client_type = |t: &&TypeDef| t.is_opaque && t.methods.iter().any(|m| !m.sanitized && !m.is_static);
+    let is_client_type =
+        |t: &&TypeDef| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static);
     let client_types: Vec<&TypeDef> = api.types.iter().filter(is_client_type).collect();
     if client_types.is_empty() {
         return None;
@@ -306,7 +309,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let client_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
+        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
         .map(|t| t.name.as_str())
         .collect();
     exclude_types.extend(client_type_names.iter().copied());

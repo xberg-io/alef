@@ -1,7 +1,7 @@
 //! Python visitor method generation for e2e test callbacks.
 
 use crate::escape::escape_python;
-use crate::fixture::CallbackAction;
+use crate::fixture::{CallbackAction, TemplateReturnForm};
 
 /// Emit a Python visitor method for a callback action.
 pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
@@ -41,22 +41,26 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
     };
 
     // Pre-compute action type and values
-    let (action_type, action_value, action_template) = match action {
-        CallbackAction::Skip => ("skip", String::new(), String::new()),
-        CallbackAction::Continue => ("continue", String::new(), String::new()),
-        CallbackAction::PreserveHtml => ("preserve_html", String::new(), String::new()),
+    let (action_type, action_value, action_template, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), String::new(), "dict"),
         CallbackAction::Custom { output } => {
             let escaped = escape_python(output);
-            ("custom", escaped, String::new())
+            ("custom", escaped, String::new(), "dict")
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             let escaped_template = template
                 .replace('\\', "\\\\")
                 .replace('\'', "\\'")
                 .replace('\n', "\\n")
                 .replace('\r', "\\r")
                 .replace('\t', "\\t");
-            ("custom_template", String::new(), escaped_template)
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", String::new(), escaped_template, form)
         }
     };
 
@@ -68,6 +72,7 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
             action_type => action_type,
             action_value => action_value,
             action_template => action_template,
+            return_form => return_form,
         },
     );
     out.push_str(&rendered);

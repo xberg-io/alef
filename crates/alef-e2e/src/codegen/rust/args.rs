@@ -347,7 +347,7 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
 
     // Determine which names the template references (only relevant for CustomTemplate).
     let template_vars: std::collections::HashSet<String> =
-        if let crate::fixture::CallbackAction::CustomTemplate { template } = action {
+        if let crate::fixture::CallbackAction::CustomTemplate { template, .. } = action {
             // Extract `{name}` patterns from the template string.
             let mut vars = std::collections::HashSet::new();
             let mut chars = template.chars().peekable();
@@ -403,7 +403,7 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
             let escaped = crate::escape::escape_rust(output);
             let _ = writeln!(out, "            VisitResult::Custom(\"{escaped}\".to_string())");
         }
-        crate::fixture::CallbackAction::CustomTemplate { template } => {
+        crate::fixture::CallbackAction::CustomTemplate { template, .. } => {
             // For any template-referenced param that is `Option<T>`, emit a shadow
             // `let name = name.unwrap_or_default();` so the format! string can use it.
             for (name, ty) in raw_params {
