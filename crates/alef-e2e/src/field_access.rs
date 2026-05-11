@@ -156,7 +156,7 @@ impl FieldResolver {
         let segments = parse_path(resolved);
         let segments = self.inject_array_indexing(segments);
         match language {
-            "java" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
+            "java" | "kotlin" => render_java_with_optionals(&segments, result_var, &self.optional_fields),
             "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
@@ -281,7 +281,7 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
         "typescript" | "node" => render_typescript(segments, result_var),
         "wasm" => render_wasm(segments, result_var),
         "go" => render_go(segments, result_var),
-        "java" => render_java(segments, result_var),
+        "java" | "kotlin" => render_java(segments, result_var),
         "csharp" => render_pascal_dot(segments, result_var),
         "ruby" => render_dot_access(segments, result_var, "ruby"),
         "php" => render_php(segments, result_var),

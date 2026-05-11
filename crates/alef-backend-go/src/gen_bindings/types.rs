@@ -3,7 +3,6 @@ use alef_codegen::naming::{go_type_name, to_go_name};
 use alef_core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use minijinja::context;
-use std::fmt::Write;
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -245,31 +244,13 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
         "is an untagged union type whose variants have heterogeneous JSON shapes \
          (scalar vs. array). Stored as raw JSON bytes so any variant round-trips.",
     );
-    let _ = writeln!(out, "// Variants: {}", variant_names.join(", "));
-    let _ = writeln!(out);
-    let _ = writeln!(out, "type {} json.RawMessage", go_enum_name);
-    let _ = writeln!(out);
-    let _ = writeln!(out, "// MarshalJSON returns the stored bytes unchanged.");
-    let _ = writeln!(out, "func (e {}) MarshalJSON() ([]byte, error) {{", go_enum_name);
-    let _ = writeln!(out, "\tif len(e) == 0 {{");
-    let _ = writeln!(out, "\t\treturn []byte(\"null\"), nil");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\treturn []byte(e), nil");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "// UnmarshalJSON stores the raw bytes for round-trip serialization."
-    );
-    let _ = writeln!(out, "func (e *{}) UnmarshalJSON(data []byte) error {{", go_enum_name);
-    let _ = writeln!(out, "\tif e == nil {{");
-    let _ = writeln!(out, "\t\treturn nil");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\t*e = make({}, len(data))", go_enum_name);
-    let _ = writeln!(out, "\tcopy(*e, data)");
-    let _ = writeln!(out, "\treturn nil");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
+    out.push_str(&crate::template_env::render(
+        "passthrough_raw_message_enum_body.jinja",
+        context! {
+            enum_name => &go_enum_name,
+            variants => variant_names.join(", "),
+        },
+    ));
     out
 }
 
@@ -562,28 +543,22 @@ fn emit_untagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def
         })
         .collect();
 
-    out.push_str(&format!(
-        "// MarshalJSON encodes the untagged union by serialising the active variant.\n\
-         func (t {go_enum_name}) MarshalJSON() ([]byte, error) {{\n"
-    ));
-    for (field, _) in &variants_with_types {
-        out.push_str(&format!(
-            "\tif t.{field} != nil {{\n\t\treturn json.Marshal(t.{field})\n\t}}\n"
-        ));
-    }
-    out.push_str("\treturn []byte(\"null\"), nil\n}\n\n");
+    let variants: Vec<minijinja::Value> = variants_with_types
+        .iter()
+        .map(|(field, ty)| {
+            context! {
+                field => field,
+                ty => ty,
+            }
+        })
+        .collect();
 
-    out.push_str(&format!(
-        "// UnmarshalJSON decodes an untagged union by trying each variant in order.\n\
-         func (t *{go_enum_name}) UnmarshalJSON(data []byte) error {{\n"
-    ));
-    for (field, ty) in &variants_with_types {
-        out.push_str(&format!(
-            "\t{{\n\t\tvar v {ty}\n\t\tif err := json.Unmarshal(data, &v); err == nil {{\n\t\t\tt.{field} = &v\n\t\t\treturn nil\n\t\t}}\n\t}}\n"
-        ));
-    }
-    out.push_str(&format!(
-        "\treturn fmt.Errorf(\"{go_enum_name}: cannot match any variant\")\n}}\n"
+    out.push_str(&crate::template_env::render(
+        "untagged_union_marshalers.jinja",
+        context! {
+            enum_name => go_enum_name,
+            variants => variants,
+        },
     ));
 }
 

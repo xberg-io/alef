@@ -1157,18 +1157,24 @@ impl Backend for RustlerBackend {
             let start_call_args = start_param_names.join(", ");
 
             // _start delegate
-            content.push_str(&format!(
-                "  @doc \"Open a streaming {core_path} request — returns an opaque iterator handle.\"\n",
-                core_path = adapter.core_path,
+            content.push_str(&template_env::render(
+                "elixir_streaming_start_wrapper.jinja",
+                minijinja::context! {
+                    core_path => &adapter.core_path,
+                    start_fn => &start_fn,
+                    start_call_args => &start_call_args,
+                    native_mod => &native_mod,
+                },
             ));
-            content.push_str(&format!("  def {start_fn}({start_call_args}) do\n"));
-            content.push_str(&format!("    {native_mod}.{start_fn}({start_call_args})\n  end\n\n"));
 
             // _next delegate
-            content
-                .push_str("  @doc \"Pull the next chunk JSON from a streaming handle, or `:nil` at end-of-stream.\"\n");
-            content.push_str(&format!("  def {next_fn}(handle) do\n"));
-            content.push_str(&format!("    {native_mod}.{next_fn}(handle)\n  end\n\n"));
+            content.push_str(&template_env::render(
+                "elixir_streaming_next_wrapper.jinja",
+                minijinja::context! {
+                    next_fn => &next_fn,
+                    native_mod => &native_mod,
+                },
+            ));
 
             // High-level Stream.unfold wrapper. The request map is passed directly
             // to the NIF (Rustler decodes via NifMap); the NIF returns chunk JSON
@@ -1178,26 +1184,16 @@ impl Backend for RustlerBackend {
                 .first()
                 .map(|p| elixir_safe_param_name(&p.name))
                 .unwrap_or_else(|| "request".to_string());
-            content.push_str(&format!(
-                "  @doc \"Streaming `{core_path}` — returns an `Enumerable` of decoded chunk maps.\"\n",
-                core_path = adapter.core_path,
-            ));
-            content.push_str(&format!("  def {stream_fn}(client, {req_param}) do\n"));
-            content.push_str(&format!(
-                "    case {native_mod}.{start_fn}(client, {req_param}) do\n      \
-                 {{:ok, handle}} ->\n        \
-                 stream =\n          \
-                 Stream.unfold(handle, fn h ->\n            \
-                 case {native_mod}.{next_fn}(h) do\n              \
-                 {{:ok, nil}} -> nil\n              \
-                 {{:ok, chunk_json}} -> {{Jason.decode!(chunk_json), h}}\n              \
-                 {{:error, _}} -> nil\n            \
-                 end\n          \
-                 end)\n        \
-                 {{:ok, stream}}\n      \
-                 {{:error, reason}} ->\n        \
-                 {{:error, reason}}\n    \
-                 end\n  end\n\n"
+            content.push_str(&template_env::render(
+                "elixir_streaming_unfold_wrapper.jinja",
+                minijinja::context! {
+                    core_path => &adapter.core_path,
+                    stream_fn => &stream_fn,
+                    req_param => &req_param,
+                    native_mod => &native_mod,
+                    start_fn => &start_fn,
+                    next_fn => &next_fn,
+                },
             ));
         }
 
@@ -1323,20 +1319,48 @@ fn gen_nif_init(
     if !opaque_types.is_empty() || !streaming_handle_types.is_empty() {
         let mut registrations: Vec<String> = opaque_types
             .iter()
-            .map(|name| format!("    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"))
+            .map(|name| {
+                template_env::render(
+                    "rustler_resource_registration.rs.jinja",
+                    minijinja::context! {
+                        type_name => name,
+                    },
+                )
+                .trim_end()
+                .to_string()
+            })
             .collect();
         for name in &streaming_handle_types {
-            registrations.push(format!(
-                "    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"
-            ));
+            registrations.push(
+                template_env::render(
+                    "rustler_resource_registration.rs.jinja",
+                    minijinja::context! {
+                        type_name => name,
+                    },
+                )
+                .trim_end()
+                .to_string(),
+            );
         }
         let reg_body = registrations.join("\n");
-        format!(
-            "fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {{\n{reg_body}\n    true\n}}\n\n\
-             rustler::init!(\"{module}\", load = on_load);"
+        template_env::render(
+            "rustler_init_with_load.rs.jinja",
+            minijinja::context! {
+                registrations => &reg_body,
+                module => &module,
+            },
         )
+        .trim_end()
+        .to_string()
     } else {
-        format!("rustler::init!(\"{module}\");")
+        template_env::render(
+            "rustler_init.rs.jinja",
+            minijinja::context! {
+                module => &module,
+            },
+        )
+        .trim_end()
+        .to_string()
     }
 }
 
@@ -1384,13 +1408,16 @@ fn patch_streaming_default_param(
     // 2. Replace the existing `let core_{name}: ... = {name}.into();` binding with a
     //    JSON deserialization line.
     let old_binding = format!("let core_{param_name}: {core_import}::{core_ty} = {param_name}.into();");
-    let new_binding = format!(
-        "let core_{param_name}: {core_import}::{core_ty} = {param_name}\n        \
-             .map(|s| serde_json::from_str::<{core_import}::{core_ty}>(&s))\n        \
-             .transpose()\n        \
-             .map_err(|e| e.to_string())?\n        \
-             .unwrap_or_default();"
-    );
+    let new_binding = template_env::render(
+        "streaming_default_deser_binding.rs.jinja",
+        minijinja::context! {
+            param_name => param_name,
+            core_import => core_import,
+            core_ty => core_ty,
+        },
+    )
+    .trim_end()
+    .to_string();
     patched = patched.replace(&old_binding, &new_binding);
 
     patched

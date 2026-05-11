@@ -350,6 +350,17 @@ fn collect_named_types_from_type_ref(ty: &TypeRef) -> Vec<String> {
     }
 }
 
+fn emit_rust_struct_field(out: &mut String, cfg: Option<&str>, field_name: &str, expr: &str) {
+    out.push_str(&crate::template_env::render(
+        "rust_struct_field_assignment.jinja",
+        minijinja::context! {
+            cfg => cfg,
+            field_name => field_name,
+            expr => expr,
+        },
+    ));
+}
+
 /// Emit a `From<kreuzberg::T> for T` implementation for a mirror struct.
 ///
 /// Each field is converted using the appropriate strategy:
@@ -378,16 +389,10 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
             // Sanitized fields (unknown types mapped to String/i64) can't be auto-converted.
             // Use a best-effort fallback.
             let fallback = sanitized_field_from_expr(field);
-            if let Some(cfg) = &field.cfg {
-                out.push_str(&format!("            #[cfg({cfg})]\n"));
-            }
-            out.push_str(&format!("            {}: {},\n", field.name, fallback));
+            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &fallback);
         } else {
-            if let Some(cfg) = &field.cfg {
-                out.push_str(&format!("            #[cfg({cfg})]\n"));
-            }
             let expr = field_from_expr(field, source_crate_name);
-            out.push_str(&format!("            {}: {expr},\n", field.name));
+            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &expr);
         }
     }
 
@@ -626,18 +631,15 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
     ));
 
     for field in &ty.fields {
-        if let Some(cfg) = &field.cfg {
-            out.push_str(&format!("            #[cfg({cfg})]\n"));
-        }
         if field.sanitized {
             // Sanitized fields have an unknown core type simplified in the IR.
             // Only types in the transitive closure from input-parameter types get this
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
-            out.push_str(&format!("            {}: Default::default(),\n", field.name));
+            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, "Default::default()");
         } else {
             let expr = field_from_expr_to_core(field, source_crate_name);
-            out.push_str(&format!("            {}: {expr},\n", field.name));
+            emit_rust_struct_field(out, field.cfg.as_deref(), &field.name, &expr);
         }
     }
 
@@ -676,7 +678,14 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
         let vname = &variant.name;
         if variant.fields.is_empty() {
             // Unit variant: straightforward.
-            out.push_str(&format!("            {name}::{vname} => {core_ty}::{vname},\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_enum_unit_to_core_arm.jinja",
+                minijinja::context! {
+                    name => name.as_str(),
+                    vname => vname.as_str(),
+                    core_ty => core_ty.as_str(),
+                },
+            ));
         } else if variant.is_tuple {
             // Mirror uses struct syntax (FRB converts tuple variants to named struct variants).
             // Core uses tuple syntax.
@@ -687,10 +696,15 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
                 .enumerate()
                 .map(|(i, field)| enum_variant_field_conv_to_core(&format!("field{i}"), field))
                 .collect();
-            out.push_str(&format!(
-                "            {name}::{vname} {{ {} }} => {core_ty}::{vname}({}),\n",
-                mirror_bindings.join(", "),
-                core_args.join(", ")
+            out.push_str(&crate::template_env::render(
+                "rust_enum_tuple_to_core_arm.jinja",
+                minijinja::context! {
+                    name => name.as_str(),
+                    vname => vname.as_str(),
+                    core_ty => core_ty.as_str(),
+                    mirror_bindings => mirror_bindings.join(", "),
+                    core_args => core_args.join(", "),
+                },
             ));
         } else {
             // Struct variant: named fields on both sides.
@@ -704,10 +718,15 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
                     format!("{fname}: {conv}")
                 })
                 .collect();
-            out.push_str(&format!(
-                "            {name}::{vname} {{ {} }} => {core_ty}::{vname} {{ {} }},\n",
-                field_names.join(", "),
-                core_args.join(", ")
+            out.push_str(&crate::template_env::render(
+                "rust_enum_struct_to_core_arm.jinja",
+                minijinja::context! {
+                    name => name.as_str(),
+                    vname => vname.as_str(),
+                    core_ty => core_ty.as_str(),
+                    field_names => field_names.join(", "),
+                    core_args => core_args.join(", "),
+                },
             ));
         }
     }
@@ -1016,7 +1035,14 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
     for variant in &en.variants {
         let vname = &variant.name;
         if variant.fields.is_empty() {
-            out.push_str(&format!("            {core_ty}::{vname} => {name}::{vname},\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_enum_unit_from_core_arm.jinja",
+                minijinja::context! {
+                    core_ty => core_ty.as_str(),
+                    vname => vname.as_str(),
+                    name => name.as_str(),
+                },
+            ));
         } else if variant.is_tuple {
             // Core side: tuple pattern `Variant(f0, f1, ...)`.
             // Mirror side: ALWAYS struct syntax `Variant { field0: expr, field1: expr, ... }`
@@ -1032,10 +1058,15 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
                     format!("field{i}: {conv}")
                 })
                 .collect();
-            out.push_str(&format!(
-                "            {core_ty}::{vname}({}) => {name}::{vname} {{ {} }},\n",
-                field_patterns.join(", "),
-                mirror_fields.join(", ")
+            out.push_str(&crate::template_env::render(
+                "rust_enum_tuple_from_core_arm.jinja",
+                minijinja::context! {
+                    core_ty => core_ty.as_str(),
+                    vname => vname.as_str(),
+                    name => name.as_str(),
+                    field_patterns => field_patterns.join(", "),
+                    mirror_fields => mirror_fields.join(", "),
+                },
             ));
         } else {
             // Struct variant: named fields on both sides.
@@ -1049,10 +1080,15 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
                     format!("{fname}: {conv}")
                 })
                 .collect();
-            out.push_str(&format!(
-                "            {core_ty}::{vname} {{ {} }} => {name}::{vname} {{ {} }},\n",
-                field_names.join(", "),
-                field_convs.join(", ")
+            out.push_str(&crate::template_env::render(
+                "rust_enum_struct_from_core_arm.jinja",
+                minijinja::context! {
+                    core_ty => core_ty.as_str(),
+                    vname => vname.as_str(),
+                    name => name.as_str(),
+                    field_names => field_names.join(", "),
+                    field_convs => field_convs.join(", "),
+                },
             ));
         }
     }

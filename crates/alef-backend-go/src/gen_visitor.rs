@@ -998,8 +998,12 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
     out.push_str("\tif options != nil {\n");
-    out.push_str(&format!(
-        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n"
+    out.push_str(&crate::template_env::render(
+        "c_options_from_value.jinja",
+        minijinja::context! {
+            fn_options_from_json => fn_options_from_json,
+            fn_options_free => fn_options_free,
+        },
     ));
     out.push_str("\t}\n");
     out.push_str("\tif cOptions == nil {\n");
@@ -1266,8 +1270,12 @@ fn gen_convert_with_visitor(
     ));
     out.push('\n');
     out.push_str("\tif options != nil {\n");
-    out.push_str(&format!(
-        "\t\tjsonBytes, err := json.Marshal(options)\n\t\tif err != nil {{\n\t\t\treturn nil, fmt.Errorf(\"failed to marshal conversion options: %w\", err)\n\t\t}}\n\t\ttmpStr := C.CString(string(jsonBytes))\n\t\tcOptions = C.{fn_options_from_json}(tmpStr)\n\t\tC.free(unsafe.Pointer(tmpStr))\n\t\tdefer C.{fn_options_free}(cOptions)\n"
+    out.push_str(&crate::template_env::render(
+        "c_options_from_value.jinja",
+        minijinja::context! {
+            fn_options_from_json => fn_options_from_json,
+            fn_options_free => fn_options_free,
+        },
     ));
     out.push_str("\t}\n");
     out.push_str("\tif cOptions == nil {\n");

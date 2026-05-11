@@ -1,0 +1,4 @@
+let {{ name }}_core: Vec<_> = {{ name }}.into_iter()
+    .filter_map(|s| serde_json::from_str(&s).ok())
+    .collect();
+    {{ "" -}}

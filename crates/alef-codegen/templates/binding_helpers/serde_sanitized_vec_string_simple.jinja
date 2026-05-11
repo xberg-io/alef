@@ -1,0 +1,4 @@
+let {{ name }}_core: Vec<_> = {{ name }}.into_iter()
+{{ indent }}.map(|s| serde_json::from_str::<_>(&s){{ err_conv }})
+{{ indent }}.collect::<Result<Vec<_>, _>>()?;
+{{ indent -}}

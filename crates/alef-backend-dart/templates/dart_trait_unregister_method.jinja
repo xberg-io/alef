@@ -1,0 +1,5 @@
+  /// Unregister a previously-registered [{{ trait_name }}] plugin by name.
+  static Future<void> {{ dart_name }}(String name) async {
+    await rust_bridge.{{ dart_name }}(name: name);
+  }
+

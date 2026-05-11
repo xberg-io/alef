@@ -472,6 +472,62 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/dart_bridge_class_open.jinja"),
     ),
     (
+        "dart_bridge_export.jinja",
+        include_str!("../templates/dart_bridge_export.jinja"),
+    ),
+    (
+        "dart_bridge_import.jinja",
+        include_str!("../templates/dart_bridge_import.jinja"),
+    ),
+    (
+        "dart_bridge_imports.jinja",
+        include_str!("../templates/dart_bridge_imports.jinja"),
+    ),
+    (
+        "dart_barrel_file.jinja",
+        include_str!("../templates/dart_barrel_file.jinja"),
+    ),
+    (
+        "dart_trait_register_method.jinja",
+        include_str!("../templates/dart_trait_register_method.jinja"),
+    ),
+    (
+        "dart_trait_unregister_method.jinja",
+        include_str!("../templates/dart_trait_unregister_method.jinja"),
+    ),
+    (
+        "dart_trait_clear_method.jinja",
+        include_str!("../templates/dart_trait_clear_method.jinja"),
+    ),
+    (
+        "rust_struct_field_assignment.jinja",
+        include_str!("../templates/rust_struct_field_assignment.jinja"),
+    ),
+    (
+        "rust_enum_unit_to_core_arm.jinja",
+        include_str!("../templates/rust_enum_unit_to_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_tuple_to_core_arm.jinja",
+        include_str!("../templates/rust_enum_tuple_to_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_struct_to_core_arm.jinja",
+        include_str!("../templates/rust_enum_struct_to_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_unit_from_core_arm.jinja",
+        include_str!("../templates/rust_enum_unit_from_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_tuple_from_core_arm.jinja",
+        include_str!("../templates/rust_enum_tuple_from_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_struct_from_core_arm.jinja",
+        include_str!("../templates/rust_enum_struct_from_core_arm.jinja"),
+    ),
+    (
         "enum_data_variants_todo.jinja",
         include_str!("../templates/enum_data_variants_todo.jinja"),
     ),

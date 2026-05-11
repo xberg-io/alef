@@ -1,0 +1,5 @@
+  /// Register a Dart implementation of [{{ trait_name }}] with the plugin registry.
+  static Future<void> {{ dart_name }}({{ impl_type }} impl_) async {
+    await rust_bridge.{{ dart_name }}(impl_: impl_);
+  }
+

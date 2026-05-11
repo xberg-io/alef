@@ -1,0 +1,8 @@
+		jsonBytes, err := json.Marshal(options)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal conversion options: %w", err)
+		}
+		tmpStr := C.CString(string(jsonBytes))
+		cOptions = C.{{ fn_options_from_json }}(tmpStr)
+		C.free(unsafe.Pointer(tmpStr))
+		defer C.{{ fn_options_free }}(cOptions)

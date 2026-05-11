@@ -54,7 +54,12 @@ impl FfiBridgeGenerator {
                 },
             ));
 
-            field_inits.push_str(&format!("            {field},\n"));
+            field_inits.push_str(&crate::template_env::render(
+                "constructor_field_init.jinja",
+                minijinja::context! {
+                    field => &field,
+                },
+            ));
         }
 
         // Generate the constructor with cache init blocks injected before `Self { ... }`.

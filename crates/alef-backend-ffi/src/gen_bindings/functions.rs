@@ -3,7 +3,6 @@ use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use minijinja::context;
-use std::fmt::Write;
 
 /// Returns true when a sanitized function/method can be auto-recovered via JSON-roundtrip:
 /// every sanitized param is a `Vec<String>` with `original_type` set (i.e. originally a
@@ -274,12 +273,12 @@ pub(super) fn gen_method_wrapper(
 
     // Null-check and convert each parameter
     for p in &method.params {
-        write!(
-            out,
-            "{}",
-            gen_param_conversion(p, has_error, is_bytes_result, &method.return_type, core_import)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_param_conversion(p, has_error, is_bytes_result, &method.return_type, core_import),
+            },
+        ));
     }
 
     // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
@@ -525,12 +524,12 @@ pub(super) fn gen_method_wrapper(
         } else if can_inline {
             // Passthrough primitive: call was already emitted as tail expression
         } else {
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names)
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names),
+                },
+            ));
         }
     }
 
@@ -676,12 +675,12 @@ pub(super) fn gen_free_function(
 
     // Convert parameters
     for p in &func.params {
-        write!(
-            out,
-            "{}",
-            gen_param_conversion(p, has_error, is_bytes_result, &func.return_type, core_import)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_param_conversion(p, has_error, is_bytes_result, &func.return_type, core_import),
+            },
+        ));
     }
 
     // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
@@ -877,12 +876,12 @@ pub(super) fn gen_free_function(
         } else if can_inline_fn {
             // Passthrough primitive: call was already emitted as tail expression
         } else {
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names),
+                },
+            ));
         }
     }
 

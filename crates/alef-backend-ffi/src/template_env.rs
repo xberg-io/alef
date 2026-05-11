@@ -63,6 +63,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/constructor_impl_with_cache.jinja"),
     ),
     (
+        "constructor_field_init.jinja",
+        include_str!("../templates/constructor_field_init.jinja"),
+    ),
+    (
         "plugin_impl_header.jinja",
         include_str!("../templates/plugin_impl_header.jinja"),
     ),
@@ -196,6 +200,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "bytes_field_access.jinja",
         include_str!("../templates/bytes_field_access.jinja"),
+    ),
+    (
+        "emitted_code_block.jinja",
+        include_str!("../templates/emitted_code_block.jinja"),
     ),
     (
         "owned_value_to_c_bool.jinja",

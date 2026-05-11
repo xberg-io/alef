@@ -330,6 +330,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/json_property_name_attr.jinja"),
     ),
     (
+        "json_extension_data_property.jinja",
+        include_str!("../templates/json_extension_data_property.jinja"),
+    ),
+    (
         "visitor_bridge_property.jinja",
         include_str!("../templates/visitor_bridge_property.jinja"),
     ),
