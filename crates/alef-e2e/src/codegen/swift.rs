@@ -1099,10 +1099,12 @@ fn render_assertion(
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                // For optional numeric fields, coalesce to 0 before comparing.
-                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
-                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
-                });
+                // For optional numeric fields (or when the accessor chain is optional),
+                // coalesce to 0 before comparing so the expression is non-optional.
+                let field_is_optional = accessor_is_optional
+                    || assertion.field.as_deref().is_some_and(|f| {
+                        field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                    });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1114,9 +1116,10 @@ fn render_assertion(
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
-                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
-                });
+                let field_is_optional = accessor_is_optional
+                    || assertion.field.as_deref().is_some_and(|f| {
+                        field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                    });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1128,10 +1131,12 @@ fn render_assertion(
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                // For optional numeric fields, coalesce to 0 before comparing.
-                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
-                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
-                });
+                // For optional numeric fields (or when the accessor chain is optional),
+                // coalesce to 0 before comparing so the expression is non-optional.
+                let field_is_optional = accessor_is_optional
+                    || assertion.field.as_deref().is_some_and(|f| {
+                        field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                    });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1143,9 +1148,10 @@ fn render_assertion(
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
-                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
-                });
+                let field_is_optional = accessor_is_optional
+                    || assertion.field.as_deref().is_some_and(|f| {
+                        field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                    });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
