@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-gleam): skip non-trait types with methods from the regular data-type emission pass — they are now emitted exclusively as opaque NIF resource handles (`pub opaque type T { T(resource: dynamic.Dynamic) }`). Previously such types were emitted twice (once as a phantom record by `emit_type` and once as an opaque resource by `emit_resource_type`), producing a "Duplicate type definition" compile error from `gleam build`.
 - fix(alef-backend-zig): emit synthetic `free()` destructor on opaque-handle structs — every opaque handle owns a heap allocation in the FFI and must be released via the matching `{prefix}_{snake}_free` C symbol; `emit_opaque_handle` now appends a `pub fn free(self: *T) void` that calls the destructor, so `defer _client.free();` in generated e2e tests resolves correctly.
 - fix(alef-backend-zig): remove spurious leading `!` on opaque-method signatures — the emit template was producing a double error union `!(LiterLlmError||error{OutOfMemory})![]u8` which Zig 0.16 rejects with "type does not support field access"; corrected to a single error union.
 - fix(alef-backend-zig): map FFI errors to declared error set via `_first_error` — opaque-method error path was returning `error.FfiError` which isn't in the function's declared error set; aligned with flat-function codegen by calling `_first_error({error_type})`.
