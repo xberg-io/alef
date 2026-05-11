@@ -117,7 +117,19 @@ fn emit_opaque_method(
         emit_method_param_conversion(p, prefix, struct_names, out);
     }
 
-    // Build C argument list: handle pointer, then converted params.
+    // Detect Bytes return: the C FFI uses a multi-out-parameter convention
+    // (`uint8_t **out_ptr, uintptr_t *out_len, uintptr_t *out_cap`) and
+    // returns `int32_t` status. Caller passes pointers to local storage and
+    // reads the buffer back after the call.
+    let returns_bytes = matches!(method.return_type, TypeRef::Bytes);
+    if returns_bytes {
+        let _ = writeln!(out, "        var _out_ptr: [*c]u8 = undefined;");
+        let _ = writeln!(out, "        var _out_len: usize = 0;");
+        let _ = writeln!(out, "        var _out_cap: usize = 0;");
+    }
+
+    // Build C argument list: handle pointer, then converted params, then
+    // (for Bytes returns) the three out-param pointers.
     let upper_prefix = prefix.to_uppercase();
     let c_handle = format!(
         "@as(*c.{upper_prefix}{type_name}, @ptrCast(self._handle))",
@@ -127,13 +139,20 @@ fn emit_opaque_method(
     for p in &method.params {
         c_args.extend(method_c_arg_names(p, struct_names));
     }
+    if returns_bytes {
+        c_args.push("&_out_ptr".to_string());
+        c_args.push("&_out_len".to_string());
+        c_args.push("&_out_cap".to_string());
+    }
     let c_call = format!(
         "c.{prefix}_{type_snake}_{method_snake}({args})",
         args = c_args.join(", ")
     );
 
     if let Some(ref err_ty) = zig_error_type {
-        if matches!(method.return_type, TypeRef::Unit) {
+        if matches!(method.return_type, TypeRef::Unit) || returns_bytes {
+            // Discard status / unit return — error state is queried via
+            // `{prefix}_last_error_code()`.
             let _ = writeln!(out, "        _ = {c_call};");
         } else {
             let _ = writeln!(out, "        const _result = {c_call};");
@@ -147,7 +166,16 @@ fn emit_opaque_method(
             emit_method_param_free(p, prefix, struct_names, out);
         }
 
-        if !matches!(method.return_type, TypeRef::Unit) {
+        if returns_bytes {
+            // Copy the FFI-owned buffer into a Zig-owned heap allocation, then
+            // release the FFI buffer via `{prefix}_free_bytes`.
+            let _ = writeln!(
+                out,
+                "        const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);"
+            );
+            let _ = writeln!(out, "        c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);");
+            let _ = writeln!(out, "        return _owned;");
+        } else if !matches!(method.return_type, TypeRef::Unit) {
             let ret_expr = method_unwrap_return_expr("_result", &method.return_type, prefix, struct_names);
             let _ = writeln!(out, "        return {ret_expr};");
         }
@@ -156,7 +184,15 @@ fn emit_opaque_method(
         for p in &method.params {
             emit_method_param_free(p, prefix, struct_names, out);
         }
-        if matches!(method.return_type, TypeRef::Unit) {
+        if returns_bytes {
+            let _ = writeln!(out, "        _ = {c_call};");
+            let _ = writeln!(
+                out,
+                "        const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);"
+            );
+            let _ = writeln!(out, "        c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);");
+            let _ = writeln!(out, "        return _owned;");
+        } else if matches!(method.return_type, TypeRef::Unit) {
             let _ = writeln!(out, "        {c_call};");
         } else {
             let _ = writeln!(out, "        const _result = {c_call};");

@@ -121,18 +121,36 @@ pub(crate) fn emit_function(
         emit_param_conversion(p, prefix, struct_names, opaque_creator_map, out);
     }
 
+    // Detect Bytes return: the C FFI uses a multi-out-parameter convention
+    // (`uint8_t **out_ptr, uintptr_t *out_len, uintptr_t *out_cap`) and
+    // returns `int32_t` status. Declare locals for the out-params before
+    // building the C argument list.
+    let returns_bytes = matches!(f.return_type, TypeRef::Bytes);
+    if returns_bytes {
+        out.push_str("    var _out_ptr: [*c]u8 = undefined;\n");
+        out.push_str("    var _out_len: usize = 0;\n");
+        out.push_str("    var _out_cap: usize = 0;\n");
+    }
+
     // Build the C argument list.
-    let c_args: Vec<String> = f
+    let mut c_args: Vec<String> = f
         .params
         .iter()
         .flat_map(|p| c_arg_names(p, struct_names, opaque_creator_map))
         .collect();
+    if returns_bytes {
+        c_args.push("&_out_ptr".to_string());
+        c_args.push("&_out_len".to_string());
+        c_args.push("&_out_cap".to_string());
+    }
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
 
     if let Some(error_type) = &zig_error_type {
         // Fallible function: call C, then check last_error_code(). Zig requires `_`
         // (single underscore) to discard a value; named locals must be used.
-        if matches!(f.return_type, TypeRef::Unit) {
+        if matches!(f.return_type, TypeRef::Unit) || returns_bytes {
+            // Bytes returns yield `int32_t` status — discard it; error state is
+            // queried via `{prefix}_last_error_code()` like all other methods.
             out.push_str(&crate::template_env::render(
                 "function_call_unit.jinja",
                 minijinja::context! {
@@ -166,8 +184,12 @@ pub(crate) fn emit_function(
             emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
 
-        // Produce the Zig return value from `_result`.
-        if matches!(f.return_type, TypeRef::Unit) {
+        // Produce the Zig return value.
+        if returns_bytes {
+            out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
+            out.push_str(&format!("    c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);\n"));
+            out.push_str("    return _owned;\n");
+        } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str("    return;\n");
         } else {
             let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
@@ -183,7 +205,17 @@ pub(crate) fn emit_function(
         for p in &f.params {
             emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
-        if matches!(f.return_type, TypeRef::Unit) {
+        if returns_bytes {
+            out.push_str(&crate::template_env::render(
+                "function_call_unit.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
+            out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
+            out.push_str(&format!("    c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);\n"));
+            out.push_str("    return _owned;\n");
+        } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str(&crate::template_env::render(
                 "function_call_unit.jinja",
                 minijinja::context! {
@@ -647,11 +679,16 @@ fn unwrap_return_expr(
 /// Build the Zig return type for a function (not for struct fields).
 ///
 /// Owned string/JSON/collection returns are `[]u8` (allocated slice).
+/// `Bytes` returns are `[]u8` — the FFI uses the out-param convention
+/// (`uint8_t **out_ptr, uintptr_t *out_len, uintptr_t *out_cap`) and the
+/// wrapper copies the bytes into a caller-owned heap allocation.
 /// Named struct returns (opaque C handles) are also serialized to `[]u8` (JSON).
 /// Everything else matches the struct-field mapping.
 pub(crate) fn zig_return_type(ty: &TypeRef, struct_names: &std::collections::HashSet<String>) -> String {
     match ty {
-        TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => "[]u8".to_string(),
+        TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            "[]u8".to_string()
+        }
         TypeRef::Named(name) if struct_names.contains(name) => "[]u8".to_string(),
         other => zig_field_type(other, false),
     }
