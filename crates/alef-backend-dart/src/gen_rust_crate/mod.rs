@@ -484,7 +484,16 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
             // and Value → String for value types.
             map_from_expr(name, k, v_ty, field.optional)
         }
-        TypeRef::Primitive(_) | TypeRef::Unit | TypeRef::Duration => {
+        TypeRef::Duration => {
+            // Duration: convert to i64 millis (FRB ABI). Duration is not a primitive
+            // so `as _` casts do not compile; use `.as_millis() as i64` instead.
+            if field.optional {
+                format!("v.{name}.map(|d| d.as_millis() as i64)")
+            } else {
+                format!("v.{name}.as_millis() as i64")
+            }
+        }
+        TypeRef::Primitive(_) | TypeRef::Unit => {
             // Primitives: alef widens to i64/f64/bool; core may use narrower types.
             // When newtype_wrapper is set, the core field is NewType(inner); unwrap with .0.
             if let Some(_nw) = &field.newtype_wrapper {
