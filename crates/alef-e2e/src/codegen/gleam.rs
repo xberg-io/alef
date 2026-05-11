@@ -904,6 +904,11 @@ fn render_test_case(
     let _ = writeln!(out, "  let assert Ok(r) = {result_var}");
 
     let result_is_array = call_config.result_is_array || call_config.result_is_vec;
+    // When result_is_simple is true the return value is a primitive (e.g. BitArray,
+    // String) — field accessors don't exist on it.  Skip assertions that reference
+    // a specific field since they would generate `r.field` on a non-record type.
+    let result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple)
+        || call_config.result_is_simple;
     // Tagged-union assertions need the package module qualifier for variant
     // pattern matches. Resolve from `[e2e.packages.gleam] name`, falling back
     // to the snake-cased crate name (matching the gleam.toml dependency name
@@ -930,6 +935,19 @@ fn render_test_case(
     }
 
     for assertion in &fixture.assertions {
+        // When the result is a simple (non-record) type, field-level assertions
+        // would generate `r.field` which doesn't compile.  Emit a skip comment.
+        if result_is_simple {
+            if let Some(f) = &assertion.field {
+                if !f.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "  // skipped: field '{f}' not accessible on simple result type"
+                    );
+                    continue;
+                }
+            }
+        }
         render_assertion(
             out,
             assertion,
