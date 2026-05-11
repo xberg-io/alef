@@ -154,6 +154,14 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
     ));
 
     for method in &trait_def.methods {
+        // Skip methods with a default impl — the Rust trait's default is used automatically.
+        // Methods whose return type involves a trait object (e.g. as_sync_extractor returning
+        // Option<&dyn SyncExtractor>) cannot be expressed in Swift or serialised via JSON,
+        // so they must rely on the default impl rather than being bridged.
+        if method.has_default_impl {
+            continue;
+        }
+
         let method_name = method.name.to_snake_case();
         let fn_name = format!("{trait_snake}_call_{method_name}");
 
@@ -228,6 +236,14 @@ pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str,
     ));
 
     for method in &trait_def.methods {
+        // Skip methods with a default impl — the Rust trait's default is used automatically.
+        // Methods returning trait objects (e.g. as_sync_extractor → Option<&dyn SyncExtractor>)
+        // cannot be serialised through the swift-bridge JSON envelope, so they must fall back
+        // to the trait's own default impl rather than being bridged.
+        if method.has_default_impl {
+            continue;
+        }
+
         let method_name = method.name.to_snake_case();
         let fn_name = format!("{trait_snake}_call_{method_name}");
 
@@ -405,8 +421,8 @@ pub(crate) fn emit_trait_method_body(
 
         format!(
             "match {base} {{\n\
-             \x20\x20\x20\x20Ok(v) => format!(\"{{\\\"ok\\\": {{}}}}\", {ok_fragment}),\n\
-             \x20\x20\x20\x20Err(e) => format!(\"{{\\\"err\\\": \\\"{{}}\\\"}}\" , e),\n\
+             \x20\x20\x20\x20Ok(v) => format!(\"{{{{\\\"ok\\\": {{}}}}}}\", {ok_fragment}),\n\
+             \x20\x20\x20\x20Err(e) => format!(\"{{{{\\\"err\\\": \\\"{{}}\\\"}}}}\" , e),\n\
              }}"
         )
     };
