@@ -373,7 +373,7 @@ fn render_test_file(
             }
             // Optional field equality comparisons wrap in option.Some(...).
             if let Some(f) = &assertion.field {
-                if field_resolver.is_optional(f) {
+                if field_resolver.is_optional(field_resolver.resolve(f)) {
                     needed_modules.insert("option");
                 }
             }
@@ -402,7 +402,24 @@ fn render_test_file(
                         }
                     }
                 }
-                "not_empty" | "is_empty" | "count_min" | "count_equals" => {
+                "not_empty" | "is_empty" => {
+                    // Array fields use list.is_empty, non-array non-optional fields use string.is_empty.
+                    if let Some(f) = &assertion.field {
+                        let resolved = field_resolver.resolve(f);
+                        let is_opt = field_resolver.is_optional(resolved);
+                        let is_arr = field_resolver.is_array(f) || field_resolver.is_array(resolved);
+                        if is_arr {
+                            needed_modules.insert("list");
+                        } else if is_opt {
+                            needed_modules.insert("option");
+                        } else {
+                            needed_modules.insert("string");
+                        }
+                    } else {
+                        needed_modules.insert("list");
+                    }
+                }
+                "count_min" | "count_equals" => {
                     needed_modules.insert("list");
                     // Note: count_min/count_equals use fn(n__) { n__ >= N } — no gleam/int import needed.
                 }

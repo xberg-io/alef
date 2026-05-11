@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - refactor(alef-backend-csharp): replace inline `push_str`/`writeln!` visitor record emission for generated `NodeContext.cs` and `VisitResult.cs` with Jinja templates (`node_context.jinja`, `visit_result.jinja`).
 - refactor(alef-backend-go): migrate additional `gen_visitor.rs` emission from inline `push_str` blocks to Jinja templates for visitor interface/registry/helper/trampoline/control-flow; generated `ConvertWithVisitor` now routes through `convertWithVisitorHelper` for shared logic.
 
+### Fixed
+
+- fix(alef-e2e/gleam): `render_assertion` now resolves field aliases before calling `is_optional`, fixing incorrect non-optional treatment of fields accessed via fixture path aliases (e.g. `og.title` → `metadata.og_title`). Import pre-pass also uses resolved paths for optional detection.
+- fix(alef-e2e/gleam): `not_empty` and `is_empty` assertions on non-array, non-optional String fields now emit `string.is_empty` instead of `list.is_empty`. Import pre-pass updated accordingly.
+- fix(alef-e2e/gleam): Array element field assertions using indexed access (`[0].` and `[].`) are now both skipped with a comment, not just `[].` paths.
+- fix(alef-backend-zig): Async Rust functions are no longer silently skipped in Zig binding generation. The C FFI exports synchronous wrappers for all functions (including those async in Rust), so Zig can call them directly.
+
 ## [0.15.34] - 2026-05-11
 
 ### Changed
