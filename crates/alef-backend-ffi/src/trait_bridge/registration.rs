@@ -46,54 +46,26 @@ impl FfiBridgeGenerator {
             // Emit the block that calls the vtable fn once and leaks the result into
             // `&'static [&'static str]`.  The block is safe to emit in an `unsafe fn`
             // context; individual unsafe sub-expressions are annotated inline.
-            cache_init_blocks.push_str(&format!(
-                r#"        // Cache {fname}() result for the lifetime of the bridge (required: returns &[&str]).
-        let {field}: &'static [&'static str] = if let Some(fp) = vtable.{fname} {{
-            let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();
-            // SAFETY: fp is a valid non-null function pointer; user_data validity is the caller's
-            // responsibility (documented in the vtable API contract).
-            let _rc = unsafe {{ fp(user_data, &mut _out_result) }};
-            if _out_result.is_null() {{
-                &[]
-            }} else {{
-                // SAFETY: out_result was written by the callee as a valid NUL-terminated string.
-                let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
-                let json = cs.to_string_lossy();
-                let owned: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
-                // Leak each string into a `'static str`; these live for the process lifetime.
-                // The bridge struct is expected to live for the duration of the program
-                // (registered plugins are not typically removed), so this is acceptable.
-                let leaked: Vec<&'static str> = owned
-                    .into_iter()
-                    .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})
-                    .collect();
-                Box::leak(leaked.into_boxed_slice())
-            }}
-        }} else {{
-            &[]
-        }};
-"#
+            cache_init_blocks.push_str(&crate::template_env::render(
+                "constructor_slice_cache_init.jinja",
+                minijinja::context! {
+                    method_name => fname,
+                    field_name => &field,
+                },
             ));
 
             field_inits.push_str(&format!("            {field},\n"));
         }
 
         // Generate the constructor with cache init blocks injected before `Self { ... }`.
-        format!(
-            r#"impl {bridge} {{
-    /// Create a new bridge from a vtable and opaque user_data pointer.
-    ///
-    /// # Safety
-    ///
-    /// `vtable` must remain valid for the lifetime of the returned bridge.
-    /// `user_data` must be valid for any thread that calls methods on this bridge.
-    /// All required fn pointers in `vtable` must be non-null.
-    pub unsafe fn new(name: String, vtable: {vtable}, user_data: *const std::ffi::c_void) -> Self {{
-{cache_init_blocks}
-        Self {{ vtable, user_data, cached_name: name, cached_version: String::new(), {field_inits}}}
-    }}
-}}
-"#
+        crate::template_env::render(
+            "constructor_impl_with_cache.jinja",
+            minijinja::context! {
+                bridge_name => &bridge,
+                vtable_name => &vtable,
+                cache_init_blocks => &cache_init_blocks,
+                field_inits => &field_inits,
+            },
         )
     }
 

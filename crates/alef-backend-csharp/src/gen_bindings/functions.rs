@@ -248,9 +248,15 @@ pub(super) fn gen_native_methods(
                     "dll_import_attr.jinja",
                     minijinja::context! { entry_point => &start_entry },
                 ));
-                out.push_str(&format!(
-                    "    internal static extern IntPtr {start_cs}(IntPtr client, IntPtr req);\n\n"
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &start_cs,
+                        params => "IntPtr client, IntPtr req",
+                    },
                 ));
+                out.push('\n');
             }
 
             let next_entry = format!("{}_{}_{}_next", prefix, type_snake, method.name.to_lowercase());
@@ -260,9 +266,15 @@ pub(super) fn gen_native_methods(
                     "dll_import_attr.jinja",
                     minijinja::context! { entry_point => &next_entry },
                 ));
-                out.push_str(&format!(
-                    "    internal static extern IntPtr {next_cs}(IntPtr handle);\n\n"
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "IntPtr",
+                        cs_name => &next_cs,
+                        params => "IntPtr handle",
+                    },
                 ));
+                out.push('\n');
             }
 
             let free_entry = format!("{}_{}_{}_free", prefix, type_snake, method.name.to_lowercase());
@@ -272,9 +284,15 @@ pub(super) fn gen_native_methods(
                     "dll_import_attr.jinja",
                     minijinja::context! { entry_point => &free_entry },
                 ));
-                out.push_str(&format!(
-                    "    internal static extern void {free_cs}(IntPtr handle);\n\n"
+                out.push_str(&render(
+                    "streaming_pinvoke_declaration.jinja",
+                    minijinja::context! {
+                        return_type => "void",
+                        cs_name => &free_cs,
+                        params => "IntPtr handle",
+                    },
                 ));
+                out.push('\n');
             }
         }
     }
@@ -420,7 +438,10 @@ pub(super) fn gen_pinvoke_for_func(
             // For byte-slice input parameters, emit the length parameter immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
                 let len_param_name = format!("{param_name}Len");
-                out.push_str(&format!("        UIntPtr {len_param_name},\n"));
+                out.push_str(&render(
+                    "pinvoke_bytes_len_param.jinja",
+                    minijinja::context! { len_param_name },
+                ));
             }
         }
         if is_bytes_result {
@@ -484,7 +505,10 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
             // For byte-slice input parameters, emit the length parameter immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
                 let len_param_name = format!("{param_name}Len");
-                out.push_str(&format!("        UIntPtr {len_param_name},\n"));
+                out.push_str(&render(
+                    "pinvoke_bytes_len_param.jinja",
+                    minijinja::context! { len_param_name },
+                ));
             }
         }
         if is_bytes_result {

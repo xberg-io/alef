@@ -65,6 +65,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/native_call_start.jinja"),
     ),
     (
+        "native_arg_line.jinja",
+        include_str!("../templates/native_arg_line.jinja"),
+    ),
+    (
+        "native_bytes_len_arg_line.jinja",
+        include_str!("../templates/native_bytes_len_arg_line.jinja"),
+    ),
+    (
         "native_methods_header.jinja",
         include_str!("../templates/native_methods_header.jinja"),
     ),
@@ -88,6 +96,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "opaque_handle_header.jinja",
         include_str!("../templates/opaque_handle_header.jinja"),
+    ),
+    (
+        "opaque_streaming_method.jinja",
+        include_str!("../templates/opaque_streaming_method.jinja"),
     ),
     (
         "param_decl_optional.jinja",
@@ -290,6 +302,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("pinvoke_param.jinja", include_str!("../templates/pinvoke_param.jinja")),
     (
+        "pinvoke_bytes_len_param.jinja",
+        include_str!("../templates/pinvoke_bytes_len_param.jinja"),
+    ),
+    (
+        "streaming_pinvoke_declaration.jinja",
+        include_str!("../templates/streaming_pinvoke_declaration.jinja"),
+    ),
+    (
         "opaque_method_header.jinja",
         include_str!("../templates/opaque_method_header.jinja"),
     ),
@@ -372,6 +392,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "bytes_result_call.jinja",
         include_str!("../templates/bytes_result_call.jinja"),
+    ),
+    (
+        "opaque_bytes_result_call.jinja",
+        include_str!("../templates/opaque_bytes_result_call.jinja"),
     ),
 ];
 

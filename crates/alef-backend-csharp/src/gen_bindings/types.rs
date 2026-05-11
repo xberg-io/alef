@@ -121,6 +121,9 @@ fn gen_opaque_streaming_method(
     exception_name: &str,
     meta: &StreamingMethodMeta,
 ) -> String {
+    use crate::template_env::render;
+    use minijinja::Value;
+
     let cs_method_name = to_csharp_name(&method.name);
     let cs_type_name = class_name.to_string();
     let item_pascal = meta.item_type.to_pascal_case();
@@ -145,95 +148,26 @@ fn gen_opaque_streaming_method(
     let item_to_json = format!("{item_pascal}ToJson");
     let item_free = format!("{item_pascal}Free");
 
-    let mut out = String::with_capacity(2048);
-
-    if !method.doc.is_empty() {
-        out.push_str("    /// <summary>\n");
-        for line in method.doc.lines() {
-            out.push_str(&format!("    /// {line}\n"));
-        }
-        out.push_str("    /// </summary>\n");
-    } else {
-        out.push_str("    /// <summary>\n");
-        out.push_str(&format!(
-            "    /// Streaming variant of {cs_method_name}. Returns chunks as an asynchronous sequence.\n"
-        ));
-        out.push_str("    /// </summary>\n");
-    }
-
-    out.push_str(&format!(
-        "    public async IAsyncEnumerable<{item_pascal}> {cs_method_name}(\n"
-    ));
-    out.push_str(&format!("        {req_param_type} {req_param_name},\n"));
-    out.push_str("        [EnumeratorCancellation] CancellationToken cancellationToken = default)\n");
-    out.push_str("    {\n");
-
-    out.push_str(&format!(
-        "        var {req_param_name}Json = JsonSerializer.Serialize({req_param_name}, JsonOptions);\n"
-    ));
-    out.push_str(&format!(
-        "        var {req_param_name}Handle = NativeMethods.{req_from_json}({req_param_name}Json);\n"
-    ));
-
-    out.push_str(&format!(
-        "        var streamHandle = NativeMethods.{start_native}(Handle, {req_param_name}Handle);\n"
-    ));
-    out.push_str("        if (streamHandle == IntPtr.Zero)\n");
-    out.push_str("        {\n");
-    out.push_str(&format!(
-        "            NativeMethods.{req_free}({req_param_name}Handle);\n"
-    ));
-    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
-    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
-    out.push_str("            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
-    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
-    out.push_str("        }\n");
-
-    // `yield return` is incompatible with `try`/`catch`, but `try`/`finally` is fine.
-    out.push_str("        try\n");
-    out.push_str("        {\n");
-    out.push_str("            while (true)\n");
-    out.push_str("            {\n");
-    out.push_str("                cancellationToken.ThrowIfCancellationRequested();\n");
-    out.push_str(&format!(
-        "                var chunkPtr = NativeMethods.{next_native}(streamHandle);\n"
-    ));
-    out.push_str("                if (chunkPtr == IntPtr.Zero)\n");
-    out.push_str("                {\n");
-    out.push_str("                    var ec = NativeMethods.LastErrorCode();\n");
-    out.push_str("                    if (ec != 0)\n");
-    out.push_str("                    {\n");
-    out.push_str("                        var ctxPtr = NativeMethods.LastErrorContext();\n");
-    out.push_str("                        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
-    out.push_str(&format!(
-        "                        throw new {exception_name}(ec, msg);\n"
-    ));
-    out.push_str("                    }\n");
-    out.push_str("                    yield break;\n");
-    out.push_str("                }\n");
-    out.push_str(&format!(
-        "                var jsonPtr = NativeMethods.{item_to_json}(chunkPtr);\n"
-    ));
-    out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
-    out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
-    out.push_str(&format!("                NativeMethods.{item_free}(chunkPtr);\n"));
-    out.push_str(&format!(
-        "                var chunk = JsonSerializer.Deserialize<{item_pascal}>(json ?? \"null\", JsonOptions)!;\n"
-    ));
-    out.push_str("                yield return chunk;\n");
-    out.push_str("                await Task.Yield();\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        finally\n");
-    out.push_str("        {\n");
-    out.push_str(&format!("            NativeMethods.{free_native}(streamHandle);\n"));
-    out.push_str(&format!(
-        "            NativeMethods.{req_free}({req_param_name}Handle);\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-
-    out
+    let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+    render(
+        "opaque_streaming_method.jinja",
+        Value::from_serialize(serde_json::json!({
+            "has_doc": !method.doc.is_empty(),
+            "doc_lines": doc_lines,
+            "method_name": cs_method_name,
+            "item_type": item_pascal,
+            "request_type": req_param_type,
+            "request_param": req_param_name,
+            "request_from_json": req_from_json,
+            "request_free": req_free,
+            "start_native": start_native,
+            "next_native": next_native,
+            "free_native": free_native,
+            "item_to_json": item_to_json,
+            "item_free": item_free,
+            "exception_name": exception_name,
+        })),
+    )
 }
 
 /// Generate a single public method on an opaque handle class.
@@ -328,36 +262,40 @@ fn gen_opaque_method(
     // GetLastError helper, which is not visible from this opaque-handle class).
     if super::functions::is_bytes_result_method(method) {
         let mut args_block = String::new();
+        let arg_indent = if method.is_async {
+            "                "
+        } else {
+            "            "
+        };
         if !is_static {
-            args_block.push_str("            Handle,\n");
+            args_block.push_str(&render(
+                "native_arg_line.jinja",
+                minijinja::context! { indent => arg_indent, arg => "Handle" },
+            ));
         }
         for param in visible_params.iter() {
             let param_name = param.name.to_lower_camel_case();
             let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-            args_block.push_str(&format!("            {arg},\n"));
+            args_block.push_str(&render(
+                "native_arg_line.jinja",
+                minijinja::context! { indent => arg_indent, arg },
+            ));
             if matches!(param.ty, TypeRef::Bytes) {
-                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+                args_block.push_str(&render(
+                    "native_bytes_len_arg_line.jinja",
+                    minijinja::context! { indent => arg_indent, param_name },
+                ));
             }
         }
-        let body = format!(
-            "        var rc = NativeMethods.{cs_native_name}(\n{args_block}            out var outPtr,\n            out var outLen,\n            out var outCap\n        );\n        if (rc != 0)\n        {{\n            var ec = NativeMethods.LastErrorCode();\n            var ctxPtr = NativeMethods.LastErrorContext();\n            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n            throw new {exception_name}(ec, msg);\n        }}\n        var result = new byte[(int)outLen];\n        System.Runtime.InteropServices.Marshal.Copy(outPtr, result, 0, (int)outLen);\n        NativeMethods.FreeBytes(outPtr, outLen, outCap);\n        return result;\n",
-        );
-        if method.is_async {
-            // Wrap synchronous P/Invoke in Task.Run to keep the async signature awaitable.
-            out.push_str("        return await Task.Run(() =>\n        {\n");
-            for line in body.lines() {
-                if line.is_empty() {
-                    out.push('\n');
-                } else {
-                    out.push_str("    ");
-                    out.push_str(line);
-                    out.push('\n');
-                }
-            }
-            out.push_str("        });\n");
-        } else {
-            out.push_str(&body);
-        }
+        out.push_str(&render(
+            "opaque_bytes_result_call.jinja",
+            minijinja::context! {
+                is_async => method.is_async,
+                native_method_name => &cs_native_name,
+                args_block => &args_block,
+                exception_name,
+            },
+        ));
         out.push_str("    }\n\n");
         return out;
     }

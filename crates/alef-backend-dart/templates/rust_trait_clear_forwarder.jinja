@@ -1,0 +1,8 @@
+
+/// Clear all registered `{{ trait_name }}` plugins.
+/// Removes every plugin from `{{ registry_getter }}()` and stringifies any host error.
+pub fn {{ clear_fn }}() -> Result<(), String> {
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    registry.clear().map_err(|e| e.to_string())
+}

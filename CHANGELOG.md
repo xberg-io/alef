@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- refactor(alef-backend-csharp,alef-backend-dart,alef-backend-ffi,alef-backend-java,alef-codegen): move additional generated-code emission blocks from inline `push_str`/`format!` assembly into Jinja templates while preserving the existing generated output contracts.
+
 ### Added
 
 - feat(alef-e2e/rust): the C# and Java e2e codegen now calls `resolve_call_for_fixture` (which honours `select_when = { input_has = "..." }` in `[crates.e2e.calls.*]`) instead of the no-input `resolve_call`. Fixtures with `input.batch_urls: []` (and no explicit `call` override) now route to `batch_scrape()` / `BatchScrape()` instead of the default `scrape()`. Go and Python codegen already used the correct resolver; C# (`csharp.rs:775, 3032`) and Java (`java.rs:458, 498, 961`) were the only callers of the wrong variant.

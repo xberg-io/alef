@@ -1,0 +1,11 @@
+
+/// Register a Dart implementation as a `{{ trait_name }}` plugin.
+///
+/// Wraps `impl_` in an `Arc` and inserts it into `{{ registry_getter }}()`.
+/// Errors from the host registry are stringified for FRB transport.
+pub fn {{ register_fn }}(impl_: {{ struct_name }}) -> Result<(), String> {
+    let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(impl_);
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    registry.register(arc{{ extra_args }}).map_err(|e| e.to_string())
+}

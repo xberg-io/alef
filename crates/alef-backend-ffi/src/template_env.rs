@@ -55,6 +55,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/constructor_impl.jinja"),
     ),
     (
+        "constructor_slice_cache_init.jinja",
+        include_str!("../templates/constructor_slice_cache_init.jinja"),
+    ),
+    (
+        "constructor_impl_with_cache.jinja",
+        include_str!("../templates/constructor_impl_with_cache.jinja"),
+    ),
+    (
         "plugin_impl_header.jinja",
         include_str!("../templates/plugin_impl_header.jinja"),
     ),
@@ -327,10 +335,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_serde_from_str_err.jinja",
         include_str!("../templates/ffi_serde_from_str_err.jinja"),
     ),
+    (
+        "ffi_sync_serde_from_str_err.jinja",
+        include_str!("../templates/ffi_sync_serde_from_str_err.jinja"),
+    ),
     ("ffi_ok_rc_as.jinja", include_str!("../templates/ffi_ok_rc_as.jinja")),
     (
         "ffi_serde_from_str_default.jinja",
         include_str!("../templates/ffi_serde_from_str_default.jinja"),
+    ),
+    (
+        "ffi_decode_string_result.jinja",
+        include_str!("../templates/ffi_decode_string_result.jinja"),
+    ),
+    (
+        "ffi_decode_string_value.jinja",
+        include_str!("../templates/ffi_decode_string_value.jinja"),
+    ),
+    (
+        "ffi_vtable_error_check.jinja",
+        include_str!("../templates/ffi_vtable_error_check.jinja"),
     ),
     (
         "ffi_unsafe_fp_tail.jinja",

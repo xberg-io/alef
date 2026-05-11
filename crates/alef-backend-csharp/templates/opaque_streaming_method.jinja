@@ -1,0 +1,58 @@
+{% if has_doc %}
+    /// <summary>
+{% for line in doc_lines %}
+    /// {{ line }}
+{% endfor %}
+    /// </summary>
+{% else %}
+    /// <summary>
+    /// Streaming variant of {{ method_name }}. Returns chunks as an asynchronous sequence.
+    /// </summary>
+{% endif %}
+    public async IAsyncEnumerable<{{ item_type }}> {{ method_name }}(
+        {{ request_type }} {{ request_param }},
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var {{ request_param }}Json = JsonSerializer.Serialize({{ request_param }}, JsonOptions);
+        var {{ request_param }}Handle = NativeMethods.{{ request_from_json }}({{ request_param }}Json);
+        var streamHandle = NativeMethods.{{ start_native }}(Handle, {{ request_param }}Handle);
+        if (streamHandle == IntPtr.Zero)
+        {
+            NativeMethods.{{ request_free }}({{ request_param }}Handle);
+            var ec = NativeMethods.LastErrorCode();
+            var ctxPtr = NativeMethods.LastErrorContext();
+            var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
+            throw new {{ exception_name }}(ec, msg);
+        }
+        try
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var chunkPtr = NativeMethods.{{ next_native }}(streamHandle);
+                if (chunkPtr == IntPtr.Zero)
+                {
+                    var ec = NativeMethods.LastErrorCode();
+                    if (ec != 0)
+                    {
+                        var ctxPtr = NativeMethods.LastErrorContext();
+                        var msg = Marshal.PtrToStringUTF8(ctxPtr) ?? "Unknown error";
+                        throw new {{ exception_name }}(ec, msg);
+                    }
+                    yield break;
+                }
+                var jsonPtr = NativeMethods.{{ item_to_json }}(chunkPtr);
+                var json = Marshal.PtrToStringUTF8(jsonPtr);
+                NativeMethods.FreeString(jsonPtr);
+                NativeMethods.{{ item_free }}(chunkPtr);
+                var chunk = JsonSerializer.Deserialize<{{ item_type }}>(json ?? "null", JsonOptions)!;
+                yield return chunk;
+                await Task.Yield();
+            }
+        }
+        finally
+        {
+            NativeMethods.{{ free_native }}(streamHandle);
+            NativeMethods.{{ request_free }}({{ request_param }}Handle);
+        }
+    }

@@ -282,6 +282,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/generators/trait_bridge/wrapper_struct.jinja"),
     ),
     (
+        "generators/trait_bridge/debug_impl.jinja",
+        include_str!("../templates/generators/trait_bridge/debug_impl.jinja"),
+    ),
+    (
         "generators/trait_bridge/plugin_impl.jinja",
         include_str!("../templates/generators/trait_bridge/plugin_impl.jinja"),
     ),

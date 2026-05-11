@@ -960,8 +960,9 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
     for p in &method.params {
         if !p.optional && param_needs_null_check(&p.ty) {
             let pname = p.name.to_lower_camel_case();
-            out.push_str(&format!(
-                "        java.util.Objects.requireNonNull({pname}, \"{pname} must not be null\");\n"
+            out.push_str(&crate::template_env::render(
+                "stream_method_null_check.jinja",
+                minijinja::context! { param_name => pname },
             ));
         }
     }
@@ -976,7 +977,10 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let cname = format!("c{}", to_class_name(&p.name));
         match &p.ty {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-                out.push_str(&format!("            var {cname} = arena.allocateFrom({pname});\n"));
+                out.push_str(&crate::template_env::render(
+                    "stream_method_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
                 call_args.push(cname);
             }
             TypeRef::Optional(inner)
@@ -985,8 +989,9 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) =>
             {
-                out.push_str(&format!(
-                    "            MemorySegment {cname} = ({pname} == null) ? MemorySegment.NULL : arena.allocateFrom({pname});\n"
+                out.push_str(&crate::template_env::render(
+                    "stream_method_optional_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
                 ));
                 call_args.push(cname);
             }
@@ -1002,35 +1007,26 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                     // the Java arg is null instead of serializing `null` and feeding it
                     // to <Type>_from_json which then errors with "invalid type: null,
                     // expected struct <Type>".
-                    out.push_str(&format!("            MemorySegment {cname};\n"));
-                    out.push_str(&format!(
-                        "            if ({pname} == null) {{ {cname} = MemorySegment.NULL; }} else {{\n"
+                    out.push_str(&crate::template_env::render(
+                        "stream_method_optional_named_param.jinja",
+                        minijinja::context! {
+                            c_name => cname,
+                            param_name => pname,
+                            from_json => from_json,
+                            exception_class => exception_class,
+                            method_name => method_name,
+                        },
                     ));
-                    out.push_str(&format!(
-                        "                String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
-                    ));
-                    out.push_str(&format!(
-                        "                var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
-                    ));
-                    out.push_str(&format!(
-                        "                {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
-                    ));
-                    out.push_str(&format!(
-                        "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
-                    ));
-                    out.push_str("            }\n");
                 } else {
-                    out.push_str(&format!(
-                        "            String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
-                    ));
-                    out.push_str(&format!(
-                        "            var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
-                    ));
-                    out.push_str(&format!(
-                        "            MemorySegment {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
-                    ));
-                    out.push_str(&format!(
-                        "            if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
+                    out.push_str(&crate::template_env::render(
+                        "stream_method_named_param.jinja",
+                        minijinja::context! {
+                            c_name => cname,
+                            param_name => pname,
+                            from_json => from_json,
+                            exception_class => exception_class,
+                            method_name => method_name,
+                        },
                     ));
                 }
                 named_ptr_frees.push((cname.clone(), req_free));
@@ -1045,23 +1041,16 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 let req_upper = req_snake.to_uppercase();
                 let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
                 let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
-                out.push_str(&format!("            MemorySegment {cname};\n"));
-                out.push_str(&format!(
-                    "            if ({pname} == null) {{ {cname} = MemorySegment.NULL; }} else {{\n"
+                out.push_str(&crate::template_env::render(
+                    "stream_method_optional_named_param.jinja",
+                    minijinja::context! {
+                        c_name => cname,
+                        param_name => pname,
+                        from_json => from_json,
+                        exception_class => exception_class,
+                        method_name => method_name,
+                    },
                 ));
-                out.push_str(&format!(
-                    "                String {cname}Json = STREAM_MAPPER.writeValueAsString({pname});\n"
-                ));
-                out.push_str(&format!(
-                    "                var {cname}JsonSeg = arena.allocateFrom({cname}Json);\n"
-                ));
-                out.push_str(&format!(
-                    "                {cname} = (MemorySegment) {from_json}.invoke({cname}JsonSeg);\n"
-                ));
-                out.push_str(&format!(
-                    "                if ({cname}.equals(MemorySegment.NULL)) {{ checkLastFfiError(); throw new {exception_class}(\"{method_name}: failed to marshal {pname}\", (Throwable) null); }}\n"
-                ));
-                out.push_str("            }\n");
                 named_ptr_frees.push((cname.clone(), req_free));
                 call_args.push(cname);
             }
@@ -1069,30 +1058,32 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(pname);
             }
             _ => {
-                out.push_str(&format!("            // TODO unsupported parameter type for {pname}\n"));
-                out.push_str(&format!(
-                    "            throw new {exception_class}(\"{method_name}: unsupported parameter shape\", (Throwable) null);\n"
+                out.push_str(&crate::template_env::render(
+                    "stream_method_unsupported_param.jinja",
+                    minijinja::context! {
+                        param_name => pname,
+                        exception_class => exception_class,
+                        method_name => method_name,
+                    },
                 ));
-                out.push_str("        } catch (Throwable e) {\n");
-                out.push_str(&format!(
-                    "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
-                ));
-                out.push_str(&format!(
-                    "            throw new {exception_class}(\"{method_name}: failed\", e);\n"
-                ));
-                out.push_str("        }\n");
-                out.push_str("    }\n\n");
                 return;
             }
         }
     }
 
-    let emit_named_frees = |out: &mut String, indent: &str| {
+    let render_named_frees = |indent: &str| -> String {
+        let mut frees = String::new();
         for (cname, free_handle) in &named_ptr_frees {
-            out.push_str(&format!(
-                "{indent}if (!{cname}.equals(MemorySegment.NULL)) {{ try {{ {free_handle}.invoke({cname}); }} catch (Throwable ignore) {{}} }}\n"
+            frees.push_str(&crate::template_env::render(
+                "stream_method_free_named_ptr.jinja",
+                minijinja::context! {
+                    indent => indent,
+                    c_name => cname,
+                    free_handle => free_handle,
+                },
             ));
         }
+        frees
     };
 
     let mut call_args_full = vec!["this.handle".to_string()];
@@ -1101,47 +1092,26 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
 
     if is_bytes_result {
         let free_bytes = format!("NativeLib.{prefix_upper}_FREE_BYTES");
-        out.push_str("            var outPtrHolder = arena.allocate(ValueLayout.ADDRESS);\n");
-        out.push_str("            var outLenHolder = arena.allocate(ValueLayout.JAVA_LONG);\n");
-        out.push_str("            var outCapHolder = arena.allocate(ValueLayout.JAVA_LONG);\n");
-        out.push_str(&format!(
-            "            int rc = (int) {ffi_handle}.invoke({args_joined}, outPtrHolder, outLenHolder, outCapHolder);\n"
-        ));
-        emit_named_frees(out, "            ");
-        out.push_str("            if (rc != 0) {\n");
-        out.push_str("                checkLastFfiError();\n");
-        out.push_str(&format!(
-            "                {}\n",
-            if is_optional_return {
-                "return java.util.Optional.empty();"
-            } else {
-                "return null;"
-            }
-        ));
-        out.push_str("            }\n");
-        out.push_str("            var outPtr = outPtrHolder.get(ValueLayout.ADDRESS, 0);\n");
-        out.push_str("            long outLen = outLenHolder.get(ValueLayout.JAVA_LONG, 0);\n");
-        out.push_str("            long outCap = outCapHolder.get(ValueLayout.JAVA_LONG, 0);\n");
-        out.push_str("            if (outPtr.equals(MemorySegment.NULL)) {\n");
-        out.push_str("                checkLastFfiError();\n");
-        out.push_str(&format!(
-            "                {}\n",
-            if is_optional_return {
-                "return java.util.Optional.empty();"
-            } else {
-                "return null;"
-            }
-        ));
-        out.push_str("            }\n");
-        out.push_str("            byte[] result = outPtr.reinterpret(outLen).toArray(ValueLayout.JAVA_BYTE);\n");
-        out.push_str(&format!("            {free_bytes}.invoke(outPtr, outLen, outCap);\n"));
-        out.push_str(&format!(
-            "            return {};\n",
-            if is_optional_return {
-                "java.util.Optional.of(result)"
-            } else {
-                "result"
-            }
+        let empty_return = if is_optional_return {
+            "return java.util.Optional.empty();"
+        } else {
+            "return null;"
+        };
+        let success_return = if is_optional_return {
+            "java.util.Optional.of(result)"
+        } else {
+            "result"
+        };
+        out.push_str(&crate::template_env::render(
+            "stream_method_bytes_result.jinja",
+            minijinja::context! {
+                ffi_handle => ffi_handle,
+                args_joined => args_joined,
+                named_frees => render_named_frees("            "),
+                empty_return => empty_return,
+                free_bytes => free_bytes,
+                success_return => success_return,
+            },
         ));
     } else if matches!(dispatch_return, TypeRef::Named(_)) {
         let return_type_name = match &dispatch_return {
@@ -1153,40 +1123,26 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
         let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
 
-        out.push_str(&format!(
-            "            MemorySegment resultPtr = (MemorySegment) {ffi_handle}.invoke({args_joined});\n"
+        out.push_str(&crate::template_env::render(
+            "stream_method_named_result.jinja",
+            minijinja::context! {
+                ffi_handle => ffi_handle,
+                args_joined => args_joined,
+                named_frees => render_named_frees("            "),
+                to_json => ret_to_json,
+                exception_class => exception_class,
+                method_name => method_name,
+                prefix_upper => prefix_upper,
+                return_type_name => return_type_name,
+                ret_free => ret_free,
+            },
         ));
-        emit_named_frees(out, "            ");
-        out.push_str("            if (resultPtr.equals(MemorySegment.NULL)) {\n");
-        out.push_str("                checkLastFfiError();\n");
-        out.push_str("                return null;\n");
-        out.push_str("            }\n");
-        out.push_str("            try {\n");
-        out.push_str(&format!(
-            "                MemorySegment jsonPtr = (MemorySegment) {ret_to_json}.invoke(resultPtr);\n"
-        ));
-        out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
-        out.push_str("                    checkLastFfiError();\n");
-        out.push_str(&format!(
-            "                    throw new {exception_class}(\"{method_name}: failed to serialize response\", (Throwable) null);\n"
-        ));
-        out.push_str("                }\n");
-        out.push_str("                String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
-        out.push_str(&format!(
-            "                NativeLib.{prefix_upper}_FREE_STRING.invoke(jsonPtr);\n"
-        ));
-        out.push_str(&format!(
-            "                return STREAM_MAPPER.readValue(json, {return_type_name}.class);\n"
-        ));
-        out.push_str("            } finally {\n");
-        out.push_str(&format!("                {ret_free}.invoke(resultPtr);\n"));
-        out.push_str("            }\n");
     } else if matches!(dispatch_return, TypeRef::Unit) {
         out.push_str(&format!("            {ffi_handle}.invoke({args_joined});\n"));
-        emit_named_frees(out, "            ");
+        out.push_str(&render_named_frees("            "));
         out.push_str("            checkLastFfiError();\n");
     } else {
-        emit_named_frees(out, "            ");
+        out.push_str(&render_named_frees("            "));
         out.push_str(&format!(
             "            // TODO unsupported return shape for {method_name}\n"
         ));
@@ -1195,15 +1151,13 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         ));
     }
 
-    out.push_str("        } catch (Throwable e) {\n");
-    out.push_str(&format!(
-        "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
+    out.push_str(&crate::template_env::render(
+        "stream_method_catch.jinja",
+        minijinja::context! {
+            exception_class => exception_class,
+            method_name => method_name,
+        },
     ));
-    out.push_str(&format!(
-        "            throw new {exception_class}(\"{method_name}: failed\", e);\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
 }
 
 /// True when the given `TypeRef` is a reference type whose Java representation may

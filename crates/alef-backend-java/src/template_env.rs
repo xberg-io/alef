@@ -355,6 +355,46 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_primitive_result_call.jinja",
         include_str!("../templates/ffi_primitive_result_call.jinja"),
     ),
+    (
+        "stream_method_null_check.jinja",
+        include_str!("../templates/stream_method_null_check.jinja"),
+    ),
+    (
+        "stream_method_string_param.jinja",
+        include_str!("../templates/stream_method_string_param.jinja"),
+    ),
+    (
+        "stream_method_optional_string_param.jinja",
+        include_str!("../templates/stream_method_optional_string_param.jinja"),
+    ),
+    (
+        "stream_method_optional_named_param.jinja",
+        include_str!("../templates/stream_method_optional_named_param.jinja"),
+    ),
+    (
+        "stream_method_named_param.jinja",
+        include_str!("../templates/stream_method_named_param.jinja"),
+    ),
+    (
+        "stream_method_unsupported_param.jinja",
+        include_str!("../templates/stream_method_unsupported_param.jinja"),
+    ),
+    (
+        "stream_method_free_named_ptr.jinja",
+        include_str!("../templates/stream_method_free_named_ptr.jinja"),
+    ),
+    (
+        "stream_method_bytes_result.jinja",
+        include_str!("../templates/stream_method_bytes_result.jinja"),
+    ),
+    (
+        "stream_method_named_result.jinja",
+        include_str!("../templates/stream_method_named_result.jinja"),
+    ),
+    (
+        "stream_method_catch.jinja",
+        include_str!("../templates/stream_method_catch.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

@@ -174,8 +174,11 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
 /// compile when the user's trait has a `Debug` super-trait bound.
 fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
     let wrapper = spec.wrapper_name();
-    format!(
-        "impl std::fmt::Debug for {wrapper} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        write!(f, \"{wrapper}\")\n    }}\n}}"
+    crate::template_env::render(
+        "generators/trait_bridge/debug_impl.jinja",
+        minijinja::context! {
+            wrapper_name => wrapper,
+        },
     )
 }
 

@@ -1,0 +1,8 @@
+
+/// Unregister a previously-registered `{{ trait_name }}` plugin by name.
+/// Removes the plugin from `{{ registry_getter }}()` and stringifies any host error.
+pub fn {{ unregister_fn }}(name: String) -> Result<(), String> {
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    registry.remove(&name).map_err(|e| e.to_string())
+}
