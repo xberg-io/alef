@@ -13,6 +13,7 @@ readme = "README.md"
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
+minijinja = { workspace = true }
 regex = { workspace = true }
 
 [dev-dependencies]

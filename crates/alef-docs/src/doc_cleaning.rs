@@ -1,5 +1,4 @@
 use alef_core::config::Language;
-use std::fmt::Write;
 
 /// Rust doc section headers that should be stripped for all non-Rust output.
 const RUST_ONLY_SECTIONS: &[&str] = &["example", "examples", "arguments", "fields"];
@@ -82,7 +81,10 @@ pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
                 || lower == "notes"
                 || lower == "note"
             {
-                let _ = writeln!(out, "**{heading_text}:**");
+                out.push_str(&crate::template_env::render(
+                    "bold_heading.jinja",
+                    minijinja::context! { text => heading_text },
+                ));
                 continue;
             }
         }

@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod template_env;
+
 /// Generate README files for the given languages.
 pub fn generate_readmes(
     api: &ApiSurface,
@@ -393,7 +395,10 @@ fn render_performance_table(perf: &Value, _name: &str) -> String {
 
     let mut out = String::new();
     if !platform.is_empty() {
-        out.push_str(&format!("**{platform}** · `{function}` · {note}\n\n"));
+        out.push_str(&template_env::render(
+            "performance_context.jinja",
+            minijinja::context! { platform => platform, function => function, note => note },
+        ));
     }
 
     // Detect table format: latency/throughput or ops/sec
@@ -426,7 +431,10 @@ fn render_performance_table(perf: &Value, _name: &str) -> String {
                 .ok()
                 .and_then(|v: Value| v.as_str().map(str::to_string))
                 .unwrap_or_default();
-            out.push_str(&format!("| {name} | {size} | {latency} | {throughput} |\n"));
+            out.push_str(&template_env::render(
+                "performance_throughput_row.jinja",
+                minijinja::context! { name => name, size => size, latency => latency, throughput => throughput },
+            ));
         }
     } else {
         out.push_str("| Document | Size | Ops/sec |\n");
@@ -447,7 +455,10 @@ fn render_performance_table(perf: &Value, _name: &str) -> String {
                 .ok()
                 .map(|v: Value| format!("{v}"))
                 .unwrap_or_default();
-            out.push_str(&format!("| {name} | {size} | {ops} |\n"));
+            out.push_str(&template_env::render(
+                "performance_ops_row.jinja",
+                minijinja::context! { name => name, size => size, ops => ops },
+            ));
         }
     }
     out

@@ -329,6 +329,15 @@ fn render_test_file(
     if has_non_http_with_override {
         let _ = writeln!(out, "import {module_path}");
         let _ = writeln!(out, "import e2e_gleam");
+        // mock_url args use envoy.get("MOCK_SERVER_URL") — need envoy import.
+        let needs_envoy_for_binding = !has_http_fixtures
+            && fixtures.iter().filter(|f| !f.is_http_test()).any(|f| {
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+                cc.args.iter().any(|a| a.arg_type == "mock_url")
+            });
+        if needs_envoy_for_binding {
+            let _ = writeln!(out, "import envoy");
+        }
     }
     let _ = writeln!(out);
 
@@ -347,7 +356,9 @@ fn render_test_file(
         let has_optional_string_arg = call_config.args.iter().any(|a| a.arg_type == "string" && a.optional);
         // json_object args emit option.None in ExtractionConfig and BatchItem constructors.
         let has_json_object_arg = call_config.args.iter().any(|a| a.arg_type == "json_object");
-        if has_bytes_arg || has_optional_string_arg || has_json_object_arg {
+        // handle args emit create_engine(option.None) — needs option import.
+        let has_handle_arg = call_config.args.iter().any(|a| a.arg_type == "handle");
+        if has_bytes_arg || has_optional_string_arg || has_json_object_arg || has_handle_arg {
             needed_modules.insert("option");
         }
         for assertion in &fixture.assertions {
@@ -732,6 +743,7 @@ fn render_test_case(
         &test_documents_path,
         element_constructors,
         json_object_wrapper,
+        module_path,
     );
 
     // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
@@ -792,10 +804,11 @@ fn render_test_case(
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
-    _fixture_id: &str,
+    fixture_id: &str,
     test_documents_path: &str,
     element_constructors: &[alef_core::config::GleamElementConstructor],
     json_object_wrapper: Option<&str>,
+    module_path: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -810,6 +823,27 @@ fn build_args_and_setup(
         let val = input.get(field);
 
         match arg.arg_type.as_str() {
+            "handle" => {
+                // Engine construction: create_engine(option.None).
+                // Config construction from JSON is complex in Gleam (no JSON string constructor),
+                // so we always pass option.None — default engine config covers most test cases.
+                let name = &arg.name;
+                let constructor = format!("create_{}", name.to_snake_case());
+                setup_lines.push(format!(
+                    "let assert Ok({name}) = {module_path}.{constructor}(option.None)"
+                ));
+                parts.push(name.clone());
+                continue;
+            }
+            "mock_url" => {
+                // Resolve the mock server base URL at runtime via envoy, then append the fixture path.
+                let name = &arg.name;
+                setup_lines.push(format!(
+                    "let {name} = case envoy.get(\"MOCK_SERVER_URL\") {{ Ok(base) -> base <> \"/fixtures/{fixture_id}\" Error(_) -> \"http://localhost:8080/fixtures/{fixture_id}\" }}"
+                ));
+                parts.push(name.clone());
+                continue;
+            }
             "file_path" => {
                 // Always a required string path.
                 // Gleam e2e runs from e2e/gleam/ so the path resolves relative
@@ -1763,6 +1797,7 @@ mod tests {
             "../../test_documents",
             &[],
             Some("k.config_from_json_string({json})"),
+            "kreuzberg",
         );
         // The wrapper template substitutes {json} with the JSON-string literal
         // emitted by json_to_gleam.
@@ -1790,7 +1825,7 @@ mod tests {
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
         let (_setup, args_str) =
-            build_args_and_setup(&input, &[arg], "test_fixture", "../../test_documents", &[], None);
+            build_args_and_setup(&input, &[arg], "test_fixture", "../../test_documents", &[], None, "kreuzberg");
         // Default behaviour: bare JSON-string literal, no wrapper. The
         // emission must NOT contain any function-call shape from a wrapper.
         assert!(

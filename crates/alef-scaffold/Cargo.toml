@@ -16,4 +16,5 @@ alef-backend-php = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
+minijinja = { workspace = true }
 toml = { workspace = true }

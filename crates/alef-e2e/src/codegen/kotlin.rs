@@ -208,7 +208,9 @@ dependencies {{
 
 tasks.test {{
     useJUnitPlatform()
-    environment("java.library.path", "../../target/release")
+    val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
+    systemProperty("java.library.path", libPath)
+    systemProperty("jna.library.path", libPath)
 }}
 "#
     )
@@ -662,17 +664,21 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
 
-    for line in &setup_lines {
-        let _ = writeln!(out, "        {line}");
-    }
-
     if expects_error {
-        let _ = writeln!(
-            out,
-            "        assertFailsWith<Exception> {{ {class_name}.{function_name}({args_str}) }}"
-        );
+        // Wrap setup + call in assertFailsWith so validation errors thrown
+        // during engine creation are also caught (mirrors Java's assertThrows).
+        let _ = writeln!(out, "        assertFailsWith<Exception> {{");
+        for line in &setup_lines {
+            let _ = writeln!(out, "            {line}");
+        }
+        let _ = writeln!(out, "            {class_name}.{function_name}({args_str})");
+        let _ = writeln!(out, "        }}");
         let _ = writeln!(out, "    }}");
         return;
+    }
+
+    for line in &setup_lines {
+        let _ = writeln!(out, "        {line}");
     }
 
     let _ = writeln!(
@@ -806,29 +812,67 @@ fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
+    // Raw field accessor — may end with nullable type if field is optional.
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {
         match &assertion.field {
-            Some(f) if !f.is_empty() => {
-                let accessor = field_resolver.accessor(f, "kotlin", result_var);
-                let resolved = field_resolver.resolve(f);
-                // In Kotlin, use .orEmpty() for Optional<String> fields.
-                if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    format!("{accessor}.orEmpty()")
-                } else {
-                    accessor
-                }
-            }
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "kotlin", result_var),
             _ => result_var.to_string(),
         }
     };
 
-    // For enum fields, use .getValue() to get the string value.
-    let string_expr = if field_is_enum {
-        format!("{field_expr}.getValue()")
+    // Whether the accessor may return a nullable type in Kotlin. This is true
+    // when the leaf field OR any intermediate segment in the path is optional
+    // (the `?.` safe-call propagates null through the whole chain).
+    let field_is_optional = !result_is_simple
+        && assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+            let resolved = field_resolver.resolve(f);
+            if field_resolver.has_map_access(f) {
+                return false;
+            }
+            // Check the leaf field itself.
+            if field_resolver.is_optional(resolved) {
+                return true;
+            }
+            // Also check every prefix segment: if any intermediate field is
+            // optional the ?.  chain propagates null to the final result.
+            let mut prefix = String::new();
+            for part in resolved.split('.') {
+                // Strip array notation for the lookup key.
+                let key = part.split('[').next().unwrap_or(part);
+                if !prefix.is_empty() {
+                    prefix.push('.');
+                }
+                prefix.push_str(key);
+                if field_resolver.is_optional(&prefix) {
+                    return true;
+                }
+            }
+            false
+        });
+
+    // String-context expression: append .orEmpty() for nullable string fields so
+    // string operations (contains, trim) don't require a safe-call chain.
+    let string_field_expr = if field_is_optional {
+        format!("{field_expr}.orEmpty()")
     } else {
         field_expr.clone()
+    };
+
+    // Non-null expression: use !! to assert presence for numeric comparisons where
+    // the fixture guarantees the value is non-null.
+    let nonnull_field_expr = if field_is_optional {
+        format!("{field_expr}!!")
+    } else {
+        field_expr.clone()
+    };
+
+    // For enum fields, use .getValue() to get the string value.
+    let string_expr = if field_is_enum {
+        format!("{string_field_expr}.getValue()")
+    } else {
+        string_field_expr.clone()
     };
 
     match assertion.assertion_type.as_str() {
@@ -838,7 +882,7 @@ fn render_assertion(
                 if expected.is_string() {
                     let _ = writeln!(out, "        assertEquals({kotlin_val}, {string_expr}.trim())");
                 } else {
-                    let _ = writeln!(out, "        assertEquals({kotlin_val}, {field_expr})");
+                    let _ = writeln!(out, "        assertEquals({kotlin_val}, {nonnull_field_expr})");
                 }
             }
         }
@@ -874,13 +918,13 @@ fn render_assertion(
         "not_empty" => {
             let _ = writeln!(
                 out,
-                "        assertFalse({field_expr}.isEmpty(), \"expected non-empty value\")"
+                "        assertFalse({string_field_expr}.isEmpty(), \"expected non-empty value\")"
             );
         }
         "is_empty" => {
             let _ = writeln!(
                 out,
-                "        assertTrue({field_expr}.isEmpty(), \"expected empty value\")"
+                "        assertTrue({string_field_expr}.isEmpty(), \"expected empty value\")"
             );
         }
         "contains_any" => {
@@ -904,7 +948,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({field_expr} > {kotlin_val}, \"expected > {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} > {kotlin_val}, \"expected > {{kotlin_val}}\")"
                 );
             }
         }
@@ -913,7 +957,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({field_expr} < {kotlin_val}, \"expected < {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} < {kotlin_val}, \"expected < {{kotlin_val}}\")"
                 );
             }
         }
@@ -922,7 +966,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({field_expr} >= {kotlin_val}, \"expected >= {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} >= {kotlin_val}, \"expected >= {{kotlin_val}}\")"
                 );
             }
         }
@@ -931,7 +975,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(val);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({field_expr} <= {kotlin_val}, \"expected <= {{kotlin_val}}\")"
+                    "        assertTrue({nonnull_field_expr} <= {kotlin_val}, \"expected <= {{kotlin_val}}\")"
                 );
             }
         }
@@ -958,7 +1002,7 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "        assertTrue({field_expr}.length >= {n}, \"expected length >= {n}\")"
+                        "        assertTrue({string_field_expr}.length >= {n}, \"expected length >= {n}\")"
                     );
                 }
             }
@@ -968,7 +1012,7 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "        assertTrue({field_expr}.length <= {n}, \"expected length <= {n}\")"
+                        "        assertTrue({string_field_expr}.length <= {n}, \"expected length <= {n}\")"
                     );
                 }
             }
@@ -978,7 +1022,7 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "        assertTrue({field_expr}.size >= {n}, \"expected at least {n} elements\")"
+                        "        assertTrue({nonnull_field_expr}.size >= {n}, \"expected at least {n} elements\")"
                     );
                 }
             }
@@ -988,7 +1032,7 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "        assertEquals({n}, {field_expr}.size, \"expected exactly {n} elements\")"
+                        "        assertEquals({n}, {nonnull_field_expr}.size, \"expected exactly {n} elements\")"
                     );
                 }
             }

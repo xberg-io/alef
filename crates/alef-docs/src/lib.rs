@@ -7,7 +7,6 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToPascalCase;
-use std::fmt::Write;
 use std::path::PathBuf;
 
 // Module declarations
@@ -17,6 +16,7 @@ mod formatting;
 mod naming;
 mod signatures;
 mod sorting;
+mod template_env;
 mod type_mapping;
 
 #[cfg(test)]
@@ -96,14 +96,14 @@ fn generate_lang_doc(
 
     let mut out = String::with_capacity(8192);
 
-    // Front matter
-    let _ = writeln!(out, "---\ntitle: \"{lang_display} API Reference\"\n---\n");
-
-    // Title
-    let _ = writeln!(
-        out,
-        "## {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n"
-    );
+    out.push_str(&template_env::render(
+        "front_matter.jinja",
+        minijinja::context! { title => format!("{lang_display} API Reference") },
+    ));
+    out.push_str(&template_env::render(
+        "version_heading.jinja",
+        minijinja::context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
+    ));
 
     // --- Functions section ---
     let public_fns: Vec<&FunctionDef> = api.functions.iter().collect();
@@ -172,7 +172,10 @@ fn render_function(
     let mut out = String::new();
     let fn_name = func_name(&func.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {fn_name}()\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => format!("{fn_name}()") },
+    ));
 
     // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
@@ -187,7 +190,10 @@ fn render_function(
     out.push_str("**Signature:**\n\n");
     let lang_code = lang_code_fence(lang);
     let sig = render_function_signature(func, lang, ffi_prefix);
-    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
+    out.push_str(&template_env::render(
+        "code_block.jinja",
+        minijinja::context! { lang_code => lang_code, body => sig },
+    ));
 
     // Parameters table
     if !func.params.is_empty() {
@@ -207,21 +213,28 @@ fn render_function(
                     s.replace("ConversionOptions.default()", "default options")
                 })
                 .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
-            let _ = writeln!(out, "| `{pname}` | `{pty}` | {required} | {pdoc} |");
+            out.push_str(&template_env::render(
+                "param_row.jinja",
+                minijinja::context! { name => pname, ty => pty, required => required, doc => pdoc },
+            ));
         }
         out.push('\n');
     }
 
     // Return type
     let ret_ty = doc_type(&func.return_type, lang, ffi_prefix);
-    let _ = write!(out, "**Returns:** `{ret_ty}`");
-    out.push('\n');
-    out.push('\n');
+    out.push_str(&template_env::render(
+        "returns.jinja",
+        minijinja::context! { ty => ret_ty },
+    ));
 
     // Errors
     if let Some(err) = &func.error_type {
         let error_phrase = format_error_phrase(err, lang);
-        let _ = writeln!(out, "**Errors:** {error_phrase}\n");
+        out.push_str(&template_env::render(
+            "errors_phrase.jinja",
+            minijinja::context! { phrase => error_phrase },
+        ));
     }
 
     let _ = api; // api is available for future use in function rendering
@@ -232,7 +245,10 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let mut out = String::new();
     let mname = func_name(&method.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "###### {mname}()\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "######", title => format!("{mname}()") },
+    ));
 
     let doc = clean_doc(&method.doc, lang);
     if !doc.is_empty() {
@@ -244,7 +260,10 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let lang_code = lang_code_fence(lang);
     let sig = render_method_signature(method, type_name_str, lang, ffi_prefix);
     out.push_str("**Signature:**\n\n");
-    let _ = writeln!(out, "```{lang_code}\n{sig}\n```\n");
+    out.push_str(&template_env::render(
+        "code_block.jinja",
+        minijinja::context! { lang_code => lang_code, body => sig },
+    ));
 
     out
 }
@@ -257,7 +276,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
     let mut out = String::new();
     let tname = type_name(&ty.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {tname}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => tname },
+    ));
 
     let doc = clean_doc(&ty.doc, lang);
     if !doc.is_empty() {
@@ -282,7 +304,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
                     raw
                 }
             };
-            let _ = writeln!(out, "| `{fname}` | `{fty}` | {fdefault} | {fdoc} |");
+            out.push_str(&template_env::render(
+                "field_row.jinja",
+                minijinja::context! { name => fname, ty => fty, default => fdefault, doc => fdoc },
+            ));
         }
         out.push('\n');
     }
@@ -294,7 +319,10 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         } else {
             "Methods"
         };
-        let _ = writeln!(out, "##### {methods_heading}\n");
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "#####", title => methods_heading },
+        ));
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
         }
@@ -311,7 +339,10 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&en.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {ename}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => ename },
+    ));
 
     let doc = clean_doc(&en.doc, lang);
     if !doc.is_empty() {
@@ -342,7 +373,10 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
-        let _ = writeln!(out, "| `{vname}` | {vdoc} |");
+        out.push_str(&template_env::render(
+            "variant_row.jinja",
+            minijinja::context! { name => vname, doc => vdoc },
+        ));
     }
     out.push('\n');
 
@@ -361,7 +395,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&err.name, lang, ffi_prefix);
 
-    let _ = writeln!(out, "#### {ename}\n");
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => &ename },
+    ));
 
     let doc = clean_doc(&err.doc, lang);
     if !doc.is_empty() {
@@ -377,7 +414,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
 
     // For Python, render as exception class hierarchy
     if lang == Language::Python {
-        let _ = writeln!(out, "**Base class:** `{ename}(Exception)`\n");
+        out.push_str(&template_env::render(
+            "base_class.jinja",
+            minijinja::context! { name => &ename },
+        ));
         out.push_str("| Exception | Description |\n");
         out.push_str("|-----------|-------------|\n");
         for variant in &err.variants {
@@ -389,7 +429,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{vname}({ename})` | {vdoc} |");
+            out.push_str(&template_env::render(
+                "exception_row.jinja",
+                minijinja::context! { variant => vname, error => &ename, doc => vdoc },
+            ));
         }
     } else {
         out.push_str("| Variant | Description |\n");
@@ -403,7 +446,10 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{vname}` | {vdoc} |");
+            out.push_str(&template_env::render(
+                "variant_row.jinja",
+                minijinja::context! { name => vname, doc => vdoc },
+            ));
         }
     }
     out.push('\n');
@@ -442,7 +488,10 @@ fn generate_configuration_doc(
         .collect();
 
     for ty in config_types {
-        let _ = writeln!(out, "### {}\n", ty.name);
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => &ty.name },
+        ));
         let doc = clean_doc(&ty.doc, Language::Python);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -464,7 +513,10 @@ fn generate_configuration_doc(
                         raw
                     }
                 };
-                let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
+                out.push_str(&template_env::render(
+                    "field_row.jinja",
+                    minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                ));
             }
             out.push('\n');
         }
@@ -578,14 +630,20 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         let Some(types) = groups.get(cat) else {
             continue;
         };
-        let _ = writeln!(out, "### {cat}\n");
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => cat },
+        ));
 
         if cat == "Configuration Types" {
             out.push_str("See [Configuration Reference](configuration.md) for detailed defaults and language-specific representations.\n\n");
         }
 
         for ty in types {
-            let _ = writeln!(out, "#### {}\n", ty.name);
+            out.push_str(&template_env::render(
+                "heading.jinja",
+                minijinja::context! { marker => "####", title => &ty.name },
+            ));
 
             let doc = clean_doc(&ty.doc, Language::Python);
             if !doc.is_empty() {
@@ -613,7 +671,10 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                             raw
                         }
                     };
-                    let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
+                    out.push_str(&template_env::render(
+                        "field_row.jinja",
+                        minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                    ));
                 }
                 out.push('\n');
             }
@@ -648,7 +709,10 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
 fn render_enum_for_shared_doc(en: &EnumDef) -> String {
     let mut out = String::new();
 
-    let _ = writeln!(out, "#### {}\n", en.name);
+    out.push_str(&template_env::render(
+        "heading.jinja",
+        minijinja::context! { marker => "####", title => &en.name },
+    ));
 
     let doc = clean_doc(&en.doc, Language::Rust);
     if !doc.is_empty() {
@@ -690,9 +754,15 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
                 en.serde_rename_all.as_deref(),
                 variant.serde_rename.as_deref(),
             );
-            let _ = writeln!(out, "| `{}` | `{}` | {} |", variant.name, wire, vdoc);
+            out.push_str(&template_env::render(
+                "wire_variant_row.jinja",
+                minijinja::context! { name => &variant.name, wire => wire, doc => vdoc },
+            ));
         } else {
-            let _ = writeln!(out, "| `{}` | {} |", variant.name, vdoc);
+            out.push_str(&template_env::render(
+                "variant_row.jinja",
+                minijinja::context! { name => &variant.name, doc => vdoc },
+            ));
         }
     }
 
@@ -793,7 +863,10 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
     out.push_str("All error types thrown by the library across all languages.\n\n");
 
     for err in &api.errors {
-        let _ = writeln!(out, "### {}\n", err.name);
+        out.push_str(&template_env::render(
+            "heading.jinja",
+            minijinja::context! { marker => "###", title => &err.name },
+        ));
 
         let doc = clean_doc(&err.doc, Language::Python);
         if !doc.is_empty() {
@@ -811,7 +884,10 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
             } else {
                 generate_error_variant_description(&variant.name)
             };
-            let _ = writeln!(out, "| `{}` | {} | {} |", variant.name, tmpl, vdoc);
+            out.push_str(&template_env::render(
+                "error_message_row.jinja",
+                minijinja::context! { name => &variant.name, message => tmpl, doc => vdoc },
+            ));
         }
         out.push('\n');
         out.push_str("---\n\n");

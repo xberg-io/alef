@@ -568,8 +568,11 @@ impl TraitBridgeGenerator for ZigTraitBridgeGenerator {
         ));
         // Emit the signature directly: the configured `unregister_fn` is the
         // complete Zig function name, not just the trait-snake suffix.
-        out.push_str(&format!(
-            "pub fn {unregister_fn}(name: [*c]const u8, out_error: ?*?[*c]u8) i32 {{\n"
+        out.push_str(&crate::template_env::render(
+            "unregister_fn_configured_signature.jinja",
+            minijinja::context! {
+                unregister_fn => unregister_fn,
+            },
         ));
         out.push_str(&crate::template_env::render(
             "unregister_fn_body.jinja",

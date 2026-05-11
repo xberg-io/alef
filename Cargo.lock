@@ -346,6 +346,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "minijinja",
  "regex",
  "toml",
 ]
@@ -420,6 +421,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "minijinja",
  "toml",
 ]
 

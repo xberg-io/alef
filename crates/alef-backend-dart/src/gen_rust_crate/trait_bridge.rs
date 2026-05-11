@@ -408,8 +408,12 @@ fn emit_trait_bridge_method(
         // DartFnFuture never fails: wrap the awaited value in Ok(...).
         if method.is_async {
             if named_return_default {
-                out.push_str(&format!(
-                    "        let _ = {call_expr}.await;\n        Ok(Default::default())\n"
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_default_await.jinja",
+                    minijinja::context! {
+                        call_expr => call_expr.as_str(),
+                        return_expr => "Ok(Default::default())",
+                    },
                 ));
             } else if ret_conv.is_empty() {
                 out.push_str(&crate::template_env::render(
@@ -436,7 +440,12 @@ fn emit_trait_bridge_method(
                 },
             ));
             if named_return_default {
-                out.push_str("        let _ = __result;\n        Ok(Default::default())\n");
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_default_from_result.jinja",
+                    minijinja::context! {
+                        return_expr => "Ok(Default::default())",
+                    },
+                ));
             } else {
                 // error_type present: the Dart callback never fails, so wrap in Ok(...).
                 out.push_str(&crate::template_env::render(
@@ -449,8 +458,12 @@ fn emit_trait_bridge_method(
         }
     } else if method.is_async {
         if named_return_default {
-            out.push_str(&format!(
-                "        let _ = {call_expr}.await;\n        Default::default()\n"
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_default_await.jinja",
+                minijinja::context! {
+                    call_expr => call_expr.as_str(),
+                    return_expr => "Default::default()",
+                },
             ));
         } else if ret_conv.is_empty() {
             out.push_str(&crate::template_env::render(
@@ -477,10 +490,20 @@ fn emit_trait_bridge_method(
             },
         ));
         if named_return_default {
-            out.push_str("        let _ = __result;\n        Default::default()\n");
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_default_from_result.jinja",
+                minijinja::context! {
+                    return_expr => "Default::default()",
+                },
+            ));
         } else {
             // No error_type: return the plain value (no Ok() wrapping).
-            out.push_str(&format!("        __result{ret_conv}\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_plain_block_on_result.jinja",
+                minijinja::context! {
+                    ret_conv => ret_conv.as_str(),
+                },
+            ));
         }
     }
     out.push_str("    }\n");

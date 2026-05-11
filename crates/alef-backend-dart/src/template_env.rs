@@ -363,6 +363,18 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/rust_trait_method_await_result.jinja"),
     ),
     (
+        "rust_trait_method_default_await.jinja",
+        include_str!("../templates/rust_trait_method_default_await.jinja"),
+    ),
+    (
+        "rust_trait_method_default_from_result.jinja",
+        include_str!("../templates/rust_trait_method_default_from_result.jinja"),
+    ),
+    (
+        "rust_trait_method_plain_block_on_result.jinja",
+        include_str!("../templates/rust_trait_method_plain_block_on_result.jinja"),
+    ),
+    (
         "rust_trait_method_block_on.jinja",
         include_str!("../templates/rust_trait_method_block_on.jinja"),
     ),

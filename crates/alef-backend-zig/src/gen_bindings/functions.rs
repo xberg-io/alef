@@ -231,12 +231,17 @@ fn emit_param_conversion(
             if is_optional {
                 // Allocate `_z` only when caller passed a value, then convert to
                 // an opaque handle. When caller passed null, the C handle is null.
-                out.push_str(&format!(
-                    "    const {name}_z: ?[:0]u8 = if ({name}) |v| try std.fmt.allocPrintSentinel(\n"
+                out.push_str(&crate::template_env::render(
+                    "param_optional_string_alloc.jinja",
+                    minijinja::context! { name => name },
                 ));
-                out.push_str("        std.heap.c_allocator, \"{s}\", .{v}, 0) else null;\n");
-                out.push_str(&format!(
-                    "    const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z) else null;\n",
+                out.push_str(&crate::template_env::render(
+                    "param_optional_struct_handle.jinja",
+                    minijinja::context! {
+                        name => name,
+                        prefix => prefix,
+                        snake => &snake,
+                    },
                 ));
             } else {
                 out.push_str(&crate::template_env::render(
@@ -247,8 +252,13 @@ fn emit_param_conversion(
                     "param_string_line2.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str(&format!(
-                    "    const {name}_handle = c.{prefix}_{snake}_from_json({name}_z);\n",
+                out.push_str(&crate::template_env::render(
+                    "param_struct_handle.jinja",
+                    minijinja::context! {
+                        name => name,
+                        prefix => prefix,
+                        snake => &snake,
+                    },
                 ));
             }
             return;
@@ -260,15 +270,15 @@ fn emit_param_conversion(
     // `null` → `null` and a value → an owned sentinel-terminated copy.
     let is_optional_string = p.optional
         || matches!(
-            &p.ty,
-            TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
+                &p.ty,
+                TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
         );
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
-        out.push_str(&format!(
-            "    const {name}_z: ?[:0]u8 = if ({name}) |v| try std.fmt.allocPrintSentinel(\n"
+        out.push_str(&crate::template_env::render(
+            "param_optional_string_alloc.jinja",
+            minijinja::context! { name => name },
         ));
-        out.push_str("        std.heap.c_allocator, \"{s}\", .{v}, 0) else null;\n");
         return;
     }
     match &p.ty {
@@ -329,26 +339,46 @@ fn emit_param_free(p: &ParamDef, prefix: &str, struct_names: &std::collections::
             if is_optional {
                 // Free both the JSON sentinel copy and the opaque handle, but
                 // only if the caller actually supplied a value.
-                out.push_str(&format!("    if ({name}_z) |z| std.heap.c_allocator.free(z);\n"));
-                out.push_str(&format!("    if ({name}_handle) |h| c.{prefix}_{snake}_free(h);\n"));
+                out.push_str(&crate::template_env::render(
+                    "param_optional_free.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push_str(&crate::template_env::render(
+                    "param_struct_handle_free.jinja",
+                    minijinja::context! {
+                        name => name,
+                        prefix => prefix,
+                        snake => &snake,
+                    },
+                ));
             } else {
                 out.push_str(&crate::template_env::render(
                     "param_free.jinja",
                     minijinja::context! { name => name },
                 ));
-                out.push_str(&format!("    if ({name}_handle) |h| c.{prefix}_{snake}_free(h);\n"));
+                out.push_str(&crate::template_env::render(
+                    "param_struct_handle_free.jinja",
+                    minijinja::context! {
+                        name => name,
+                        prefix => prefix,
+                        snake => &snake,
+                    },
+                ));
             }
             return;
         }
     }
     let is_optional_string = p.optional
         || matches!(
-            &p.ty,
-            TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
+                &p.ty,
+                TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
         );
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
-        out.push_str(&format!("    if ({name}_z) |z| std.heap.c_allocator.free(z);\n"));
+        out.push_str(&crate::template_env::render(
+            "param_optional_free.jinja",
+            minijinja::context! { name => name },
+        ));
         return;
     }
     match &p.ty {
@@ -441,18 +471,14 @@ fn unwrap_return_expr(
             // JSON string into a Zig-owned buffer, then free both the JSON string
             // and the opaque handle. The wrapper returns `[]u8` (JSON).
             let snake = snake_case(name);
-            let mut s = String::new();
-            s.push_str("blk: {\n");
-            s.push_str(&format!(
-                "        const _json_ptr = c.{prefix}_{snake}_to_json({raw}.?);\n"
-            ));
-            s.push_str("        defer _free_string(_json_ptr);\n");
-            s.push_str(&format!("        c.{prefix}_{snake}_free({raw}.?);\n"));
-            s.push_str("        const slice = std.mem.sliceTo(_json_ptr, 0);\n");
-            s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
-            s.push_str("        break :blk owned;\n");
-            s.push_str("    }");
-            s
+            crate::template_env::render(
+                "return_named_json_block.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                    snake => &snake,
+                    raw => raw,
+                },
+            )
         }
         _ => raw.to_string(),
     }

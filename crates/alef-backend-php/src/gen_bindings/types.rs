@@ -412,35 +412,22 @@ fn gen_struct_methods_impl(
                                 // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
                                 let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                                 if f.optional {
-                                    let_bindings.push_str(&format!(
-                                        "let {}_core: Option<Vec<{}::{}>> = if let Some(ht) = {} {{\n        \
-                                         let mut result = Vec::new();\n        \
-                                         for (_, item) in ht.iter() {{\n            \
-                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n                \
-                                         result.push(parsed.clone().into());\n            \
-                                         }} else {{\n                \
-                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n            \
-                                         }}\n        \
-                                         }}\n        \
-                                         Some(result)\n    \
-                                         }} else {{\n        \
-                                         None\n    \
-                                         }};\n    ",
-                                        php_param_name, core_import, name, php_param_name, name, name
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named_optional.jinja",
+                                        minijinja::context! {
+                                            pname => php_param_name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
                                     ));
                                 } else {
-                                    let_bindings.push_str(&format!(
-                                        "let mut {}_core_result: Vec<{}::{}> = Vec::new();\n    \
-                                         for (_, item) in {}.iter() {{\n        \
-                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n            \
-                                         {}_core_result.push(parsed.clone().into());\n        \
-                                         }} else {{\n            \
-                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n        \
-                                         }}\n    \
-                                         }}\n    \
-                                         let {}_core: Vec<{}::{}> = {}_core_result;\n    ",
-                                        php_param_name, core_import, name, php_param_name, name,
-                                        php_param_name, name, php_param_name, core_import, name, php_param_name
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named.jinja",
+                                        minijinja::context! {
+                                            pname => php_param_name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
                                     ));
                                 }
                             }
@@ -539,35 +526,22 @@ fn gen_struct_methods_impl(
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
                                 // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
                                 if f.optional {
-                                    let_bindings.push_str(&format!(
-                                        "let {}_core: Option<Vec<{}::{}>> = if let Some(ht) = {} {{\n        \
-                                         let mut result = Vec::new();\n        \
-                                         for (_, item) in ht.iter() {{\n            \
-                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n                \
-                                         result.push(parsed.clone().into());\n            \
-                                         }} else {{\n                \
-                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n            \
-                                         }}\n        \
-                                         }}\n        \
-                                         Some(result)\n    \
-                                         }} else {{\n        \
-                                         None\n    \
-                                         }};\n    ",
-                                        f.name, core_import, name, f.name, name, name
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named_optional.jinja",
+                                        minijinja::context! {
+                                            pname => f.name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
                                     ));
                                 } else {
-                                    let_bindings.push_str(&format!(
-                                        "let mut {}_core_result: Vec<{}::{}> = Vec::new();\n    \
-                                         for (_, item) in {}.iter() {{\n        \
-                                         if let Some(parsed) = <&{} as ext_php_rs::convert::FromZval>::from_zval(item) {{\n            \
-                                         {}_core_result.push(parsed.clone().into());\n        \
-                                         }} else {{\n            \
-                                         return Err(ext_php_rs::exception::PhpException::default(\"Failed to convert array element to {}\".to_string()));\n        \
-                                         }}\n    \
-                                         }}\n    \
-                                         let {}_core: Vec<{}::{}> = {}_core_result;\n    ",
-                                        f.name, core_import, name, f.name, name,
-                                        f.name, name, f.name, core_import, name, f.name
+                                    let_bindings.push_str(&crate::template_env::render(
+                                        "php_let_binding_vec_named.jinja",
+                                        minijinja::context! {
+                                            pname => f.name.as_str(),
+                                            core_import => core_import,
+                                            name => name.as_str(),
+                                        },
                                     ));
                                 }
                             }

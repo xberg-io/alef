@@ -1,0 +1,8 @@
+blk: {
+        const _json_ptr = c.{{ prefix }}_{{ snake }}_to_json({{ raw }}.?);
+        defer _free_string(_json_ptr);
+        c.{{ prefix }}_{{ snake }}_free({{ raw }}.?);
+        const slice = std.mem.sliceTo(_json_ptr, 0);
+        const owned = try std.heap.c_allocator.dupe(u8, slice);
+        break :blk owned;
+    }

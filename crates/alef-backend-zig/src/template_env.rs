@@ -75,7 +75,27 @@ static TEMPLATES: &[(&str, &str)] = &[
         "param_string_line2.jinja",
         include_str!("../templates/param_string_line2.jinja"),
     ),
+    (
+        "param_optional_string_alloc.jinja",
+        include_str!("../templates/param_optional_string_alloc.jinja"),
+    ),
+    (
+        "param_struct_handle.jinja",
+        include_str!("../templates/param_struct_handle.jinja"),
+    ),
+    (
+        "param_optional_struct_handle.jinja",
+        include_str!("../templates/param_optional_struct_handle.jinja"),
+    ),
     ("param_free.jinja", include_str!("../templates/param_free.jinja")),
+    (
+        "param_optional_free.jinja",
+        include_str!("../templates/param_optional_free.jinja"),
+    ),
+    (
+        "param_struct_handle_free.jinja",
+        include_str!("../templates/param_struct_handle_free.jinja"),
+    ),
     (
         "return_unwrap_slice.jinja",
         include_str!("../templates/return_unwrap_slice.jinja"),
@@ -83,6 +103,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "return_unwrap_free.jinja",
         include_str!("../templates/return_unwrap_free.jinja"),
+    ),
+    (
+        "return_named_json_block.jinja",
+        include_str!("../templates/return_named_json_block.jinja"),
     ),
     ("c_import.jinja", include_str!("../templates/c_import.jinja")),
     (
@@ -220,6 +244,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "unregister_fn_signature.jinja",
         include_str!("../templates/unregister_fn_signature.jinja"),
+    ),
+    (
+        "unregister_fn_configured_signature.jinja",
+        include_str!("../templates/unregister_fn_configured_signature.jinja"),
     ),
     (
         "unregister_fn_body.jinja",

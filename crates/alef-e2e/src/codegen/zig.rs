@@ -338,7 +338,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let _ = writeln!(out, "    var url_buf: [512]u8 = undefined;");
         let _ = writeln!(
             out,
-            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
+            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{std.process.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
         );
 
         // Headers
@@ -1039,7 +1039,7 @@ fn build_args_and_setup(
         if arg.arg_type == "mock_url" {
             let name = arg.name.clone();
             setup_lines.push(format!(
-                "const {name} = try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
+                "const {name} = try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{std.process.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
             ));
             setup_lines.push(format!("defer allocator.free({name});"));
             parts.push(name);

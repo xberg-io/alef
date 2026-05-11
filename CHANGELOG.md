@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- refactor(alef-backend-zig,alef-backend-dart,alef-backend-php): move remaining generated-code emission blocks for Zig parameter/return handling, Dart trait bridge defaults, and PHP vector binding conversion into Jinja templates.
+- refactor(alef-scaffold,alef-docs,alef-readme): render generated pre-commit YAML, scaffold Cargo env rows, API Markdown blocks, and README performance rows through Jinja templates.
+
+### Fixed
+
+- fix(alef-e2e/kotlin): generate Kotlin-native collection access and nullable assertion expressions for optional fields, arrays, maps, and JNA library path setup.
+
+- fix(alef-e2e/zig): replace `std.posix.getenv` with `std.process.getenv` in generated test preambles. `std.posix.getenv` was removed in Zig 0.16.0; `std.process.getenv` is the correct API and works across all supported Zig versions.
+
+- fix(alef-e2e/gleam): `build_args_and_setup` now handles `handle` and `mock_url` argument types. `handle` args emit `let assert Ok(<name>) = module.create_<name>(option.None)` setup and `option` is added to imports. `mock_url` args emit an `envoy.get("MOCK_SERVER_URL")` URL construction and `envoy` is imported via `gleam_envoy`. Previously both fell through to the catch-all, producing a single-argument JSON call instead of the correct multi-argument form.
+
+- fix(alef-e2e): `field_access.rs` now emits `list.length` for `PathSegment::Length` in Gleam (was missing), and handles nested map/array access chains correctly across all e2e codegen backends.
+
+- fix(alef-backend-swift): Duration-typed struct fields now bridge correctly through swift-bridge. Constructors emit `std::time::Duration::from_millis(<param>)` (or `.map(std::time::Duration::from_millis)` for optional), and getters emit `self.0.<field>.as_millis() as u64` (or `.map(|d| d.as_millis() as u64)` for optional). Previously both fell through to the generic field assign template, causing `E0308 expected Duration, found u64` in every swift binding crate that has timeout fields.
+
 ## [0.15.33] - 2026-05-11
 
 ### Changed
