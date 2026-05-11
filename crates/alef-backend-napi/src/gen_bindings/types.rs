@@ -18,17 +18,11 @@ pub(super) fn gen_struct(
     has_serde: bool,
     opaque_types: &ahash::AHashSet<String>,
 ) -> String {
-    // Detect Buffer fields — `napi::bindgen_prelude::Buffer` does NOT impl Clone,
-    // Serialize, or Deserialize. When present we must skip the Clone derive
-    // (and emit a manual impl) and tag the fields with #[serde(skip)] so the
-    // serde derives can still apply to the rest of the struct.
-    // Only consider non-cfg-gated fields: cfg-gated fields are stripped from the
-    // binding struct and must not influence derives or manual Clone emission.
-    let has_bytes_field = typ.fields.iter().filter(|f| f.cfg.is_none()).any(|f| match &f.ty {
-        TypeRef::Bytes => true,
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Bytes),
-        _ => false,
-    });
+    // Bytes fields in struct field position are now mapped to Vec<u8> (not Buffer) by
+    // map_bytes_field_type, so they implement Clone, Serialize, and Deserialize.
+    // The has_bytes_field flag previously indicated that we needed a manual Clone impl
+    // because Buffer is not Clone — that's no longer necessary.
+    let has_bytes_field = false;
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
@@ -62,6 +56,30 @@ pub(super) fn gen_struct(
         //
         // Returns (base_type, already_optional) where already_optional means the base_type
         // already includes the Option<> wrapper (either from TypeRef::Optional or opaque handling).
+        //
+        // IMPORTANT: For struct fields, `Bytes` must be mapped to `Vec<u8>` rather than
+        // `napi::bindgen_prelude::Buffer`. `Buffer` does not implement Clone, Serialize, or
+        // Deserialize, which causes derive failures on the containing struct. `Buffer` is only
+        // appropriate as a function parameter/return type where NAPI handles JS interop directly.
+        // Any container type (Map, Vec) whose value type is Bytes also uses `Vec<u8>` for the
+        // same reason.
+        let map_bytes_field_type = |ty: &TypeRef| -> String {
+            // Recursively replace Bytes with Vec<u8> in type positions that end up in struct fields.
+            fn replace_bytes(ty: &TypeRef, mapper: &NapiMapper) -> String {
+                match ty {
+                    TypeRef::Bytes => "Vec<u8>".to_string(),
+                    TypeRef::Optional(inner) => format!("Option<{}>", replace_bytes(inner, mapper)),
+                    TypeRef::Map(k, v) => format!(
+                        "HashMap<{}, {}>",
+                        replace_bytes(k, mapper),
+                        replace_bytes(v, mapper)
+                    ),
+                    TypeRef::Vec(inner) => format!("Vec<{}>", replace_bytes(inner, mapper)),
+                    other => mapper.map_type(other),
+                }
+            }
+            replace_bytes(ty, mapper)
+        };
         let (base_type, already_optional): (String, bool) = match &field.ty {
             TypeRef::Named(name) if opaque_types.contains(name) => {
                 ("napi::bindgen_prelude::Object<'static>".to_string(), false)
@@ -72,13 +90,13 @@ pub(super) fn gen_struct(
                         // Optional<OpaqueClass> → Option<Object<'static>>
                         ("Option<napi::bindgen_prelude::Object<'static>>".to_string(), true)
                     } else {
-                        (mapper.map_type(&field.ty), true)
+                        (map_bytes_field_type(&field.ty), true)
                     }
                 } else {
-                    (mapper.map_type(&field.ty), true)
+                    (map_bytes_field_type(&field.ty), true)
                 }
             }
-            _ => (mapper.map_type(&field.ty), false),
+            _ => (map_bytes_field_type(&field.ty), false),
         };
         // For types with Default, make all fields optional so JS callers
         // can pass partial objects (missing fields get defaults).
@@ -95,14 +113,6 @@ pub(super) fn gen_struct(
         } else {
             vec![]
         };
-        // Bytes fields use napi `Buffer`, which does NOT impl Serialize/Deserialize.
-        // Skip them in serde so the rest of the struct can still derive serde traits.
-        // `Buffer::default()` exists, so #[serde(skip)] is safe for both directions.
-        let is_bytes = matches!(&field.ty, TypeRef::Bytes)
-            || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
-        if is_bytes && has_serde {
-            attrs.push("serde(skip)".to_string());
-        }
         // Opaque NAPI types (e.g. JsVisitorHandle) are stored as Object<'static>, which also
         // does NOT impl Serialize/Deserialize. Skip them too so serde derives still compile.
         let is_opaque_field = match &field.ty {
