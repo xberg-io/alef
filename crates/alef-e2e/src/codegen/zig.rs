@@ -634,7 +634,7 @@ fn render_test_fn(
             let _ = writeln!(out, "    // Perform success assertions if any");
             for assertion in &fixture.assertions {
                 if assertion.assertion_type != "error" {
-                    render_json_assertion(out, assertion, result_var);
+                    render_json_assertion(out, assertion, result_var, field_resolver);
                 }
             }
         } else if result_is_json_struct {
@@ -695,7 +695,7 @@ fn render_test_fn(
                 let _ = writeln!(out, "    defer _parsed.deinit();");
                 let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
                 for assertion in &fixture.assertions {
-                    render_json_assertion(out, assertion, result_var);
+                    render_json_assertion(out, assertion, result_var, field_resolver);
                 }
             }
         } else if any_emits_code {
@@ -777,8 +777,20 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
 ///
 /// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
 /// Field paths are traversed via `.object.get("key").?` chains.
-fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
-    let field_path = assertion.field.as_deref().unwrap_or("").trim();
+fn render_json_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+) {
+    let raw_field_path = assertion.field.as_deref().unwrap_or("").trim();
+    // Resolve aliases (e.g. "content.detected_charset" → "detected_charset").
+    let field_path = if raw_field_path.is_empty() {
+        raw_field_path.to_string()
+    } else {
+        field_resolver.resolve(raw_field_path).to_string()
+    };
+    let field_path = field_path.trim();
 
     // Build the JSON traversal expression up to the leaf.
     let field_expr = if field_path.is_empty() {

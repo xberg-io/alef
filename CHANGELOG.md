@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(alef-backend-zig): `error_doc_block.jinja` and `trait_method_doc_lines.jinja` now emit the trailing newline after the final doc-comment line. Under `trim_blocks = true`, `{%- endfor %}` was stripping the newline before the tag, merging the doc comment and the following `pub const` declaration onto one line — a Zig compile error.
 
+- fix(alef-e2e/zig): `render_json_assertion` now resolves fixture field-path aliases through `FieldResolver` before building the JSON traversal chain. Previously, `content.detected_charset` was traversed as `result.object.get("content").?.object.get("detected_charset")` instead of the correct `result.object.get("detected_charset")`, causing runtime panics on fields that only exist at the top level.
+
 ## [0.15.35] - 2026-05-11
 
 ### Added
