@@ -243,7 +243,14 @@ pub(super) fn gen_capsule_function(
                     p.name.clone()
                 }
             } else {
-                p.name.clone()
+                // For String/Char params marked as references (is_ref=true), the core function
+                // expects `&str` — borrow the owned String rather than moving it.
+                let needs_borrow = p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char);
+                if needs_borrow {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
             }
         })
         .collect();
@@ -312,27 +319,11 @@ pub(super) fn gen_capsule_function(
                     }
                 });
 
-                if has_error {
-                    let err_converter = error_converter_name(&func.error_type, error_converters);
-                    out.push_str(&crate::template_env::render(
-                        "pyo3_capsule_call_result_err.jinja",
-                        minijinja::context! {
-                            target => "_result",
-                            core_fn_path => core_fn_path.as_str(),
-                            args => core_args.join(", "),
-                            err_converter => err_converter,
-                        },
-                    ));
-                } else {
-                    out.push_str(&crate::template_env::render(
-                        "pyo3_capsule_call_result.jinja",
-                        minijinja::context! {
-                            target => "_result",
-                            core_fn_path => core_fn_path.as_str(),
-                            args => core_args.join(", "),
-                        },
-                    ));
-                }
+                // For ConstructFrom we deliberately skip calling the core Rust function —
+                // its return type (e.g. tree_sitter::Parser) cannot be capsule-wrapped,
+                // which is the whole reason ConstructFrom exists.  Calling the core fn and
+                // then discarding the result would also double-consume owned String arguments.
+                // The Python object is constructed entirely from the dependency capsule below.
 
                 // We need to produce the dependent capsule type to pass to the Python constructor.
                 // The core function returned `_result`, but for ConstructFrom the return is the
