@@ -298,10 +298,20 @@ pub(super) fn gen_capsule_function(
                     "pyo3_capsule_into_raw.jinja",
                     minijinja::Value::default(),
                 ));
+                // Split capsule_name_str (e.g. "tree_sitter.Language") into module path + class.
+                // When present, the template additionally constructs the target Python type from
+                // the capsule via `tree_sitter.Language(capsule)`. When the value is a bare class
+                // name with no dot, fall back to returning the raw capsule.
+                let (module_path, class_name) = match capsule_name_str.rsplit_once('.') {
+                    Some((m, c)) => (m, c),
+                    None => ("", capsule_name_str.as_str()),
+                };
                 out.push_str(&crate::template_env::render(
                     "pyo3_capsule_ptr_from_raw.jinja",
                     minijinja::context! {
                         cstr => capsule_cstr.as_str(),
+                        module_path => module_path,
+                        class_name => class_name,
                     },
                 ));
             }

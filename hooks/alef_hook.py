@@ -54,14 +54,55 @@ def _hooks_dir() -> Path:
     return Path(__file__).parent
 
 
+def _parse_quoted(value: str) -> str:
+    return value.strip().strip('"').strip("'")
+
+
+def _read_cargo_version(cargo_toml: Path) -> str | None:
+    """Read `[workspace.package] version` (or `[package] version`) from a Cargo.toml."""
+    in_workspace_package = False
+    in_package = False
+    for line in cargo_toml.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_workspace_package = stripped == "[workspace.package]"
+            in_package = stripped == "[package]"
+            continue
+        if (in_workspace_package or in_package) and stripped.startswith("version"):
+            _, _, val = stripped.partition("=")
+            return _parse_quoted(val)
+    return None
+
+
 def _version() -> str:
     alef_toml = _hooks_dir().parent / "alef.toml"
-    for line in alef_toml.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("version"):
+    # alef.toml's [crate] table may declare `version_from = "Cargo.toml"`, in which
+    # case the authoritative version is the workspace Cargo.toml — the top-level
+    # `version = "..."` field in alef.toml is a stale fallback that gets bumped lazily.
+    version_from: str | None = None
+    inline_version: str | None = None
+    in_crate = False
+    for raw in alef_toml.read_text().splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("["):
+            in_crate = stripped == "[crate]"
+            continue
+        if in_crate and stripped.startswith("version_from"):
             _, _, val = stripped.partition("=")
-            return val.strip().strip('"').strip("'")
-    msg = "Could not find version in alef.toml"
+            version_from = _parse_quoted(val)
+        elif not in_crate and stripped.startswith("version") and inline_version is None:
+            _, _, val = stripped.partition("=")
+            inline_version = _parse_quoted(val)
+    if version_from:
+        cargo_toml = alef_toml.parent / version_from
+        if cargo_toml.is_file():
+            resolved = _read_cargo_version(cargo_toml)
+            if resolved:
+                return resolved
+        # Fall through to the inline version if the referenced file is missing.
+    if inline_version:
+        return inline_version
+    msg = "Could not resolve version (no [crate].version_from, no top-level version)"
     raise SystemExit(msg)
 
 

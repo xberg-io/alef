@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.38] - 2026-05-11
+
+### Fixed
+
+- fix(hooks): `alef_hook.py` now honours `[crate].version_from = "Cargo.toml"` in `alef.toml` and resolves the version from the referenced Cargo.toml's `[workspace.package]` (or `[package]`) `version` field. Previously the hook always read the top-level `version = "..."` line in alef.toml, which is a stale lazily-bumped fallback — downstream consumers tried to download `alef-<host>.tar.gz` for that stale version and 404'd. Falls back to the inline `version` line if the referenced Cargo.toml is missing.
+
 ## [0.15.37] - 2026-05-11
 
 ### Fixed

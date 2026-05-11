@@ -20,6 +20,7 @@ pub(super) fn gen_api_py(
     package_name: &str,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     dto: &alef_core::config::DtoConfig,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
 ) -> String {
     use alef_core::config::PythonDtoStyle;
     use alef_core::ir::TypeRef;
@@ -242,6 +243,11 @@ pub(super) fn gen_api_py(
     let mut options_imports: Vec<&str> = Vec::new();
     let mut native_imports: Vec<&str> = Vec::new();
     for name in &all_type_imports {
+        // Capsule types are not registered as #[pyclass] in the native module; skip them
+        // here so api.py doesn't try `from ._native import <CapsuleType>` and crash at import.
+        if capsule_types.contains_key(name) {
+            continue;
+        }
         let is_options = options_type_names.contains(name) || options_enum_names.contains(name);
         let is_native = !is_options
             && (opaque_names.contains(name)
