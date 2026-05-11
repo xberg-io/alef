@@ -1,0 +1,1 @@
+{{ value_expr }}.map(|v| std::time::Duration::from_millis(v{{ cast }})).unwrap_or_else(|| {{ core_type }}::default().{{ field_name }}){#- -#}
