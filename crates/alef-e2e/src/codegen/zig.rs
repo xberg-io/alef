@@ -922,8 +922,9 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "mock_url" {
             let name = arg.name.clone();
+            let id_upper = fixture_id.to_uppercase();
             setup_lines.push(format!(
-                "const {name} = try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
+                "const {name} = if (std.c.getenv(\"MOCK_SERVER_{id_upper}\")) |_pf| try std.fmt.allocPrint(allocator, \"{{s}}\", .{{std.mem.span(_pf)}}) else try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
             ));
             setup_lines.push(format!("defer allocator.free({name});"));
             parts.push(name);
