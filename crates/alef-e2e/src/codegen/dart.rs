@@ -79,6 +79,8 @@ impl E2eCodegen for DartE2eCodegen {
         let test_base = output_base.join("test");
 
         // One test file per fixture group.
+        let bridge_class = config.dart_bridge_class_name();
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -91,7 +93,7 @@ impl E2eCodegen for DartE2eCodegen {
             }
 
             let filename = format!("{}_test.dart", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, e2e_config, lang, &pkg_name);
+            let content = render_test_file(&group.category, &active, e2e_config, lang, &pkg_name, &bridge_class);
             files.push(GeneratedFile {
                 path: test_base.join(filename),
                 content,
@@ -153,6 +155,7 @@ fn render_test_file(
     e2e_config: &E2eConfig,
     lang: &str,
     pkg_name: &str,
+    bridge_class: &str,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -182,6 +185,16 @@ fn render_test_file(
             .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
     });
 
+    // Detect whether any non-HTTP fixture uses a handle arg — if so we need dart:convert
+    // to call jsonDecode when building the engine config from a JSON string.
+    let has_handle_args = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        call_config.args.iter().any(|a| a.arg_type == "handle")
+    });
+
     let _ = writeln!(out, "import 'package:test/test.dart';");
     let _ = writeln!(out, "import 'dart:io';");
     if has_batch_byte_items {
@@ -196,6 +209,9 @@ fn render_test_file(
     );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
+    }
+    // dart:convert provides jsonDecode for handle-arg engine construction and HTTP response parsing.
+    if has_http_fixtures || has_handle_args {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);
@@ -274,14 +290,20 @@ fn render_test_file(
     }
 
     for fixture in fixtures {
-        render_test_case(&mut out, fixture, e2e_config, lang);
+        render_test_case(&mut out, fixture, e2e_config, lang, bridge_class);
     }
 
     let _ = writeln!(out, "}}");
     out
 }
 
-fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str) {
+fn render_test_case(
+    out: &mut String,
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    lang: &str,
+    bridge_class: &str,
+) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -314,9 +336,12 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .join("");
     let result_var = &call_config.result_var;
     let description = escape_dart(&fixture.description);
+    let fixture_id = &fixture.id;
     // `is_async` retained for future use (e.g. non-FRB backends); unused with FRB since
     // all wrappers return Future<T>.
     let _is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     // Build argument list from fixture.input and call_config.args.
     // Use `resolve_field` (respects the `field` path like "input.data") rather than
@@ -349,8 +374,64 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         };
     }
 
+    // setup_lines holds per-test statements that must precede the main call:
+    // engine construction (handle args) and URL building (mock_url args).
+    let mut setup_lines: Vec<String> = Vec::new();
     let mut args = Vec::new();
+
     for arg_def in &call_config.args {
+        match arg_def.arg_type.as_str() {
+            "mock_url" => {
+                let name = arg_def.name.clone();
+                if fixture.has_host_root_route() {
+                    let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                    setup_lines.push(format!(
+                        r#"final {name} = Platform.environment["{env_key}"] ?? (Platform.environment["MOCK_SERVER_URL"]! + "/fixtures/{fixture_id}");"#
+                    ));
+                } else {
+                    setup_lines.push(format!(
+                        r#"final {name} = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                    ));
+                }
+                args.push(name);
+                continue;
+            }
+            "handle" => {
+                let name = arg_def.name.clone();
+                let field = arg_def.field.strip_prefix("input.").unwrap_or(&arg_def.field);
+                let config_value = fixture.input.get(field).cloned().unwrap_or(serde_json::Value::Null);
+                // Derive the create-function name: "engine" → "createEngine".
+                let create_fn = {
+                    let mut chars = name.chars();
+                    let pascal = match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    };
+                    format!("create{pascal}")
+                };
+                if config_value.is_null()
+                    || config_value.is_object()
+                        && config_value.as_object().is_some_and(|o| o.is_empty())
+                {
+                    setup_lines.push(format!(
+                        "final {name} = await {bridge_class}.{create_fn}(null);"
+                    ));
+                } else {
+                    let json_str = serde_json::to_string(&config_value).unwrap_or_default();
+                    let config_var = format!("{name}Config");
+                    setup_lines.push(format!(
+                        "final {config_var} = CrawlConfig.fromJson(jsonDecode(r'{json_str}') as Map<String, dynamic>);"
+                    ));
+                    setup_lines.push(format!(
+                        "final {name} = await {bridge_class}.{create_fn}({config_var});"
+                    ));
+                }
+                args.push(name);
+                continue;
+            }
+            _ => {}
+        }
+
         let arg_value = resolve_field(&fixture.input, &arg_def.field);
         match arg_def.arg_type.as_str() {
             "bytes" | "file_path" => {
@@ -405,30 +486,37 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         }
     }
 
-    // All KreuzbergBridge methods return Future<T> because FRB v2 wraps every Rust
+    // All bridge methods return Future<T> because FRB v2 wraps every Rust
     // function as async in Dart — even "sync" Rust functions. Always emit an async
     // test body and await the call so the test framework waits for the future.
     let _ = writeln!(out, "  test('{description}', () async {{");
 
-    // Emit the receiver class name and arguments
     let args_str = args.join(", ");
     let receiver_class = call_overrides
         .and_then(|o| o.class.as_ref())
         .cloned()
-        .unwrap_or_else(|| "KreuzbergBridge".to_string());
+        .unwrap_or_else(|| bridge_class.to_string());
 
-    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-
-    if expects_error {
+    if expects_error && !setup_lines.is_empty() {
+        // Wrap setup + call in an async lambda so any exception at any step is caught.
         // flutter_rust_bridge 2.x decodes Rust errors as raw String values (not Exception
-        // subtypes), so throwsException will not match. Use throwsA(anything) which matches
-        // any thrown object regardless of type. Note: `anything` is a const Matcher value,
-        // not a function — do not write `anything()` (Dart 3 / matcher-0.12.x compile error).
+        // subtypes), so throwsException will not match. Use throwsA(anything) instead.
+        let _ = writeln!(out, "    await expectLater(() async {{");
+        for line in &setup_lines {
+            let _ = writeln!(out, "      {line}");
+        }
+        let _ = writeln!(out, "      return {receiver_class}.{function_name}({args_str});");
+        let _ = writeln!(out, "    }}(), throwsA(anything));");
+    } else if expects_error {
+        // No setup lines, direct call — same throwsA(anything) rationale as above.
         let _ = writeln!(
             out,
             "    await expectLater({receiver_class}.{function_name}({args_str}), throwsA(anything));"
         );
     } else {
+        for line in &setup_lines {
+            let _ = writeln!(out, "    {line}");
+        }
         let _ = writeln!(
             out,
             "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
