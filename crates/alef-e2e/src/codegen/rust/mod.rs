@@ -59,7 +59,7 @@ impl E2eCodegen for RustE2eCodegen {
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| !is_skipped(f, "rust") && f.mock_response.is_some());
+            .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
 
         // Check if any fixture uses the http integration test pattern (spikard http fixtures).
         let needs_http_tests = groups

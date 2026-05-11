@@ -149,7 +149,7 @@ pub fn render_test_file(
     }
 
     // Import mock_server and common modules when any fixture in this file uses mock_response.
-    let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.mock_response.is_some());
+    let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.mock_response.is_some() || f.needs_mock_server());
     if file_needs_mock {
         let _ = writeln!(out, "mod common;");
         let _ = writeln!(out, "mod mock_server;");
