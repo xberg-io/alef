@@ -76,10 +76,26 @@ impl E2eCodegen for KotlinE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
         let kotlin_pkg_id = config.kotlin_package();
 
+        // Detect whether any fixture needs the mock-server (HTTP fixtures or
+        // fixtures with a mock_response/mock_responses). When present, emit a
+        // JUnit Platform LauncherSessionListener that spawns the mock-server
+        // before any test runs and a META-INF/services SPI manifest registering
+        // it. Mirrors the Java e2e pattern exactly.
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
+
         // Generate build.gradle.kts.
         files.push(GeneratedFile {
             path: output_base.join("build.gradle.kts"),
-            content: render_build_gradle(&pkg_name, &kotlin_pkg_id, &kotlin_version, e2e_config.dep_mode),
+            content: render_build_gradle(
+                &pkg_name,
+                &kotlin_pkg_id,
+                &kotlin_version,
+                e2e_config.dep_mode,
+                needs_mock_server,
+            ),
             generated_header: false,
         });
 
@@ -91,6 +107,25 @@ impl E2eCodegen for KotlinE2eCodegen {
             test_base = test_base.join(segment);
         }
         let test_base = test_base.join("e2e");
+
+        if needs_mock_server {
+            files.push(GeneratedFile {
+                path: test_base.join("MockServerListener.kt"),
+                content: render_mock_server_listener_kt(&kotlin_pkg_id),
+                generated_header: true,
+            });
+            files.push(GeneratedFile {
+                path: output_base
+                    .join("src")
+                    .join("test")
+                    .join("resources")
+                    .join("META-INF")
+                    .join("services")
+                    .join("org.junit.platform.launcher.LauncherSessionListener"),
+                content: format!("{kotlin_pkg_id}.e2e.MockServerListener\n"),
+                generated_header: false,
+            });
+        }
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
@@ -152,6 +187,7 @@ fn render_build_gradle(
     kotlin_pkg_id: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
+    needs_mock_server: bool,
 ) -> String {
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
@@ -172,6 +208,13 @@ fn render_build_gradle(
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
     let jvm_target = toolchain::JVM_TARGET;
+    let launcher_dep = if needs_mock_server {
+        format!(
+            r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -201,6 +244,7 @@ dependencies {{
 {dep_block}
     testImplementation("org.junit.jupiter:junit-jupiter-api:{junit}")
     testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
+{launcher_dep}
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
     testImplementation(kotlin("test"))
@@ -211,6 +255,159 @@ tasks.test {{
     val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
     systemProperty("java.library.path", libPath)
     systemProperty("jna.library.path", libPath)
+}}
+"#
+    )
+}
+
+/// Render the JUnit Platform `LauncherSessionListener` that spawns the
+/// mock-server binary once per launcher session and tears it down on close.
+///
+/// Mirrors the Java `MockServerListener.java` — same logic, idiomatic Kotlin.
+/// The URL is exposed via `System.setProperty("mockServerUrl", url)`;
+/// generated test bodies read `System.getenv("MOCK_SERVER_URL")` (which the
+/// listener also honours to skip spawning when the caller already has the
+/// server running).
+fn render_mock_server_listener_kt(kotlin_pkg_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    format!(
+        r#"{header}package {kotlin_pkg_id}.e2e
+
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.regex.Pattern
+import org.junit.platform.launcher.LauncherSession
+import org.junit.platform.launcher.LauncherSessionListener
+
+/**
+ * Spawns the mock-server binary once per JUnit launcher session and
+ * exposes its URL as the `mockServerUrl` system property. Generated
+ * test bodies read the property (with `MOCK_SERVER_URL` env-var
+ * fallback) so tests can run via plain `./gradlew test` without any
+ * external mock-server orchestration. Mirrors the Ruby spec_helper /
+ * Python conftest spawn pattern. Honors a pre-set MOCK_SERVER_URL by
+ * skipping the spawn entirely.
+ */
+class MockServerListener : LauncherSessionListener {{
+    private var mockServer: Process? = null
+
+    override fun launcherSessionOpened(session: LauncherSession) {{
+        val preset = System.getenv("MOCK_SERVER_URL")
+        if (!preset.isNullOrEmpty()) {{
+            System.setProperty("mockServerUrl", preset)
+            return
+        }}
+        val repoRoot = locateRepoRoot()
+            ?: error("MockServerListener: could not locate repo root (looked for fixtures/ in ancestors of ${{System.getProperty("user.dir")}})")
+        val binName = if (System.getProperty("os.name", "").lowercase().contains("win")) "mock-server.exe" else "mock-server"
+        val bin = repoRoot.resolve("e2e").resolve("rust").resolve("target").resolve("release").resolve(binName).toFile()
+        val fixturesDir = repoRoot.resolve("fixtures").toFile()
+        check(bin.exists()) {{
+            "MockServerListener: mock-server binary not found at $bin — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release"
+        }}
+        val pb = ProcessBuilder(bin.absolutePath, fixturesDir.absolutePath)
+            .redirectErrorStream(false)
+        val server = try {{
+            pb.start()
+        }} catch (e: IOException) {{
+            throw IllegalStateException("MockServerListener: failed to start mock-server", e)
+        }}
+        mockServer = server
+        // Read until we see MOCK_SERVER_URL= and optionally MOCK_SERVERS=.
+        // Cap the loop so a misbehaving mock-server cannot block indefinitely.
+        val stdout = BufferedReader(InputStreamReader(server.inputStream, StandardCharsets.UTF_8))
+        var url: String? = null
+        try {{
+            for (i in 0 until 16) {{
+                val line = stdout.readLine() ?: break
+                when {{
+                    line.startsWith("MOCK_SERVER_URL=") -> {{
+                        url = line.removePrefix("MOCK_SERVER_URL=").trim()
+                    }}
+                    line.startsWith("MOCK_SERVERS=") -> {{
+                        val jsonVal = line.removePrefix("MOCK_SERVERS=").trim()
+                        System.setProperty("mockServers", jsonVal)
+                        // Parse JSON map of fixture_id -> url and expose as system properties.
+                        val p = Pattern.compile(""""([^"]+)":"([^"]+)"""")
+                        val matcher = p.matcher(jsonVal)
+                        while (matcher.find()) {{
+                            System.setProperty("mockServer.${{matcher.group(1)}}", matcher.group(2))
+                        }}
+                        break
+                    }}
+                    url != null -> break
+                }}
+            }}
+        }} catch (e: IOException) {{
+            server.destroyForcibly()
+            throw IllegalStateException("MockServerListener: failed to read mock-server stdout", e)
+        }}
+        if (url.isNullOrEmpty()) {{
+            server.destroyForcibly()
+            error("MockServerListener: mock-server did not emit MOCK_SERVER_URL")
+        }}
+        // TCP-readiness probe: ensure axum::serve is accepting before tests start.
+        // The mock-server binds the TcpListener synchronously then prints the URL
+        // before tokio::spawn(axum::serve(...)) is polled, so under Gradle parallel
+        // mode tests can race startup. Poll-connect (max 5s, 50ms backoff) until success.
+        val healthUri = java.net.URI.create(url)
+        val host = healthUri.host
+        val port = healthUri.port
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (System.nanoTime() < deadline) {{
+            try {{
+                java.net.Socket().use {{ s ->
+                    s.connect(java.net.InetSocketAddress(host, port), 100)
+                    break
+                }}
+            }} catch (_: java.io.IOException) {{
+                try {{ Thread.sleep(50) }} catch (ie: InterruptedException) {{ Thread.currentThread().interrupt(); break }}
+            }}
+        }}
+        System.setProperty("mockServerUrl", url)
+        // Drain remaining stdout/stderr in daemon threads so a full pipe
+        // does not block the child.
+        Thread {{ drain(stdout) }}.also {{ it.isDaemon = true }}.start()
+        Thread {{ drain(BufferedReader(InputStreamReader(server.errorStream, StandardCharsets.UTF_8))) }}.also {{ it.isDaemon = true }}.start()
+    }}
+
+    override fun launcherSessionClosed(session: LauncherSession) {{
+        val server = mockServer ?: return
+        try {{ server.outputStream.close() }} catch (_: IOException) {{}}
+        try {{
+            if (!server.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {{
+                server.destroyForcibly()
+            }}
+        }} catch (ie: InterruptedException) {{
+            Thread.currentThread().interrupt()
+            server.destroyForcibly()
+        }}
+    }}
+
+    companion object {{
+        private fun locateRepoRoot(): Path? {{
+            var dir: Path? = Paths.get("").toAbsolutePath()
+            while (dir != null) {{
+                if (dir.resolve("fixtures").toFile().isDirectory
+                    && dir.resolve("e2e").toFile().isDirectory) {{
+                    return dir
+                }}
+                dir = dir.parent
+            }}
+            return null
+        }}
+
+        private fun drain(reader: BufferedReader) {{
+            try {{
+                val buf = CharArray(1024)
+                while (reader.read(buf) >= 0) {{ /* drain */ }}
+            }} catch (_: IOException) {{}}
+        }}
+    }}
 }}
 "#
     )
