@@ -294,14 +294,14 @@ pub(crate) fn gen_record_type(
                     // "user passed false" from "JSON omitted the field".
                     // Duration fields map to boxed Long in Java; int literals don't auto-box
                     // to Long, so we must use the L suffix to produce a long literal that Java
-                    // will auto-box correctly. Boxed types may also arrive as null when JSON
-                    // omits the field (Jackson defaults boxed numerics to null, not 0), so we
-                    // must null-check before the equality test — otherwise the implicit
-                    // Long.longValue() unboxing throws NullPointerException at deserialise time.
+                    // will auto-box correctly. Boxed types may arrive as null when JSON omits
+                    // the field (Jackson defaults boxed numerics to null, not 0), so we
+                    // null-check before setting the default. We do NOT coerce explicit 0 —
+                    // that is a user-intentional value and the Rust core will validate it.
                     let is_boxed = matches!(f.ty, TypeRef::Duration);
                     let suffix = if is_boxed { "L" } else { "" };
                     let cond = if is_boxed {
-                        format!("{jname} == null || {jname} == 0")
+                        format!("{jname} == null")
                     } else {
                         format!("{jname} == 0")
                     };
@@ -1953,4 +1953,71 @@ fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum_def: &Enum
             variants => variants,
         },
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ahash::AHashSet;
+    use alef_core::ir::{CoreWrapper, DefaultValue, FieldDef, TypeRef};
+
+    fn make_config_type_with_duration_default() -> TypeDef {
+        TypeDef {
+            name: "CrawlConfig".to_string(),
+            rust_path: "kreuzberg::CrawlConfig".to_string(),
+            original_rust_path: "kreuzberg::CrawlConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "request_timeout".to_string(),
+                ty: TypeRef::Duration,
+                optional: false,
+                default: Some("30000".to_string()),
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: Some(DefaultValue::IntLiteral(30000)),
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        }
+    }
+
+    #[test]
+    fn boxed_duration_compact_ctor_only_null_checks_not_zero() {
+        let typ = make_config_type_with_duration_default();
+        let out = gen_record_type(
+            "dev.kreuzberg",
+            &typ,
+            &AHashSet::default(),
+            &AHashSet::default(),
+            "SNAKE_CASE",
+            false,
+            "Kreuzcrawl",
+        );
+        assert!(
+            out.contains("requestTimeout == null"),
+            "expected null-check in compact ctor"
+        );
+        assert!(
+            !out.contains("requestTimeout == 0"),
+            "must not coerce explicit 0 — that is a user-intentional value"
+        );
+    }
 }
