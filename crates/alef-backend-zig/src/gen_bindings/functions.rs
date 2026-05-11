@@ -1,4 +1,4 @@
-use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
+use alef_core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
 
 use super::errors::resolve_zig_error_type;
 use super::helpers::emit_cleaned_zig_doc;
@@ -393,6 +393,23 @@ fn unwrap_optional(ty: &TypeRef) -> &TypeRef {
     }
 }
 
+/// Return the max-value sentinel literal for a primitive integer type, if one
+/// is used by the C FFI to represent `None`.  The Rust FFI layer uses
+/// `<Type>::MAX` as the sentinel for optional numeric primitives.
+pub(super) fn optional_int_sentinel(prim: &PrimitiveType) -> Option<&'static str> {
+    match prim {
+        PrimitiveType::U8 => Some("std.math.maxInt(u8)"),
+        PrimitiveType::U16 => Some("std.math.maxInt(u16)"),
+        PrimitiveType::U32 => Some("std.math.maxInt(u32)"),
+        PrimitiveType::U64 | PrimitiveType::Usize => Some("std.math.maxInt(u64)"),
+        PrimitiveType::I8 => Some("std.math.maxInt(i8)"),
+        PrimitiveType::I16 => Some("std.math.maxInt(i16)"),
+        PrimitiveType::I32 => Some("std.math.maxInt(i32)"),
+        PrimitiveType::I64 | PrimitiveType::Isize => Some("std.math.maxInt(i64)"),
+        _ => None,
+    }
+}
+
 /// Emit the deallocation lines for allocations made in `emit_param_conversion`.
 ///
 /// These are emitted after the C call (and after the error check) so the
@@ -530,6 +547,25 @@ fn c_arg_names(
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
         return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
     }
+    // Optional integer primitive: substitute the max-value sentinel for None.
+    // The Rust FFI layer uses `<Type>::MAX` as the sentinel for Option<T> on
+    // numeric primitives (e.g. `u64::MAX` represents `None` for `timeout_secs`).
+    // The IR may encode this as either TypeRef::Optional(Primitive) or
+    // TypeRef::Primitive with p.optional = true — handle both forms.
+    {
+        let prim_opt = match &p.ty {
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Primitive(prim) = inner.as_ref() { Some(prim) } else { None }
+            }
+            TypeRef::Primitive(prim) if p.optional => Some(prim),
+            _ => None,
+        };
+        if let Some(prim) = prim_opt {
+            if let Some(sentinel) = optional_int_sentinel(prim) {
+                return vec![format!("if ({name}) |v| v else {sentinel}", name = p.name)];
+            }
+        }
+    }
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             vec![format!("{}_z", p.name)]
@@ -546,9 +582,11 @@ fn c_arg_names(
 ///
 /// String/Path/Json/Vec/Map: copy the C string to an owned Zig slice, then free
 /// the FFI allocation via `_free_string`.
-/// Named struct (opaque handle): serialize to JSON via `<prefix>_<snake>_to_json`,
+/// Named struct (has_serde): serialize to JSON via `<prefix>_<snake>_to_json`,
 /// copy the JSON string to an owned Zig slice, then free both the JSON string and
 /// the opaque handle.
+/// Named opaque handle (not in struct_names): wrap the raw C pointer in the Zig
+/// struct wrapper as `TypeName{ ._handle = raw }`.
 /// Everything else: pass through unchanged.
 fn unwrap_return_expr(
     raw: &str,
@@ -592,6 +630,11 @@ fn unwrap_return_expr(
                     raw => raw,
                 },
             )
+        }
+        TypeRef::Named(name) => {
+            // Opaque handle type (no serde): unwrap the nullable C pointer (guaranteed
+            // non-null after the error-code check above) and wrap in the Zig struct.
+            format!("{name}{{ ._handle = {raw}.? }}")
         }
         _ => raw.to_string(),
     }

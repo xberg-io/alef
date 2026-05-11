@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-backend-zig): emit async opaque-handle methods — the `is_async` guard in `emit_opaque_method` was incorrectly skipping all methods whose Rust source is `async` even though the C FFI wraps them as synchronous functions via `block_on`; removed the guard so all non-static methods are emitted.
+- fix(alef-backend-zig): correct optional-integer FFI marshalling — `?u64`/`?u32` (and any `Optional(Primitive)`) parameters now emit `if (x) |v| v else std.math.maxInt(T)` to pass the sentinel value the Rust FFI uses for `None`, instead of passing the `?T` type directly to a non-optional C parameter.
+- fix(alef-backend-zig): wrap opaque-handle function return in Zig struct — `create_client` and similar functions that return an opaque C pointer now emit `TypeName{ ._handle = _result.? }` instead of returning the raw nullable C pointer, matching the `_handle: *anyopaque` field type.
+- fix(alef-backend-zig): fix unreachable-code in opaque-method error block — `_ = _msg;` was emitted after `return error.FfiError;`; reordered to suppress the unused-variable warning before the early return.
+- fix(alef-backend-zig): use `{prefix}_last_error_context` (not `_message`) in opaque-method error path — the C FFI exposes `_last_error_context`, not `_last_error_message`.
+
 ### Added
 
 - feat(zig): client-object/opaque-handle codegen — types with non-empty `TypeDef.methods` that are opaque or non-serde now emit a Zig `pub const TypeName = struct { _handle: *anyopaque, ... }` with one `pub fn` per non-static, non-async method, dispatching via `c.{prefix}_{snake_type}_{snake_method}`. Driven by `CallOverride.client_factory` in e2e; no special-casing per library.

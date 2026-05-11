@@ -1,9 +1,9 @@
-use alef_core::ir::{MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
 use std::fmt::Write as FmtWrite;
 
 use super::errors::resolve_zig_error_type;
-use super::functions::zig_return_type;
+use super::functions::{optional_int_sentinel, zig_return_type};
 use super::helpers::emit_cleaned_zig_doc;
 
 /// Emit a Zig struct wrapper for an opaque handle type (one with `is_opaque = true`
@@ -48,15 +48,10 @@ fn emit_opaque_method(
     struct_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
-    // Skip async methods — the zig backend does not support async.
-    if method.is_async {
-        let _ = writeln!(
-            out,
-            "    // Note: method `{name}` is async and not supported in the zig backend.",
-            name = method.name
-        );
-        return;
-    }
+    // Note: async Rust methods are exposed as synchronous C functions via
+    // `tokio::runtime::block_on` in the FFI layer. The zig backend calls
+    // the synchronous C symbol directly — `is_async` is intentionally not
+    // checked here to avoid skipping callable methods.
 
     emit_cleaned_zig_doc(out, &method.doc, "    ");
 
@@ -122,7 +117,7 @@ fn emit_opaque_method(
         }
         let _ = writeln!(out, "        const _err_code = c.{prefix}_last_error_code();");
         let _ = writeln!(out, "        if (_err_code != 0) {{");
-        let _ = writeln!(out, "            const _msg_ptr = c.{prefix}_last_error_message();");
+        let _ = writeln!(out, "            const _msg_ptr = c.{prefix}_last_error_context();");
         let _ = writeln!(
             out,
             "            const _msg_slice = if (_msg_ptr != null) std.mem.span(_msg_ptr.?) else \"unknown error\";"
@@ -131,8 +126,8 @@ fn emit_opaque_method(
             out,
             "            const _msg = try std.heap.c_allocator.dupe(u8, _msg_slice);"
         );
-        let _ = writeln!(out, "            return error.FfiError;");
         let _ = writeln!(out, "            _ = _msg;");
+        let _ = writeln!(out, "            return error.FfiError;");
         let _ = writeln!(out, "        }}");
 
         // Free params after error check.
@@ -302,6 +297,23 @@ fn method_c_arg_names(p: &alef_core::ir::ParamDef, struct_names: &std::collectio
     {
         return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
     }
+    // Optional integer primitive: substitute the max-value sentinel for None.
+    // The Rust FFI layer uses `<Type>::MAX` as the sentinel for Option<T>.
+    // Handle both TypeRef::Optional(Primitive) and p.optional + TypeRef::Primitive.
+    {
+        let prim_opt: Option<&PrimitiveType> = match &p.ty {
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Primitive(prim) = inner.as_ref() { Some(prim) } else { None }
+            }
+            TypeRef::Primitive(prim) if p.optional => Some(prim),
+            _ => None,
+        };
+        if let Some(prim) = prim_opt {
+            if let Some(sentinel) = optional_int_sentinel(prim) {
+                return vec![format!("if ({name}) |v| v else {sentinel}", name = p.name)];
+            }
+        }
+    }
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             vec![format!("{}_z", p.name)]
@@ -331,6 +343,11 @@ fn method_unwrap_return_expr(
             format!(
                 "blk: {{\n            const _json_ptr = c.{prefix}_{snake}_to_json({raw});\n            const _json_slice = std.mem.span(_json_ptr);\n            const owned = try std.heap.c_allocator.dupe(u8, _json_slice);\n            c.{prefix}_free_string(_json_ptr);\n            c.{prefix}_{snake}_free({raw});\n            break :blk owned;\n        }}"
             )
+        }
+        TypeRef::Named(name) => {
+            // Opaque handle type (no serde): unwrap the nullable C pointer (guaranteed
+            // non-null after the error-code check above) and wrap in the Zig struct.
+            format!("{name}{{ ._handle = {raw}.? }}")
         }
         _ => raw.to_string(),
     }
