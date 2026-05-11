@@ -2,7 +2,6 @@ use crate::type_map::java_ffi_type;
 use ahash::AHashSet;
 use alef_core::ir::{FunctionDef, MethodDef, PrimitiveType, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
 
 /// Returns true when the function's Rust return type is `Result<Vec<u8>>` (or
 /// `Result<Option<Vec<u8>>>`). The FFI layer emits these as the out-param
@@ -109,15 +108,14 @@ pub(crate) fn marshal_param_to_ffi(
             ));
         }
         TypeRef::Bytes => {
-            // byte[] → convert to MemorySegment pointer for FFI
-            // Use allocateFrom to copy on-heap array into off-heap arena memory (JDK 22+ Panama FFM idiom)
             let cname = "c".to_string() + name;
-            writeln!(
-                out,
-                "            var {} = arena.allocateFrom(ValueLayout.JAVA_BYTE, {});",
-                cname, name
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_bytes.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
@@ -219,11 +217,15 @@ pub(crate) fn marshal_param_to_ffi(
                         PrimitiveType::F64 => ("double", "Double.NaN"),
                         PrimitiveType::Bool => ("boolean", "false"),
                     };
-                    writeln!(
-                        out,
-                        "            {prim_kw} {cname} = ({name} == null) ? {none_lit} : {name};",
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_primitive.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                            prim_kw => prim_kw,
+                            none_lit => none_lit,
+                        },
+                    ));
                 }
                 _ => {
                     // Other optional types pass through

@@ -1138,16 +1138,22 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
             },
         ));
     } else if matches!(dispatch_return, TypeRef::Unit) {
-        out.push_str(&format!("            {ffi_handle}.invoke({args_joined});\n"));
-        out.push_str(&render_named_frees("            "));
-        out.push_str("            checkLastFfiError();\n");
-    } else {
-        out.push_str(&render_named_frees("            "));
-        out.push_str(&format!(
-            "            // TODO unsupported return shape for {method_name}\n"
+        out.push_str(&crate::template_env::render(
+            "stream_method_unit_result.jinja",
+            minijinja::context! {
+                ffi_handle => ffi_handle,
+                args_joined => args_joined,
+                named_frees => render_named_frees("            "),
+            },
         ));
-        out.push_str(&format!(
-            "            throw new {exception_class}(\"{method_name}: unsupported return shape\", (Throwable) null);\n"
+    } else {
+        out.push_str(&crate::template_env::render(
+            "stream_method_unsupported_return.jinja",
+            minijinja::context! {
+                named_frees => render_named_frees("            "),
+                method_name => method_name,
+                exception_class => exception_class,
+            },
         ));
     }
 
@@ -1212,202 +1218,43 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     let item_to_json = format!("{prefix_upper}_{item_upper}_TO_JSON");
     let item_free = format!("{prefix_upper}_{item_upper}_FREE");
 
-    // Public method.
-    out.push_str(&format!(
-        "    public Iterator<{item_type}> {method_name}(final {request_type} {request_param}) throws {exception_class} {{\n"
+    out.push_str(&crate::template_env::render(
+        "streaming_iterator_method.jinja",
+        minijinja::context! {
+            item_type => item_type,
+            method_name => method_name,
+            request_type => request_type,
+            request_param => request_param,
+            exception_class => exception_class,
+            req_from_json => req_from_json,
+            start_handle => start_handle,
+            req_free => req_free,
+            next_handle => next_handle,
+            prefix_upper => prefix_upper,
+            item_to_json => item_to_json,
+            item_free => item_free,
+            free_handle => free_handle,
+        },
     ));
-    out.push_str(&format!(
-        "        java.util.Objects.requireNonNull({request_param}, \"{request_param} must not be null\");\n"
-    ));
-    out.push_str("        final MemorySegment streamHandle;\n");
-    out.push_str("        try (var arena = Arena.ofConfined()) {\n");
-    out.push_str(&format!(
-        "            String requestJson = STREAM_MAPPER.writeValueAsString({request_param});\n"
-    ));
-    out.push_str("            var cRequestJson = arena.allocateFrom(requestJson);\n");
-    out.push_str(&format!(
-        "            MemorySegment requestPtr = (MemorySegment) NativeLib.{req_from_json}.invoke(cRequestJson);\n"
-    ));
-    out.push_str("            if (requestPtr.equals(MemorySegment.NULL)) {\n");
-    out.push_str("                checkLastFfiError();\n");
-    out.push_str(&format!(
-        "                throw new {exception_class}(\"{method_name}: failed to marshal request\", (Throwable) null);\n"
-    ));
-    out.push_str("            }\n");
-    out.push_str("            try {\n");
-    out.push_str(&format!(
-        "                streamHandle = (MemorySegment) NativeLib.{start_handle}.invoke(this.handle, requestPtr);\n"
-    ));
-    out.push_str("            } finally {\n");
-    out.push_str(&format!("                NativeLib.{req_free}.invoke(requestPtr);\n"));
-    out.push_str("            }\n");
-    out.push_str("        } catch (Throwable e) {\n");
-    out.push_str(&format!(
-        "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
-    ));
-    out.push_str(&format!(
-        "            throw new {exception_class}(\"{method_name}: failed to start stream\", e);\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("        if (streamHandle == null || streamHandle.equals(MemorySegment.NULL)) {\n");
-    out.push_str("            checkLastFfiError();\n");
-    out.push_str(&format!(
-        "            throw new {exception_class}(\"{method_name}: stream handle was null\", (Throwable) null);\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("        final MemorySegment finalStreamHandle = streamHandle;\n");
-    out.push_str(&format!("        return new Iterator<{item_type}>() {{\n"));
-    out.push_str(&format!("            private {item_type} pending = pull();\n"));
-    out.push_str("            private boolean closed = false;\n");
-    out.push('\n');
-    out.push_str(&format!("            private {item_type} pull() {{\n"));
-    out.push_str("                if (closed) { return null; }\n");
-    out.push_str("                MemorySegment chunkPtr;\n");
-    out.push_str("                try {\n");
-    out.push_str(&format!(
-        "                    chunkPtr = (MemorySegment) NativeLib.{next_handle}.invoke(finalStreamHandle);\n"
-    ));
-    out.push_str("                } catch (Throwable e) {\n");
-    out.push_str("                    closeStream();\n");
-    out.push_str(&format!(
-        "                    throw new RuntimeException(new {exception_class}(\"{method_name}: stream advance failed\", e));\n"
-    ));
-    out.push_str("                }\n");
-    out.push_str("                if (chunkPtr.equals(MemorySegment.NULL)) {\n");
-    out.push_str("                    closeStream();\n");
-    out.push_str("                    int code;\n");
-    out.push_str("                    try {\n");
-    out.push_str(&format!(
-        "                        code = (int) NativeLib.{prefix_upper}_LAST_ERROR_CODE.invoke();\n"
-    ));
-    out.push_str("                    } catch (Throwable e) {\n");
-    out.push_str(&format!(
-        "                        throw new RuntimeException(new {exception_class}(\"{method_name}: failed to read last_error_code\", e));\n"
-    ));
-    out.push_str("                    }\n");
-    out.push_str("                    if (code != 0) {\n");
-    out.push_str("                        String msg;\n");
-    out.push_str("                        try {\n");
-    out.push_str(&format!(
-        "                            MemorySegment ctxPtr = (MemorySegment) NativeLib.{prefix_upper}_LAST_ERROR_CONTEXT.invoke();\n"
-    ));
-    out.push_str(
-        "                            msg = ctxPtr.equals(MemorySegment.NULL) ? \"unknown\" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);\n",
-    );
-    out.push_str("                        } catch (Throwable e) {\n");
-    out.push_str(&format!(
-        "                            throw new RuntimeException(new {exception_class}(code, \"{method_name}: failed to read error context\"));\n"
-    ));
-    out.push_str("                        }\n");
-    out.push_str(&format!(
-        "                        throw new RuntimeException(new {exception_class}(code, msg));\n"
-    ));
-    out.push_str("                    }\n");
-    out.push_str("                    return null;\n");
-    out.push_str("                }\n");
-    out.push_str("                try {\n");
-    out.push_str(&format!(
-        "                    MemorySegment jsonPtr = (MemorySegment) NativeLib.{item_to_json}.invoke(chunkPtr);\n"
-    ));
-    out.push_str("                    if (jsonPtr.equals(MemorySegment.NULL)) {\n");
-    out.push_str(&format!(
-        "                        NativeLib.{item_free}.invoke(chunkPtr);\n"
-    ));
-    out.push_str(&format!(
-        "                        throw new RuntimeException(new {exception_class}(\"{method_name}: failed to serialize chunk\", (Throwable) null));\n"
-    ));
-    out.push_str("                    }\n");
-    out.push_str("                    String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
-    out.push_str(&format!(
-        "                    NativeLib.{prefix_upper}_FREE_STRING.invoke(jsonPtr);\n"
-    ));
-    out.push_str(&format!(
-        "                    NativeLib.{item_free}.invoke(chunkPtr);\n"
-    ));
-    out.push_str(&format!(
-        "                    return STREAM_MAPPER.readValue(json, {item_type}.class);\n"
-    ));
-    out.push_str("                } catch (Throwable e) {\n");
-    out.push_str("                    closeStream();\n");
-    out.push_str(&format!(
-        "                    throw new RuntimeException(new {exception_class}(\"{method_name}: failed to deserialize chunk\", e));\n"
-    ));
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push('\n');
-    out.push_str("            private void closeStream() {\n");
-    out.push_str("                if (closed) { return; }\n");
-    out.push_str("                closed = true;\n");
-    out.push_str("                try {\n");
-    out.push_str(&format!(
-        "                    NativeLib.{free_handle}.invoke(finalStreamHandle);\n"
-    ));
-    out.push_str("                } catch (Throwable ignore) {\n");
-    out.push_str("                    // best-effort cleanup\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push('\n');
-    out.push_str("            @Override\n");
-    out.push_str("            public boolean hasNext() {\n");
-    out.push_str("                return pending != null;\n");
-    out.push_str("            }\n");
-    out.push('\n');
-    out.push_str("            @Override\n");
-    out.push_str(&format!("            public {item_type} next() {{\n"));
-    out.push_str("                if (pending == null) {\n");
-    out.push_str("                    throw new NoSuchElementException();\n");
-    out.push_str("                }\n");
-    out.push_str(&format!("                {item_type} current = pending;\n"));
-    out.push_str("                pending = pull();\n");
-    out.push_str("                return current;\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("    }\n");
-    out.push('\n');
 }
 
-/// Emit shared helpers (`STREAM_MAPPER`, `checkLastFfiError`) used by the
-/// streaming iterator method bodies above.
+/// Emit shared helpers (`STREAM_MAPPER`, `checkLastFfiError`, optionally `readBytesResult`)
+/// used by the streaming iterator method bodies above.
 fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
     let prefix_upper = prefix.to_uppercase();
     let exception_class = format!("{main_class}Exception");
+    let needs_read_bytes_result = out.contains("readBytesResult(");
+    let free_bytes = format!("NativeLib.{prefix_upper}_FREE_BYTES");
 
-    out.push('\n');
-    out.push_str(&format!(
-        "    private void checkLastFfiError() throws {exception_class} {{\n"
+    out.push_str(&crate::template_env::render(
+        "streaming_helpers.jinja",
+        minijinja::context! {
+            exception_class => exception_class,
+            prefix_upper => prefix_upper,
+            needs_read_bytes_result => needs_read_bytes_result,
+            free_bytes => free_bytes,
+        },
     ));
-    out.push_str("        try {\n");
-    out.push_str(&format!(
-        "            int code = (int) NativeLib.{prefix_upper}_LAST_ERROR_CODE.invoke();\n"
-    ));
-    out.push_str("            if (code == 0) { return; }\n");
-    out.push_str(&format!(
-        "            MemorySegment ctxPtr = (MemorySegment) NativeLib.{prefix_upper}_LAST_ERROR_CONTEXT.invoke();\n"
-    ));
-    out.push_str(
-        "            String msg = ctxPtr.equals(MemorySegment.NULL) ? \"unknown\" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);\n",
-    );
-    out.push_str(&format!("            throw new {exception_class}(code, msg);\n"));
-    out.push_str("        } catch (Throwable e) {\n");
-    out.push_str(&format!(
-        "            if (e instanceof {exception_class} ex) {{ throw ex; }}\n"
-    ));
-    out.push_str(&format!(
-        "            throw new {exception_class}(\"failed to read last error\", e);\n"
-    ));
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-    out.push('\n');
-    out.push_str("    private static final ObjectMapper STREAM_MAPPER = new ObjectMapper()\n");
-    out.push_str("        .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
-    out.push_str("        .findAndRegisterModules()\n");
-    out.push_str(
-        "        .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
-    );
-    out.push_str("        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n");
-    out.push_str(
-        "        .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);\n",
-    );
 }
 
 // ---------------------------------------------------------------------------
