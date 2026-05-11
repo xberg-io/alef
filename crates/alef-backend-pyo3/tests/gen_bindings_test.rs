@@ -1360,6 +1360,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
 
     let files = backend
@@ -2571,6 +2572,7 @@ fn test_api_py_uses_keyword_arguments() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
 
     let files = backend
@@ -2660,6 +2662,7 @@ fn test_async_function_emits_async_def_and_await() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
 
     let files = backend
@@ -2750,6 +2753,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
     // Configure two trait bridges with register_fn
     config.trait_bridges = vec![
@@ -3047,6 +3051,7 @@ fn test_capsule_types_end_to_end() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
 
     let files = backend
@@ -3208,6 +3213,7 @@ fn test_capsule_types_in_methods() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
     });
 
     let files = backend

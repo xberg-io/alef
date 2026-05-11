@@ -4,4 +4,11 @@
         return Err(pyo3::exceptions::PyRuntimeError::new_err("Failed to create PyCapsule"));
     }
     // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
-    Ok(unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) }.unbind())
+    let _capsule_obj = unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) };
+{%- if module_path and class_name %}
+    let _ts_mod = py.import("{{ module_path }}")?;
+    let _cls = _ts_mod.getattr("{{ class_name }}")?;
+    Ok(_cls.call1((_capsule_obj,))?.unbind())
+{%- else %}
+    Ok(_capsule_obj.unbind())
+{%- endif %}

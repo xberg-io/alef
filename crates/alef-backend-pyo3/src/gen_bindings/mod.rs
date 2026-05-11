@@ -978,7 +978,19 @@ mod alef_json_str_opt {
         });
 
         // 2. Generate api.py (wrapper functions)
-        let api_content = functions::gen_api_py(api, &module_name, &package_name, &config.trait_bridges, &config.dto);
+        let capsule_types = config
+            .python
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
+        let api_content = functions::gen_api_py(
+            api,
+            &module_name,
+            &package_name,
+            &config.trait_bridges,
+            &config.dto,
+            &capsule_types,
+        );
         files.push(GeneratedFile {
             path: output_base.join("api.py"),
             content: api_content,
@@ -994,7 +1006,20 @@ mod alef_json_str_opt {
         });
 
         // 4. Generate __init__.py (re-exports)
-        let init_content = errors::gen_init_py(api, &module_name, &api.version, &config.dto, &config.trait_bridges);
+        let extra_init_imports = config
+            .python
+            .as_ref()
+            .map(|c| c.extra_init_imports.clone())
+            .unwrap_or_default();
+        let init_content = errors::gen_init_py(
+            api,
+            &module_name,
+            &api.version,
+            &config.dto,
+            &config.trait_bridges,
+            &extra_init_imports,
+            &capsule_types,
+        );
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),
             content: init_content,
@@ -1133,6 +1158,21 @@ fn rewrite_capsule_methods(
         let new_body = match cfg {
             alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
                 let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
+                // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
+                // target Python type from the capsule so callers receive a real tree_sitter.Language,
+                // not the bare PyCapsule.
+                let construct = match capsule_name_str.rsplit_once('.') {
+                    Some((module_path, class_name)) => format!(
+                        r#"        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
+        let _capsule_obj = unsafe {{ pyo3::Bound::from_owned_ptr(py, capsule_ptr) }};
+        let _ts_mod = py.import("{module_path}")?;
+        let _cls = _ts_mod.getattr("{class_name}")?;
+        Ok(_cls.call1((_capsule_obj,))?.unbind())"#,
+                    ),
+                    None => {
+                        "        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.\n        Ok(unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) }.unbind())".to_string()
+                    }
+                };
                 format!(
                     r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
     pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
@@ -1144,8 +1184,7 @@ fn rewrite_capsule_methods(
         if capsule_ptr.is_null() {{
             return Err(pyo3::exceptions::PyRuntimeError::new_err("Failed to create PyCapsule"));
         }}
-        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
-        Ok(unsafe {{ pyo3::Bound::from_owned_ptr(py, capsule_ptr) }}.unbind())
+{construct}
     }}"#,
                 )
             }
