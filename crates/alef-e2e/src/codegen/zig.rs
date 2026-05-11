@@ -1037,11 +1037,12 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
+            let name = arg.name.clone();
             setup_lines.push(format!(
-                "var {} = try allocator.alloc(u8, std.fmt.bufPrint(undefined, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}}) catch 0)",
-                arg.name,
+                "const {name} = try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
             ));
-            parts.push(arg.name.clone());
+            setup_lines.push(format!("defer allocator.free({name});"));
+            parts.push(name);
             setup_needs_gpa = true;
             continue;
         }
