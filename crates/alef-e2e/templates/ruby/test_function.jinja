@@ -19,11 +19,11 @@
     api_key = ENV['{{ api_key_var }}']
     if api_key && !api_key.empty?
       warn "{{ test_name }}: using real API ({{ api_key_var }} is set)"
-      client = {{ call_receiver }}.{{ client_factory }}(api_key: api_key)
+      client = {{ call_receiver }}.{{ client_factory }}(api_key)
     else
       warn "{{ test_name }}: using mock server ({{ api_key_var }} not set)"
       mock_url = "#{ENV['MOCK_SERVER_URL']}/fixtures/{{ fixture_id }}"
-      client = {{ call_receiver }}.{{ client_factory }}(api_key: 'test-key', base_url: mock_url)
+      client = {{ call_receiver }}.{{ client_factory }}('test-key', mock_url)
     end
 {% elif has_mock %}
     client = {{ call_receiver }}.{{ client_factory }}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{{ fixture_id }}')

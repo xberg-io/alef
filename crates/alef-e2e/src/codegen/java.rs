@@ -1194,7 +1194,7 @@ fn render_test_method(
             let var = api_key_var.unwrap();
             setup.push(format!("String apiKey = System.getenv(\"{var}\");"));
             setup.push(format!(
-                "String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+                "String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
             ));
             setup.push(format!(
                 "System.out.println(\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({var} is set)\" : \"using mock server ({var} not set)\"));"

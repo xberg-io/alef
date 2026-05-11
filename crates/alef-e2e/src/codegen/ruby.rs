@@ -764,14 +764,14 @@ fn render_chat_stream_example(
             out.push_str(&format!(
                 "      warn \"{test_name}: using real API ({key_var} is set)\"\n"
             ));
-            out.push_str(&format!("      client = {call_receiver}.{cf}(api_key: api_key)\n"));
+            out.push_str(&format!("      client = {call_receiver}.{cf}(api_key)\n"));
             out.push_str("    else\n");
             out.push_str(&format!(
                 "      warn \"{test_name}: using mock server ({key_var} not set)\"\n"
             ));
             out.push_str(&format!("      mock_url = {mock_url_expr}\n"));
             out.push_str(&format!(
-                "      client = {call_receiver}.{cf}(api_key: 'test-key', base_url: mock_url)\n"
+                "      client = {call_receiver}.{cf}('test-key', mock_url)\n"
             ));
             out.push_str("    end\n");
         } else if has_mock {
