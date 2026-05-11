@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-backend-magnus): streaming adapter (`gen_iterator_struct`) now derives the core-crate prefix from the configured `core_import_name` rather than the hardcoded literal `liter_llm::`. The `StreamingAdapter` struct gains a `core_crate` field populated from `core_import` (computed at the top of `generate_bindings`) and threaded through `from_config`. Fixes the no-special-casing rule: any downstream crate (not only liter-llm) that wires a `streaming` adapter now gets `{core_crate}::{ItemType}` / `{core_crate}::{ErrorType}` in the emitted iterator struct instead of a crate-name assumption.
+
+- fix(alef-e2e/wasm): the emitted `vitest.config.ts` now sets `testTimeout: 30000` globally for the WASM e2e suite. Vitest's default 5 s deadline is too tight for fixtures that exercise liter-llm's retry path (504 / 429 / 500 / 502 are retryable with backoff); those tests all timed out at the default, masking real pass/fail outcomes. A 30 s timeout matches the rest of the suite's retry window.
+
 ### Added
 
 - feat(alef-backend-ffi): emit `{prefix}_{enum}_to_string(*const Enum) -> *mut c_char` for unit-variant enums (`has_serde = true`) that are returned as heap-allocated pointers. The function uses `serde_json::to_value(val).as_str()` to extract the bare variant name (e.g. `"completed"`) without surrounding JSON quotes, so C/Zig/Dart e2e callers can string-compare an enum field accessor against a fixture string without reaching for `_to_json` (which yields a JSON-quoted form). Sibling helper to existing `_to_json`/`_free`; emitted only when the enum is in `enum_pointer_return` AND `can_generate_enum_conversion` (gates out compound enums whose serde shape is not a plain string).

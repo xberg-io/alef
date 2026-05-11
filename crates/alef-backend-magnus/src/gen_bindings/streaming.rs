@@ -20,12 +20,13 @@ pub(super) struct StreamingAdapter<'a> {
     pub request_binding_type: &'a str,
     pub request_core_path: &'a str,
     pub core_path: &'a str,
+    pub core_crate: String,
     pub iterator_struct_name: String,
     pub class_path: String,
 }
 
 impl<'a> StreamingAdapter<'a> {
-    pub(super) fn from_config(adapter: &'a AdapterConfig, module_name: &str) -> Option<Self> {
+    pub(super) fn from_config(adapter: &'a AdapterConfig, module_name: &str, core_crate: &str) -> Option<Self> {
         if !matches!(adapter.pattern, AdapterPattern::Streaming) {
             return None;
         }
@@ -46,6 +47,7 @@ impl<'a> StreamingAdapter<'a> {
             request_binding_type: req_binding,
             request_core_path: request_full,
             core_path: &adapter.core_path,
+            core_crate: core_crate.to_string(),
             iterator_struct_name,
             class_path,
         })
@@ -76,8 +78,8 @@ pub(super) fn gen_iterator_struct(adapter: &StreamingAdapter<'_>) -> String {
     let iter_name = &adapter.iterator_struct_name;
     let class_path = &adapter.class_path;
     let item_binding = adapter.item_type;
-    let item_core = format!("liter_llm::{}", adapter.item_type); // assumes item lives in core crate root
-    let error_core = format!("liter_llm::{}", adapter.error_type);
+    let item_core = format!("{}::{}", adapter.core_crate, adapter.item_type);
+    let error_core = format!("{}::{}", adapter.core_crate, adapter.error_type);
 
     format!(
         r#"
@@ -219,4 +221,47 @@ pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) 
     let name = adapter.name;
     let owner = adapter.owner_type;
     format!(r#"    class.define_method("{name}", method!({owner}::{name}, 1))?;"#)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::{AdapterConfig, AdapterPattern};
+
+    fn make_streaming_adapter(core_crate: &str) -> AdapterConfig {
+        AdapterConfig {
+            name: "chat_stream".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "chat_stream".to_string(),
+            params: vec![],
+            returns: None,
+            error_type: Some("LiterLlmError".to_string()),
+            owner_type: Some("Client".to_string()),
+            item_type: Some("ChatCompletionChunk".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: Some(format!("{core_crate}::ChatCompletionRequest")),
+        }
+    }
+
+    #[test]
+    fn test_iterator_struct_uses_core_crate_not_liter_llm() {
+        let config = make_streaming_adapter("my_crate");
+        let adapter = StreamingAdapter::from_config(&config, "MyModule", "my_crate").unwrap();
+        let code = gen_iterator_struct(&adapter);
+        assert!(
+            code.contains("my_crate::ChatCompletionChunk"),
+            "expected my_crate:: prefix in emitted iterator struct"
+        );
+        assert!(
+            code.contains("my_crate::LiterLlmError"),
+            "expected my_crate:: prefix for error type"
+        );
+        assert!(
+            !code.contains("liter_llm::"),
+            "iterator struct must not contain hardcoded liter_llm:: — got:\n{code}"
+        );
+    }
 }
