@@ -957,9 +957,38 @@ fn render_test_function(
     // When the var is missing, treat as a successful skip — mirrors Python's
     // `pytest.skip("OPENAI_API_KEY not set")` and Java's `Assumptions.assumeTrue(...)`
     // so CI runs without provider credentials don't fail every smoke test.
+    //
+    // When the fixture also has a mock_response/http block, we support an env+mock
+    // fallback: if the API key is set, use the real API; otherwise fall back to the
+    // mock server. This lets the same fixture exercise both paths.
+    let has_mock = fixture.needs_mock_server();
+    let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     if let Some(env) = &fixture.env {
         if let Some(var) = &env.api_key_var {
-            let _ = writeln!(out, "    if (getenv(\"{var}\") == NULL) {{ return; }}");
+            let fixture_id = &fixture.id;
+            if has_mock {
+                let _ = writeln!(out, "    const char* api_key = getenv(\"{var}\");");
+                let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
+                let _ = writeln!(out, "    char base_url_buf[512];");
+                let _ = writeln!(out, "    if (api_key && api_key[0] != '\\0') {{");
+                let _ = writeln!(
+                    out,
+                    "        fprintf(stderr, \"{fixture_id}: using real API ({var} is set)\\n\");"
+                );
+                let _ = writeln!(out, "    }} else {{");
+                let _ = writeln!(
+                    out,
+                    "        fprintf(stderr, \"{fixture_id}: using mock server ({var} not set)\\n\");"
+                );
+                let _ = writeln!(
+                    out,
+                    "        snprintf(base_url_buf, sizeof(base_url_buf), \"%s/fixtures/{fixture_id}\", mock_base ? mock_base : \"\");"
+                );
+                let _ = writeln!(out, "        api_key = \"test-key\";");
+                let _ = writeln!(out, "    }}");
+            } else {
+                let _ = writeln!(out, "    if (getenv(\"{var}\") == NULL) {{ return; }}");
+            }
         }
     }
 
@@ -1108,7 +1137,23 @@ fn render_test_function(
         }
 
         let fixture_id = &fixture.id;
-        if fixture.needs_mock_server() {
+        // Pass UINT64_MAX/UINT32_MAX (≡ -1ULL/-1U) as the FFI's None sentinel for
+        // optional numeric primitives — passing literal 0 makes the binding see
+        // Some(0), which Rust core treats as `Duration::from_secs(0)` (immediate
+        // request deadline) and breaks every HTTP fixture.
+        if has_mock && api_key_var.is_some() {
+            // api_key and base_url_buf are already declared in the env-fallback block above.
+            // When api_key is set we pass NULL as the base_url (real API); otherwise we
+            // pass base_url_buf which was snprintf'd to the mock server URL.
+            let _ = writeln!(
+                out,
+                "    const char* _base_url_arg = (api_key && api_key[0] != '\\0') ? NULL : base_url_buf;"
+            );
+            let _ = writeln!(
+                out,
+                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
+            );
+        } else if has_mock {
             let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
             let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
             let _ = writeln!(out, "    char base_url[1024];");
@@ -1116,10 +1161,6 @@ fn render_test_function(
                 out,
                 "    snprintf(base_url, sizeof(base_url), \"%s/fixtures/{fixture_id}\", mock_base);"
             );
-            // Pass UINT64_MAX/UINT32_MAX (≡ -1ULL/-1U) as the FFI's None sentinel for
-            // optional numeric primitives — passing literal 0 makes the binding see
-            // Some(0), which Rust core treats as `Duration::from_secs(0)` (immediate
-            // request deadline) and breaks every HTTP fixture.
             let _ = writeln!(
                 out,
                 "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"

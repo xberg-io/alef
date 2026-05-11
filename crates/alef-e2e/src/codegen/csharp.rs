@@ -935,15 +935,25 @@ fn render_test_method(
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        let is_live_smoke = fixture.mock_response.is_none()
-            && fixture.http.is_none()
-            && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
-        if is_live_smoke {
-            let api_key_var = fixture
-                .env
-                .as_ref()
-                .and_then(|e| e.api_key_var.as_deref())
-                .unwrap_or("");
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        let is_live_smoke = !has_mock && api_key_var_opt.is_some();
+        if has_mock && api_key_var_opt.is_some() {
+            let api_key_var = api_key_var_opt.unwrap();
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = string.IsNullOrEmpty(apiKey)\n            ? (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\"\n            : null;\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        Console.WriteLine($\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({api_key_var} is set)\" : \"using mock server ({api_key_var} not set)\"));\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
+            ));
+        } else if is_live_smoke {
+            let api_key_var = api_key_var_opt.unwrap();
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
@@ -1103,15 +1113,25 @@ fn render_chat_stream_test_method(
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        let is_live_smoke = fixture.mock_response.is_none()
-            && fixture.http.is_none()
-            && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
-        if is_live_smoke {
-            let api_key_var = fixture
-                .env
-                .as_ref()
-                .and_then(|e| e.api_key_var.as_deref())
-                .unwrap_or("");
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        let is_live_smoke = !has_mock && api_key_var_opt.is_some();
+        if has_mock && api_key_var_opt.is_some() {
+            let api_key_var = api_key_var_opt.unwrap();
+            client_factory_setup.push_str(&format!(
+                "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var baseUrl = string.IsNullOrEmpty(apiKey)\n            ? (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\"\n            : null;\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        Console.WriteLine($\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({api_key_var} is set)\" : \"using mock server ({api_key_var} not set)\"));\n"
+            ));
+            client_factory_setup.push_str(&format!(
+                "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
+            ));
+        } else if is_live_smoke {
+            let api_key_var = api_key_var_opt.unwrap();
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
@@ -3127,20 +3147,16 @@ mod tests {
         };
 
         // Fixture with batch_urls but no explicit call field should route to batch_scrape
-        let fixture = make_fixture_with_input(
-            "batch_empty_urls",
-            serde_json::json!({ "batch_urls": [] }),
-        );
+        let fixture = make_fixture_with_input("batch_empty_urls", serde_json::json!({ "batch_urls": [] }));
 
         let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         assert_eq!(resolved_call.function, "BatchScrape");
 
         // Fixture without batch_urls should fall back to default Scrape
-        let fixture_no_batch = make_fixture_with_input(
-            "simple_scrape",
-            serde_json::json!({ "url": "https://example.com" }),
-        );
-        let resolved_default = e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        let fixture_no_batch =
+            make_fixture_with_input("simple_scrape", serde_json::json!({ "url": "https://example.com" }));
+        let resolved_default =
+            e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
         assert_eq!(resolved_default.function, "Scrape");
     }
 }

@@ -1188,7 +1188,21 @@ fn render_test_method(
         let factory_name = factory.to_lower_camel_case();
         let fixture_id = &fixture.id;
         let mut setup: Vec<String> = Vec::new();
-        if fixture.mock_response.is_some() || fixture.http.is_some() {
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        if has_mock && api_key_var.is_some() {
+            let var = api_key_var.unwrap();
+            setup.push(format!("String apiKey = System.getenv(\"{var}\");"));
+            setup.push(format!(
+                "String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+            ));
+            setup.push(format!(
+                "System.out.println(\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({var} is set)\" : \"using mock server ({var} not set)\"));"
+            ));
+            setup.push(format!(
+                "var client = {class_name}.{factory_name}(baseUrl == null ? apiKey : \"test-key\", baseUrl, null, null, null);"
+            ));
+        } else if has_mock {
             if fixture.has_host_root_route() {
                 setup.push(format!(
                     "String mockUrl = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\");"
@@ -1201,7 +1215,7 @@ fn render_test_method(
             setup.push(format!(
                 "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
             ));
-        } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
+        } else if let Some(api_key_var) = api_key_var {
             setup.push(format!("String apiKey = System.getenv(\"{api_key_var}\");"));
             setup.push(format!(
                 "org.junit.jupiter.api.Assumptions.assumeTrue(apiKey != null && !apiKey.isEmpty(), \"{api_key_var} not set\");"
@@ -2256,20 +2270,16 @@ mod tests {
         };
 
         // Fixture with batch_urls but no explicit call field should route to batch_scrape
-        let fixture = make_fixture_with_input(
-            "batch_empty_urls",
-            serde_json::json!({ "batch_urls": [] }),
-        );
+        let fixture = make_fixture_with_input("batch_empty_urls", serde_json::json!({ "batch_urls": [] }));
 
         let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
         assert_eq!(resolved_call.function, "batchScrape");
 
         // Fixture without batch_urls should fall back to default scrape
-        let fixture_no_batch = make_fixture_with_input(
-            "simple_scrape",
-            serde_json::json!({ "url": "https://example.com" }),
-        );
-        let resolved_default = e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        let fixture_no_batch =
+            make_fixture_with_input("simple_scrape", serde_json::json!({ "url": "https://example.com" }));
+        let resolved_default =
+            e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
         assert_eq!(resolved_default.function, "scrape");
     }
 }
