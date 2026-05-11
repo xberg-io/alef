@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/rust): the generated `common.rs` `BufReader` now takes ownership of `ChildStdout` (`BufReader::new(stdout)`) instead of borrowing it (`BufReader::new(&mut stdout)`). The previous pattern caused `E0597` on Rust 2024: the drain thread (`std::thread::spawn(move || reader.into_inner())`) requires `'static` bounds, but a `BufReader<&mut ChildStdout>` wraps a local reference that is not `'static`. Owned `BufReader<ChildStdout>` satisfies the bound.
+
 - fix(alef-backend-magnus): streaming adapter (`gen_iterator_struct`) now derives the core-crate prefix from the configured `core_import_name` rather than the hardcoded literal `liter_llm::`. The `StreamingAdapter` struct gains a `core_crate` field populated from `core_import` (computed at the top of `generate_bindings`) and threaded through `from_config`. Fixes the no-special-casing rule: any downstream crate (not only liter-llm) that wires a `streaming` adapter now gets `{core_crate}::{ItemType}` / `{core_crate}::{ErrorType}` in the emitted iterator struct instead of a crate-name assumption.
 
 - fix(alef-e2e/wasm): the emitted `vitest.config.ts` now sets `testTimeout: 30000` globally for the WASM e2e suite. Vitest's default 5 s deadline is too tight for fixtures that exercise liter-llm's retry path (504 / 429 / 500 / 502 are retryable with backoff); those tests all timed out at the default, masking real pass/fail outcomes. A 30 s timeout matches the rest of the suite's retry window.
