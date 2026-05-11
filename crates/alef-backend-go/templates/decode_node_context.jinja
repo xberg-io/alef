@@ -1,0 +1,8 @@
+func decodeNodeContext(ctxJSON *C.char) NodeContext {
+	var ctx NodeContext
+	if ctxJSON == nil {
+		return ctx
+	}
+	_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)
+	return ctx
+}

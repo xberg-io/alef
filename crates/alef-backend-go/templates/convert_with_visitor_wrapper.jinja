@@ -1,0 +1,6 @@
+// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during
+// the conversion pipeline.  Pass nil for options to use defaults.
+// Pass a struct embedding BaseVisitor and overriding only the methods you need.
+func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {
+	return convertWithVisitorHelper(html, options, visitor)
+}

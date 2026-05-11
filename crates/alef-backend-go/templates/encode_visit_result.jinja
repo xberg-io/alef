@@ -1,0 +1,35 @@
+func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {
+	// Encode the result as serde-native JSON so the Rust trait bridge's
+	// serde_json::from_str::<VisitResult> deserialiser can decode it correctly.
+	var jsonStr string
+	switch r.Code {
+	case 1:
+		jsonStr = `"Skip"`
+	case 2:
+		jsonStr = `"PreserveHtml"`
+	case 3:
+		if r.Custom != nil {
+			b, err := json.Marshal(*r.Custom)
+			if err != nil {
+				b = []byte(`""`)
+			}
+			jsonStr = `{"Custom":` + string(b) + `}`
+		} else {
+			jsonStr = `{"Custom":""}`
+		}
+	case 4:
+		if r.Custom != nil {
+			b, err := json.Marshal(*r.Custom)
+			if err != nil {
+				b = []byte(`""`)
+			}
+			jsonStr = `{"Error":` + string(b) + `}`
+		} else {
+			jsonStr = `{"Error":""}`
+		}
+	default: // 0 = Continue and any unknown code
+		jsonStr = `"Continue"`
+	}
+	*outResult = C.CString(jsonStr)
+	return C.int32_t(r.Code)
+}

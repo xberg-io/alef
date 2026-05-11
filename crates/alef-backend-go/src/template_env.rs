@@ -89,6 +89,51 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/visit_result_helper.jinja"),
     ),
     (
+        "visitor_interface_header.jinja",
+        include_str!("../templates/visitor_interface_header.jinja"),
+    ),
+    (
+        "visitor_interface_footer.jinja",
+        include_str!("../templates/visitor_interface_footer.jinja"),
+    ),
+    (
+        "base_visitor_header.jinja",
+        include_str!("../templates/base_visitor_header.jinja"),
+    ),
+    (
+        "visitor_registry_block.jinja",
+        include_str!("../templates/visitor_registry_block.jinja"),
+    ),
+    (
+        "decode_node_context.jinja",
+        include_str!("../templates/decode_node_context.jinja"),
+    ),
+    (
+        "encode_visit_result.jinja",
+        include_str!("../templates/encode_visit_result.jinja"),
+    ),
+    ("opt_go_string.jinja", include_str!("../templates/opt_go_string.jinja")),
+    (
+        "decode_cells_json.jinja",
+        include_str!("../templates/decode_cells_json.jinja"),
+    ),
+    (
+        "trampoline_lookup.jinja",
+        include_str!("../templates/trampoline_lookup.jinja"),
+    ),
+    (
+        "trampoline_is_header.jinja",
+        include_str!("../templates/trampoline_is_header.jinja"),
+    ),
+    (
+        "convert_with_visitor_helper.jinja",
+        include_str!("../templates/convert_with_visitor_helper.jinja"),
+    ),
+    (
+        "convert_with_visitor_wrapper.jinja",
+        include_str!("../templates/convert_with_visitor_wrapper.jinja"),
+    ),
+    (
         "enum_type_header.jinja",
         include_str!("../templates/enum_type_header.jinja"),
     ),

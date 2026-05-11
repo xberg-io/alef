@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- refactor(alef-backend-csharp): replace inline `push_str`/`writeln!` visitor record emission for generated `NodeContext.cs` and `VisitResult.cs` with Jinja templates (`node_context.jinja`, `visit_result.jinja`).
+- refactor(alef-backend-go): migrate additional `gen_visitor.rs` emission from inline `push_str` blocks to Jinja templates for visitor interface/registry/helper/trampoline/control-flow; generated `ConvertWithVisitor` now routes through `convertWithVisitorHelper` for shared logic.
+
 ## [0.15.34] - 2026-05-11
 
 ### Changed

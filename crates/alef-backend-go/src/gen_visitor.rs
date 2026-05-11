@@ -813,9 +813,10 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // Visitor interface
     // -------------------------------------------------------------------------
-    out.push_str("// Visitor is the interface implemented by types that observe the HTML-to-Markdown\n");
-    out.push_str("// conversion pipeline.  Embed BaseVisitor to get no-op defaults for all methods.\n");
-    out.push_str("type Visitor interface {\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_interface_header.jinja",
+        minijinja::Value::default(),
+    ));
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
         out.push_str(&crate::template_env::render(
@@ -827,15 +828,19 @@ pub fn gen_visitor_file(
             },
         ));
     }
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_interface_footer.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
     // -------------------------------------------------------------------------
     // BaseVisitor — no-op defaults
     // -------------------------------------------------------------------------
-    out.push_str("// BaseVisitor provides default no-op implementations for all Visitor methods.\n");
-    out.push_str("// Embed it in your struct and override only the methods you need.\n");
-    out.push_str("type BaseVisitor struct{}\n");
+    out.push_str(&crate::template_env::render(
+        "base_visitor_header.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
     for spec in CALLBACKS {
         let param_str = iface_param_str(spec);
@@ -856,31 +861,10 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     // Visitor registry
     // -------------------------------------------------------------------------
-    out.push_str("// visitorRegistry maps visitor handle IDs to active Visitor instances.\n");
-    out.push_str("// CGo does not allow passing Go function values as C function pointers;\n");
-    out.push_str("// we use a numeric ID (stored in user_data) to look up the Visitor at callback time.\n");
-    out.push_str("var (\n");
-    out.push_str("\tvisitorRegistry sync.Map\n");
-    out.push_str("\tvisitorIDCounter atomic.Uint64\n");
-    out.push_str(")\n");
-    out.push('\n');
-    out.push_str("func registerVisitor(v Visitor) uintptr {\n");
-    out.push_str("\tid := uintptr(visitorIDCounter.Add(1))\n");
-    out.push_str("\tvisitorRegistry.Store(id, v)\n");
-    out.push_str("\treturn id\n");
-    out.push_str("}\n");
-    out.push('\n');
-    out.push_str("func unregisterVisitor(id uintptr) {\n");
-    out.push_str("\tvisitorRegistry.Delete(id)\n");
-    out.push_str("}\n");
-    out.push('\n');
-    out.push_str("func lookupVisitor(id uintptr) (Visitor, bool) {\n");
-    out.push_str("\tv, ok := visitorRegistry.Load(id)\n");
-    out.push_str("\tif !ok {\n");
-    out.push_str("\t\treturn nil, false\n");
-    out.push_str("\t}\n");
-    out.push_str("\treturn v.(Visitor), true\n");
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_registry_block.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
     // -------------------------------------------------------------------------
@@ -888,14 +872,10 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
 
     // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
-    out.push_str("func decodeNodeContext(ctxJSON *C.char) NodeContext {\n");
-    out.push_str("\tvar ctx NodeContext\n");
-    out.push_str("\tif ctxJSON == nil {\n");
-    out.push_str("\t\treturn ctx\n");
-    out.push_str("\t}\n");
-    out.push_str("\t_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)\n");
-    out.push_str("\treturn ctx\n");
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "decode_node_context.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
     // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
@@ -910,61 +890,23 @@ pub fn gen_visitor_file(
     //
     // The return code still carries the numeric variant tag so callers that only
     // inspect the code (and don't read out_result) remain compatible.
-    out.push_str("func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {\n");
-    out.push_str("\t// Encode the result as serde-native JSON so the Rust trait bridge's\n");
-    out.push_str("\t// serde_json::from_str::<VisitResult> deserialiser can decode it correctly.\n");
-    out.push_str("\tvar jsonStr string\n");
-    out.push_str("\tswitch r.Code {\n");
-    out.push_str("\tcase 1:\n");
-    out.push_str("\t\tjsonStr = `\"Skip\"`\n");
-    out.push_str("\tcase 2:\n");
-    out.push_str("\t\tjsonStr = `\"PreserveHtml\"`\n");
-    out.push_str("\tcase 3:\n");
-    out.push_str("\t\tif r.Custom != nil {\n");
-    out.push_str("\t\t\tb, err := json.Marshal(*r.Custom)\n");
-    out.push_str("\t\t\tif err != nil {\n");
-    out.push_str("\t\t\t\tb = []byte(`\"\"`)\n");
-    out.push_str("\t\t\t}\n");
-    out.push_str("\t\t\tjsonStr = `{\"Custom\":` + string(b) + `}`\n");
-    out.push_str("\t\t} else {\n");
-    out.push_str("\t\t\tjsonStr = `{\"Custom\":\"\"}`\n");
-    out.push_str("\t\t}\n");
-    out.push_str("\tcase 4:\n");
-    out.push_str("\t\tif r.Custom != nil {\n");
-    out.push_str("\t\t\tb, err := json.Marshal(*r.Custom)\n");
-    out.push_str("\t\t\tif err != nil {\n");
-    out.push_str("\t\t\t\tb = []byte(`\"\"`)\n");
-    out.push_str("\t\t\t}\n");
-    out.push_str("\t\t\tjsonStr = `{\"Error\":` + string(b) + `}`\n");
-    out.push_str("\t\t} else {\n");
-    out.push_str("\t\t\tjsonStr = `{\"Error\":\"\"}`\n");
-    out.push_str("\t\t}\n");
-    out.push_str("\tdefault: // 0 = Continue and any unknown code\n");
-    out.push_str("\t\tjsonStr = `\"Continue\"`\n");
-    out.push_str("\t}\n");
-    out.push_str("\t*outResult = C.CString(jsonStr)\n");
-    out.push_str("\treturn C.int32_t(r.Code)\n");
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "encode_visit_result.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
-    out.push_str("func optGoString(p *C.char) *string {\n");
-    out.push_str("\tif p == nil {\n");
-    out.push_str("\t\treturn nil\n");
-    out.push_str("\t}\n");
-    out.push_str("\ts := C.GoString(p)\n");
-    out.push_str("\treturn &s\n");
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "opt_go_string.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
     // decodeCellsJSON: cells is a JSON-encoded []string in the VTable ABI.
-    out.push_str("func decodeCellsJSON(cells *C.char) []string {\n");
-    out.push_str("\tif cells == nil {\n");
-    out.push_str("\t\treturn nil\n");
-    out.push_str("\t}\n");
-    out.push_str("\tvar result []string\n");
-    out.push_str("\t_ = json.Unmarshal([]byte(C.GoString(cells)), &result)\n");
-    out.push_str("\treturn result\n");
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "decode_cells_json.jinja",
+        minijinja::Value::default(),
+    ));
     out.push('\n');
 
     // -------------------------------------------------------------------------
@@ -980,132 +922,23 @@ pub fn gen_visitor_file(
     // This helper is called by Convert() in binding.go when options.Visitor is not nil.
     // It registers the visitor, builds the VTable, creates a bridge, attaches it to
     // options, calls the FFI convert function, and cleans up.
-    out.push('\n');
-    out.push_str("// convertWithVisitorHelper converts HTML with visitor support.\n");
-    out.push_str("// Called by Convert() when options.Visitor is not nil.\n");
-    out.push_str("// Returns the ConversionResult or an error.\n");
-    out.push_str("func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {\n");
-    out.push_str("\tcHTML := C.CString(html)\n");
-    out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
-    out.push('\n');
-
-    // Build ConversionOptions C pointer.
+    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
     out.push_str(&crate::template_env::render(
-        "c_options_var_decl.jinja",
+        "convert_with_visitor_helper.jinja",
         minijinja::context! {
             conversion_options_type => conversion_options_type,
-        },
-    ));
-    out.push('\n');
-    out.push_str("\tif options != nil {\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_from_value.jinja",
-        minijinja::context! {
             fn_options_from_json => fn_options_from_json,
             fn_options_free => fn_options_free,
-        },
-    ));
-    out.push_str("\t}\n");
-    out.push_str("\tif cOptions == nil {\n");
-    out.push_str("\t\t// Allocate a default options struct so we can attach the visitor.\n");
-    out.push_str("\t\tdefaultJSON := C.CString(\"{}\")\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_from_json.jinja",
-        minijinja::context! {
-            fn_options_from_json => fn_options_from_json,
-        },
-    ));
-    out.push_str("\t\tC.free(unsafe.Pointer(defaultJSON))\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_defer_free.jinja",
-        minijinja::context! {
-            fn_options_free => fn_options_free,
-        },
-    ));
-    out.push_str("\t}\n");
-    out.push('\n');
-
-    // Register visitor and build VTable.
-    out.push_str("\t// Register visitor and build the C VTable via the static C helper.\n");
-    out.push_str("\tid := registerVisitor(visitor)\n");
-    out.push_str("\tdefer unregisterVisitor(id)\n");
-    out.push_str("\tvtbl := C.makeVisitorVTable()\n");
-    out.push('\n');
-
-    // Create bridge from VTable + user_data.
-    out.push_str("\t// Create a bridge that holds the VTable and the visitor ID as user_data.\n");
-    out.push_str(&crate::template_env::render(
-        "c_bridge_new.jinja",
-        minijinja::context! {
             fn_bridge_new => fn_bridge_new,
-        },
-    ));
-    out.push_str("\tif bridge == nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_bridge_defer_free.jinja",
-        minijinja::context! {
             fn_bridge_free => fn_bridge_free,
-        },
-    ));
-    out.push('\n');
-
-    // Attach bridge to options.
-    out.push_str("\t// Attach the bridge to the options struct so convert() picks it up.\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_set_visitor.jinja",
-        minijinja::context! {
             fn_options_set_visitor => fn_options_set_visitor,
             bridge_c_type => bridge_c_type,
-        },
-    ));
-    out.push('\n');
-
-    // Call convert.
-    out.push_str(&crate::template_env::render(
-        "c_convert_call.jinja",
-        minijinja::context! {
             fn_convert => fn_convert,
-        },
-    ));
-    out.push_str("\tif ptr == nil {\n");
-    out.push_str("\t\tif err := lastError(); err != nil {\n");
-    out.push_str("\t\t\treturn nil, err\n");
-    out.push_str("\t\t}\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_result_defer_free.jinja",
-        minijinja::context! {
+            fn_result_to_json => fn_result_to_json,
             fn_result_free => fn_result_free,
         },
     ));
     out.push('\n');
-
-    // Deserialize ConversionResult.
-    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
-    out.push_str(&crate::template_env::render(
-        "c_result_to_json.jinja",
-        minijinja::context! {
-            fn_result_to_json => fn_result_to_json,
-        },
-    ));
-    out.push_str("\tif jsonPtr == nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_free_string_defer.jinja",
-        minijinja::context! {
-            ffi_prefix => ffi_prefix,
-        },
-    ));
-    out.push_str("\tvar result ConversionResult\n");
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)\n");
-    out.push_str("\t}\n");
-    out.push_str("\treturn &result, nil\n");
-    out.push_str("}\n");
     out.push('\n');
 
     out
@@ -1185,12 +1018,10 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
             params => go_params.join(", "),
         },
     ));
-    out.push_str("\tvisitorID := uintptr(uintptr(userData))\n");
-    out.push_str("\tv, ok := lookupVisitor(visitorID)\n");
-    out.push_str("\tif !ok {\n");
-    out.push_str("\t\treturn 0\n");
-    out.push_str("\t}\n");
-    out.push_str("\tnodeCtx := decodeNodeContext(ctx)\n");
+    out.push_str(&crate::template_env::render(
+        "trampoline_lookup.jinja",
+        minijinja::Value::default(),
+    ));
 
     // Decode each extra parameter.
     for ep in spec.extra {
@@ -1203,7 +1034,10 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
         ));
     }
     if spec.has_is_header {
-        out.push_str("\tgoIsHeader := isHeader != 0\n");
+        out.push_str(&crate::template_env::render(
+            "trampoline_is_header.jinja",
+            minijinja::Value::default(),
+        ));
     }
 
     // Build call args.
@@ -1241,145 +1075,22 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 #[allow(clippy::too_many_arguments, dead_code)]
 fn gen_convert_with_visitor(
     out: &mut String,
-    ffi_prefix: &str,
-    conversion_options_type: &str,
+    _ffi_prefix: &str,
+    _conversion_options_type: &str,
     _vtable_c_type: &str,
-    bridge_c_type: &str,
-    fn_bridge_new: &str,
-    fn_bridge_free: &str,
-    fn_options_set_visitor: &str,
-    fn_options_free: &str,
-    fn_options_from_json: &str,
-    fn_convert: &str,
-    fn_result_free: &str,
+    _bridge_c_type: &str,
+    _fn_bridge_new: &str,
+    _fn_bridge_free: &str,
+    _fn_options_set_visitor: &str,
+    _fn_options_free: &str,
+    _fn_options_from_json: &str,
+    _fn_convert: &str,
+    _fn_result_free: &str,
 ) {
-    out.push_str("// ConvertWithVisitor converts HTML to Markdown, invoking visitor callbacks during\n");
-    out.push_str("// the conversion pipeline.  Pass nil for options to use defaults.\n");
-    out.push_str("// Pass a struct embedding BaseVisitor and overriding only the methods you need.\n");
-    out.push_str("func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {\n");
-    out.push_str("\tcHTML := C.CString(html)\n");
-    out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
-    out.push('\n');
-
-    // Build ConversionOptions C pointer (nil → use defaults).
     out.push_str(&crate::template_env::render(
-        "c_options_var_decl.jinja",
-        minijinja::context! {
-            conversion_options_type => conversion_options_type,
-        },
+        "convert_with_visitor_wrapper.jinja",
+        minijinja::Value::default(),
     ));
-    out.push('\n');
-    out.push_str("\tif options != nil {\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_from_value.jinja",
-        minijinja::context! {
-            fn_options_from_json => fn_options_from_json,
-            fn_options_free => fn_options_free,
-        },
-    ));
-    out.push_str("\t}\n");
-    out.push_str("\tif cOptions == nil {\n");
-    out.push_str("\t\t// Allocate a default options struct so we can attach the visitor.\n");
-    out.push_str("\t\tdefaultJSON := C.CString(\"{}\")\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_from_json.jinja",
-        minijinja::context! {
-            fn_options_from_json => fn_options_from_json,
-        },
-    ));
-    out.push_str("\t\tC.free(unsafe.Pointer(defaultJSON))\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_defer_free.jinja",
-        minijinja::context! {
-            fn_options_free => fn_options_free,
-        },
-    ));
-    out.push_str("\t}\n");
-    out.push('\n');
-
-    // Register visitor and build VTable.
-    out.push_str("\t// Register visitor and build the C VTable via the static C helper.\n");
-    out.push_str("\tid := registerVisitor(visitor)\n");
-    out.push_str("\tdefer unregisterVisitor(id)\n");
-    out.push_str("\tvtbl := C.makeVisitorVTable()\n");
-    out.push('\n');
-
-    // Create bridge from VTable + user_data.
-    out.push_str("\t// Create a bridge that holds the VTable and the visitor ID as user_data.\n");
-    out.push_str(&crate::template_env::render(
-        "c_bridge_new.jinja",
-        minijinja::context! {
-            fn_bridge_new => fn_bridge_new,
-        },
-    ));
-    out.push_str("\tif bridge == nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to create visitor bridge\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_bridge_defer_free.jinja",
-        minijinja::context! {
-            fn_bridge_free => fn_bridge_free,
-        },
-    ));
-    out.push('\n');
-
-    // Attach bridge to options.
-    out.push_str("\t// Attach the bridge to the options struct so convert() picks it up.\n");
-    out.push_str(&crate::template_env::render(
-        "c_options_set_visitor.jinja",
-        minijinja::context! {
-            fn_options_set_visitor => fn_options_set_visitor,
-            bridge_c_type => bridge_c_type,
-        },
-    ));
-    out.push('\n');
-
-    // Call convert.
-    out.push_str(&crate::template_env::render(
-        "c_convert_call.jinja",
-        minijinja::context! {
-            fn_convert => fn_convert,
-        },
-    ));
-    out.push_str("\tif ptr == nil {\n");
-    out.push_str("\t\tif err := lastError(); err != nil {\n");
-    out.push_str("\t\t\treturn nil, err\n");
-    out.push_str("\t\t}\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_result_defer_free.jinja",
-        minijinja::context! {
-            fn_result_free => fn_result_free,
-        },
-    ));
-    out.push('\n');
-
-    // Deserialize ConversionResult: convert the opaque result pointer to JSON first,
-    // then unmarshal into a Go struct.  The pointer is a *ConversionResult struct (not a
-    // string), so we must call the to_json helper before treating it as text.
-    let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
-    out.push_str(&crate::template_env::render(
-        "c_result_to_json.jinja",
-        minijinja::context! {
-            fn_result_to_json => fn_result_to_json,
-        },
-    ));
-    out.push_str("\tif jsonPtr == nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")\n");
-    out.push_str("\t}\n");
-    out.push_str(&crate::template_env::render(
-        "c_free_string_defer.jinja",
-        minijinja::context! {
-            ffi_prefix => ffi_prefix,
-        },
-    ));
-    out.push_str("\tvar result ConversionResult\n");
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to decode conversion result: %w\", err)\n");
-    out.push_str("\t}\n");
-    out.push_str("\treturn &result, nil\n");
-    out.push_str("}\n");
     out.push('\n');
 }
 

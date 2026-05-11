@@ -1,0 +1,25 @@
+// visitorRegistry maps visitor handle IDs to active Visitor instances.
+// CGo does not allow passing Go function values as C function pointers;
+// we use a numeric ID (stored in user_data) to look up the Visitor at callback time.
+var (
+	visitorRegistry sync.Map
+	visitorIDCounter atomic.Uint64
+)
+
+func registerVisitor(v Visitor) uintptr {
+	id := uintptr(visitorIDCounter.Add(1))
+	visitorRegistry.Store(id, v)
+	return id
+}
+
+func unregisterVisitor(id uintptr) {
+	visitorRegistry.Delete(id)
+}
+
+func lookupVisitor(id uintptr) (Visitor, bool) {
+	v, ok := visitorRegistry.Load(id)
+	if !ok {
+		return nil, false
+	}
+	return v.(Visitor), true
+}
