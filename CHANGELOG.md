@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-dart): the core→mirror `From` impl for struct fields of type `Duration` now emits `v.{name}.as_millis() as i64` (or `.map(|d| d.as_millis() as i64)` for optional) instead of the invalid `v.{name} as _`. `Duration` is not a primitive type and cannot be coerced with `as`; the previous codegen produced `E0605 non-primitive cast: Duration as i64` for any crate that has `Duration`-typed fields (e.g. `BrowserConfig.timeout`, `CrawlConfig.request_timeout`).
+
 - fix(alef-e2e/ruby): fixtures with only a `not_error` assertion now emit a real test body (`expect { }.not_to raise_error`) instead of `skip "Non-HTTP fixture cannot be tested via Net::HTTP"`.
 
 - fix(alef-codegen,alef-backend-php): `gen_lossy_binding_to_core_fields_inner` and `gen_php_lossy_binding_to_core_fields` now skip fields whose `field.cfg` is `Some(...)`. Previously, cfg-gated fields (e.g. `pdf_options`, `keywords`, `layout`) were emitted in the binding→core struct literal even though those fields are absent from the binding struct (they are filled by `..Default::default()`). The generated code produced `E0609 "no field X on type &ExtractionConfig"` in downstream PyO3 and PHP crates after alef regen.
