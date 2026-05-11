@@ -1703,7 +1703,7 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         CallbackAction::Continue => ("continue", String::new()),
         CallbackAction::PreserveHtml => ("preserve_html", String::new()),
         CallbackAction::Custom { output } => ("custom", escape_php(output)),
-        CallbackAction::CustomTemplate { template } => ("custom_template", escape_php(template)),
+        CallbackAction::CustomTemplate { template, .. } => ("custom_template", escape_php(template)),
     };
 
     let rendered = crate::template_env::render(

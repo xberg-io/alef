@@ -768,6 +768,9 @@ pub(crate) fn emit_type_method_shims(
                     match &method.return_type {
                         TypeRef::Named(t) => format!(".map({t})"),
                         TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                        // `bytes::Bytes` is bridged as `Vec<u8>` in the swift-bridge surface.
+                        // The trait method returns `Bytes`; convert via `.to_vec()`.
+                        TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
                         _ => String::new(),
                     }
                 };
@@ -789,6 +792,7 @@ pub(crate) fn emit_type_method_shims(
                 match &method.return_type {
                     TypeRef::Named(t) => format!(".map({t})"),
                     TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                    TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
                     _ => String::new(),
                 }
             };

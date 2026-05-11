@@ -17,6 +17,10 @@
 {% elif action_type == "custom" %}
         return { custom: "{{ action_value }}" };
 {% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+        return `{{ action_template }}`;
+{% else %}
         return { custom: `{{ action_template }}` };
+{% endif %}
 {% endif %}
     },

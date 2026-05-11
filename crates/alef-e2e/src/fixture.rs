@@ -54,7 +54,26 @@ pub enum CallbackAction {
     CustomTemplate {
         /// Template with placeholders like {text}, {href}.
         template: String,
+        /// How the generated visitor returns the rendered template to the host.
+        /// `Dict` (default) returns `{"custom": "..."}` (or per-language equivalent)
+        /// to hit the structured-result code path; `BareString` returns the raw
+        /// rendered string to hit the string-result code path. Both must produce
+        /// `VisitResult::Custom`.
+        #[serde(default)]
+        return_form: TemplateReturnForm,
     },
+}
+
+/// How a `CustomTemplate` action returns its rendered value from the visitor.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateReturnForm {
+    /// Return a host-native structured value (e.g. dict, hash, array, object)
+    /// carrying the rendered string under a `custom` key.
+    #[default]
+    Dict,
+    /// Return the rendered string directly, with no wrapper.
+    BareString,
 }
 
 /// Environment variable requirements for a smoke/live test fixture.

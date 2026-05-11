@@ -1899,7 +1899,7 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
             let escaped = escape_elixir(output);
             let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
         }
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             // Build a <> concatenation expression so {key} placeholders are substituted
             // from the args map at runtime without embedding double-quoted strings inside
             // a double-quoted string literal.

@@ -914,13 +914,28 @@ fn render_test_case(
         .and_then(|p| p.name.as_ref())
         .cloned()
         .unwrap_or_else(|| module_path.split('.').next().unwrap_or(module_path).to_string());
+
+    // Merge per-call gleam `enum_fields` and `assert_enum_fields` keys with the
+    // global `fields_enum` set so call-specific enum-typed result fields (e.g.
+    // BatchObject.status → BatchStatus) cause assertion skipping in Gleam even
+    // when the global set doesn't list them.
+    let mut effective_enum_fields: HashSet<String> = enum_fields.clone();
+    if let Some(o) = call_overrides {
+        for k in o.enum_fields.keys() {
+            effective_enum_fields.insert(k.clone());
+        }
+        for k in o.assert_enum_fields.keys() {
+            effective_enum_fields.insert(k.clone());
+        }
+    }
+
     for assertion in &fixture.assertions {
         render_assertion(
             out,
             assertion,
             "r",
             field_resolver,
-            enum_fields,
+            &effective_enum_fields,
             result_is_array,
             &pkg_module,
         );
@@ -1664,10 +1679,21 @@ fn render_assertion(
         .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(field_resolver.resolve(f)));
 
     // Determine if this field is an enum type.
-    let _field_is_enum = assertion
+    // When true, `equals` assertions are skipped with a comment: Gleam sum types
+    // cannot be compared with string literals in generated code without a
+    // language-specific coercion that alef does not auto-generate.
+    let field_is_enum = assertion
         .field
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
+    if field_is_enum && assertion.assertion_type == "equals" {
+        let f = assertion.field.as_deref().unwrap_or("");
+        let _ = writeln!(
+            out,
+            "  // skipped: enum field '{f}' comparison not yet supported in Gleam e2e"
+        );
+        return;
+    }
 
     let field_expr = match &assertion.field {
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "gleam", result_var),
@@ -2010,7 +2036,7 @@ mod tests {
         let input = serde_json::json!({
             "config": { "use_cache": true, "force_ocr": false }
         });
-        let (_setup, args_str) = build_args_and_setup(
+        let Some((_setup, args_str)) = build_args_and_setup(
             &input,
             &[arg],
             "test_fixture",
@@ -2018,7 +2044,10 @@ mod tests {
             &[],
             Some("k.config_from_json_string({json})"),
             "kreuzberg",
-        );
+            &[],
+        ) else {
+            panic!("expected Some result from build_args_and_setup");
+        };
         // The wrapper template substitutes {json} with the JSON-string literal
         // emitted by json_to_gleam.
         assert!(
@@ -2044,7 +2073,7 @@ mod tests {
             go_type: None,
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
-        let (_setup, args_str) = build_args_and_setup(
+        let Some((_setup, args_str)) = build_args_and_setup(
             &input,
             &[arg],
             "test_fixture",
@@ -2052,7 +2081,10 @@ mod tests {
             &[],
             None,
             "kreuzberg",
-        );
+            &[],
+        ) else {
+            panic!("expected Some result from build_args_and_setup");
+        };
         // Default behaviour: bare JSON-string literal, no wrapper. The
         // emission must NOT contain any function-call shape from a wrapper.
         assert!(

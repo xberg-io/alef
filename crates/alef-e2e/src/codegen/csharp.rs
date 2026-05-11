@@ -2940,7 +2940,7 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         CallbackAction::Continue => ("continue", String::new()),
         CallbackAction::PreserveHtml => ("preserve_html", String::new()),
         CallbackAction::Custom { output } => ("custom", escape_csharp(output)),
-        CallbackAction::CustomTemplate { template } => {
+        CallbackAction::CustomTemplate { template, .. } => {
             let camel = snake_case_template_to_camel(template);
             ("custom_template", escape_csharp(&camel))
         }
