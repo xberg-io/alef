@@ -64,7 +64,13 @@ impl FfiBridgeGenerator {
             },
         ));
         if has_error {
-            out.push_str(&make_err(format!("\"vtable.{name} is null — bridge not initialised\"")));
+            let null_msg = crate::template_env::render(
+                "ffi_vtable_not_initialised_msg.jinja",
+                minijinja::context! {
+                    name => name,
+                },
+            );
+            out.push_str(&make_err(null_msg));
         } else {
             // For infallible methods, return the Rust default value
             let default_expr = default_for_type(&method.return_type);
@@ -167,7 +173,13 @@ impl FfiBridgeGenerator {
                         );
                         if has_error {
                             let param_name = &p.name;
-                            out.push_str(&make_err(format!("\"nul byte in param {param_name}\"")));
+                            let param_err_msg = crate::template_env::render(
+                                "ffi_nul_byte_param_msg.jinja",
+                                minijinja::context! {
+                                    name => param_name,
+                                },
+                            );
+                            out.push_str(&make_err(param_err_msg));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::template_env::render(
@@ -215,7 +227,13 @@ impl FfiBridgeGenerator {
                         );
                         if has_error {
                             let param_name = &p.name;
-                            out.push_str(&make_err(format!("\"nul byte in serialized param {param_name}\"")));
+                            let param_err_msg = crate::template_env::render(
+                                "ffi_nul_byte_json_param_msg.jinja",
+                                minijinja::context! {
+                                    name => param_name,
+                                },
+                            );
+                            out.push_str(&make_err(param_err_msg));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
                             out.push_str(&crate::template_env::render(
@@ -365,7 +383,13 @@ impl FfiBridgeGenerator {
                         "if _out_result.is_null() {
 ",
                     );
-                    out.push_str(&make_err(format!("\"vtable.{name} returned null out_result\"")));
+                    let null_result_msg = crate::template_env::render(
+                        "ffi_vtable_null_out_result_msg.jinja",
+                        minijinja::context! {
+                            name => name,
+                        },
+                    );
+                    out.push_str(&make_err(null_result_msg));
                     out.push_str(
                         "}
 ",

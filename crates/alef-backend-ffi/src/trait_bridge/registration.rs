@@ -225,8 +225,10 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         );
         out.push('\n');
         out.push_str(&crate::template_env::render(
-            "formatted_line.jinja",
-            minijinja::context! { content => format!("{cached_name_clone}let vtable = self.vtable;\n") },
+            "ffi_async_cached_name_init.jinja",
+            minijinja::context! {
+                has_cached_name => has_error,
+            },
         ));
         out.push_str(
             "let user_data = self.user_data;
@@ -242,8 +244,11 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
                 _ => format!("{}.clone()", p.name),
             };
             out.push_str(&crate::template_env::render(
-                "formatted_line.jinja",
-                minijinja::context! { content => format!("let {} = {clone_expr};\n", p.name) },
+                "ffi_async_capture_param.jinja",
+                minijinja::context! {
+                    param_name => &p.name,
+                    expr => &clone_expr,
+                },
             ));
         }
         out.push('\n');
@@ -258,8 +263,10 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         );
         for line in sync_body.lines() {
             out.push_str(&crate::template_env::render(
-                "formatted_line.jinja",
-                minijinja::context! { content => format!("    {line}\n") },
+                "ffi_async_body_indent.jinja",
+                minijinja::context! {
+                    line => line,
+                },
             ));
         }
         out.push_str(
@@ -276,8 +283,19 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         );
         if has_error {
             let inner_error_constructor = spec.make_error("e.to_string()");
-            out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!(".map_err(|e| {core_import}::KreuzbergError::Plugin {{ message: format!(\"spawn_blocking failed in {method_name}: {{}}\", e), plugin_name: String::new() }})?\n") }));
-            out.push_str(&crate::template_env::render("formatted_line.jinja", minijinja::context! { content => format!(".map_err(|e: Box<dyn std::error::Error + Send + Sync>| {inner_error_constructor})\n") }));
+            out.push_str(&crate::template_env::render(
+                "ffi_async_map_err_method.jinja",
+                minijinja::context! {
+                    core_import => &core_import,
+                    method_name => &method_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "ffi_async_box_error_map.jinja",
+                minijinja::context! {
+                    inner_error_constructor => &inner_error_constructor,
+                },
+            ));
         } else {
             out.push_str(
                 ".unwrap_or_else(|_| Default::default())
