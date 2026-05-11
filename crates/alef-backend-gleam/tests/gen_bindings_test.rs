@@ -919,3 +919,38 @@ fn trait_bridge_emits_all_three_fns_when_fully_configured() {
         "missing clear fn: {content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Regression: a non-trait type that has methods must be emitted ONCE as an
+// opaque resource. It must NOT also be emitted as a regular phantom/record
+// type by the data-type emission pass (gleam rejects duplicate type defs).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
+    let mut client = make_type("DefaultClient", vec![]);
+    client.methods = vec![make_method("chat")];
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_nif("Elixir.Demo.Native");
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let normal_defs = content.matches("pub type DefaultClient").count();
+    let opaque_defs = content.matches("pub opaque type DefaultClient").count();
+    assert_eq!(opaque_defs, 1, "expected exactly one opaque emission: {content}");
+    // `pub type` is a substring of `pub opaque type`? No — they're distinct prefixes.
+    assert_eq!(
+        normal_defs, 0,
+        "non-trait type with methods must not be emitted as a regular type: {content}"
+    );
+}
