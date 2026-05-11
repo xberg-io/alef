@@ -52,7 +52,10 @@
 {% elif assertion_type == "not_empty" %}
     try testing.expect({{ field_expr }} != .null);
 {% elif assertion_type == "is_empty" %}
-    try testing.expectEqual(.null, {{ field_expr }});
+    {
+        const _iv = {{ field_expr }};
+        try testing.expect(_iv == .null or (_iv == .string and _iv.string.len == 0));
+    }
 {% elif assertion_type == "min_length" %}
     try testing.expect({{ field_expr }}.string.len >= {{ n }});
 {% elif assertion_type == "count_min" %}
