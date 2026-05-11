@@ -693,8 +693,14 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                             // Duration stored as Option<i64> (option_duration_on_defaults).
                             // Use the core type's default rather than Duration::default() (0s)
                             // so that e.g. BrowserConfig.timeout preserves its 30s default.
-                            format!(
-                                "self.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_else(|| {core_path}::default().{name})"
+                            crate::template_env::render(
+                                "php_duration_default_expr.jinja",
+                                context! {
+                                    value_expr => &format!("self.{name}"),
+                                    cast => " as u64",
+                                    core_type => &core_path,
+                                    field_name => name.as_str(),
+                                },
                             )
                         } else {
                             format!("std::time::Duration::from_millis(self.{name} as u64)")
@@ -960,8 +966,14 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             // generate `val.{name} as u64` which fails to compile on Option<i64>.
             // Use the core type's default when None to preserve intended defaults (e.g. 30s timeout).
             let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
-            let conversion = format!(
-                "val.{name}.map(|v| std::time::Duration::from_millis(v{cast})).unwrap_or_else(|| {core_path}::default().{name})"
+            let conversion = crate::template_env::render(
+                "php_duration_default_expr.jinja",
+                context! {
+                    value_expr => &format!("val.{name}"),
+                    cast => cast,
+                    core_type => &core_path,
+                    field_name => name.as_str(),
+                },
             );
             out.push_str(&crate::template_env::render(
                 "php_struct_field_assignment.jinja",

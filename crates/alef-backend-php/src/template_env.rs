@@ -94,6 +94,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/php_default_update.jinja"),
     ),
     (
+        "php_duration_default_expr.jinja",
+        include_str!("../templates/php_duration_default_expr.jinja"),
+    ),
+    (
         "php_phpdoc_block_start.jinja",
         include_str!("../templates/php_phpdoc_block_start.jinja"),
     ),
