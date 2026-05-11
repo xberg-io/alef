@@ -129,7 +129,8 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "php-ext": {{
     "extension-name": "{ext_name}",
     "support-zts": true,
-    "support-nts": true
+    "support-nts": true,
+    "download-url-method": ["pre-packaged-binary", "composer-default"]
   }}{keywords}
 }}
 "#,

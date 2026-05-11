@@ -13,7 +13,13 @@
         return 'continue';
 {% elif action_type == "preserve_html" %}
         return 'preserve_html';
-{% elif action_type == "custom" or action_type == "custom_template" %}
+{% elif action_type == "custom" %}
         return ['custom' => "{{ action_value }}"];
+{% elif action_type == "custom_template" %}
+{% if return_form == "bare_string" %}
+        return "{{ action_value }}";
+{% else %}
+        return ['custom' => "{{ action_value }}"];
+{% endif %}
 {% endif %}
     }

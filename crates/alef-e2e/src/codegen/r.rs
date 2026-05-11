@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_r, r_template_to_paste0, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -1061,9 +1061,16 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
             let escaped = escape_r(output);
             let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
-        CallbackAction::CustomTemplate { template, .. } => {
+        CallbackAction::CustomTemplate { template, return_form } => {
             let r_expr = r_template_to_paste0(template);
-            let _ = writeln!(out, "      list(custom = {r_expr})");
+            match return_form {
+                TemplateReturnForm::BareString => {
+                    let _ = writeln!(out, "      {r_expr}");
+                }
+                TemplateReturnForm::Dict => {
+                    let _ = writeln!(out, "      list(custom = {r_expr})");
+                }
+            }
         }
     }
     let _ = writeln!(out, "    }},");

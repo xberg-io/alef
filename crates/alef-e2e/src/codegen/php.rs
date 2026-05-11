@@ -7,7 +7,9 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, TemplateReturnForm, ValidationErrorExpectation,
+};
 use alef_backend_php::naming::php_autoload_namespace;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -1698,12 +1700,18 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         _ => "$ctx",
     };
 
-    let (action_type, action_value) = match action {
-        CallbackAction::Skip => ("skip", String::new()),
-        CallbackAction::Continue => ("continue", String::new()),
-        CallbackAction::PreserveHtml => ("preserve_html", String::new()),
-        CallbackAction::Custom { output } => ("custom", escape_php(output)),
-        CallbackAction::CustomTemplate { template, .. } => ("custom_template", escape_php(template)),
+    let (action_type, action_value, return_form) = match action {
+        CallbackAction::Skip => ("skip", String::new(), "dict"),
+        CallbackAction::Continue => ("continue", String::new(), "dict"),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), "dict"),
+        CallbackAction::Custom { output } => ("custom", escape_php(output), "dict"),
+        CallbackAction::CustomTemplate { template, return_form } => {
+            let form = match return_form {
+                TemplateReturnForm::Dict => "dict",
+                TemplateReturnForm::BareString => "bare_string",
+            };
+            ("custom_template", escape_php(template), form)
+        }
     };
 
     let rendered = crate::template_env::render(
@@ -1713,6 +1721,7 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
             params => params,
             action_type => action_type,
             action_value => action_value,
+            return_form => return_form,
         },
     );
     for line in rendered.lines() {
