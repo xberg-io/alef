@@ -548,11 +548,6 @@ fn render_test_fn(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
-    // When `result_is_json_struct = true`, the Zig function returns `[]u8` JSON.
-    // The test parses it with `std.json.parseFromSlice(std.json.Value, ...)` and
-    // traverses the dynamic JSON object for field assertions.
-    let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct);
-
     // Client factory: when set, the test instantiates a client object via
     // `module.factory_fn(...)` and calls methods on the instance rather than
     // calling top-level package functions directly.
@@ -564,6 +559,18 @@ fn render_test_fn(
             .get(lang)
             .and_then(|o| o.client_factory.as_deref())
     });
+
+    // When `result_is_json_struct = true`, the Zig function returns `[]u8` JSON.
+    // The test parses it with `std.json.parseFromSlice(std.json.Value, ...)` and
+    // traverses the dynamic JSON object for field assertions.
+    //
+    // Client-factory methods on opaque handles always return JSON `[]u8` because
+    // the zig backend serializes struct results via the FFI's `*_to_json` helper
+    // (see alef-backend-zig/src/gen_bindings/opaque_handles.rs). Force the flag
+    // on whenever a client_factory is in play so the test path parses the JSON
+    // result rather than attempting direct field access on `[]u8`.
+    let result_is_json_struct =
+        call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;

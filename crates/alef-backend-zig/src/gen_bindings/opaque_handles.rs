@@ -35,7 +35,30 @@ pub(crate) fn emit_opaque_handle(
         let _ = writeln!(out);
     }
 
+    // Synthetic destructor: every opaque-handle type owns a heap allocation in
+    // the FFI and must be released via the matching `{prefix}_{snake}_free`
+    // C symbol. Emit a `free()` method that performs that release.
+    emit_opaque_free(ty, prefix, &type_snake, out);
+
     let _ = writeln!(out, "}};");
+}
+
+/// Emit a `free()` method that releases the underlying FFI handle by calling
+/// `c.{prefix}_{snake_type}_free(self._handle)`. The C destructor is generated
+/// by the FFI crate for every opaque handle type.
+fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out: &mut String) {
+    let upper_prefix = prefix.to_uppercase();
+    let _ = writeln!(
+        out,
+        "    /// Release the underlying FFI handle. Safe to call once per instance."
+    );
+    let _ = writeln!(out, "    pub fn free(self: *{}) void {{", ty.name);
+    let _ = writeln!(
+        out,
+        "        c.{prefix}_{type_snake}_free(@as(*c.{upper_prefix}{type_name}, @ptrCast(self._handle)));",
+        type_name = ty.name,
+    );
+    let _ = writeln!(out, "    }}");
 }
 
 /// Emit a single method on an opaque handle wrapper struct.
@@ -83,7 +106,7 @@ fn emit_opaque_method(
 
     let _ = writeln!(
         out,
-        "    pub fn {method_name}({params}) !{return_ty} {{",
+        "    pub fn {method_name}({params}) {return_ty} {{",
         method_name = method.name,
         params = params_str,
         return_ty = return_ty,
@@ -109,25 +132,14 @@ fn emit_opaque_method(
         args = c_args.join(", ")
     );
 
-    if zig_error_type.is_some() {
+    if let Some(ref err_ty) = zig_error_type {
         if matches!(method.return_type, TypeRef::Unit) {
             let _ = writeln!(out, "        _ = {c_call};");
         } else {
             let _ = writeln!(out, "        const _result = {c_call};");
         }
-        let _ = writeln!(out, "        const _err_code = c.{prefix}_last_error_code();");
-        let _ = writeln!(out, "        if (_err_code != 0) {{");
-        let _ = writeln!(out, "            const _msg_ptr = c.{prefix}_last_error_context();");
-        let _ = writeln!(
-            out,
-            "            const _msg_slice = if (_msg_ptr != null) std.mem.span(_msg_ptr.?) else \"unknown error\";"
-        );
-        let _ = writeln!(
-            out,
-            "            const _msg = try std.heap.c_allocator.dupe(u8, _msg_slice);"
-        );
-        let _ = writeln!(out, "            _ = _msg;");
-        let _ = writeln!(out, "            return error.FfiError;");
+        let _ = writeln!(out, "        if (c.{prefix}_last_error_code() != 0) {{");
+        let _ = writeln!(out, "            return _first_error({err_ty});");
         let _ = writeln!(out, "        }}");
 
         // Free params after error check.
