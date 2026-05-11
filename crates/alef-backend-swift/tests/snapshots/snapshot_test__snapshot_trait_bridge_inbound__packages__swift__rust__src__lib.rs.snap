@@ -131,7 +131,6 @@ where
         Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
     }
 }
-
 /// Rust-side wrapper around a Swift class implementing the `OcrBackend` plugin protocol.
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
@@ -153,7 +152,6 @@ impl SwiftOcrBackendWrapper {
         Self { inner, name_cache: ::std::sync::OnceLock::new() }
     }
 }
-
 impl demo::plugins::Plugin for SwiftOcrBackendWrapper {
     fn name(&self) -> &str {
         self.name_cache.get_or_init(|| self.inner.alef_name()).as_str()
@@ -171,7 +169,6 @@ impl demo::plugins::Plugin for SwiftOcrBackendWrapper {
         decode_inbound_envelope::<()>(&self.inner.alef_shutdown()).map(|_| ())
     }
 }
-
 #[async_trait::async_trait]
 impl demo::plugins::OcrBackend for SwiftOcrBackendWrapper {
     async fn process_image(&self, image_bytes: &[u8], config: &demo::OcrConfig) -> demo::Result<demo::ExtractionResult> {
@@ -198,7 +195,6 @@ pub fn register_ocr_backend(swift_box: ffi::SwiftOcrBackendBox) -> Result<(), St
     let mut guard = registry.write();
     guard.register(arc).map_err(|e| e.to_string())
 }
-
 /// Unregister a previously-registered `OcrBackend` plugin by name.
 pub fn unregister_ocr_backend(name: String) -> Result<(), String> {
     let registry = demo::plugins::registry::get_ocr_backend_registry();

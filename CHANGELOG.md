@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(dart e2e): `[e2e.call.overrides.dart].client_factory` support — when set, generated `package:test` tests call `await {BridgeClass}.{factory}('test-key', baseUrl: mockUrl)` before the assertion and dispatch the method on the resulting `_client` instance. Mirrors the Go/TypeScript/Zig/Swift/Kotlin client-factory pattern; no special-casing per library.
+
+### Changed
+
+- refactor(dart): `[crates.dart].stub_methods` is now a config-driven list of method names whose Rust bridge body is replaced with `unimplemented!()`. Previously this behaviour was hardcoded to kreuzberg's `batch_extract_bytes` / `batch_extract_bytes_sync`. **Migration**: if your `alef.toml` relied on the hardcoded list, add `stub_methods = ["batch_extract_bytes", "batch_extract_bytes_sync"]` (or the relevant names) under `[crates.<name>.dart]`.
+
+### Known limitations
+
+- FRB codegen still requires a manual post-step after `alef generate`: `cd packages/dart/rust && cargo run --bin flutter_rust_bridge_codegen`. Implementing a `PostBuildStep` for this is deferred to a future release.
+
+### Added
+
+- feat(swift): client-object class wrapper — types with non-empty `TypeDef.methods` now emit a `public final class TypeName` with an `init(apiKey:baseUrl:)` constructor and one `public func method(...)` per method, backed by free-function shims in the swift-bridge crate (`create_<type>` / `<type>_<method>`). Driven by `TypeDef.methods` in the IR; no special-casing per library.
+- feat(swift e2e): `[e2e.call.overrides.swift].client_factory` support — when set, generated XCTest methods instantiate `DefaultClient(apiKey:baseUrl:)` against the mock server URL and call `client.<method>(args)` instead of a free function. Mirrors the Go/TypeScript/Zig client-factory pattern.
+- feat(swift e2e): `Package.swift` now always emits `.iOS(.v14)` alongside `.macOS(...)` in the platforms array; swift-bridge supports both targets.
+- feat(kotlin): client-object class codegen — types with non-empty `TypeDef.methods` now emit a `DefaultClient.kt` with a `class DefaultClient(apiKey, baseUrl?)` constructor, one method per `MethodDef`, and `AutoCloseable.close()` delegating to `Bridge.<type>_free(handle)`. Driven entirely by IR; flat-function Kotlin (kreuzberg) is unaffected.
+- feat(kotlin e2e): `[e2e.call.overrides.kotlin].client_factory` support — when set, generated JUnit 5 tests instantiate `DefaultClient(apiKey, baseUrl)` against the mock server URL and call `client.<method>(args)` followed by `client.close()`, mirroring the Go/TypeScript/Zig pattern.
+- feat(kotlin kmp): KMP `build.gradle.kts` now emits `iosX64`, `iosArm64`, `iosSimulatorArm64` (framework binaries) and `androidNativeArm64` (sharedLib) targets with cinterop blocks; corresponding `iosMain` and `androidNativeArm64Main` sourceSets wired to `nativeMain`.
+- feat(kotlin mode): `KotlinConfig` gains `pub mode: Option<String>` field — accepted values `"jvm"` (default), `"kmp"`, `"android"`. Setting `mode = "android"` emits an Android library project under `packages/kotlin-android/` (minSdk 21, compileSdk 35, `AndroidManifest.xml`).
+
+### Note
+
+- XCFramework `binaryTarget` codegen (pre-built `.xcframework` distribution for SwiftPM) is deferred as a follow-up; the current output requires local `cargo build` to produce the Rust dylib.
+
 ## [0.15.39] - 2026-05-11
 
 ### Added

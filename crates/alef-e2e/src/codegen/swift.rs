@@ -118,6 +118,9 @@ impl E2eCodegen for SwiftE2eCodegen {
             &e2e_config.fields_method_calls,
         );
 
+        // Resolve client_factory override for swift (enables client-instance dispatch).
+        let client_factory: Option<&str> = overrides.and_then(|o| o.client_factory.as_deref());
+
         // One test file per fixture group.
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -144,6 +147,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 &field_resolver,
                 result_is_simple,
                 &e2e_config.fields_enum,
+                client_factory,
             );
             files.push(GeneratedFile {
                 path: tests_base
@@ -205,6 +209,8 @@ fn render_package_swift(
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
+    // iOS (.v14) is always included — swift-bridge supports both macOS and iOS targets
+    // and the generated Package.swift is used as a CI reference for both platforms.
     format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -213,6 +219,7 @@ let package = Package(
     name: "E2eSwift",
     platforms: [
         .macOS(.v{min_macos_major}),
+        .iOS(.v14),
     ],
     dependencies: [
 {dep_block},
@@ -241,6 +248,7 @@ fn render_test_file(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
+    client_factory: Option<&str>,
 ) -> String {
     // Detect whether any fixture in this group uses a file_path or bytes arg — if so
     // the test class chdir's to <repo>/test_documents at setUp time so the
@@ -314,6 +322,7 @@ fn render_test_file(
                 field_resolver,
                 result_is_simple,
                 enum_fields,
+                client_factory,
             );
         }
         let _ = writeln!(out);
@@ -557,6 +566,7 @@ fn render_test_method(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
+    global_client_factory: Option<&str>,
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
@@ -566,6 +576,10 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.to_lower_camel_case());
+    // Per-call client_factory takes precedence over the global one.
+    let client_factory: Option<&str> = call_overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or(global_client_factory);
     let result_var = &call_config.result_var;
     let args = &call_config.args;
     // Per-call flags override the global default.
@@ -579,10 +593,47 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id, &function_name);
 
-    // Use unqualified function name — the Kreuzberg module (imported by the test)
-    // provides convenience overloads that accept plain Swift types (String,
-    // [String], JSON strings) and delegate to the RustBridge layer internally.
-    let qualified_function_name = function_name.clone();
+    // When a client_factory is set, dispatch via a client instance:
+    //   let client = try <FactoryType>(apiKey: "test-key", baseUrl: <mock_url>)
+    //   try await client.<method>(args)
+    // Otherwise fall back to free-function call (Kreuzberg / non-client-factory libraries).
+    let has_mock = fixture.mock_response.is_some();
+    let (call_setup, call_expr) = if let Some(_factory) = client_factory {
+        let mock_url = format!(
+            "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\"",
+            fixture.id
+        );
+        let client_constructor = if has_mock {
+            format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
+        } else {
+            // Live API: check for api_key_var; if not present use mock URL anyway.
+            if let Some(env_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
+                format!(
+                    "let _apiKey = ProcessInfo.processInfo.environment[\"{env_var}\"]\n        \
+                     let _baseUrl: String? = _apiKey != nil ? nil : {mock_url}\n        \
+                     let _client = try DefaultClient(apiKey: _apiKey ?? \"test-key\", baseUrl: _baseUrl)"
+                )
+            } else {
+                format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
+            }
+        };
+        let expr = if is_async {
+            format!("try await _client.{function_name}({args_str})")
+        } else {
+            format!("try _client.{function_name}({args_str})")
+        };
+        (Some(client_constructor), expr)
+    } else {
+        // Free-function call (no client_factory).
+        let expr = if is_async {
+            format!("try await {function_name}({args_str})")
+        } else {
+            format!("try {function_name}({args_str})")
+        };
+        (None, expr)
+    };
+    // For backwards compatibility: qualified_function_name unused when client_factory is set.
+    let _ = function_name;
 
     if is_async {
         let _ = writeln!(out, "    func test{method_name}() async throws {{");
@@ -595,6 +646,11 @@ fn render_test_method(
         let _ = writeln!(out, "        {line}");
     }
 
+    // Emit client construction if a client_factory is configured.
+    if let Some(setup) = &call_setup {
+        let _ = writeln!(out, "        {setup}");
+    }
+
     if expects_error {
         if is_async {
             // XCTAssertThrowsError is a synchronous macro; for async-throwing
@@ -602,32 +658,19 @@ fn render_test_method(
             // the throw actually happens. `await XCTAssertThrowsError(...)` is
             // not valid Swift — it evaluates `await` against a non-async expr.
             let _ = writeln!(out, "        do {{");
-            let _ = writeln!(out, "            _ = try await {qualified_function_name}({args_str})");
+            let _ = writeln!(out, "            _ = {call_expr}");
             let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
             let _ = writeln!(out, "        }} catch {{");
             let _ = writeln!(out, "            // success");
             let _ = writeln!(out, "        }}");
         } else {
-            let _ = writeln!(
-                out,
-                "        XCTAssertThrowsError(try {qualified_function_name}({args_str}))"
-            );
+            let _ = writeln!(out, "        XCTAssertThrowsError({call_expr})");
         }
         let _ = writeln!(out, "    }}");
         return;
     }
 
-    if is_async {
-        let _ = writeln!(
-            out,
-            "        let {result_var} = try await {qualified_function_name}({args_str})"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "        let {result_var} = try {qualified_function_name}({args_str})"
-        );
-    }
+    let _ = writeln!(out, "        let {result_var} = {call_expr}");
 
     for assertion in &fixture.assertions {
         render_assertion(
@@ -860,15 +903,27 @@ fn render_assertion(
         }
     };
 
-    // For enum fields, use .rawValue to get the string value.
+    // In Swift, optional chaining with `?.` makes the result optional even if the
+    // called method's return type isn't marked optional. For example:
+    // `result.markdown()?.content()` returns `Optional<RustString>` because
+    // `markdown()` is optional and the `?.` operator wraps the result.
+    // Detect this by checking if the accessor contains `?.`.
+    let accessor_is_optional = field_expr.contains("?.");
+
+    // For enum fields, need to handle the string representation differently in Swift.
+    // Swift enums don't have `.rawValue` unless they're explicitly RawRepresentable.
+    // Check if this is an enum type and handle accordingly.
     // For optional fields (Optional<RustString>), use optional chaining before toString().
     // For other fields: swift-bridge returns all Rust `String` fields as `RustString`.
     // We add .toString() here so string assertions (contains, hasPrefix, etc.) work.
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
-        format!("{field_expr}.rawValue")
-    } else if field_is_optional {
+        // Swift enums generated by swift-bridge are plain enums (not RawRepresentable).
+        // To get a string representation, we need to match on the enum or use a description.
+        // For now, just use the enum name directly without .rawValue.
+        field_expr.clone()
+    } else if field_is_optional || accessor_is_optional {
         format!("({field_expr}?.toString() ?? \"\")")
     } else {
         format!("{field_expr}.toString()")
@@ -879,12 +934,20 @@ fn render_assertion(
             if let Some(expected) = &assertion.value {
                 let swift_val = json_to_swift(expected);
                 if expected.is_string() {
-                    // For optional strings (String?), use ?? to coalesce before trimming.
-                    // `.toString()` converts RustString → Swift String before calling
-                    // `.trimmingCharacters`, which requires a concrete String type.
-                    // string_expr already incorporates field_is_optional via ?.toString() ?? "".
-                    let trim_expr = format!("{string_expr}.trimmingCharacters(in: .whitespaces)");
-                    let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
+                    if field_is_enum {
+                        // For enum fields, compare the string representation of the enum case.
+                        // Use String(describing:) to get the case name.
+                        let enum_str = format!("String(describing: {field_expr})");
+                        let trim_expr = format!("{enum_str}.trimmingCharacters(in: .whitespaces)");
+                        let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
+                    } else {
+                        // For optional strings (String?), use ?? to coalesce before trimming.
+                        // `.toString()` converts RustString → Swift String before calling
+                        // `.trimmingCharacters`, which requires a concrete String type.
+                        // string_expr already incorporates field_is_optional via ?.toString() ?? "".
+                        let trim_expr = format!("{string_expr}.trimmingCharacters(in: .whitespaces)");
+                        let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
+                    }
                 } else {
                     let _ = writeln!(out, "        XCTAssertEqual({field_expr}, {swift_val})");
                 }
@@ -916,6 +979,13 @@ fn render_assertion(
                             out,
                             "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                         );
+                    } else if field_is_enum {
+                        // For enum fields, check if the string representation contains the substring.
+                        let enum_str = format!("String(describing: {field_expr})");
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue({enum_str}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
                     } else {
                         let _ = writeln!(
                             out,
@@ -940,6 +1010,16 @@ fn render_assertion(
                         let _ = writeln!(
                             out,
                             "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                        );
+                    }
+                } else if field_is_enum {
+                    // For enum fields, check if the string representation contains all substrings.
+                    let enum_str = format!("String(describing: {field_expr})");
+                    for val in values {
+                        let swift_val = json_to_swift(val);
+                        let _ = writeln!(
+                            out,
+                            "        XCTAssertTrue({enum_str}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                         );
                     }
                 } else {
@@ -1224,13 +1304,28 @@ fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolv
 /// Swift-bridge exposes all Rust fields as methods with `()`. When ancestor segments are
 /// optional, we use `?.` chaining. The final count is coalesced with `?? 0` when there
 /// are optional ancestors so the XCTAssert macro receives a non-optional `Int`.
+///
+/// Also check if the field itself (the leaf) is optional, which happens when the field
+/// returns Optional<RustVec<T>> (e.g., `links()` may return Optional).
 fn swift_array_count_expr(field: Option<&str>, result_var: &str, field_resolver: &FieldResolver) -> String {
     let Some(f) = field else {
         return format!("{result_var}.count");
     };
-    let (accessor, has_optional) = swift_build_accessor(f, result_var, field_resolver);
+    let (accessor, mut has_optional) = swift_build_accessor(f, result_var, field_resolver);
+    // Also check if the leaf field itself is optional.
+    if field_resolver.is_optional(f) {
+        has_optional = true;
+    }
     if has_optional {
-        format!("{accessor}.count ?? 0")
+        // In Swift, accessing .count on an optional with ?. returns Optional<Int>,
+        // so we coalesce with ?? 0 to get a concrete Int for XCTAssert.
+        if accessor.contains("?.") {
+            format!("{accessor}.count ?? 0")
+        } else {
+            // If no ?. but field is optional, the field_expr itself is Optional<RustVec<T>>
+            // so we need ?. to call count.
+            format!("({accessor}?.count ?? 0)")
+        }
     } else {
         format!("{accessor}.count")
     }

@@ -130,6 +130,111 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
     block
 }
 
+/// Emit a separate `extern "Rust"` block with free functions bridging each method of `ty`.
+///
+/// Each method `fn method_name(self, param: T) -> R` on type `TypeName` becomes a
+/// free function `fn type_name_method_name(client: &TypeName, param: T) -> R` in the bridge.
+/// The Swift-side name is camelCased: `typeNameMethodName`.
+///
+/// Skips sanitized methods (their signatures contain types that cannot be bridged).
+pub(crate) fn emit_extern_block_for_type_methods(ty: &TypeDef) -> Option<String> {
+    let bridgeable: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized).collect();
+    if bridgeable.is_empty() {
+        return None;
+    }
+
+    let mut block = String::new();
+    block.push_str("    extern \"Rust\" {\n");
+
+    for method in &bridgeable {
+        let type_snake = ty.name.to_snake_case();
+        let method_snake = method.name.to_snake_case();
+        let fn_name = format!("{type_snake}_{method_snake}");
+        let swift_name = swift_ident(&fn_name.to_lower_camel_case());
+
+        // Build parameter list: first param is `client: &TypeName`, then method params.
+        let mut params: Vec<String> = vec![format!("client: &{}", ty.name)];
+        for p in &method.params {
+            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
+            let name = swift_ident(&p.name.to_snake_case());
+            params.push(format!("{name}: {bridge_ty}"));
+        }
+        let params_str = params.join(", ");
+
+        let return_ty = if method.error_type.is_some() {
+            let ok_ty = bridge_type(&method.return_type);
+            if matches!(method.return_type, TypeRef::Unit) {
+                "Result<(), String>".to_string()
+            } else {
+                format!("Result<{ok_ty}, String>")
+            }
+        } else {
+            bridge_type(&method.return_type)
+        };
+
+        // Emit swift_name attribute when the generated Swift name differs from fn_name.
+        if swift_name != fn_name {
+            block.push_str(&crate::template_env::render(
+                "extern_swift_name_attr.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                },
+            ));
+        }
+        block.push_str(&crate::template_env::render(
+            "extern_fn_decl.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &params_str,
+                return_type => &return_ty,
+            },
+        ));
+    }
+
+    block.push_str("    }\n\n");
+    Some(block)
+}
+
+/// Also emit a `createDefaultClient`-style constructor extern for types with methods,
+/// so Swift can instantiate them via `RustBridge.create<TypeName>(apiKey:baseUrl:)`.
+pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<String> {
+    if ty.methods.iter().all(|m| m.sanitized) {
+        return None;
+    }
+    let type_snake = ty.name.to_snake_case();
+    let fn_name = format!("create_{type_snake}");
+    let swift_name = swift_ident(&fn_name.to_lower_camel_case());
+
+    let mut block = String::new();
+    block.push_str("    extern \"Rust\" {\n");
+
+    if swift_name != fn_name {
+        block.push_str(&crate::template_env::render(
+            "extern_swift_name_attr.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+            },
+        ));
+    }
+    // Constructor returns Result<TypeName, String> so errors propagate as Swift throws.
+    block.push_str(&crate::template_env::render(
+        "extern_fn_decl.jinja",
+        minijinja::context! {
+            fn_name => &fn_name,
+            params => "api_key: String, base_url: Option<String>",
+            return_type => format!("Result<{}, String>", ty.name),
+        },
+    ));
+
+    block.push_str("    }\n\n");
+    Some(block)
+}
+
 pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");

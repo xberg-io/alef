@@ -8,7 +8,7 @@
 //! Enum wrappers live in `enums.rs`.
 
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
-use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge, swift_bridge_rust_type};
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
@@ -597,4 +597,151 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
             },
         ));
     }
+}
+
+/// Emit a `pub fn create_<type_name>(api_key: String, base_url: Option<String>) -> Result<TypeName, String>`
+/// constructor shim for an opaque type that exposes methods.
+///
+/// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
+/// This mirrors the `liter_llm::DefaultClient::new` pattern.
+pub(crate) fn emit_type_constructor_shim(ty: &TypeDef, source_crate: &str, type_paths: &HashMap<String, String>) -> String {
+    let type_snake = ty.name.to_snake_case();
+    let fn_name = format!("create_{type_snake}");
+    let type_name = &ty.name;
+    let source_path = resolve_type_path(type_name, source_crate, type_paths);
+
+    format!(
+        "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
+         {source_path}::new(api_key, base_url)\n        \
+         .map_err(|e| e.to_string())\n        \
+         .map({type_name})\n}}\n"
+    )
+}
+
+/// Emit free function shims for each method on `ty`.
+///
+/// Each method `fn method_name(&self, param: T) -> Result<R, E>` becomes
+/// `pub fn type_name_method_name(client: &TypeName, param: BridgeT) -> Result<BridgeR, String>`.
+/// Async methods are blocked on a Tokio current-thread runtime (same pattern as function shims).
+pub(crate) fn emit_type_method_shims(ty: &TypeDef, _source_crate: &str, _type_paths: &HashMap<String, String>) -> String {
+    let type_snake = ty.name.to_snake_case();
+    let type_name = &ty.name;
+
+    let mut out = String::new();
+    for method in &ty.methods {
+        if method.sanitized {
+            continue;
+        }
+        let method_snake = method.name.to_snake_case();
+        let fn_name = format!("{type_snake}_{method_snake}");
+
+        // Build param list: first param is `client: &TypeName`, then method params.
+        let mut params_vec: Vec<String> = vec![format!("client: &{type_name}")];
+        for p in &method.params {
+            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
+            let name = swift_ident(&p.name.to_snake_case());
+            params_vec.push(format!("{name}: {bridge_ty}"));
+        }
+        let params_str = params_vec.join(", ");
+
+        let return_ty = if method.error_type.is_some() {
+            let ok_ty = bridge_type(&method.return_type);
+            if matches!(method.return_type, TypeRef::Unit) {
+                "Result<(), String>".to_string()
+            } else {
+                format!("Result<{ok_ty}, String>")
+            }
+        } else {
+            bridge_type(&method.return_type)
+        };
+
+        // Build call args for each method param (excluding the receiver).
+        let call_args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let name = p.name.to_snake_case();
+                if needs_json_bridge(&p.ty) {
+                    let native_ty = swift_bridge_rust_type(&p.ty);
+                    format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")")
+                } else if matches!(p.ty, TypeRef::Named(_)) {
+                    format!("{name}.0")
+                } else {
+                    name
+                }
+            })
+            .collect();
+        let call_args_str = call_args.join(", ");
+
+        // Resolve the method call on the inner type.
+        let inner_access = "client.0";
+        let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
+
+        // Determine return wrapping: Named return types get wrapped in their newtype.
+        let json_wrap_ok = needs_json_bridge(&method.return_type);
+        let wrap_return = |source: String| -> String {
+            if json_wrap_ok {
+                return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");
+            }
+            match &method.return_type {
+                TypeRef::Named(t) => format!("{t}({source})"),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(t) = inner.as_ref() {
+                        format!("({source}).map({t})")
+                    } else {
+                        source
+                    }
+                }
+                TypeRef::String | TypeRef::Path => format!("{source}.to_string()"),
+                _ => source,
+            }
+        };
+
+        let body = if method.is_async {
+            let chain = if method.error_type.is_some() {
+                let ok_wrap = if json_wrap_ok {
+                    ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
+                } else {
+                    match &method.return_type {
+                        TypeRef::Named(t) => format!(".map({t})"),
+                        TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                        _ => String::new(),
+                    }
+                };
+                format!("{method_call}.await.map_err(|e| e.to_string()){ok_wrap}")
+            } else {
+                wrap_return(format!("{method_call}.await"))
+            };
+            format!(
+                "    ::tokio::runtime::Builder::new_current_thread()\n        \
+                 .enable_all()\n        \
+                 .build()\n        \
+                 .expect(\"build tokio runtime\")\n        \
+                 .block_on(async {{ {chain} }})"
+            )
+        } else if method.error_type.is_some() {
+            let ok_wrap = if json_wrap_ok {
+                ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
+            } else {
+                match &method.return_type {
+                    TypeRef::Named(t) => format!(".map({t})"),
+                    TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
+                    _ => String::new(),
+                }
+            };
+            format!("    {method_call}.map_err(|e| e.to_string()){ok_wrap}")
+        } else {
+            format!("    {}", wrap_return(method_call))
+        };
+
+        out.push_str(&format!(
+            "pub fn {fn_name}({params_str}) -> {return_ty} {{\n{body}\n}}\n"
+        ));
+    }
+    out
 }

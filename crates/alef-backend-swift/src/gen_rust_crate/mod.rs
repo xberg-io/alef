@@ -223,6 +223,15 @@ fn emit_lib_rs(
             &type_paths,
             &no_serde_names,
         ));
+        // For types with methods, also emit constructor + method extern blocks.
+        if !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
+            if let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
+                extern_blocks.push(ctor_block);
+            }
+            if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty) {
+                extern_blocks.push(method_block);
+            }
+        }
     }
     for en in &visible_enums {
         extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
@@ -287,6 +296,13 @@ fn emit_lib_rs(
             exclude_fields,
         ));
         out.push('\n');
+        // For types that expose methods, emit constructor + method shims.
+        if !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
+            out.push_str(&wrappers::emit_type_constructor_shim(ty, &source_crate, &type_paths));
+            out.push('\n');
+            out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths));
+            out.push('\n');
+        }
     }
     for en in &visible_enums {
         out.push_str(&enums::emit_enum_wrapper(en, &source_crate, &type_paths));
