@@ -131,13 +131,14 @@ fn render_pubspec(
         }
     };
 
+    let sdk = alef_core::template_versions::toolchain::DART_SDK_CONSTRAINT;
     format!(
         r#"name: e2e_dart
 version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: "{sdk}"
 
 dependencies:
 {dep_block}

@@ -60,6 +60,18 @@ pub(crate) fn emit_cargo_toml(
         format!(", features = [{list}]")
     };
 
+    // When the Rust ident form of the umbrella crate name (`core_dep_key`,
+    // e.g. `liter_llm`) differs from the actual cargo package name on disk
+    // (`core_crate_dir`, e.g. `liter-llm`), cargo will not resolve the path
+    // dependency unless we add an explicit `package = "..."` rename. Without
+    // this, `liter_llm = { path = "..." }` looks for a crate literally named
+    // `liter_llm` rather than the on-disk `liter-llm`.
+    let package_rename_block = if dart_override.is_none() && core_dep_key != core_crate_dir {
+        format!(", package = \"{core_crate_dir}\"")
+    } else {
+        String::new()
+    };
+
     // Trait bridge impl methods use tokio::runtime::Handle::current().block_on(...) and
     // async-trait for async trait impls. Add these only when trait bridges are configured.
     // Note: anyhow is NOT included — bridge impls use source_crate::Result directly.
@@ -139,7 +151,7 @@ ignored = [{machete_ignored_list}]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{core_dep_key} = {{ path = "{core_path}"{features_block} }}
+{core_dep_key} = {{ path = "{core_path}"{package_rename_block}{features_block} }}
 flutter_rust_bridge = "{frb_version}"
 {extra_deps}
 [lints.rust]

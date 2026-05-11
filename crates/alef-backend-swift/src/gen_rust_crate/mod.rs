@@ -53,10 +53,16 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     // however, lives in `kreuzberg::ocr::TesseractWasmBackend` which requires `ocr-wasm`.
     // `ocr` is transitively enabled by `full`; ensure `ocr-wasm` is also included whenever
     // the OCR module would be active so the bridge compiles correctly.
+    //
+    // Only do this when the source crate actually exposes an `ocr-wasm` feature — otherwise
+    // we would inject an unknown feature into Cargo.toml for crates that have no OCR module
+    // at all (e.g. liter-llm). We probe by reading the on-disk Cargo.toml of the umbrella
+    // crate.
     let mut features_owned: Vec<String>;
     let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
     let ocr_wasm_present = base_features.iter().any(|f| f == "ocr-wasm");
-    let features: &[String] = if ocr_active && !ocr_wasm_present {
+    let source_has_ocr_wasm = source_crate_has_feature(config, &core_crate_dir, "ocr-wasm");
+    let features: &[String] = if ocr_active && !ocr_wasm_present && source_has_ocr_wasm {
         features_owned = base_features.to_vec();
         features_owned.push("ocr-wasm".to_string());
         &features_owned
@@ -86,6 +92,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
+        &core_crate_dir,
         version,
         &swift_bridge_ver,
         swift_bridge_build_ver,
@@ -122,6 +129,38 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
             generated_header: false,
         },
     ])
+}
+
+/// Check whether the umbrella source crate exposes the given feature name in its
+/// on-disk Cargo.toml. Used to gate auto-injection of optional features like
+/// `ocr-wasm` that some crates expose and others do not.
+fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_dir: &str, feature: &str) -> bool {
+    let root = match config.workspace_root.as_deref() {
+        Some(p) => p.to_path_buf(),
+        None => match std::env::current_dir() {
+            Ok(p) => p,
+            Err(_) => return false,
+        },
+    };
+    let cargo_toml = root.join("crates").join(core_crate_dir).join("Cargo.toml");
+    let Ok(content) = std::fs::read_to_string(&cargo_toml) else {
+        return false;
+    };
+    // Naive scan: look for `<feature> = [` or `<feature> = "..."` under [features]. Avoids
+    // pulling in a TOML parser dep — the Cargo.toml format here is predictable.
+    let needle_line_start = format!("{feature} =");
+    let mut in_features = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_features = trimmed == "[features]";
+            continue;
+        }
+        if in_features && trimmed.starts_with(&needle_line_start) {
+            return true;
+        }
+    }
+    false
 }
 
 fn emit_lib_rs(
@@ -298,7 +337,17 @@ fn emit_lib_rs(
         out.push('\n');
         // For types that expose methods, emit constructor + method shims.
         if !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
-            out.push_str(&wrappers::emit_type_constructor_shim(ty, &source_crate, &type_paths));
+            let custom_body = config
+                .swift
+                .as_ref()
+                .and_then(|c| c.client_constructor_body.get(&ty.name))
+                .map(String::as_str);
+            out.push_str(&wrappers::emit_type_constructor_shim(
+                ty,
+                &source_crate,
+                &type_paths,
+                custom_body,
+            ));
             out.push('\n');
             out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths));
             out.push('\n');

@@ -329,8 +329,12 @@ pub mod toolchain {
     // minimum supported Zig; manual bump required
     pub const MIN_ZIG_VERSION: &str = "0.16.0";
 
-    // version range; manual bump required
-    pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
+    // version range; manual bump required.
+    // 3.3.0 is the minimum that supports `extension type` declarations, which
+    // flutter_rust_bridge 2.x emits in `frb_generated.web.dart` for WASM-side
+    // module bindings. Lower SDKs analyze cleanly for native-only builds but
+    // fail when the .web.dart file is in scope.
+    pub const DART_SDK_CONSTRAINT: &str = ">=3.3.0 <4.0.0";
 
     // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required.
     // 25 is required because the Foreign Function & Memory API (used by the alef-emitted

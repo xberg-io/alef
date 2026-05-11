@@ -58,6 +58,11 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
 
     // Build the dart wrapper parameter list. If the function has an ExtractionConfig param,
     // split into required params and then `[ExtractionConfig? config]` optional positional.
+    //
+    // For all other functions, emit required (non-optional) params as positional and
+    // optional params inside a `{...}` named-parameter block. This matches the natural
+    // Dart calling convention `createClient('key', baseUrl: ...)` and mirrors the
+    // underlying FRB binding which is itself named-only.
     let params_str = if has_config_param {
         let required_params: Vec<String> = f
             .params
@@ -71,11 +76,24 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
             format!("{}, [ExtractionConfig? config]", required_params.join(", "))
         }
     } else {
-        f.params
+        let required: Vec<String> = f
+            .params
             .iter()
+            .filter(|p| !p.optional)
             .map(|p| format_param(p, imports))
-            .collect::<Vec<_>>()
-            .join(", ")
+            .collect();
+        let optional: Vec<String> = f
+            .params
+            .iter()
+            .filter(|p| p.optional)
+            .map(|p| format_param(p, imports))
+            .collect();
+        match (required.is_empty(), optional.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => required.join(", "),
+            (true, false) => format!("{{{}}}", optional.join(", ")),
+            (false, false) => format!("{}, {{{}}}", required.join(", "), optional.join(", ")),
+        }
     };
 
     // FRB bridge functions use Dart named parameters (required keyword).
