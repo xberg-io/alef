@@ -452,6 +452,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/rust_mirror_struct_attribute.jinja"),
     ),
     (
+        "rust_opaque_wrapper_struct.jinja",
+        include_str!("../templates/rust_opaque_wrapper_struct.jinja"),
+    ),
+    (
         "rust_mirror_enum_attribute.jinja",
         include_str!("../templates/rust_mirror_enum_attribute.jinja"),
     ),
