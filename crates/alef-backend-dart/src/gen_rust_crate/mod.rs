@@ -2,7 +2,7 @@
 use alef_codegen::generators::type_paths::build_type_path_lookup;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, CoreWrapper, EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use std::collections::HashSet;
 
 mod bridge_fn;
@@ -101,6 +101,31 @@ fn emit_lib_rs(
     // can reference it by bare name in the generated closure types.
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
 
+    // Compute the set of types that have DIRECT sanitized fields (or Duration/Path fields that
+    // cause layout mismatches) BEFORE emitting impl blocks so opaque method bodies can use
+    // `From` conversion instead of `transmute` for these types.
+    // Also include types with Duration or Path fields: the FRB mirror maps Duration→i64 (8B vs 16B)
+    // and Path→String, creating layout mismatches that make transmute unsound for these types.
+    let types_with_direct_sanitized_fields: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| {
+            t.fields
+                .iter()
+                .any(|f| f.sanitized || has_duration_or_path_field(&f.ty))
+        })
+        .map(|t| t.name.clone())
+        .collect();
+
+    // Compute the transitive closure: types that DIRECTLY or INDIRECTLY contain a type
+    // with sanitized fields. These cannot be safely transmuted because the inner types
+    // have different memory layouts (e.g. BatchBytesItem contains FileExtractionConfig
+    // which has Option<String> where core has Option<HtmlOutputConfig>).
+    // Bridge functions use `From<MirrorT> for kreuzberg::T` for all of these.
+    let types_needing_from_conversion: HashSet<String> =
+        compute_types_containing_sanitized(api, &types_with_direct_sanitized_fields, exclude_types);
+
     for ty in api
         .types
         .iter()
@@ -108,6 +133,20 @@ fn emit_lib_rs(
     {
         content.push('\n');
         emit_mirror_struct(&mut content, ty, source_crate_name);
+    }
+
+    // Emit impl blocks for opaque types that expose methods.
+    // FRB generates Dart-side methods on opaque handles only when the bridge crate
+    // contains `impl TypeName { #[frb] pub fn method(...) }` blocks. Without these
+    // blocks FRB emits an empty `abstract class TypeName implements RustOpaqueInterface {}`
+    // with no methods, causing method-not-found errors in Dart callers.
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.methods.is_empty())
+    {
+        content.push('\n');
+        emit_opaque_impl_block(&mut content, ty, source_crate_name, stub_methods, &types_needing_from_conversion);
     }
 
     for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
@@ -134,38 +173,29 @@ fn emit_lib_rs(
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
 
-    // Compute the set of types that have DIRECT sanitized fields.
-    // Also include types with Duration or Path fields: the FRB mirror maps Duration→i64 (8B vs 16B)
-    // and Path→String, creating layout mismatches that make transmute unsound for these types.
-    let types_with_direct_sanitized_fields: HashSet<String> = api
-        .types
-        .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
-        .filter(|t| {
-            t.fields
-                .iter()
-                .any(|f| f.sanitized || has_duration_or_path_field(&f.ty))
-        })
-        .map(|t| t.name.clone())
-        .collect();
-
-    // Compute the transitive closure: types that DIRECTLY or INDIRECTLY contain a type
-    // with sanitized fields. These cannot be safely transmuted because the inner types
-    // have different memory layouts (e.g. BatchBytesItem contains FileExtractionConfig
-    // which has Option<String> where core has Option<HtmlOutputConfig>).
-    // Bridge functions use `From<MirrorT> for kreuzberg::T` for all of these.
-    let types_needing_from_conversion: HashSet<String> =
-        compute_types_containing_sanitized(api, &types_with_direct_sanitized_fields, exclude_types);
-
     // Collect only the types transitively containing sanitized fields that appear as
     // function input parameters. Output-only types (result structs) are excluded —
     // they never flow Dart→Rust and must not get From<Mirror> for Core impls.
+    // Also include method parameters from opaque types (e.g. DefaultClient::chat takes
+    // ChatCompletionRequest) — these methods also pass mirror types to core and need
+    // From<Mirror> for Core impls to convert safely without transmute.
     let param_types_needing_from: HashSet<String> = api
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name) && !has_unbridgeable_param(f))
         .flat_map(|f| f.params.iter())
         .flat_map(|p| collect_named_types_from_type_ref(&p.ty))
+        .chain(
+            // Method parameters from opaque types that are not stub methods.
+            api.types
+                .iter()
+                .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+                .flat_map(|t| t.methods.iter())
+                .filter(|m| !m.sanitized)
+                .flat_map(|m| m.params.iter())
+                .filter(|p| !p.sanitized)
+                .flat_map(|p| collect_named_types_from_type_ref(&p.ty)),
+        )
         .filter(|name| types_needing_from_conversion.contains(name))
         .collect();
 
@@ -220,6 +250,24 @@ fn emit_lib_rs(
             &opaque_type_names,
             stub_methods,
         );
+    }
+
+    // Emit `create_<snake_name>_from_json` free functions for all non-opaque, non-trait
+    // mirror struct types. These allow e2e tests (and other callers) to construct typed
+    // request objects from a JSON string without manually filling every field — important
+    // for FRB's named-parameter calling convention where passing a plain JSON map is not
+    // possible. Each function deserializes via `serde_json::from_str` into the core type,
+    // then converts to the local mirror type using the already-emitted `From<CoreT> for T`
+    // impl. FRB generates the corresponding `BridgeClass.createTypeNameFromJson(json)` Dart
+    // helper automatically from the `#[frb]`-annotated Rust function.
+    content.push_str("\n// `create_<Type>_from_json` helpers — deserialize a JSON string into a mirror type.\n");
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+    {
+        content.push('\n');
+        emit_from_json_fn(&mut content, ty, source_crate_name);
     }
 
     // Emit FRB trait bridge wrappers for each configured [[trait_bridges]] entry.
@@ -306,11 +354,11 @@ fn compute_types_needing_from_impl(
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
         .map(|t| (t.name.as_str(), t))
         .collect();
-    let enum_names: HashSet<&str> = api
+    let enum_by_name: std::collections::HashMap<&str, &EnumDef> = api
         .enums
         .iter()
         .filter(|e| !exclude_types.contains(&e.name))
-        .map(|e| e.name.as_str())
+        .map(|e| (e.name.as_str(), e))
         .collect();
 
     let mut result: HashSet<String> = seed_types.clone();
@@ -325,10 +373,31 @@ fn compute_types_needing_from_impl(
                 // Collect all Named type references from this field.
                 for named in collect_named_types(&field.ty) {
                     if !result.contains(&named)
-                        && (struct_by_name.contains_key(named.as_str()) || enum_names.contains(named.as_str()))
+                        && (struct_by_name.contains_key(named.as_str())
+                            || enum_by_name.contains_key(named.as_str()))
                     {
                         result.insert(named.clone());
                         worklist.push(named);
+                    }
+                }
+            }
+        } else if let Some(en) = enum_by_name.get(type_name.as_str()) {
+            // Process enum variant field types: the generated From<MirrorEnum> for CoreEnum
+            // uses `.into()` for each variant field, so all variant field types also need
+            // From<MirrorT> for CoreT impls.
+            for variant in &en.variants {
+                for field in &variant.fields {
+                    if field.sanitized {
+                        continue;
+                    }
+                    for named in collect_named_types(&field.ty) {
+                        if !result.contains(&named)
+                            && (struct_by_name.contains_key(named.as_str())
+                                || enum_by_name.contains_key(named.as_str()))
+                        {
+                            result.insert(named.clone());
+                            worklist.push(named);
+                        }
                     }
                 }
             }
@@ -1223,14 +1292,24 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
     }
 }
 
-/// Returns true if `ty` (or any inner type) is Duration or Path.
+/// Returns true if `ty` (or any inner type) has a layout-incompatible mapping in the mirror.
 ///
-/// Duration maps to i64 (8 bytes) vs core Duration (16 bytes).
-/// Path maps to String, which may differ in size.
-/// Both cause layout mismatches that make transmute unsound for structs containing them.
+/// The FRB bridge maps several core types to different Rust types in the mirror:
+/// - Duration → i64 (8 bytes) vs core Duration (16 bytes)
+/// - Path → String (24 bytes) vs core PathBuf
+/// - Json (serde_json::Value) → String (24 bytes) vs core Value (32 bytes)
+/// - Non-i64/f64/bool primitives: u32/i32/u8/etc. → i64 (8 bytes vs 4 bytes for u32)
+/// All of these cause layout mismatches that make transmute unsound for structs containing them.
 fn has_duration_or_path_field(ty: &TypeRef) -> bool {
+    use alef_core::ir::PrimitiveType;
     match ty {
-        TypeRef::Duration | TypeRef::Path => true,
+        TypeRef::Duration | TypeRef::Path | TypeRef::Json => true,
+        // Non-identity primitive widening: u8/i8/u16/i16/u32/i32/u64/usize/isize/f32 all
+        // get widened to i64 (or f64 for floats) in the FRB bridge, causing size mismatches.
+        TypeRef::Primitive(p) => !matches!(
+            p,
+            PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool
+        ),
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => has_duration_or_path_field(inner),
         _ => false,
     }
@@ -1258,4 +1337,338 @@ fn has_unbridgeable_param(f: &alef_core::ir::FunctionDef) -> bool {
         }
     }
     false
+}
+
+/// Emit an `impl TypeName { }` block for an opaque type that exposes methods.
+///
+/// FRB v2 generates Dart-side instance methods on opaque handles only when the
+/// bridge crate contains `impl TypeName { #[frb] pub fn method(...) }` blocks.
+/// Without these blocks FRB emits an empty abstract class with no methods.
+///
+/// Each method body delegates to `self.inner.method_name(...)` after converting
+/// mirror-type parameters to the core type via `unsafe { transmute }` (for types
+/// whose mirror layout is identical to core) or `From` conversion (for sanitized
+/// types). Async methods use `.await` and return `Result<MirrorType, String>`.
+///
+/// Methods listed in `stub_methods` get `unimplemented!()` bodies, matching the
+/// treatment of top-level free functions (e.g. `chat_stream` which returns a
+/// `BoxStream` that cannot be bridged through FRB).
+fn emit_opaque_impl_block(
+    out: &mut String,
+    ty: &TypeDef,
+    source_crate_name: &str,
+    stub_methods: &[String],
+    types_needing_from_conversion: &HashSet<String>,
+) {
+    let type_name = &ty.name;
+
+    // Collect unique trait sources that need to be brought into scope so that
+    // trait methods on `self.inner` resolve. Without these `use` statements rustc
+    // emits `no method named X found` for every trait-provided method.
+    let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for method in &ty.methods {
+        if method.sanitized && !stub_methods.contains(&method.name) {
+            continue;
+        }
+        if let Some(path) = method.trait_source.as_deref() {
+            trait_uses.insert(path.to_string());
+        }
+    }
+    for path in &trait_uses {
+        out.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+    }
+
+    out.push_str(&format!("impl {type_name} {{\n"));
+
+    for method in &ty.methods {
+        let method_name = &method.name;
+
+        // Sanitized methods that are NOT listed as stub_methods: skip entirely.
+        // They have types that cannot be bridged through FRB (e.g. BoxStream).
+        if method.sanitized && !stub_methods.contains(method_name) {
+            out.push_str(&format!(
+                "    // Method `{method_name}` has a sanitized return type that cannot be bridged through FRB — skipped.\n"
+            ));
+            continue;
+        }
+
+        emit_opaque_method(out, ty, method, source_crate_name, stub_methods, types_needing_from_conversion);
+    }
+
+    out.push_str("}\n");
+}
+
+/// Emit one method inside an `impl TypeName { }` block for an FRB opaque type.
+fn emit_opaque_method(
+    out: &mut String,
+    _ty: &TypeDef,
+    method: &MethodDef,
+    source_crate_name: &str,
+    stub_methods: &[String],
+    types_needing_from_conversion: &HashSet<String>,
+) {
+    use bridge_fn::frb_rust_type_mirror;
+
+    let method_name = &method.name;
+
+    // Receiver: FRB opaque types require `&self` (interior-mutability via RustAutoOpaque).
+    // `&mut self` and owned receivers are also supported by FRB but we use `&self`
+    // as it matches liter-llm's trait surface.
+    let self_param = match &method.receiver {
+        Some(ReceiverKind::RefMut) => "&mut self",
+        _ => "&self",
+    };
+
+    // Build parameter list (excluding the receiver).
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
+            format!("{}: {rust_ty}", p.name)
+        })
+        .collect();
+
+    let async_kw = if method.is_async { "async " } else { "" };
+
+    // Return type: always `Result<MirrorType, String>` when an error type is present.
+    let has_error = method.error_type.is_some();
+    let ret_ty = if has_error {
+        let ok_ty = frb_rust_type_mirror(&method.return_type, false);
+        format!("Result<{ok_ty}, String>")
+    } else {
+        frb_rust_type_mirror(&method.return_type, false)
+    };
+
+    // Emit `#[frb]` so FRB generates the Dart-side method wrapper.
+    out.push_str("    #[frb]\n");
+
+    // Signature.
+    let params_str = params.join(", ");
+    out.push_str(&format!(
+        "    pub {async_kw}fn {method_name}({self_param}, {params_str}) -> {ret_ty} {{\n"
+    ));
+
+    // Body: stub methods or real delegation.
+    if stub_methods.contains(method_name) {
+        out.push_str(&format!(
+            "        ::std::unimplemented!(\"method `{method_name}` is listed in dart.stub_methods\")\n"
+        ));
+    } else {
+        emit_opaque_method_body(out, method, source_crate_name, types_needing_from_conversion);
+    }
+
+    out.push_str("    }\n");
+}
+
+/// Emit the body of a method inside an opaque-type `impl` block.
+///
+/// Converts each parameter from the local mirror type to the core type, calls
+/// `self.inner.method_name(...)`, and wraps the return value in the mirror type.
+fn emit_opaque_method_body(
+    out: &mut String,
+    method: &MethodDef,
+    source_crate_name: &str,
+    types_needing_from_conversion: &HashSet<String>,
+) {
+    use conversions::frb_rust_type_inner;
+
+    let method_name = &method.name;
+    let has_error = method.error_type.is_some();
+
+    // Build per-argument conversion: mirror type → core type.
+    // For Named mirror types (i.e. FRB mirror structs), transmute is sound ONLY when
+    // the mirror layout is identical to the core layout. Types in
+    // `types_needing_from_conversion` have sanitized fields (e.g. Option<String>
+    // substituted for Option<CancellationToken>) causing size mismatches — use From
+    // conversion for those. Transmute is zero-cost unlike From, so we prefer it for
+    // types with identical layouts.
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let param_name = &p.name;
+            match &p.ty {
+                TypeRef::Named(mirror_name) => {
+                    let core_ty = format!("{source_crate_name}::{mirror_name}");
+                    if types_needing_from_conversion.contains(mirror_name.as_str()) {
+                        // Layout differs — use the generated From<MirrorT> for CoreT impl.
+                        if p.optional {
+                            format!("{param_name}.map({core_ty}::from)")
+                        } else {
+                            format!("{core_ty}::from({param_name})")
+                        }
+                    } else {
+                        // Named mirror type with identical layout: transmute to the source-crate type.
+                        if p.optional {
+                            format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})")
+                        } else {
+                            format!("unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>({param_name}) }}")
+                        }
+                    }
+                }
+                TypeRef::Vec(inner) => {
+                    if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                        let core_ty = format!("{source_crate_name}::{mirror_name}");
+                        if types_needing_from_conversion.contains(mirror_name.as_str()) {
+                            // Elements have differing layouts — convert each via From.
+                            if p.optional {
+                                format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect())")
+                            } else {
+                                format!("{param_name}.into_iter().map({core_ty}::from).collect()")
+                            }
+                        } else {
+                            if p.optional {
+                                format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>(v) }})")
+                            } else {
+                                format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
+                            }
+                        }
+                    } else {
+                        param_name.clone()
+                    }
+                }
+                TypeRef::Primitive(prim) => {
+                    let target = frb_rust_type_inner(&TypeRef::Primitive(prim.clone()));
+                    // FRB widens all integers to i64 and floats to f64 — cast back.
+                    if target == "i64" || target == "f64" || target == "bool" {
+                        param_name.clone()
+                    } else if p.optional {
+                        format!("{param_name}.map(|v| v as {target})")
+                    } else {
+                        format!("{param_name} as {target}")
+                    }
+                }
+                TypeRef::String => {
+                    // Core may take `&str` — pass by reference when is_ref is set.
+                    if p.is_ref {
+                        format!("&{param_name}")
+                    } else {
+                        param_name.clone()
+                    }
+                }
+                _ => param_name.clone(),
+            }
+        })
+        .collect();
+
+    let call = format!("self.inner.{method_name}({})", call_args.join(", "));
+
+    // Wrap the return value: Named return types need to be converted FROM the core
+    // type into the local mirror type using the generated `From<source::T> for T` impl.
+    // `TypeRef::Bytes` returns `bytes::Bytes` from core but the bridge declares `Vec<u8>` —
+    // convert via `.to_vec()`.
+    let wrap_return = build_opaque_return_wrap(&method.return_type);
+
+    if method.is_async {
+        if has_error {
+            if wrap_return.is_empty() {
+                out.push_str(&format!("        {call}.await.map_err(|e| e.to_string())\n"));
+            } else {
+                out.push_str(&format!(
+                    "        {call}.await.map({wrap_return}).map_err(|e| e.to_string())\n"
+                ));
+            }
+        } else if wrap_return.is_empty() {
+            out.push_str(&format!("        {call}.await\n"));
+        } else {
+            out.push_str(&format!("        ({wrap_return})({call}.await)\n"));
+        }
+    } else if has_error {
+        if wrap_return.is_empty() {
+            out.push_str(&format!("        {call}.map_err(|e| e.to_string())\n"));
+        } else {
+            out.push_str(&format!("        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"));
+        }
+    } else if wrap_return.is_empty() {
+        out.push_str(&format!("        {call}\n"));
+    } else {
+        out.push_str(&format!("        ({wrap_return})({call})\n"));
+    }
+}
+
+/// Build the return-value wrapping closure for an opaque method return type.
+///
+/// Returns an empty string when no wrapping is needed (primitive, String, etc.).
+/// Returns a closure expression like `|v| ReturnType::from(v)` for Named types.
+/// Returns `|v| v.to_vec()` for `TypeRef::Bytes` (core returns `bytes::Bytes`,
+/// mirror declares `Vec<u8>`).
+fn build_opaque_return_wrap(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Named(mirror_name) => {
+            format!("|v| {mirror_name}::from(v)")
+        }
+        TypeRef::Bytes => {
+            // Core returns `bytes::Bytes`, bridge declares `Vec<u8>`.
+            "|v| v.to_vec()".to_string()
+        }
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+            } else {
+                String::new()
+            }
+        }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                format!("|v: Option<_>| v.map({mirror_name}::from)")
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Emit a `#[frb] pub fn create_<snake_name>_from_json(json: String) -> Result<TypeName, String>`
+/// free function for a non-opaque mirror struct type.
+///
+/// FRB generates `static Future<TypeName> createTypeNameFromJson(String json)` on the Dart
+/// bridge class from this function. Dart e2e tests call this helper to construct typed
+/// request objects from the raw JSON fixtures without manually filling every field — this
+/// is the `options_via = "from_json"` path for the Dart e2e codegen.
+///
+/// The body deserializes via `serde_json::from_str` into the core type and converts to the
+/// local mirror type using the `From<source_crate::TypeName> for TypeName` impl that is
+/// already emitted by `emit_from_impl_for_struct`.
+fn emit_from_json_fn(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
+    let type_name = &ty.name;
+    // snake_case function name: e.g. ChatCompletionRequest → create_chat_completion_request_from_json
+    let snake = to_snake_case(type_name);
+    let fn_name = format!("create_{snake}_from_json");
+    let core_ty = if ty.rust_path.is_empty() {
+        format!("{source_crate_name}::{type_name}")
+    } else {
+        ty.rust_path.replace('-', "_")
+    };
+
+    out.push_str("#[frb]\n");
+    out.push_str(&format!(
+        "pub fn {fn_name}(json: String) -> Result<{type_name}, String> {{\n"
+    ));
+    out.push_str(&format!(
+        "    serde_json::from_str::<{core_ty}>(&json)\n"
+    ));
+    out.push_str(&format!(
+        "        .map({type_name}::from)\n"
+    ));
+    out.push_str("        .map_err(|e| e.to_string())\n");
+    out.push_str("}\n");
+}
+
+/// Convert a PascalCase type name to snake_case for use in function names.
+/// E.g. `ChatCompletionRequest` → `chat_completion_request`.
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 8);
+    for (i, ch) in s.char_indices() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.extend(ch.to_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

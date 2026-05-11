@@ -447,9 +447,13 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 }
             }
             "string" => {
+                // FRB generates all bridge method parameters as named (`{required T name}`)
+                // in Dart, so string args must be passed as `paramName: 'value'`.
+                // Convert the arg name from snake_case to camelCase for the Dart named param.
+                let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::String(s) => {
-                        args.push(format!("'{}'", escape_dart(s)));
+                        args.push(format!("{dart_param_name}: '{}'", escape_dart(s)));
                     }
                     serde_json::Value::Null
                         if arg_def.optional
@@ -460,7 +464,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        args.push(format!("'{inferred}'"));
+                        args.push(format!("{dart_param_name}: '{inferred}'"));
                     }
                     // Other optional strings with null value are omitted.
                     _ => {}
