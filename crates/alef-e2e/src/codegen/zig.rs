@@ -767,7 +767,12 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
             prev_seg = Some(seg);
             continue;
         }
-        expr = format!("{expr}.object.get(\"{seg}\").?");
+        // Handle array accessor notation: "links[]" → access the array, then first element.
+        if let Some(key) = seg.strip_suffix("[]") {
+            expr = format!("{expr}.object.get(\"{key}\").?.array.items[0]");
+        } else {
+            expr = format!("{expr}.object.get(\"{seg}\").?");
+        }
         prev_seg = Some(seg);
     }
     expr
