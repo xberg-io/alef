@@ -132,11 +132,18 @@ fn emit_lib_rs(
     }
 
     // Compute the set of types that have DIRECT sanitized fields.
+    // Also include types with Duration or Path fields: the FRB mirror maps Duration→i64 (8B vs 16B)
+    // and Path→String, creating layout mismatches that make transmute unsound for these types.
     let types_with_direct_sanitized_fields: HashSet<String> = api
         .types
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
-        .filter(|t| t.fields.iter().any(|f| f.sanitized))
+        .filter(|t| {
+            t.fields.iter().any(|f| {
+                f.sanitized
+                    || has_duration_or_path_field(&f.ty)
+            })
+        })
         .map(|t| t.name.clone())
         .collect();
 
@@ -1171,6 +1178,19 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
             }
         }
         _ => binding.to_string(),
+    }
+}
+
+/// Returns true if `ty` (or any inner type) is Duration or Path.
+///
+/// Duration maps to i64 (8 bytes) vs core Duration (16 bytes).
+/// Path maps to String, which may differ in size.
+/// Both cause layout mismatches that make transmute unsound for structs containing them.
+fn has_duration_or_path_field(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Duration | TypeRef::Path => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => has_duration_or_path_field(inner),
+        _ => false,
     }
 }
 
