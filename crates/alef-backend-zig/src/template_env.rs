@@ -36,6 +36,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/error_set_header.jinja"),
     ),
     (
+        "error_doc_line.jinja",
+        include_str!("../templates/error_doc_line.jinja"),
+    ),
+    (
         "error_set_variant.jinja",
         include_str!("../templates/error_set_variant.jinja"),
     ),

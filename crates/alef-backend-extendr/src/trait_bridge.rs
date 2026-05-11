@@ -309,7 +309,7 @@ fn gen_visitor_bridge(
         gen_visitor_method_extendr(&mut method_impls, method, type_paths);
     }
 
-    let bridge = crate::template_env::render(
+    out.push_str(&crate::template_env::render(
         "visitor_bridge.jinja",
         minijinja::context! {
             core_crate => core_crate,
@@ -317,8 +317,7 @@ fn gen_visitor_bridge(
             trait_path => trait_path,
             method_impls => method_impls,
         },
-    );
-    out.push_str(&bridge);
+    ));
 }
 
 /// Generate a single visitor method that checks if the R list has an element with this name

@@ -57,23 +57,23 @@ pub(crate) fn emit_trait_bridge_shims(
     if let Some(ty) = trait_type {
         if !ty.doc.is_empty() {
             for line in ty.doc.lines() {
-                out.push_str("/// ");
-                out.push_str(line);
-                out.push('\n');
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge_doc_line.jinja",
+                    minijinja::context! {
+                        line => line,
+                    },
+                ));
             }
-            out.push_str("///\n");
+            out.push_str(&crate::template_env::render(
+                "trait_bridge_empty_comment_line.jinja",
+                minijinja::context! {},
+            ));
         }
     }
-    out.push_str(
-        "/// # Scope cap\n\
-         ///\n\
-         /// Real callback round-trips require the caller to register a GenServer PID\n\
-         /// that implements `handle_info/2` to handle\n\
-         /// `{:trait_call, method, args_json, reply_id}` messages and then calls\n\
-         /// `complete_trait_call` or `fail_trait_call` with the reply.\n\
-         /// Gleam emits the registration and reply shims here; wiring the callback\n\
-         /// module is done via the Elixir/Rustler side (existing GenServer pattern).\n",
-    );
+    out.push_str(&crate::template_env::render(
+        "trait_scope_cap.jinja",
+        minijinja::context! {},
+    ));
 
     // Registration function — only when register_fn is configured.
     // The PID is passed as Dynamic because Gleam's type system does not have a native
@@ -208,8 +208,10 @@ pub(crate) fn emit_trait_support_nifs(nif_module: &str, out: &mut String) {
     out.push('\n');
     out.push('\n');
 
-    out.push_str("/// Fail a pending trait call with an error message.\n");
-    out.push_str("/// Call this from your GenServer when processing a trait_call message fails.\n");
+    out.push_str(&crate::template_env::render(
+        "support_nif_fail_doc.jinja",
+        minijinja::context! {},
+    ));
     out.push_str(&crate::template_env::render(
         "support_nif_fail.jinja",
         minijinja::context! {
