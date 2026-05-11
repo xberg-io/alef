@@ -885,19 +885,18 @@ fn render_test_case(
     // Real-API smoke fixtures (no mock_response, no http) must be env-gated on the
     // configured `env.api_key_var` so absent keys yield a deterministic skip rather
     // than a spurious "no mock route" failure. Mirrors the Python conftest skip.
-    let needs_api_key_skip = fixture.mock_response.is_none()
-        && fixture.http.is_none()
-        && fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()).is_some();
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+    let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    let needs_api_key_skip = !has_mock && api_key_var_opt.is_some();
+    // When the fixture has both a mock and an api_key_var, generate env-fallback code:
+    // use the real API when the key is set, otherwise fall back to the mock server.
+    let needs_env_fallback = has_mock && api_key_var_opt.is_some();
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{test_label}\" do");
 
     if needs_api_key_skip {
-        let api_key_var = fixture
-            .env
-            .as_ref()
-            .and_then(|e| e.api_key_var.as_deref())
-            .unwrap_or("");
+        let api_key_var = api_key_var_opt.unwrap_or("");
         let _ = writeln!(out, "      if System.get_env(\"{api_key_var}\") in [nil, \"\"] do");
         let _ = writeln!(out, "        # {api_key_var} not set — skipping live smoke test");
         let _ = writeln!(out, "        :ok");
@@ -980,18 +979,53 @@ fn render_test_case(
     // Emit client creation when client_factory is configured.
     if let Some(factory) = client_factory {
         let fixture_id = &fixture.id;
-        let base_url_expr = if fixture.has_host_root_route() {
-            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-            format!(
-                "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
-            )
+        if needs_env_fallback {
+            // Fixture has both a mock and an api_key_var: use the real API when the key is
+            // set, otherwise fall back to the mock server.
+            let api_key_var = api_key_var_opt.unwrap_or("");
+            let mock_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\""
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(out, "      api_key_val = System.get_env(\"{api_key_var}\")");
+            let _ = writeln!(
+                out,
+                "      {{api_key_val, base_url_val}} = if api_key_val && api_key_val != \"\" do"
+            );
+            let _ = writeln!(
+                out,
+                "        IO.puts(\"{fixture_id}: using real API ({api_key_var} is set)\")"
+            );
+            let _ = writeln!(out, "        {{api_key_val, nil}}");
+            let _ = writeln!(out, "      else");
+            let _ = writeln!(
+                out,
+                "        IO.puts(\"{fixture_id}: using mock server ({api_key_var} not set)\")"
+            );
+            let _ = writeln!(out, "        {{nil, {mock_url_expr}}}");
+            let _ = writeln!(out, "      end");
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(api_key_val, base_url_val)"
+            );
         } else {
-            format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
-        };
-        let _ = writeln!(
-            out,
-            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
-        );
+            let base_url_expr = if fixture.has_host_root_route() {
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                format!(
+                    "(System.get_env(\"{env_key}\") || (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
+                )
+            } else {
+                format!("(System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(
+                out,
+                "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", {base_url_expr})"
+            );
+        }
     }
 
     // Use returns_result from the Elixir override if present, otherwise from base config

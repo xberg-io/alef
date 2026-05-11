@@ -942,12 +942,33 @@ fn render_test_function(
     // Live-API fixtures use `env.api_key_var` to mark the env var that
     // supplies the real API key. Skip the test when the env var is unset
     // (mirrors Python's pytest.skip and Node's early-return pattern).
+    let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     if let Some(var) = api_key_var {
-        let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
-        let _ = writeln!(out, "\tif apiKey == \"\" {{");
-        let _ = writeln!(out, "\t\tt.Skipf(\"{var} not set\")");
-        let _ = writeln!(out, "\t}}");
+        if has_mock {
+            // Env-fallback branch: when the real API key is set use the live
+            // provider; otherwise fall back to the mock server so the test
+            // always runs in CI without credentials.
+            let fixture_id = &fixture.id;
+            let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
+            let _ = writeln!(out, "\tvar baseURL *string");
+            let _ = writeln!(out, "\tif apiKey != \"\" {{");
+            let _ = writeln!(out, "\t\tt.Logf(\"{fixture_id}: using real API ({var} is set)\")");
+            let _ = writeln!(out, "\t}} else {{");
+            let _ = writeln!(out, "\t\tt.Logf(\"{fixture_id}: using mock server ({var} not set)\")");
+            let _ = writeln!(
+                out,
+                "\t\tu := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\""
+            );
+            let _ = writeln!(out, "\t\tbaseURL = &u");
+            let _ = writeln!(out, "\t\tapiKey = \"test-key\"");
+            let _ = writeln!(out, "\t}}");
+        } else {
+            let _ = writeln!(out, "\tapiKey := os.Getenv(\"{var}\")");
+            let _ = writeln!(out, "\tif apiKey == \"\" {{");
+            let _ = writeln!(out, "\t\tt.Skipf(\"{var} not set\")");
+            let _ = writeln!(out, "\t}}");
+        }
     }
 
     for line in &setup_lines {
@@ -960,10 +981,13 @@ fn render_test_function(
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
         let fixture_id = &fixture.id;
-        // Live-API tests bypass the mock server: pass apiKey + nil baseURL so
-        // the binding hits the real provider. Mock-driven tests pass a
-        // mock-server fixture URL and a fixed "test-key" instead.
-        let (api_key_expr, base_url_expr) = if api_key_var.is_some() {
+        // Determine how to express the API key and base URL for the client
+        // constructor call, depending on which code path was emitted above.
+        let (api_key_expr, base_url_expr) = if has_mock && api_key_var.is_some() {
+            // Env-fallback: local vars emitted above carry the right values.
+            ("apiKey".to_string(), "baseURL".to_string())
+        } else if api_key_var.is_some() {
+            // Skip-unless-set: live API only, no mock fallback.
             ("apiKey".to_string(), "nil".to_string())
         } else if fixture.has_host_root_route() {
             let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());

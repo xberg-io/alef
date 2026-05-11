@@ -640,7 +640,17 @@ fn render_test_case(
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_setup = if let Some(factory) = client_factory {
-        if has_mock {
+        if has_mock && api_key_var.is_some() {
+            let var = api_key_var.unwrap();
+            let mock_url = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
+            format!(
+                "const apiKey = process.env.{var};\n    \
+                 const baseUrl = apiKey ? undefined : {mock_url};\n    \
+                 console.log(`{id}: ${{apiKey ? 'using real API ({var} is set)' : 'using mock server ({var} not set)'}}`);\n    \
+                 const client = {factory}(apiKey ?? 'test-key', baseUrl);",
+                id = fixture.id
+            )
+        } else if has_mock {
             format!("const client = {factory}('test-key', {base_url_expr});")
         } else if let Some(var) = api_key_var {
             // Live-API tests: skip when the env var isn't set so the suite can run

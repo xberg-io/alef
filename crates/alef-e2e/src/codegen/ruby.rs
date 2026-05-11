@@ -350,11 +350,14 @@ fn render_spec_file(
                 .unwrap_or_else(|| fixture_call.function.clone());
 
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+            let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
             let is_streaming = raw_function_name == "chat_stream";
 
             // Non-HTTP, non-streaming fixtures with no usable assertions stay pending.
-            if !expects_error && !has_usable && !is_streaming {
+            // A fixture whose only assertion is `not_error` is still testable — it
+            // verifies the call does not raise, so route it to render_example.
+            if !expects_error && !has_usable && !has_not_error && !is_streaming {
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
                 let mut out = String::new();
@@ -754,7 +757,24 @@ fn render_chat_stream_example(
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     if let Some(cf) = client_factory {
-        if has_mock {
+        if has_mock && let Some(key_var) = api_key_var {
+            let mock_url_expr = format!("\"#{{ENV['MOCK_SERVER_URL']}}/fixtures/{fixture_id}\"");
+            out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
+            out.push_str(&format!("    if api_key && !api_key.empty?\n"));
+            out.push_str(&format!(
+                "      warn \"{test_name}: using real API ({key_var} is set)\"\n"
+            ));
+            out.push_str(&format!("      client = {call_receiver}.{cf}(api_key: api_key)\n"));
+            out.push_str("    else\n");
+            out.push_str(&format!(
+                "      warn \"{test_name}: using mock server ({key_var} not set)\"\n"
+            ));
+            out.push_str(&format!("      mock_url = {mock_url_expr}\n"));
+            out.push_str(&format!(
+                "      client = {call_receiver}.{cf}(api_key: 'test-key', base_url: mock_url)\n"
+            ));
+            out.push_str("    end\n");
+        } else if has_mock {
             let base_url_expr = if fixture.has_host_root_route() {
                 let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
                 format!("(ENV.fetch('{env_key}', nil) || ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')")
@@ -1044,6 +1064,7 @@ fn render_example(
 
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+    let has_mock_and_key = has_mock && api_key_var.is_some();
     crate::template_env::render(
         "ruby/test_function.jinja",
         minijinja::context! {
@@ -1060,6 +1081,7 @@ fn render_example(
             call_receiver => call_receiver,
             has_mock => has_mock,
             api_key_var => api_key_var,
+            has_mock_and_key => has_mock_and_key,
         },
     )
 }

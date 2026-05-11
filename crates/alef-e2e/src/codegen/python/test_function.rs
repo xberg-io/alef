@@ -114,7 +114,36 @@ pub(super) fn render_test_function(
     let client_factory = resolve_client_factory(e2e_config);
     let mut client_setup = String::new();
     let call_expr = if let Some(ref factory) = client_factory {
-        if fixture.mock_response.is_some() || fixture.http.is_some() {
+        let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
+        let api_key_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
+        if has_mock && api_key_opt.is_some() {
+            let fixture_id = &fixture.id;
+            let api_key_var = api_key_opt.unwrap();
+            let mock_base_url_expr = if fixture.has_host_root_route() {
+                format!(
+                    "os.environ.get(\"MOCK_SERVER_{}\") or os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"",
+                    fixture_id.to_uppercase()
+                )
+            } else {
+                format!("os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"")
+            };
+            let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
+            let _ = writeln!(client_setup, "    if api_key:");
+            let _ = writeln!(
+                client_setup,
+                "        print(\"{fixture_id}: using real API ({api_key_var} is set)\", flush=True)  # noqa: T201"
+            );
+            let _ = writeln!(client_setup, "        client = {factory}(api_key=api_key)");
+            let _ = writeln!(client_setup, "    else:");
+            let _ = writeln!(
+                client_setup,
+                "        print(\"{fixture_id}: using mock server ({api_key_var} not set)\", flush=True)  # noqa: T201"
+            );
+            let _ = writeln!(
+                client_setup,
+                "        client = {factory}(api_key=\"test-key\", base_url={mock_base_url_expr})"
+            );
+        } else if has_mock {
             let fixture_id = &fixture.id;
             let base_url_expr = if fixture.has_host_root_route() {
                 format!(
@@ -128,7 +157,7 @@ pub(super) fn render_test_function(
                 client_setup,
                 "    client = {factory}(api_key=\"test-key\", base_url={base_url_expr})"
             );
-        } else if let Some(api_key_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
+        } else if let Some(api_key_var) = api_key_opt {
             let _ = writeln!(client_setup, "    api_key = os.environ.get(\"{api_key_var}\")");
             let _ = writeln!(client_setup, "    if not api_key:  # noqa: SIM102");
             let _ = writeln!(client_setup, "        pytest.skip(\"{api_key_var} not set\")");
