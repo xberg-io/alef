@@ -164,13 +164,11 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
             params.push(format!("{name}: {bridge_ty}"));
         }
 
+        // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks.
+        // Error-returning methods use a plain `String` return carrying a JSON envelope:
+        // `{"ok": <value>}` on success or `{"err": "<message>"}` on failure.
         let return_ty = if method.error_type.is_some() {
-            let ok_ty = bridge_type_for_trait_method(&method.return_type);
-            if matches!(method.return_type, TypeRef::Unit) {
-                "Result<(), String>".to_string()
-            } else {
-                format!("Result<{ok_ty}, String>")
-            }
+            "String".to_string()
         } else {
             bridge_type_for_trait_method(&method.return_type)
         };
@@ -250,13 +248,10 @@ pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str,
         }
         let sig_params_str = sig_params.join(", ");
 
+        // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks.
+        // Error-returning methods return plain `String` (JSON envelope `{"ok":...}` / `{"err":...}`).
         let return_ty = if method.error_type.is_some() {
-            let ok_ty = bridge_type_for_trait_method(&method.return_type);
-            if matches!(method.return_type, TypeRef::Unit) {
-                "Result<(), String>".to_string()
-            } else {
-                format!("Result<{ok_ty}, String>")
-            }
+            "String".to_string()
         } else {
             bridge_type_for_trait_method(&method.return_type)
         };
@@ -379,34 +374,49 @@ pub(crate) fn emit_trait_method_body(
         }
     };
 
-    // Build the error+value mapping expression for a Result-returning method.
-    // Handles JSON-bridged, String/Path, Named newtypes/enums, and plain cases.
-    let map_result_expr = |base: String| -> String {
-        if needs_json_bridge(&method.return_type) && !matches!(method.return_type, TypeRef::Unit) {
-            format!(
-                "{base}.map(|v| serde_json::to_string(&v).expect(\"serializable return\")).map_err(|e| e.to_string())"
-            )
-        } else if matches!(method.return_type, TypeRef::String | TypeRef::Path) {
-            format!("{base}.map(|s| s.to_string()).map_err(|e| e.to_string())")
-        } else if let TypeRef::Named(wrapper) = &method.return_type {
-            // Result<kreuzberg::T, E> → Result<BridgeWrapper, String>
-            let w = wrapper.clone();
-            if enum_names.contains(w.as_str()) {
-                format!("{base}.map(|v| {w}::from(v)).map_err(|e| e.to_string())")
-            } else {
-                format!("{base}.map(|v| {w}(v)).map_err(|e| e.to_string())")
-            }
+    // Build a JSON-envelope String for a Result-returning method.
+    // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks, so we use
+    // a plain `String` carrying `{"ok": <serialised-value>}` on success or
+    // `{"err": "<message>"}` on failure. The Swift caller deserialises this envelope.
+    let envelope_result_expr = |base: String| -> String {
+        // Serialise the ok value to a JSON fragment.
+        let ok_fragment = if matches!(method.return_type, TypeRef::Unit) {
+            // () → "null"
+            "\"null\"".to_string()
+        } else if needs_json_bridge(&method.return_type) {
+            // Complex type: already serialisable — produce the JSON string of the value.
+            "serde_json::to_string(&v).expect(\"serializable return\")".to_string()
         } else {
-            format!("{base}.map_err(|e| e.to_string())")
-        }
+            match &method.return_type {
+                TypeRef::String | TypeRef::Path => "v.to_string()".to_string(),
+                // Named leaf: convert to wrapper then serialise.
+                TypeRef::Named(name) => {
+                    let expr = if enum_names.contains(name.as_str()) {
+                        format!("{name}::from(v)")
+                    } else {
+                        format!("{name}(v)")
+                    };
+                    format!("serde_json::to_string(&{expr}).expect(\"serializable return\")")
+                }
+                // Primitive: format! round-trip.
+                _ => "v.to_string()".to_string(),
+            }
+        };
+
+        format!(
+            "match {base} {{\n\
+             \x20\x20\x20\x20Ok(v) => format!(\"{{\\\"ok\\\": {{}}}}\", {ok_fragment}),\n\
+             \x20\x20\x20\x20Err(e) => format!(\"{{\\\"err\\\": \\\"{{}}\\\"}}\" , e),\n\
+             }}"
+        )
     };
 
     if method.is_async {
         let await_expr = format!("{source_call}.await");
         if method.error_type.is_some() {
-            let mapped = map_result_expr(await_expr);
+            let enveloped = envelope_result_expr(await_expr);
             format!(
-                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {mapped} }})\n"
+                "    ::tokio::runtime::Builder::new_current_thread()\n        .enable_all()\n        .build()\n        .expect(\"build tokio runtime\")\n        .block_on(async {{ {enveloped} }})\n"
             )
         } else {
             let inner = wrap_return(await_expr);
@@ -415,8 +425,8 @@ pub(crate) fn emit_trait_method_body(
             )
         }
     } else if method.error_type.is_some() {
-        let mapped = map_result_expr(source_call.to_string());
-        format!("    {mapped}\n")
+        let enveloped = envelope_result_expr(source_call.to_string());
+        format!("    {enveloped}\n")
     } else {
         let wrapped = wrap_return(source_call.to_string());
         format!("    {wrapped}\n")
