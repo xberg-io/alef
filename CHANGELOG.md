@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.34] - 2026-05-11
 
 ### Changed
 
@@ -4266,7 +4266,7 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 - CI pipeline: cargo fmt, clippy, deny, machete, sort, taplo
 - GoReleaser-based publish workflow with cross-platform binaries and Homebrew tap
 
-## [Unreleased]
+## [0.15.34] - 2026-05-11
 
 - fix(magnus): remove problematic re-export loop in native.rb wrapper
 - fix(magnus): handle optional String parameters via magnus::Value conversion
