@@ -40,8 +40,18 @@ pub(crate) fn emit_trait_bridge(
         trait_def.rust_path.replace('-', "_")
     };
 
-    // Filter to only own methods (no super-trait inherited ones).
-    let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
+    // Filter to own methods that the foreign object must provide.
+    // - `trait_source.is_none()` excludes methods inherited from super-traits (handled
+    //   separately: `Plugin` via the dedicated impl below, other super-traits via stubs).
+    // - `!has_default_impl` excludes methods that have a Rust default impl. Letting the
+    //   trait's own default fire is correct for any method we'd otherwise misemit
+    //   (e.g. `Option<&dyn SyncExtractor>` cannot round-trip through `DartFnFuture`).
+    //   Mirrors the required-only subset NAPI/PyO3 use via `TraitBridgeSpec::required_methods`.
+    let own_methods: Vec<&MethodDef> = trait_def
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none() && !m.has_default_impl)
+        .collect();
 
     // Check if Plugin is a direct super-trait.
     let has_plugin_super = trait_def
