@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use alef_codegen::conversions::ConversionConfig;
@@ -1117,14 +1115,37 @@ fn gen_string_to_enum_expr(
     let mut match_arms = String::new();
     for variant in &enum_def.variants {
         let expr = variant_expr(&core_enum_path, variant);
-        write!(match_arms, "\"{}\" => {expr}, ", variant.name).ok();
+        match_arms.push_str(&crate::template_env::render(
+            "php_enum_string_match_arm.jinja",
+            context! {
+                variant_name => &variant.name,
+                expr => &expr,
+            },
+        ));
     }
-    write!(match_arms, "_ => {fallback_expr}").ok();
+    match_arms.push_str(&crate::template_env::render(
+        "php_enum_string_match_fallback_arm.jinja",
+        context! {
+            fallback_expr => &fallback_expr,
+        },
+    ));
 
     if optional {
-        format!("{val_expr}.as_deref().map(|s| match s {{ {match_arms} }})")
+        crate::template_env::render(
+            "php_enum_string_optional_match_expr.jinja",
+            context! {
+                val_expr => val_expr,
+                match_arms => &match_arms,
+            },
+        )
     } else {
-        format!("match {val_expr}.as_str() {{ {match_arms} }}")
+        crate::template_env::render(
+            "php_enum_string_match_expr.jinja",
+            context! {
+                val_expr => val_expr,
+                match_arms => &match_arms,
+            },
+        )
     }
 }
 

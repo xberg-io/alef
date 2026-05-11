@@ -1,0 +1,4 @@
+let {{ name }}_core: Option<{{ core_type }}> = {{ name }}
+    .map(|s| serde_json::from_str::<{{ core_type }}>(&s))
+    .transpose()
+    .map_err(|e| e.to_string())?;

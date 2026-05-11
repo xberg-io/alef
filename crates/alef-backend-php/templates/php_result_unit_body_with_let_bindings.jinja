@@ -1,0 +1,2 @@
+{{ let_bindings }}{{ core_call }}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;
+    Ok(())

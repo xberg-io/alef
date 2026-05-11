@@ -1,0 +1,1 @@
+let {{ name }}_json = serde_json::to_string(&{{ name }}).map_err(|e| e.to_string())?;

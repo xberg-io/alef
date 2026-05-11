@@ -1,0 +1,5 @@
+let {{ pname }}_core: Option<{{ core_import }}::{{ name }}> = {{ pname }}.as_ref()
+        .map(|v| {
+            let _json = serde_json::to_string(v).map_err(|e| format!("{e}"))?;
+            serde_json::from_str::<{{ core_import }}::{{ name }}>(&_json).map_err(|e| format!("{e}"))
+        }).transpose()?;

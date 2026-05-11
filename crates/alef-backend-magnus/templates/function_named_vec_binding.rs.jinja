@@ -1,0 +1,5 @@
+{% if optional -%}
+let {{ name }}_core: Option<{{ vec_ty }}> = {{ name }}.map(|v| v.into_iter().map(Into::into).collect());
+{%- else -%}
+let {{ name }}_core: {{ vec_ty }} = {{ name }}.into_iter().map(Into::into).collect();
+{%- endif %}

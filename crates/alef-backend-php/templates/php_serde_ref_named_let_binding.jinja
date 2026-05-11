@@ -1,0 +1,5 @@
+let {{ pname }}_json = serde_json::to_string(&{{ pname }})
+        .map_err(|e| format!("{e}"))?
+;
+    let {{ pname }}_core: {{ core_import }}::{{ name }} = serde_json::from_str(&{{ pname }}_json)
+        .map_err(|e| format!("{e}"))?;

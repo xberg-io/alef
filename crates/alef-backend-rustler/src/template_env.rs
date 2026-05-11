@@ -680,6 +680,66 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("../templates/flat_enum_from_core_impl_footer.jinja"),
     ),
     (
+        "flat_enum_to_core_impl_header.jinja",
+        include_str!("../templates/flat_enum_to_core_impl_header.jinja"),
+    ),
+    (
+        "flat_enum_to_core_variant_unit.jinja",
+        include_str!("../templates/flat_enum_to_core_variant_unit.jinja"),
+    ),
+    (
+        "flat_enum_to_core_variant_tuple.jinja",
+        include_str!("../templates/flat_enum_to_core_variant_tuple.jinja"),
+    ),
+    (
+        "flat_enum_to_core_impl_footer.jinja",
+        include_str!("../templates/flat_enum_to_core_impl_footer.jinja"),
+    ),
+    (
+        "default_deser_with_error.rs.jinja",
+        include_str!("../templates/default_deser_with_error.rs.jinja"),
+    ),
+    (
+        "default_deser_without_error.rs.jinja",
+        include_str!("../templates/default_deser_without_error.rs.jinja"),
+    ),
+    (
+        "named_param_to_json.rs.jinja",
+        include_str!("../templates/named_param_to_json.rs.jinja"),
+    ),
+    (
+        "named_param_from_json.rs.jinja",
+        include_str!("../templates/named_param_from_json.rs.jinja"),
+    ),
+    (
+        "vec_str_refs_optional.rs.jinja",
+        include_str!("../templates/vec_str_refs_optional.rs.jinja"),
+    ),
+    (
+        "vec_str_refs_required.rs.jinja",
+        include_str!("../templates/vec_str_refs_required.rs.jinja"),
+    ),
+    (
+        "bytes_to_vec.rs.jinja",
+        include_str!("../templates/bytes_to_vec.rs.jinja"),
+    ),
+    (
+        "nif_result_body.rs.jinja",
+        include_str!("../templates/nif_result_body.rs.jinja"),
+    ),
+    (
+        "nif_wrapped_body.rs.jinja",
+        include_str!("../templates/nif_wrapped_body.rs.jinja"),
+    ),
+    (
+        "async_result_body.rs.jinja",
+        include_str!("../templates/async_result_body.rs.jinja"),
+    ),
+    (
+        "async_infallible_body.rs.jinja",
+        include_str!("../templates/async_infallible_body.rs.jinja"),
+    ),
+    (
         "nif_tagged_enum_serde_tag.jinja",
         include_str!("../templates/nif_tagged_enum_serde_tag.jinja"),
     ),
