@@ -1055,6 +1055,7 @@ fn render_gleam_element_constructor(
 /// `pkg_module` is the downstream binding's Gleam module name (resolved from
 /// `[e2e.packages.gleam] name` by the caller); it is interpolated as the
 /// qualifier on the variant constructor.
+#[allow(clippy::too_many_arguments)]
 fn render_tagged_union_assertion(
     out: &mut String,
     assertion: &Assertion,
@@ -1824,8 +1825,15 @@ mod tests {
             go_type: None,
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
-        let (_setup, args_str) =
-            build_args_and_setup(&input, &[arg], "test_fixture", "../../test_documents", &[], None, "kreuzberg");
+        let (_setup, args_str) = build_args_and_setup(
+            &input,
+            &[arg],
+            "test_fixture",
+            "../../test_documents",
+            &[],
+            None,
+            "kreuzberg",
+        );
         // Default behaviour: bare JSON-string literal, no wrapper. The
         // emission must NOT contain any function-call shape from a wrapper.
         assert!(

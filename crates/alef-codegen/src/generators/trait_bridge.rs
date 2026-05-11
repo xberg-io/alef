@@ -365,16 +365,26 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         // Wrap it with Box::leak so the &'static str slice satisfies the return type.
         // This is correct for the plugin registration pattern: supported_mime_types() is
         // called once per registration and the data is process-global.
+        //
+        // Exception: when the raw_body is already a reference to a cached
+        // `&'static [&'static str]` field (e.g. FFI's `self.{name}_strs` fast-path),
+        // there is nothing to leak — return it directly.
+        let raw_body_trimmed = raw_body.trim();
+        let body_is_static_slice = raw_body_trimmed.starts_with("self.") && raw_body_trimmed.ends_with("_strs");
         let body = if method.returns_ref
             && matches!(&method.return_type, alef_core::ir::TypeRef::Vec(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::String))
         {
-            format!(
-                "let __types: Vec<String> = {{ {raw_body} }};\n\
-                 let __strs: Vec<&'static str> = __types.into_iter()\n\
-                     .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})\n\
-                     .collect();\n\
-                 Box::leak(__strs.into_boxed_slice())"
-            )
+            if body_is_static_slice {
+                raw_body
+            } else {
+                format!(
+                    "let __types: Vec<String> = {{ {raw_body} }};\n\
+                     let __strs: Vec<&'static str> = __types.into_iter()\n\
+                         .map(|s| -> &'static str {{ Box::leak(s.into_boxed_str()) }})\n\
+                         .collect();\n\
+                     Box::leak(__strs.into_boxed_slice())"
+                )
+            }
         } else {
             raw_body
         };

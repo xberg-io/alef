@@ -938,8 +938,7 @@ fn render_test_method(
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
         let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
         let is_live_smoke = !has_mock && api_key_var_opt.is_some();
-        if has_mock && api_key_var_opt.is_some() {
-            let api_key_var = api_key_var_opt.unwrap();
+        if let Some(api_key_var) = api_key_var_opt.filter(|_| has_mock) {
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
@@ -952,8 +951,7 @@ fn render_test_method(
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
             ));
-        } else if is_live_smoke {
-            let api_key_var = api_key_var_opt.unwrap();
+        } else if let Some(api_key_var) = api_key_var_opt.filter(|_| is_live_smoke) {
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
@@ -1116,8 +1114,7 @@ fn render_chat_stream_test_method(
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
         let api_key_var_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
         let is_live_smoke = !has_mock && api_key_var_opt.is_some();
-        if has_mock && api_key_var_opt.is_some() {
-            let api_key_var = api_key_var_opt.unwrap();
+        if let Some(api_key_var) = api_key_var_opt.filter(|_| has_mock) {
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));
@@ -1130,8 +1127,7 @@ fn render_chat_stream_test_method(
             client_factory_setup.push_str(&format!(
                 "        var client = {class_name}.{factory_name}(string.IsNullOrEmpty(apiKey) ? \"test-key\" : apiKey, baseUrl, null, null, null);\n"
             ));
-        } else if is_live_smoke {
-            let api_key_var = api_key_var_opt.unwrap();
+        } else if let Some(api_key_var) = api_key_var_opt.filter(|_| is_live_smoke) {
             client_factory_setup.push_str(&format!(
                 "        var apiKey = System.Environment.GetEnvironmentVariable(\"{api_key_var}\");\n"
             ));

@@ -4,4 +4,3 @@ public func {{ wrapper_name }}(
 ){{ throws_clause }} -> {{ return_ty }} {
     return try {{ inner_call }}(makeByteVec(Array(content.utf8)){{ trailing_args }}){{ return_suffix }}
 }
-

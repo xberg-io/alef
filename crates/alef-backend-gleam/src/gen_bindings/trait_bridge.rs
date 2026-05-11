@@ -1,8 +1,25 @@
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{TypeDef, TypeRef};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use super::nif_external::{gleam_type, resolve_gleam_error_type};
+
+/// Recursively substitute `TypeRef::Named` nodes whose name is not in
+/// `visible_type_names` with `TypeRef::String`. Used to prevent excluded
+/// internal types (e.g. `InternalDocument`) from leaking into generated
+/// public Gleam type signatures and docstrings.
+fn substitute_invisible_named(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => TypeRef::String,
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_invisible_named(inner, visible_type_names))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_invisible_named(inner, visible_type_names))),
+        TypeRef::Map(k, v) => TypeRef::Map(
+            Box::new(substitute_invisible_named(k, visible_type_names)),
+            Box::new(substitute_invisible_named(v, visible_type_names)),
+        ),
+        other => other.clone(),
+    }
+}
 
 /// Emit Gleam shim functions for a single trait bridge.
 ///
@@ -21,6 +38,7 @@ pub(crate) fn emit_trait_bridge_shims(
     trait_type: Option<&TypeDef>,
     nif_module: &str,
     declared_errors: &[String],
+    visible_type_names: &HashSet<&str>,
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
@@ -115,9 +133,15 @@ pub(crate) fn emit_trait_bridge_shims(
             let nif_fn_name = format!("{trait_snake}_{method_snake}_response");
 
             // Build Gleam return type for the ok branch (Nil when Unit).
+            // Excluded/internal types (e.g. `InternalDocument`) are not represented as
+            // generated Gleam types — substitute them with `String` so the signature
+            // does not reference a non-existent symbol.
             let ok_type = match &method.return_type {
                 TypeRef::Unit => "Nil".to_string(),
-                other => gleam_type(other, false, imports),
+                other => {
+                    let substituted = substitute_invisible_named(other, visible_type_names);
+                    gleam_type(&substituted, false, imports)
+                }
             };
 
             // Build Gleam error type: resolve via declared errors list so that

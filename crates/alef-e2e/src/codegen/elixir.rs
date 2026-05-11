@@ -1332,6 +1332,7 @@ fn is_numeric_expr(field_expr: &str) -> bool {
     field_expr.starts_with("length(")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

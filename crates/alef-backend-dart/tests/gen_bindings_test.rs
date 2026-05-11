@@ -995,11 +995,11 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
 
     // register wrapper
     assert!(
-        content.contains("static Future<void> registerOcrBackend(OcrBackendDartImpl impl_) async {"),
+        content.contains("static Future<void> registerOcrBackend(OcrBackendDartImpl impl) async {"),
         "missing registerOcrBackend wrapper: {content}"
     );
     assert!(
-        content.contains("await rust_bridge.registerOcrBackend(impl_: impl_);"),
+        content.contains("await rust_bridge.registerOcrBackend(impl: impl);"),
         "registerOcrBackend must delegate to rust_bridge: {content}"
     );
 

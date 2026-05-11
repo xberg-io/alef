@@ -232,7 +232,10 @@ fn emit_lib_rs(
         extern_blocks.push(extern_block::emit_extern_block_for_functions(&visible));
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
-        extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(trait_def));
+        extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(
+            trait_def,
+            &visible_type_names,
+        ));
     }
     // Inbound (extern "Swift") plugin bridges — Swift implements the Rust trait.
     // First the register/unregister entry points (extern "Rust"), then the Swift-side

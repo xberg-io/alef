@@ -124,7 +124,7 @@ pub(super) fn gen_wrapper_class(
             })
             .collect();
         // Longest prefix first so e.g. "forbidden: waf/blocked: " wins over "forbidden: ".
-        variants_with_prefix.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        variants_with_prefix.sort_by_key(|item| std::cmp::Reverse(item.1.len()));
         let dispatch_lines: Vec<String> = variants_with_prefix
             .into_iter()
             .map(|(class, prefix)| {

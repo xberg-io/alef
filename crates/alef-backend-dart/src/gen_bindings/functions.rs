@@ -19,6 +19,7 @@ const DEFAULT_EXTRACTION_CONFIG: &str = "ExtractionConfig(\
     resultFormat: ResultFormat.unified, \
     outputFormat: OutputFormat.plain(), \
     includeDocumentStructure: false, \
+    useLayoutForMarkdown: false, \
     maxArchiveDepth: 3\
 )";
 

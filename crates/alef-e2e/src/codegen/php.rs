@@ -873,8 +873,7 @@ fn render_test_method(
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_factory = if let Some(factory) = php_client_factory {
         let fixture_id = &fixture.id;
-        if has_mock && api_key_var.is_some() {
-            let var = api_key_var.unwrap();
+        if let Some(var) = api_key_var.filter(|_| has_mock) {
             format!(
                 "$apiKey = getenv('{var}');\n        $baseUrl = ($apiKey !== false && $apiKey !== '') ? null : getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';\n        fwrite(STDERR, \"{fixture_id}: \" . ($baseUrl === null ? 'using real API ({var} is set)' : 'using mock server ({var} not set)') . \"\\n\");\n        $client = \\{namespace}\\{class_name}::{factory}($baseUrl === null ? $apiKey : 'test-key', $baseUrl);"
             )

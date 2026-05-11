@@ -640,8 +640,7 @@ fn render_test_case(
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
     let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
     let client_setup = if let Some(factory) = client_factory {
-        if has_mock && api_key_var.is_some() {
-            let var = api_key_var.unwrap();
+        if let Some(var) = api_key_var.filter(|_| has_mock) {
             let mock_url = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
             format!(
                 "const apiKey = process.env.{var};\n    \
@@ -853,6 +852,7 @@ fn wasm_class_name(ir_type_name: &str) -> String {
 /// - `TypeRef::Option(inner)` → unwrap recursively; if inner is class-typed,
 ///   the field should still be mapped.
 /// - Everything else (primitives, strings, maps, etc.) → skip.
+///
 /// BFS over the wasm class graph starting from each `seed_wasm_type` and walking
 /// every struct-typed field. Returns a flat field-name → wasm-class-name map
 /// covering EVERY transitively-reachable nested class.

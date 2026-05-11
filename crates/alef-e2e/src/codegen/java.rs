@@ -1190,8 +1190,7 @@ fn render_test_method(
         let mut setup: Vec<String> = Vec::new();
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
         let api_key_var = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
-        if has_mock && api_key_var.is_some() {
-            let var = api_key_var.unwrap();
+        if let Some(var) = api_key_var.filter(|_| has_mock) {
             setup.push(format!("String apiKey = System.getenv(\"{var}\");"));
             setup.push(format!(
                 "String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
