@@ -356,6 +356,14 @@ fn emit_inbound_method_impl(
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
+    // Methods with a default impl should not be overridden in the inbound wrapper:
+    // the trait's own default is used. Methods like `as_sync_extractor` (returning
+    // `Option<&dyn SyncExtractor>`) cannot be expressed via the swift FFI and rely
+    // on the default `None` impl from the trait definition.
+    if method.has_default_impl {
+        return;
+    }
+
     let method_snake = method.name.to_snake_case();
 
     // Build signature matching the original trait method.
@@ -390,6 +398,12 @@ fn emit_inbound_method_impl(
     let call_args: Vec<String> = method.params.iter().map(inbound_local_name).collect();
     let call_expr = format!("self.inner.alef_{method_snake}({})", call_args.join(", "));
 
+    // returns_ref = true with Vec<String> return type: the Swift side returns Vec<String>
+    // (the only type swift-bridge can ferry back), but the trait requires &[&str].
+    // Box::leak the owned Vec into a 'static slice of &'static str.
+    let is_mime_types_pattern = method.returns_ref
+        && matches!(&method.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+
     if method.error_type.is_some() {
         // Fallible methods receive a JSON envelope String; decode_inbound_envelope deserialises
         // `{"ok": <value>}` or `{"err": "<message>"}` into a `Result<T, KreuzbergError::Plugin>`.
@@ -401,6 +415,17 @@ fn emit_inbound_method_impl(
             out.push_str(&format!("        let envelope = {call_expr};\n"));
             out.push_str(&format!("        decode_inbound_envelope::<{native_ty}>(&envelope)\n"));
         }
+    } else if is_mime_types_pattern {
+        // &[&str] return: the Swift FFI shim returns Vec<String>; Box::leak it into
+        // a 'static slice so the &[&str] borrow lifetime requirement is satisfied.
+        // supported_mime_types() is called once per registration and the data is process-global.
+        out.push_str(&format!("        let __types: Vec<String> = {call_expr};\n"));
+        out.push_str(
+            "        let __strs: Vec<&'static str> = __types.into_iter()\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20    .map(|s| -> &'static str { Box::leak(s.into_boxed_str()) })\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20    .collect();\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20Box::leak(__strs.into_boxed_slice())\n",
+        );
     } else if needs_inbound_json_bridge(&method.return_type) {
         let native_ty = inbound_native_return_ty(&method.return_type, source_crate, type_paths);
         out.push_str(&format!("        let json = {call_expr};\n"));
@@ -482,6 +507,18 @@ fn inbound_impl_return_type(
     source_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
+    // When the trait method returns &[&str] (returns_ref = true, Vec<String>),
+    // emit the slice reference form so the generated impl signature matches the trait.
+    if method.returns_ref {
+        if let TypeRef::Vec(inner) = &method.return_type {
+            let elem = match inner.as_ref() {
+                TypeRef::String => "&'static str".to_string(),
+                other => inbound_native_ty(other, source_crate, type_paths),
+            };
+            return format!("&'static [{elem}]");
+        }
+    }
+
     let inner = inbound_native_ty(&method.return_type, source_crate, type_paths);
     if method.error_type.is_some() {
         if matches!(method.return_type, TypeRef::Unit) {

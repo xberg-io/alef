@@ -770,9 +770,7 @@ fn render_chat_stream_example(
                 "      warn \"{test_name}: using mock server ({key_var} not set)\"\n"
             ));
             out.push_str(&format!("      mock_url = {mock_url_expr}\n"));
-            out.push_str(&format!(
-                "      client = {call_receiver}.{cf}('test-key', mock_url)\n"
-            ));
+            out.push_str(&format!("      client = {call_receiver}.{cf}('test-key', mock_url)\n"));
             out.push_str("    end\n");
         } else if has_mock {
             let base_url_expr = if fixture.has_host_root_route() {

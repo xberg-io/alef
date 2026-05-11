@@ -69,11 +69,9 @@ pub(super) fn gen_struct(
                 match ty {
                     TypeRef::Bytes => "Vec<u8>".to_string(),
                     TypeRef::Optional(inner) => format!("Option<{}>", replace_bytes(inner, mapper)),
-                    TypeRef::Map(k, v) => format!(
-                        "HashMap<{}, {}>",
-                        replace_bytes(k, mapper),
-                        replace_bytes(v, mapper)
-                    ),
+                    TypeRef::Map(k, v) => {
+                        format!("HashMap<{}, {}>", replace_bytes(k, mapper), replace_bytes(v, mapper))
+                    }
                     TypeRef::Vec(inner) => format!("Vec<{}>", replace_bytes(inner, mapper)),
                     other => mapper.map_type(other),
                 }

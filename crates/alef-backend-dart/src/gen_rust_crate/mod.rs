@@ -139,10 +139,9 @@ fn emit_lib_rs(
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
         .filter(|t| {
-            t.fields.iter().any(|f| {
-                f.sanitized
-                    || has_duration_or_path_field(&f.ty)
-            })
+            t.fields
+                .iter()
+                .any(|f| f.sanitized || has_duration_or_path_field(&f.ty))
         })
         .map(|t| t.name.clone())
         .collect();
