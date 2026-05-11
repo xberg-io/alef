@@ -320,6 +320,50 @@ kotlin {{
         }}
     }}
 
+    iosX64 {{
+        compilations["main"].cinterops {{
+            val {crate_name} by creating {{
+                defFile = project.file("{crate_name}.def")
+            }}
+        }}
+        binaries {{
+            framework()
+        }}
+    }}
+
+    iosArm64 {{
+        compilations["main"].cinterops {{
+            val {crate_name} by creating {{
+                defFile = project.file("{crate_name}.def")
+            }}
+        }}
+        binaries {{
+            framework()
+        }}
+    }}
+
+    iosSimulatorArm64 {{
+        compilations["main"].cinterops {{
+            val {crate_name} by creating {{
+                defFile = project.file("{crate_name}.def")
+            }}
+        }}
+        binaries {{
+            framework()
+        }}
+    }}
+
+    androidNativeArm64 {{
+        compilations["main"].cinterops {{
+            val {crate_name} by creating {{
+                defFile = project.file("{crate_name}.def")
+            }}
+        }}
+        binaries {{
+            sharedLib()
+        }}
+    }}
+
     sourceSets {{
         val commonMain by getting
         val jvmMain by getting
@@ -330,6 +374,21 @@ kotlin {{
             dependsOn(nativeMain)
         }}
         val macosArm64Main by getting {{
+            dependsOn(nativeMain)
+        }}
+        val iosMain by creating {{
+            dependsOn(nativeMain)
+        }}
+        val iosX64Main by getting {{
+            dependsOn(iosMain)
+        }}
+        val iosArm64Main by getting {{
+            dependsOn(iosMain)
+        }}
+        val iosSimulatorArm64Main by getting {{
+            dependsOn(iosMain)
+        }}
+        val androidNativeArm64Main by getting {{
             dependsOn(nativeMain)
         }}
     }}

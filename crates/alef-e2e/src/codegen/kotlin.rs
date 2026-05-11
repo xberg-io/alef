@@ -812,6 +812,9 @@ fn render_test_method(
         let _ = writeln!(out, "    }}");
         return;
     }
+    // Check for client_factory — when set, use instance-method call style.
+    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref());
+
     let effective_function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
@@ -859,6 +862,43 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
 
+    // When client_factory is set, emit client-object instantiation + instance method call.
+    if let Some(_factory) = client_factory {
+        let fixture_id = &fixture.id;
+        let mock_url_expr = format!("System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"");
+        for line in &setup_lines {
+            let _ = writeln!(out, "        {line}");
+        }
+        let _ = writeln!(
+            out,
+            "        val client = {class_name}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+        );
+        if expects_error {
+            let _ = writeln!(out, "        assertFailsWith<Exception> {{");
+            let _ = writeln!(out, "            client.{function_name}({args_str})");
+            let _ = writeln!(out, "        }}");
+            let _ = writeln!(out, "        client.close()");
+            let _ = writeln!(out, "    }}");
+            return;
+        }
+        let _ = writeln!(out, "        val {result_var} = client.{function_name}({args_str})");
+        for assertion in &fixture.assertions {
+            render_assertion(
+                out,
+                assertion,
+                result_var,
+                class_name,
+                field_resolver,
+                result_is_simple,
+                enum_fields,
+            );
+        }
+        let _ = writeln!(out, "        client.close()");
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    // Flat-function call style (no client_factory).
     if expects_error {
         // Wrap setup + call in assertFailsWith so validation errors thrown
         // during engine creation are also caught (mirrors Java's assertThrows).

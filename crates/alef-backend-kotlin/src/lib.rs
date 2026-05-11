@@ -5,6 +5,7 @@
 //! `.so` produced by the Java backend; real codegen lands in Phase 1B.
 //! Kotlin/Native and Kotlin Multiplatform paths are deferred to Phase 3.
 
+pub(crate) mod gen_android;
 mod gen_bindings;
 mod gen_mpp;
 pub(crate) mod gen_native;

@@ -532,6 +532,16 @@ pub struct KotlinConfig {
     /// the cbindgen C FFI library. `"multiplatform"` is reserved for the KMP stage.
     #[serde(default)]
     pub target: KotlinTarget,
+    /// Emission mode controlling which Kotlin project layout is generated.
+    ///
+    /// Accepted values:
+    /// - `"jvm"` (default) — standard JVM-only project under `packages/kotlin/`
+    /// - `"kmp"` — Kotlin Multiplatform project under `packages/kotlin-mpp/`
+    /// - `"android"` — Android library project under `packages/kotlin-android/`
+    ///
+    /// When `None`, defaults to `"jvm"`.
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 /// Dart bridging style: FRB (default) or raw `dart:ffi`.
@@ -600,6 +610,20 @@ pub struct DartConfig {
     /// language only.
     #[serde(default)]
     pub exclude_extra_dependencies: Vec<String>,
+    /// Method names whose Rust bridge body should be emitted as `unimplemented!()`.
+    ///
+    /// Use this when a function's FFI signature (e.g. nested tuples containing
+    /// `Vec<u8>`) cannot be represented across the FRB bridge at all. Consumers must
+    /// list the method names explicitly — this field has no built-in defaults so the
+    /// knob is library-agnostic.
+    ///
+    /// Example (`alef.toml`):
+    /// ```toml
+    /// [crates.dart]
+    /// stub_methods = ["batch_extract_bytes", "batch_extract_bytes_sync"]
+    /// ```
+    #[serde(default)]
+    pub stub_methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
