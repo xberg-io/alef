@@ -49,6 +49,19 @@ static TEMPLATES: &[(&str, &str)] = &[
         "method_signature.jinja",
         include_str!("../templates/method_signature.jinja"),
     ),
+    ("import_line.jinja", include_str!("../templates/import_line.jinja")),
+    (
+        "trait_bridge_doc_line.jinja",
+        include_str!("../templates/trait_bridge_doc_line.jinja"),
+    ),
+    (
+        "trait_bridge_empty_comment_line.jinja",
+        include_str!("../templates/trait_bridge_empty_comment_line.jinja"),
+    ),
+    (
+        "trait_scope_cap.jinja",
+        include_str!("../templates/trait_scope_cap.jinja"),
+    ),
     (
         "support_nif_doc.jinja",
         include_str!("../templates/support_nif_doc.jinja"),
@@ -60,6 +73,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "support_nif_fail.jinja",
         include_str!("../templates/support_nif_fail.jinja"),
+    ),
+    (
+        "support_nif_fail_doc.jinja",
+        include_str!("../templates/support_nif_fail_doc.jinja"),
     ),
 ];
 
