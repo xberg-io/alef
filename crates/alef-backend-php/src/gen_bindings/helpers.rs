@@ -880,6 +880,11 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         },
     ));
     for field in &typ.fields {
+        // cfg-gated fields are absent from the binding struct and must not appear in the
+        // From impl field list — they are filled by the ..Default::default() spread.
+        if field.cfg.is_some() {
+            continue;
+        }
         let name = &field.name;
         // Bridge type alias fields (e.g. VisitorHandle) are NOT sanitized but are in
         // from_binding_skip_types, so field_conversion_to_core_cfg would emit Default::default().

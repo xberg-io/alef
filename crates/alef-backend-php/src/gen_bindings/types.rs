@@ -368,6 +368,9 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
+                    // cfg-gated fields are absent from the binding struct — skip them so they
+                    // don't appear as constructor parameters or in the struct literal.
+                    .filter(|f| f.cfg.is_none())
                     .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
@@ -400,6 +403,7 @@ fn gen_struct_methods_impl(
                 for f in typ
                     .fields
                     .iter()
+                    .filter(|f| f.cfg.is_none())
                     .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
                 {
                     if let TypeRef::Vec(inner) = &f.ty {
@@ -447,6 +451,9 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
+                    // cfg-gated fields are absent from the binding struct — exclude them
+                    // from the struct literal to avoid "no field named X" errors.
+                    .filter(|f| f.cfg.is_none())
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         if field_can_be_param(&f.ty, enum_names, opaque_types) {
@@ -505,6 +512,8 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
+                    // cfg-gated fields are absent from the binding struct.
+                    .filter(|f| f.cfg.is_none())
                     .map(|f| alef_core::ir::ParamDef {
                         name: f.name.clone(),
                         ty: f.ty.clone(),
@@ -524,7 +533,7 @@ fn gen_struct_methods_impl(
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();
-                for f in typ.fields.iter() {
+                for f in typ.fields.iter().filter(|f| f.cfg.is_none()) {
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
@@ -569,6 +578,8 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
+                    // cfg-gated fields are absent from the binding struct.
+                    .filter(|f| f.cfg.is_none())
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         // Check if this needs let-binding conversion
