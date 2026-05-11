@@ -126,7 +126,7 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
 /// `fn {trait_snake}_call_{method}(this: &{Trait}Box, args…) -> ret`.
 /// All parameter/return types are flattened to swift-bridge-safe types (primitives,
 /// String, Vec<leaf>). Complex types (Named, Optional, Map, Vec<non-leaf>) are JSON-bridged.
-pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String {
+pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_names: &HashSet<&str>) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::template_env::render(
@@ -167,7 +167,7 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
 
         let mut params = vec!["this: &".to_string() + &format!("{}Box", trait_def.name)];
         for p in &method.params {
-            let bridge_ty = bridge_type_for_trait_method(&p.ty);
+            let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
             let name = p.name.to_snake_case();
             params.push(format!("{name}: {bridge_ty}"));
         }
@@ -178,7 +178,7 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
         let return_ty = if method.error_type.is_some() {
             "String".to_string()
         } else {
-            bridge_type_for_trait_method(&method.return_type)
+            bridge_type_for_trait_method(&method.return_type, visible_type_names)
         };
 
         let params_str = params.join(", ");
@@ -262,7 +262,7 @@ pub(crate) fn emit_trait_bridge_wrapper(
         // in the function signature so we can borrow mutably from the local binding.
         let mut sig_params = vec![format!("this: &{trait_name}Box")];
         for p in &method.params {
-            let bridge_ty = bridge_type_for_trait_method(&p.ty);
+            let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
             let name = p.name.to_snake_case();
             // Declare `mut` when the trait method takes `&mut` (is_mut=true on a Named type).
             let needs_mut = p.is_mut && matches!(p.ty, TypeRef::Named(_));
@@ -279,7 +279,7 @@ pub(crate) fn emit_trait_bridge_wrapper(
         let return_ty = if method.error_type.is_some() {
             "String".to_string()
         } else {
-            bridge_type_for_trait_method(&method.return_type)
+            bridge_type_for_trait_method(&method.return_type, visible_type_names)
         };
 
         // Build the call arguments — convert bridge types back to what the trait expects.
@@ -306,8 +306,18 @@ pub(crate) fn emit_trait_bridge_wrapper(
 /// Bridge type for trait method parameters/return types.
 /// All Named types, Optional types, Vec<non-leaf>, and Map types are JSON-bridged (String).
 /// This matches `bridge_type` but applied to trait method contexts.
-fn bridge_type_for_trait_method(ty: &TypeRef) -> String {
-    bridge_type(ty)
+///
+/// `visible_type_names` contains the set of Named types that have generated
+/// swift-bridge newtype wrappers in lib.rs. Named types outside this set
+/// (e.g. excluded internal types like `InternalDocument`) are JSON-bridged as
+/// `String` rather than referencing a nonexistent wrapper newtype.
+fn bridge_type_for_trait_method(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => "String".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", bridge_type_for_trait_method(inner, visible_type_names)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type_for_trait_method(inner, visible_type_names)),
+        _ => bridge_type(ty),
+    }
 }
 
 /// Build the call-site argument expression for a trait method parameter.

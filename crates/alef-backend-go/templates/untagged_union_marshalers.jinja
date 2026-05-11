@@ -21,4 +21,3 @@ func (t *{{ enum_name }}) UnmarshalJSON(data []byte) error {
 {% endfor %}
 	return fmt.Errorf("{{ enum_name }}: cannot match any variant")
 }
-

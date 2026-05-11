@@ -18,4 +18,3 @@ pub fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String> 
         .map_err(|e| e.to_string())
         .map(BatchFileItem)
 }
-

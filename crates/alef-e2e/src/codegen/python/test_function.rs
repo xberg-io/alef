@@ -116,9 +116,8 @@ pub(super) fn render_test_function(
     let call_expr = if let Some(ref factory) = client_factory {
         let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
         let api_key_opt = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref());
-        if has_mock && api_key_opt.is_some() {
+        if let Some(api_key_var) = api_key_opt.filter(|_| has_mock) {
             let fixture_id = &fixture.id;
-            let api_key_var = api_key_opt.unwrap();
             let mock_base_url_expr = if fixture.has_host_root_route() {
                 format!(
                     "os.environ.get(\"MOCK_SERVER_{}\") or os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\"",

@@ -760,7 +760,7 @@ fn render_chat_stream_example(
         if has_mock && let Some(key_var) = api_key_var {
             let mock_url_expr = format!("\"#{{ENV['MOCK_SERVER_URL']}}/fixtures/{fixture_id}\"");
             out.push_str(&format!("    api_key = ENV['{key_var}']\n"));
-            out.push_str(&format!("    if api_key && !api_key.empty?\n"));
+            out.push_str("    if api_key && !api_key.empty?\n");
             out.push_str(&format!(
                 "      warn \"{test_name}: using real API ({key_var} is set)\"\n"
             ));

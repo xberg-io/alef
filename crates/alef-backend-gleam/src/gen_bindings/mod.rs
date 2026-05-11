@@ -93,6 +93,16 @@ impl Backend for GleamBackend {
             .filter(|b| !b.exclude_languages.iter().any(|l| l == "gleam"))
             .collect();
 
+        // Set of struct/enum type names that have a corresponding generated Gleam type.
+        // Trait method signatures referring to any other Named type (e.g. excluded
+        // internal types like `InternalDocument`) are substituted with `String`.
+        let visible_type_names: std::collections::HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
         let mut support_nifs_emitted = false;
         for bridge_cfg in &active_bridges {
             let trait_type = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
@@ -101,6 +111,7 @@ impl Backend for GleamBackend {
                 trait_type,
                 &nif_module,
                 &declared_errors,
+                &visible_type_names,
                 &mut body,
                 &mut imports,
             );

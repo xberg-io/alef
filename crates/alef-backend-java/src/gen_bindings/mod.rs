@@ -302,6 +302,17 @@ impl Backend for JavaBackend {
         // 8. Trait bridge plugin registration files
         // Emits two files per trait: I{Trait}.java (managed interface) and
         // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
+        //
+        // Set of struct + enum names that get a generated companion Java class.
+        // Trait method signatures referencing types outside this set (e.g. excluded
+        // internal types like `InternalDocument`) are JSON-bridged as Strings.
+        let visible_type_names: HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
                 continue;
@@ -327,6 +338,7 @@ impl Backend for JavaBackend {
                     has_super_trait,
                     bridge_cfg.unregister_fn.as_deref(),
                     bridge_cfg.clear_fn.as_deref(),
+                    &visible_type_names,
                 );
 
                 files.push(GeneratedFile {
