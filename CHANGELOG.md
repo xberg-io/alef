@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/kotlin): generate `MockServerListener.kt` and `META-INF/services/org.junit.platform.launcher.LauncherSessionListener` when any fixture needs the mock-server. Add `junit-platform-launcher` to `build.gradle.kts` when the listener is emitted. Previously `MOCK_SERVER_URL` was never set, causing all mock-server-dependent Kotlin e2e tests to fail.
+
 - fix(alef-e2e/kotlin): generate Kotlin-native collection access and nullable assertion expressions for optional fields, arrays, maps, and JNA library path setup.
 
 - fix(alef-e2e/zig): replace `std.posix.getenv` with `std.process.getenv` in generated test preambles. `std.posix.getenv` was removed in Zig 0.16.0; `std.process.getenv` is the correct API and works across all supported Zig versions.
