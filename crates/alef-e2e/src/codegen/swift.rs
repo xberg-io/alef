@@ -591,7 +591,51 @@ fn render_test_method(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_async = call_config.r#async;
 
+    // Detect whether this call has any json_object args that cannot be constructed
+    // in Swift — swift-bridge opaque types do not provide a fromJson initialiser.
+    // When such args exist and no `options_via` is configured for swift, emit a
+    // skip stub so the test compiles but is recorded as skipped rather than
+    // generating invalid code that passes `nil` or a string literal where a
+    // strongly-typed request object is required.
+    let has_unresolvable_json_object_arg = {
+        let options_via = call_overrides.and_then(|o| o.options_via.as_deref());
+        options_via.is_none()
+            && args
+                .iter()
+                .any(|a| a.arg_type == "json_object" && a.name != "config")
+    };
+
+    if has_unresolvable_json_object_arg {
+        if is_async {
+            let _ = writeln!(out, "    func test{method_name}() async throws {{");
+        } else {
+            let _ = writeln!(out, "    func test{method_name}() throws {{");
+        }
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        try XCTSkipIf(true, \"swift: json_object request construction requires options_via configuration (fixture: {})\");",
+            fixture.id
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    // Resolve extra_args from per-call swift overrides (e.g. `nil` for optional
+    // query-param arguments on list_files/list_batches that have no fixture-level
+    // input field).
+    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id, &function_name);
+
+    // Append extra_args to the argument list.
+    let args_str = if extra_args.is_empty() {
+        args_str
+    } else if args_str.is_empty() {
+        extra_args.join(", ")
+    } else {
+        format!("{args_str}, {}", extra_args.join(", "))
+    };
 
     // When a client_factory is set, dispatch via a client instance:
     //   let client = try <FactoryType>(apiKey: "test-key", baseUrl: <mock_url>)
@@ -942,14 +986,14 @@ fn render_assertion(
                         // For enum fields, compare the string representation of the enum case.
                         // Use String(describing:) to get the case name.
                         let enum_str = format!("String(describing: {field_expr})");
-                        let trim_expr = format!("{enum_str}.trimmingCharacters(in: .whitespaces)");
+                        let trim_expr = format!("{enum_str}.trimmingCharacters(in: CharacterSet.whitespaces)");
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     } else {
                         // For optional strings (String?), use ?? to coalesce before trimming.
                         // `.toString()` converts RustString → Swift String before calling
                         // `.trimmingCharacters`, which requires a concrete String type.
                         // string_expr already incorporates field_is_optional via ?.toString() ?? "".
-                        let trim_expr = format!("{string_expr}.trimmingCharacters(in: .whitespaces)");
+                        let trim_expr = format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespaces)");
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     }
                 } else {
@@ -1263,15 +1307,27 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
     let total = parts.len();
     for (i, part) in parts.iter().enumerate() {
         let is_leaf = i == total - 1;
+        // Handle array index subscripts within a segment, e.g. `data[0]`.
+        // `data[0]` must become `.data()[0]` not `.data[0]()`.
+        // Split at the first `[` if present.
+        let (field_name, subscript): (&str, Option<&str>) = if let Some(bracket_pos) = part.find('[') {
+            (&part[..bracket_pos], Some(&part[bracket_pos..]))
+        } else {
+            (part, None)
+        };
+
         if !path_so_far.is_empty() {
             path_so_far.push('.');
         }
         path_so_far.push_str(part);
         out.push('.');
-        out.push_str(part);
+        out.push_str(field_name);
         out.push_str("()");
-        // Insert `?` after `()` for any non-leaf optional field so the next
-        // member access becomes `?.`.
+        if let Some(sub) = subscript {
+            out.push_str(sub);
+        }
+        // Insert `?` after the last `()` (or subscript) for any non-leaf optional field
+        // so the next member access becomes `?.`.
         if !is_leaf && field_resolver.is_optional(&path_so_far) {
             out.push('?');
             has_optional = true;
