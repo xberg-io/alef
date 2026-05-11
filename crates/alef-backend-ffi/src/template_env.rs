@@ -291,6 +291,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/formatted_line.jinja"),
     ),
     (
+        "ffi_async_body_indent.jinja",
+        include_str!("../templates/ffi_async_body_indent.jinja"),
+    ),
+    (
+        "ffi_async_capture_param.jinja",
+        include_str!("../templates/ffi_async_capture_param.jinja"),
+    ),
+    (
+        "ffi_async_cached_name_init.jinja",
+        include_str!("../templates/ffi_async_cached_name_init.jinja"),
+    ),
+    (
+        "ffi_async_map_err_method.jinja",
+        include_str!("../templates/ffi_async_map_err_method.jinja"),
+    ),
+    (
+        "ffi_async_box_error_map.jinja",
+        include_str!("../templates/ffi_async_box_error_map.jinja"),
+    ),
+    (
         "ffi_vtable_extract.jinja",
         include_str!("../templates/ffi_vtable_extract.jinja"),
     ),
@@ -336,6 +356,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/ffi_nul_byte_json_err.jinja"),
     ),
     (
+        "ffi_nul_byte_json_param_msg.jinja",
+        include_str!("../templates/ffi_nul_byte_json_param_msg.jinja"),
+    ),
+    (
+        "ffi_nul_byte_param_msg.jinja",
+        include_str!("../templates/ffi_nul_byte_param_msg.jinja"),
+    ),
+    (
         "ffi_unsafe_fp_call.jinja",
         include_str!("../templates/ffi_unsafe_fp_call.jinja"),
     ),
@@ -363,6 +391,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "ffi_vtable_error_check.jinja",
         include_str!("../templates/ffi_vtable_error_check.jinja"),
+    ),
+    (
+        "ffi_vtable_not_initialised_msg.jinja",
+        include_str!("../templates/ffi_vtable_not_initialised_msg.jinja"),
+    ),
+    (
+        "ffi_vtable_null_out_result_msg.jinja",
+        include_str!("../templates/ffi_vtable_null_out_result_msg.jinja"),
     ),
     (
         "ffi_unsafe_fp_tail.jinja",
