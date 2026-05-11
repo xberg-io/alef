@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-swift,alef-backend-napi,alef-codegen): harden remaining trait bridge generation edge cases. Swift trait bridge JSON envelopes now serialize success and error payloads with `serde_json`, Swift inbound wrappers handle `returns_ref` `Vec<String>` methods without overriding default trait methods, NAPI trait bridge parse errors include plugin context, and excluded type paths no longer overwrite visible binding type paths with the same short name.
+
 - fix(alef-backend-dart): the core→mirror `From` impl for struct fields of type `Duration` now emits `v.{name}.as_millis() as i64` (or `.map(|d| d.as_millis() as i64)` for optional) instead of the invalid `v.{name} as _`. `Duration` is not a primitive type and cannot be coerced with `as`; the previous codegen produced `E0605 non-primitive cast: Duration as i64` for any crate that has `Duration`-typed fields (e.g. `BrowserConfig.timeout`, `CrawlConfig.request_timeout`).
 
 - fix(alef-e2e/ruby): fixtures with only a `not_error` assertion now emit a real test body (`expect { }.not_to raise_error`) instead of `skip "Non-HTTP fixture cannot be tested via Net::HTTP"`.

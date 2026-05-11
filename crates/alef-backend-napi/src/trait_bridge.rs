@@ -107,7 +107,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             name
         ));
         let error_parse = spec.make_error(&format!(
-            "format!(\"Failed to parse return value for method '{}'\", self.cached_name)",
+            "format!(\"Plugin '{{}}' failed to parse return value for method '{}'\", self.cached_name)",
             name
         ));
 

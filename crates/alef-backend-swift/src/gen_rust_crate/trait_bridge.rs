@@ -203,7 +203,17 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
 /// - For each method: a `pub fn {trait_snake}_call_{method}(this: &{Trait}Box, …) -> ret`
 ///   that delegates to `this.0.{method}(…)`.
 /// - Async methods block on a current-thread Tokio runtime (same as async function shims).
-pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str, enum_names: &HashSet<&str>) -> String {
+///
+/// `visible_type_names` must contain all type names (structs + enums) that have swift-bridge
+/// wrapper newtypes in the generated lib.rs. Named return types NOT in this set (e.g. excluded
+/// types like `InternalDocument`) are serialised to JSON rather than wrapped in a nonexistent
+/// struct or enum.
+pub(crate) fn emit_trait_bridge_wrapper(
+    trait_def: &TypeDef,
+    source_crate: &str,
+    enum_names: &HashSet<&str>,
+    visible_type_names: &HashSet<&str>,
+) -> String {
     let mut out = String::new();
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
@@ -277,7 +287,7 @@ pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str,
         let call_args_str = call_args.join(", ");
         let source_call = format!("this.0.{method_name}({call_args_str})");
 
-        let body = emit_trait_method_body(method, &source_call, &return_ty, enum_names);
+        let body = emit_trait_method_body(method, &source_call, &return_ty, enum_names, visible_type_names);
 
         out.push_str(&crate::template_env::render(
             "trait_method_impl.jinja",
@@ -361,25 +371,34 @@ pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef) -> String {
 }
 
 /// Emit the body of a trait method trampoline, handling sync vs async and error types.
+///
+/// `visible_type_names` is the union of all struct and enum names that have swift-bridge
+/// wrapper newtypes in the generated lib.rs. Named return types not in this set (e.g.
+/// excluded types like `InternalDocument`) are JSON-serialised rather than wrapped in a
+/// struct that does not exist in the generated file.
 pub(crate) fn emit_trait_method_body(
     method: &MethodDef,
     source_call: &str,
     _return_ty: &str,
     enum_names: &HashSet<&str>,
+    visible_type_names: &HashSet<&str>,
 ) -> String {
     // Wrap the return value for methods that return Named types (bridged as JSON or swift-bridge
-    // newtype wrappers). JSON-bridged types use serde_json::to_string. Named types not
-    // JSON-bridged (i.e. plain Named leaf types) need to be wrapped in the bridge newtype.
-    // Enum wrappers use `::from(val)`; struct newtypes use `T(val)`.
+    // newtype wrappers). JSON-bridged types use serde_json::to_string. Named types that have a
+    // visible swift-bridge wrapper are wrapped with the wrapper constructor; excluded types
+    // (not in visible_type_names, e.g. InternalDocument) are JSON-serialised directly.
     let wrap_return = |expr: String| -> String {
         if needs_json_bridge(&method.return_type) {
             format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
         } else {
             match &method.return_type {
                 TypeRef::String | TypeRef::Path => format!("{expr}.to_string()"),
-                // Named leaf types are represented as bridge wrapper newtypes — wrap.
                 TypeRef::Named(name) => {
-                    if enum_names.contains(name.as_str()) {
+                    if !visible_type_names.contains(name.as_str()) {
+                        // Excluded/foreign type — not wrapped as a swift-bridge newtype.
+                        // Serialise the core value directly (it must implement serde::Serialize).
+                        format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
+                    } else if enum_names.contains(name.as_str()) {
                         format!("{name}::from({expr})")
                     } else {
                         format!("{name}({expr})")
@@ -397,32 +416,16 @@ pub(crate) fn emit_trait_method_body(
     let envelope_result_expr = |base: String| -> String {
         // Serialise the ok value to a JSON fragment.
         let ok_fragment = if matches!(method.return_type, TypeRef::Unit) {
-            // () → "null"
+            // () -> "null"
             "\"null\"".to_string()
-        } else if needs_json_bridge(&method.return_type) {
-            // Complex type: already serialisable — produce the JSON string of the value.
-            "serde_json::to_string(&v).expect(\"serializable return\")".to_string()
         } else {
-            match &method.return_type {
-                TypeRef::String | TypeRef::Path => "v.to_string()".to_string(),
-                // Named leaf: convert to wrapper then serialise.
-                TypeRef::Named(name) => {
-                    let expr = if enum_names.contains(name.as_str()) {
-                        format!("{name}::from(v)")
-                    } else {
-                        format!("{name}(v)")
-                    };
-                    format!("serde_json::to_string(&{expr}).expect(\"serializable return\")")
-                }
-                // Primitive: format! round-trip.
-                _ => "v.to_string()".to_string(),
-            }
+            "serde_json::to_string(&v).expect(\"serializable return\")".to_string()
         };
 
         format!(
             "match {base} {{\n\
              \x20\x20\x20\x20Ok(v) => format!(\"{{{{\\\"ok\\\": {{}}}}}}\", {ok_fragment}),\n\
-             \x20\x20\x20\x20Err(e) => format!(\"{{{{\\\"err\\\": \\\"{{}}\\\"}}}}\" , e),\n\
+             \x20\x20\x20\x20Err(e) => format!(\"{{{{\\\"err\\\": {{}}}}}}\", serde_json::to_string(&e.to_string()).expect(\"serializable error\")),\n\
              }}"
         )
     };
@@ -443,6 +446,13 @@ pub(crate) fn emit_trait_method_body(
     } else if method.error_type.is_some() {
         let enveloped = envelope_result_expr(source_call.to_string());
         format!("    {enveloped}\n")
+    } else if method.returns_ref
+        && matches!(&method.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+    {
+        // The trait method returns &[&str] (Vec<String> + returns_ref in the IR).
+        // The extern "Rust" declaration uses Vec<String> (the only collection swift-bridge
+        // can handle), so the trampoline must collect the &[&str] slice into an owned Vec.
+        format!("    {source_call}.iter().map(|s| s.to_string()).collect()\n")
     } else {
         let wrapped = wrap_return(source_call.to_string());
         format!("    {wrapped}\n")

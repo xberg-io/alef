@@ -297,13 +297,7 @@ fn render_test_file(
     out
 }
 
-fn render_test_case(
-    out: &mut String,
-    fixture: &Fixture,
-    e2e_config: &E2eConfig,
-    lang: &str,
-    bridge_class: &str,
-) {
+fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, lang: &str, bridge_class: &str) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -410,12 +404,9 @@ fn render_test_case(
                     format!("create{pascal}")
                 };
                 if config_value.is_null()
-                    || config_value.is_object()
-                        && config_value.as_object().is_some_and(|o| o.is_empty())
+                    || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
                 {
-                    setup_lines.push(format!(
-                        "final {name} = await {bridge_class}.{create_fn}(null);"
-                    ));
+                    setup_lines.push(format!("final {name} = await {bridge_class}.{create_fn}(null);"));
                 } else {
                     let json_str = serde_json::to_string(&config_value).unwrap_or_default();
                     let config_var = format!("{name}Config");

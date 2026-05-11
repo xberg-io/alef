@@ -31,9 +31,15 @@ pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
     }
     // Include excluded types so trait bridge impls that reference them (e.g. `&InternalDocument`)
     // emit fully-qualified paths rather than bare type names.
+    //
+    // IMPORTANT: use `entry().or_insert()` rather than `insert()` so that a visible binding
+    // type (already inserted from api.types/api.enums above) is never overwritten by an
+    // excluded internal type with the same short name. Example: `Table` is a public type at
+    // `kreuzberg::Table` *and* an excluded internal type at
+    // `kreuzberg::extraction::docx::parser::Table`; the public path must win.
     for (name, path) in &api.excluded_type_paths {
         if !path.is_empty() {
-            paths.insert(name.clone(), path.replace('-', "_"));
+            paths.entry(name.clone()).or_insert_with(|| path.replace('-', "_"));
         }
     }
     paths

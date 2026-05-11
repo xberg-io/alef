@@ -171,6 +171,15 @@ fn emit_lib_rs(
     // conversion idiom: `T::from(val)` for enums, `T(val)` for struct newtypes.
     let enum_names: HashSet<&str> = visible_enums.iter().map(|e| e.name.as_str()).collect();
 
+    // Union of all visible type names (structs + enums) that have swift-bridge wrapper newtypes
+    // in the generated lib.rs. Used by trait bridge trampolines to decide whether a Named
+    // return type should be wrapped (it has a newtype) or JSON-serialised (excluded/foreign type).
+    let visible_type_names: HashSet<&str> = visible_types
+        .iter()
+        .map(|t| t.name.as_str())
+        .chain(enum_names.iter().copied())
+        .collect();
+
     // Set of type names that do NOT implement serde (Serialize + Deserialize).
     // These cannot be JSON-bridged and must use unimplemented!() when they appear
     // as inner Named types in Optional/Vec fields or return types.
@@ -295,6 +304,7 @@ fn emit_lib_rs(
             trait_def,
             &source_crate,
             &enum_names,
+            &visible_type_names,
         ));
         out.push('\n');
     }

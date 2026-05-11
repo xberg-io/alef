@@ -65,7 +65,15 @@ pub(crate) fn emit_bridge_fn(
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths, types_needing_from_conversion, opaque_type_names))
+        .map(|p| {
+            dart_call_arg_with_mirror_transmute(
+                p,
+                source_crate_name,
+                type_paths,
+                types_needing_from_conversion,
+                opaque_type_names,
+            )
+        })
         .collect();
 
     let call = format!("{resolved_path}({})", call_args.join(", "));
