@@ -783,6 +783,14 @@ fn render_json_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let raw_field_path = assertion.field.as_deref().unwrap_or("").trim();
     // Resolve aliases (e.g. "content.detected_charset" → "detected_charset").
     let field_path = if raw_field_path.is_empty() {
