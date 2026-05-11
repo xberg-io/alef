@@ -154,18 +154,15 @@ fn gen_scan_args_prologue_with_defaults(
 
     // scan_args requires all 6 generic parameters: Req, Opt, Splat, Trail, Kw, Block
     // The req_type_str and opt_type_str already have proper formatting
-    let scan_args_line = match (req_types.is_empty(), opt_types.is_empty()) {
-        (true, true) => "let args = magnus::scan_args::scan_args::<(), (), (), (), (), ()>(args)?;".to_string(),
-        (false, true) => {
-            format!("let args = magnus::scan_args::scan_args::<({req_type_str},), (), (), (), (), ()>(args)?;")
-        }
-        (true, false) => {
-            format!("let args = magnus::scan_args::scan_args::<(), ({opt_type_str},), (), (), (), ()>(args)?;")
-        }
-        (false, false) => format!(
-            "let args = magnus::scan_args::scan_args::<({req_type_str},), ({opt_type_str},), (), (), (), ()>(args)?;"
-        ),
-    };
+    let scan_args_line = crate::template_env::render(
+        "function_scan_args_call.rs.jinja",
+        minijinja::context! {
+            has_required => !req_types.is_empty(),
+            has_optional => !opt_types.is_empty(),
+            required_types => &req_type_str,
+            optional_types => &opt_type_str,
+        },
+    );
 
     let mut lines = vec![scan_args_line];
 
@@ -181,7 +178,13 @@ fn gen_scan_args_prologue_with_defaults(
                 req_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
             )
         };
-        lines.push(format!("let {pat} = args.required;"));
+        lines.push(crate::template_env::render(
+            "function_scan_args_destructure.rs.jinja",
+            minijinja::context! {
+                pattern => &pat,
+                source => "required",
+            },
+        ));
     }
 
     // Destructure optional
@@ -196,7 +199,13 @@ fn gen_scan_args_prologue_with_defaults(
                 opt_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
             )
         };
-        lines.push(format!("let {pat} = args.optional;"));
+        lines.push(crate::template_env::render(
+            "function_scan_args_destructure.rs.jinja",
+            minijinja::context! {
+                pattern => &pat,
+                source => "optional",
+            },
+        ));
     }
 
     // After destructuring, convert Option<magnus::Value> back to Option<String> for optional strings
@@ -206,9 +215,11 @@ fn gen_scan_args_prologue_with_defaults(
         let treat_as_optional = (p.optional || promoted) || (is_last && last_is_default_config);
 
         if treat_as_optional && matches!(p.ty, TypeRef::String) {
-            lines.push(format!(
-                "let {}: Option<String> = {}.and_then(|v| if v.is_nil() {{ None }} else {{ Some(String::try_convert(v).unwrap_or_default()) }});",
-                p.name, p.name
+            lines.push(crate::template_env::render(
+                "function_optional_string_scan_arg.rs.jinja",
+                minijinja::context! {
+                    name => &p.name,
+                },
             ));
         }
     }
@@ -271,16 +282,34 @@ pub(super) fn gen_function(
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
                     if p.optional {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: Option<{core_import}::{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(binding_val.into()) }}, _ => None }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "optional",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: {core_import}::{name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; binding_val.into() }}, _ => Default::default() }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "default",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     } else {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: {core_import}::{name} = {{ let binding_val: {name} = {name}::try_convert({binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; binding_val.into() }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "required",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     }
                 }
@@ -331,16 +360,22 @@ pub(super) fn gen_function(
                 false,
             );
             if func.error_type.is_some() {
-                format!(
-                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                     let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                     Ok({wrap})"
+                crate::template_env::render(
+                    "function_async_body.rs.jinja",
+                    minijinja::context! {
+                        core_call => &core_call,
+                        wrap => &wrap,
+                        has_error => true,
+                    },
                 )
             } else {
-                format!(
-                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                     let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                     Ok({wrap})"
+                crate::template_env::render(
+                    "function_async_body.rs.jinja",
+                    minijinja::context! {
+                        core_call => &core_call,
+                        wrap => &wrap,
+                        has_error => false,
+                    },
                 )
             }
         } else if func.error_type.is_some() {
@@ -353,8 +388,12 @@ pub(super) fn gen_function(
                 func.returns_ref,
                 false,
             );
-            format!(
-                "let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    Ok({wrap})"
+            crate::template_env::render(
+                "function_result_body.rs.jinja",
+                minijinja::context! {
+                    core_call => &core_call,
+                    wrap => &wrap,
+                },
             )
         } else if variadic {
             // Variadic functions must return Result (scan_args uses ?), so wrap plain value in Ok().
@@ -367,7 +406,12 @@ pub(super) fn gen_function(
                 func.returns_ref,
                 false,
             );
-            format!("Ok({inner})")
+            crate::template_env::render(
+                "function_variadic_ok_body.rs.jinja",
+                minijinja::context! {
+                    inner => &inner,
+                },
+            )
         } else {
             generators::wrap_return(
                 &core_call,
@@ -388,10 +432,17 @@ pub(super) fn gen_function(
     } else {
         ""
     };
-    format!(
-        "{allow_attr}fn {}({params}) -> {return_annotation} {{\n    \
-         {scan_args_prologue}{deser_preamble}{body}\n}}",
-        func.name
+    crate::template_env::render(
+        "function_wrapper.rs.jinja",
+        minijinja::context! {
+            allow_attr => allow_attr,
+            name => &func.name,
+            params => &params,
+            return_annotation => &return_annotation,
+            scan_args_prologue => &scan_args_prologue,
+            deser_preamble => &deser_preamble,
+            body => &body,
+        },
     )
 }
 
@@ -451,19 +502,37 @@ fn magnus_serde_let_bindings(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
-                    out.push(format!(
-                        "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| {err})?; binding_val.into() }}), _ => None }};",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_serde_named_binding.rs.jinja",
+                        minijinja::context! {
+                            mode => "optional",
+                            name => &p.name,
+                            core_import => core_import,
+                            type_name => name,
+                            error_expr => err,
+                        },
                     ));
                 } else if promoted || is_last_config {
-                    out.push(format!(
-                        "let {n}_core: {core_import}::{name} = match {n} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| {err})?; binding_val.into() }}, _ => Default::default() }};",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_serde_named_binding.rs.jinja",
+                        minijinja::context! {
+                            mode => "default",
+                            name => &p.name,
+                            core_import => core_import,
+                            type_name => name,
+                            error_expr => err,
+                        },
                     ));
                 } else {
-                    out.push(format!(
-                        "let {n}_core: {core_import}::{name} = {{ let binding_val: {name} = {name}::try_convert({n}).map_err(|e| {err})?; binding_val.into() }};",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_serde_named_binding.rs.jinja",
+                        minijinja::context! {
+                            mode => "required",
+                            name => &p.name,
+                            core_import => core_import,
+                            type_name => name,
+                            error_expr => err,
+                        },
                     ));
                 }
             }
@@ -472,14 +541,20 @@ fn magnus_serde_let_bindings(
             {
                 // Non-sanitized Vec<String> passed by ref: core expects &[&str], so create refs vec.
                 if p.optional {
-                    out.push(format!(
-                        "let {n}_refs: Vec<&str> = {n}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_vec_refs_binding.rs.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            optional => true,
+                        },
                     ));
                 } else {
-                    out.push(format!(
-                        "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_vec_refs_binding.rs.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            optional => false,
+                        },
                     ));
                 }
             }
@@ -487,14 +562,22 @@ fn magnus_serde_let_bindings(
                 if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
             {
                 if p.optional {
-                    out.push(format!(
-                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| {err})).collect::<Result<Vec<_>, _>>()).transpose()?;",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_sanitized_vec_binding.rs.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            optional => true,
+                            error_expr => err,
+                        },
                     ));
                 } else {
-                    out.push(format!(
-                        "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| {err})).collect::<Result<Vec<_>, _>>()?;",
-                        n = p.name,
+                    out.push(crate::template_env::render(
+                        "function_sanitized_vec_binding.rs.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            optional => false,
+                            error_expr => err,
+                        },
                     ));
                 }
             }
@@ -506,14 +589,22 @@ fn magnus_serde_let_bindings(
                     let core_inner_ty = format!("{core_import}::{name}");
                     let vec_ty = format!("Vec<{core_inner_ty}>");
                     if p.optional {
-                        out.push(format!(
-                            "let {n}_core: Option<{vec_ty}> = {n}.map(|v| v.into_iter().map(Into::into).collect());",
-                            n = p.name,
+                        out.push(crate::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => true,
+                            },
                         ));
                     } else {
-                        out.push(format!(
-                            "let {n}_core: {vec_ty} = {n}.into_iter().map(Into::into).collect();",
-                            n = p.name,
+                        out.push(crate::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => false,
+                            },
                         ));
                     }
                 }
@@ -571,16 +662,34 @@ pub(super) fn gen_async_function(
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
                     if p.optional {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: Option<{core_import}::{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(binding_val.into()) }}, _ => None }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "optional",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: {core_import}::{name} = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let binding_val: {name} = {name}::try_convert(_v).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; binding_val.into() }}, _ => Default::default() }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "default",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     } else {
-                        deser_lines.push(format!(
-                            "let {binding_ty}: {core_import}::{name} = {{ let binding_val: {name} = {name}::try_convert({binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; binding_val.into() }};"
+                        deser_lines.push(crate::template_env::render(
+                            "function_named_binding.rs.jinja",
+                            minijinja::context! {
+                                mode => "required",
+                                binding_name => binding_ty,
+                                core_import => core_import,
+                                type_name => name,
+                            },
                         ));
                     }
                 }
@@ -627,16 +736,22 @@ pub(super) fn gen_async_function(
             false,
         );
         if func.error_type.is_some() {
-            format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                 Ok({result_wrap})"
+            crate::template_env::render(
+                "function_async_body.rs.jinja",
+                minijinja::context! {
+                    core_call => &core_call,
+                    wrap => &result_wrap,
+                    has_error => true,
+                },
             )
         } else {
-            format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
-                 let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 Ok({result_wrap})"
+            crate::template_env::render(
+                "function_async_body.rs.jinja",
+                minijinja::context! {
+                    core_call => &core_call,
+                    wrap => &result_wrap,
+                    has_error => false,
+                },
             )
         }
     } else {
@@ -652,10 +767,18 @@ pub(super) fn gen_async_function(
     } else {
         ""
     };
-    format!(
-        "{allow_attr}fn {}_async({params}) -> {return_annotation} {{\n    \
-         {scan_args_prologue}{deser_preamble}{body}\n}}",
-        func.name
+    let name = format!("{}_async", func.name);
+    crate::template_env::render(
+        "function_wrapper.rs.jinja",
+        minijinja::context! {
+            allow_attr => allow_attr,
+            name => &name,
+            params => &params,
+            return_annotation => &return_annotation,
+            scan_args_prologue => &scan_args_prologue,
+            deser_preamble => &deser_preamble,
+            body => &body,
+        },
     )
 }
 
@@ -668,11 +791,21 @@ pub(super) fn gen_magnus_unimplemented_body(
     use alef_core::ir::TypeRef;
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
-        format!("Err(magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), \"{err_msg}\"))")
+        crate::template_env::render(
+            "function_unimplemented_error.rs.jinja",
+            minijinja::context! {
+                message => &err_msg,
+            },
+        )
     } else {
         match return_type {
             TypeRef::Unit => "()".to_string(),
-            TypeRef::String | TypeRef::Char | TypeRef::Path => format!("String::from(\"[unimplemented: {fn_name}]\")"),
+            TypeRef::String | TypeRef::Char | TypeRef::Path => crate::template_env::render(
+                "function_unimplemented_string.rs.jinja",
+                minijinja::context! {
+                    name => fn_name,
+                },
+            ),
             TypeRef::Bytes => "Vec::new()".to_string(),
             TypeRef::Primitive(p) => match p {
                 alef_core::ir::PrimitiveType::Bool => "false".to_string(),
@@ -682,7 +815,12 @@ pub(super) fn gen_magnus_unimplemented_body(
             TypeRef::Vec(_) => "Vec::new()".to_string(),
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0u64".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"alef: {fn_name} not auto-delegatable\")"),
+            TypeRef::Named(_) | TypeRef::Json => crate::template_env::render(
+                "function_unimplemented_panic.rs.jinja",
+                minijinja::context! {
+                    name => fn_name,
+                },
+            ),
         }
     }
 }
@@ -702,20 +840,34 @@ pub(super) fn gen_module_init(
     let mut lines = vec![
         "#[magnus::init]".to_string(),
         "fn ruby_init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
-        format!(r#"    let module = ruby.define_module("{}")?;"#, module_name),
+        crate::template_env::render(
+            "module_define.rs.jinja",
+            minijinja::context! {
+                module_name => module_name,
+            },
+        ),
         "".to_string(),
     ];
 
     // Custom registrations (before generated ones)
     if let Some(reg) = config.custom_registrations.for_language(Language::Ruby) {
         for class in &reg.classes {
-            lines.push(format!(
-                r#"    let _class = module.define_class("{class}", ruby.class_object())?;"#
+            lines.push(crate::template_env::render(
+                "module_class_define.rs.jinja",
+                minijinja::context! {
+                    binding => "_class",
+                    class_name => class,
+                },
             ));
         }
         for func in &reg.functions {
-            lines.push(format!(
-                r#"    module.define_module_function("{func}", function!({func}, 0))?;"#
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => func,
+                    function_name => func,
+                    arity => 0,
+                },
             ));
         }
         lines.push("".to_string());
@@ -727,9 +879,12 @@ pub(super) fn gen_module_init(
         }
         let class_used = (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static);
         let binding = if class_used { "class" } else { "_class" };
-        lines.push(format!(
-            r#"    let {binding} = module.define_class("{}", ruby.class_object())?;"#,
-            typ.name
+        lines.push(crate::template_env::render(
+            "module_class_define.rs.jinja",
+            minijinja::context! {
+                binding => binding,
+                class_name => &typ.name,
+            },
         ));
 
         if !typ.is_opaque && !typ.fields.is_empty() {
@@ -737,9 +892,14 @@ pub(super) fn gen_module_init(
             // hash-based kwargs constructor regardless of field count. This keeps Ruby
             // callers consistent: every `Type.new(field: ...)` works whether the type has
             // 3 fields or 30.
-            lines.push(format!(
-                r#"    class.define_singleton_method("new", function!({name}::new, -1))?;"#,
-                name = typ.name,
+            lines.push(crate::template_env::render(
+                "module_class_singleton_method_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => "new",
+                    type_name => &typ.name,
+                    function_name => "new",
+                    arity => -1,
+                },
             ));
         }
 
@@ -749,17 +909,26 @@ pub(super) fn gen_module_init(
                 if is_thread_unsafe_field(field) {
                     continue;
                 }
-                lines.push(format!(
-                    r#"    class.define_method("{name}", method!({typ_name}::{name}, 0))?;"#,
-                    name = field.name,
-                    typ_name = typ.name
+                lines.push(crate::template_env::render(
+                    "module_class_method_register.rs.jinja",
+                    minijinja::context! {
+                        ruby_name => &field.name,
+                        type_name => &typ.name,
+                        function_name => &field.name,
+                        arity => 0,
+                    },
                 ));
             }
             // Register to_s for structs that have a `content: String` or `content: Option<String>` field.
             if super::classes::has_content_string_field(typ) {
-                lines.push(format!(
-                    r#"    class.define_method("to_s", method!({typ_name}::to_s, 0))?;"#,
-                    typ_name = typ.name
+                lines.push(crate::template_env::render(
+                    "module_class_method_register.rs.jinja",
+                    minijinja::context! {
+                        ruby_name => "to_s",
+                        type_name => &typ.name,
+                        function_name => "to_s",
+                        arity => 0,
+                    },
                 ));
             }
         }
@@ -796,12 +965,14 @@ pub(super) fn gen_module_init(
                     method.name.clone()
                 };
                 let param_count = method.params.len();
-                lines.push(format!(
-                    r#"    class.define_method("{name}", method!({typ_name}::{fn_name}, {count}))?;"#,
-                    name = method_name,
-                    typ_name = typ.name,
-                    fn_name = method_name,
-                    count = param_count
+                lines.push(crate::template_env::render(
+                    "module_class_method_register.rs.jinja",
+                    minijinja::context! {
+                        ruby_name => &method_name,
+                        type_name => &typ.name,
+                        function_name => &method_name,
+                        arity => param_count,
+                    },
                 ));
             }
         }
@@ -852,21 +1023,31 @@ pub(super) fn gen_module_init(
         };
         if func.is_async {
             // Register both sync (blocking) and async variants
-            lines.push(format!(
-                r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
-                name = func.name,
-                count = param_count
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => &func.name,
+                    function_name => &func.name,
+                    arity => param_count,
+                },
             ));
-            lines.push(format!(
-                r#"    module.define_module_function("{name}_async", function!({name}_async, {count}))?;"#,
-                name = func.name,
-                count = param_count
+            let async_name = format!("{}_async", func.name);
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => &async_name,
+                    function_name => &async_name,
+                    arity => param_count,
+                },
             ));
         } else {
-            lines.push(format!(
-                r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
-                name = func.name,
-                count = param_count
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => &func.name,
+                    function_name => &func.name,
+                    arity => param_count,
+                },
             ));
         }
     }
@@ -878,8 +1059,13 @@ pub(super) fn gen_module_init(
             continue;
         }
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
-            lines.push(format!(
-                r#"    module.define_module_function("{register_fn}", function!({register_fn}, 2))?;"#
+            lines.push(crate::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => register_fn,
+                    function_name => register_fn,
+                    arity => 2,
+                },
             ));
         }
     }

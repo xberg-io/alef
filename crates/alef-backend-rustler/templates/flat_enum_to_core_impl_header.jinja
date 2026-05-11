@@ -1,0 +1,3 @@
+impl From<{{ name }}> for {{ core_path }} {
+    fn from(val: {{ name }}) -> Self {
+        match val.{{ discriminator }}.as_str() {

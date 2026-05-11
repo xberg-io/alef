@@ -1,0 +1,7 @@
+let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))?;
+    {% if has_error -%}
+let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))?;
+    {%- else -%}
+let result = rt.block_on(async { {{ core_call }}.await });
+    {%- endif %}
+Ok({{ wrap }})

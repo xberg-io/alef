@@ -355,8 +355,13 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(512);
 
-    out.push_str(&format!(
-        "impl From<{name}> for {core_path} {{\n    fn from(val: {name}) -> Self {{\n        match val.{discriminator}.as_str() {{\n"
+    out.push_str(&template_env::render(
+        "flat_enum_to_core_impl_header.jinja",
+        minijinja::context! {
+            name => name,
+            core_path => &core_path,
+            discriminator => discriminator,
+        },
     ));
 
     for variant in &enum_def.variants {
@@ -364,9 +369,13 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
         let wire_name = variant_wire_name(variant, enum_def);
 
         if variant.fields.is_empty() {
-            out.push_str(&format!(
-                "            \"{wire_name}\" => {core_path}::{vname},\n",
-                vname = variant.name,
+            out.push_str(&template_env::render(
+                "flat_enum_to_core_variant_unit.jinja",
+                minijinja::context! {
+                    wire => &wire_name,
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                },
             ));
         } else if variant.is_tuple {
             let first_field = variant.fields.first().unwrap();
@@ -389,14 +398,22 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
             } else {
                 payload_expr
             };
-            out.push_str(&format!(
-                "            \"{wire_name}\" => {core_path}::{vname}({payload_expr}),\n",
-                vname = variant.name,
+            out.push_str(&template_env::render(
+                "flat_enum_to_core_variant_tuple.jinja",
+                minijinja::context! {
+                    wire => &wire_name,
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                    payload_expr => &payload_expr,
+                },
             ));
         }
     }
 
-    out.push_str("            _ => Default::default(),\n        }\n    }\n}\n");
+    out.push_str(&template_env::render(
+        "flat_enum_to_core_impl_footer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 

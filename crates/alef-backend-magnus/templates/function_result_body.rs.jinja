@@ -1,0 +1,2 @@
+let result = {{ core_call }}.map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))?;
+    Ok({{ wrap }})

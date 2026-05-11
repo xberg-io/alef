@@ -397,6 +397,70 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/php_let_binding_string_refs.jinja"),
     ),
     (
+        "php_serde_ref_named_optional_let_binding.jinja",
+        include_str!("../templates/php_serde_ref_named_optional_let_binding.jinja"),
+    ),
+    (
+        "php_serde_ref_named_let_binding.jinja",
+        include_str!("../templates/php_serde_ref_named_let_binding.jinja"),
+    ),
+    (
+        "php_result_unit_body.jinja",
+        include_str!("../templates/php_result_unit_body.jinja"),
+    ),
+    (
+        "php_result_unit_body_with_let_bindings.jinja",
+        include_str!("../templates/php_result_unit_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_result_wrapped_body.jinja",
+        include_str!("../templates/php_result_wrapped_body.jinja"),
+    ),
+    (
+        "php_result_wrapped_body_with_let_bindings.jinja",
+        include_str!("../templates/php_result_wrapped_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_result_debug_body_with_let_bindings.jinja",
+        include_str!("../templates/php_result_debug_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_async_result_body_with_let_bindings.jinja",
+        include_str!("../templates/php_async_result_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_async_body_with_let_bindings.jinja",
+        include_str!("../templates/php_async_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_debug_body_with_let_bindings.jinja",
+        include_str!("../templates/php_debug_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_wrapped_body_with_let_bindings.jinja",
+        include_str!("../templates/php_wrapped_body_with_let_bindings.jinja"),
+    ),
+    (
+        "php_stub_error_body.jinja",
+        include_str!("../templates/php_stub_error_body.jinja"),
+    ),
+    (
+        "php_enum_string_match_arm.jinja",
+        include_str!("../templates/php_enum_string_match_arm.jinja"),
+    ),
+    (
+        "php_enum_string_match_fallback_arm.jinja",
+        include_str!("../templates/php_enum_string_match_fallback_arm.jinja"),
+    ),
+    (
+        "php_enum_string_optional_match_expr.jinja",
+        include_str!("../templates/php_enum_string_optional_match_expr.jinja"),
+    ),
+    (
+        "php_enum_string_match_expr.jinja",
+        include_str!("../templates/php_enum_string_match_expr.jinja"),
+    ),
+    (
         "php_method_definition_no_params.jinja",
         include_str!("../templates/php_method_definition_no_params.jinja"),
     ),

@@ -1,0 +1,2 @@
+{{ preamble }}let result = {{ core_call }}.map_err(|e| e.to_string())?;
+    Ok({{ wrap }})

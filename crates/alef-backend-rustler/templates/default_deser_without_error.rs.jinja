@@ -1,0 +1,2 @@
+let {{ name }}_core: Option<{{ core_type }}> = {{ name }}
+    .and_then(|s| serde_json::from_str::<{{ core_type }}>(&s).ok());

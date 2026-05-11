@@ -1,0 +1,1 @@
+let {{ name }}_core: {{ core_type }} = serde_json::from_str(&{{ name }}_json).map_err(|e| e.to_string())?;

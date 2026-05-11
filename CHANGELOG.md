@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- refactor(alef-backend-magnus,alef-backend-php,alef-backend-rustler): move more generated function-body, registration, serde-binding, and enum-conversion emission from inline `format!` assembly into Jinja templates while preserving generated output behavior.
+
 - refactor(alef-backend-csharp,alef-backend-dart,alef-backend-ffi,alef-backend-java,alef-codegen): move additional generated-code emission blocks from inline `push_str`/`format!` assembly into Jinja templates while preserving the existing generated output contracts.
 
 ### Added

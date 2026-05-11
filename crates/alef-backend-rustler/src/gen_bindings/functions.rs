@@ -7,6 +7,69 @@ use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
 
+fn render_deser_line(template_name: &str, name: &str, core_type: &str) -> String {
+    template_env::render(
+        template_name,
+        minijinja::context! {
+            name => name,
+            core_type => core_type,
+        },
+    )
+    .trim_end()
+    .to_string()
+}
+
+fn render_named_deser_line(template_name: &str, name: &str) -> String {
+    template_env::render(
+        template_name,
+        minijinja::context! {
+            name => name,
+        },
+    )
+    .trim_end()
+    .to_string()
+}
+
+fn render_preamble(lines: &[String]) -> String {
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", lines.join("\n    "))
+    }
+}
+
+fn render_result_body(preamble: &str, core_call: &str, wrap: &str) -> String {
+    template_env::render(
+        "nif_result_body.rs.jinja",
+        minijinja::context! {
+            preamble => preamble,
+            core_call => core_call,
+            wrap => wrap,
+        },
+    )
+}
+
+fn render_wrapped_body(preamble: &str, wrap: &str) -> String {
+    template_env::render(
+        "nif_wrapped_body.rs.jinja",
+        minijinja::context! {
+            preamble => preamble,
+            wrap => wrap,
+        },
+    )
+}
+
+fn render_async_body(template_name: &str, preamble: &str, core_call: &str, result_wrap: &str) -> String {
+    template_env::render(
+        template_name,
+        minijinja::context! {
+            preamble => preamble,
+            core_call => core_call,
+            result_wrap => result_wrap,
+        },
+    )
+}
+
 /// Build call argument expressions for Rustler opaque method (receiver is `resource`).
 pub(super) fn gen_rustler_method_call_args(
     params: &[ParamDef],
@@ -154,15 +217,9 @@ pub(super) fn gen_nif_function(
                         // fall back to `.ok().flatten()` so a malformed JSON yields
                         // None instead of an unrecoverable panic from `?`.
                         let deser_line = if func.error_type.is_some() {
-                            format!(
-                                "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                                p.name, core_ty
-                            )
+                            render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
                         } else {
-                            format!(
-                                "let {0}_core: Option<{1}> = {0}.and_then(|s| serde_json::from_str::<{1}>(&s).ok());",
-                                p.name, core_ty
-                            )
+                            render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                         };
                         deser_lines.push(deser_line);
                         // Handle based on whether core function expects reference or option
@@ -225,21 +282,19 @@ pub(super) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
+                        if p.is_ref {
+                            format!("{}.as_slice()", p.name)
+                        } else {
+                            format!("{}.as_slice().to_vec()", p.name)
+                        }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
                         // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
                         if p.optional {
-                            deser_lines.push(format!(
-                                "let {0}_refs: Vec<&str> = {0}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
-                                p.name
-                            ));
+                            deser_lines.push(render_named_deser_line("vec_str_refs_optional.rs.jinja", &p.name));
                         } else {
-                            deser_lines.push(format!(
-                                "let {0}_refs: Vec<&str> = {0}.iter().map(|s| s.as_str()).collect();",
-                                p.name
-                            ));
+                            deser_lines.push(render_named_deser_line("vec_str_refs_required.rs.jinja", &p.name));
                         }
                         format!("&{}_refs", p.name)
                     }
@@ -256,11 +311,7 @@ pub(super) fn gen_nif_function(
             })
             .collect();
 
-        let preamble = if deser_lines.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n    ", deser_lines.join("\n    "))
-        };
+        let preamble = render_preamble(&deser_lines);
 
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
@@ -273,12 +324,10 @@ pub(super) fn gen_nif_function(
         let core_call = format!("{core_fn_path}({})", call_args.join(", "));
         if func.error_type.is_some() {
             let wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
-            format!("{preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
+            render_result_body(&preamble, &core_call, &wrap)
         } else {
-            format!(
-                "{preamble}{}",
-                gen_rustler_wrap_return(&core_call, &func.return_type, "", opaque_types, func.returns_ref)
-            )
+            let wrap = gen_rustler_wrap_return(&core_call, &func.return_type, "", opaque_types, func.returns_ref);
+            render_wrapped_body(&preamble, &wrap)
         }
     } else if !func.sanitized && func.error_type.is_some() {
         // Serde recovery path: the function cannot be auto-delegated (e.g. a Named param is
@@ -299,9 +348,10 @@ pub(super) fn gen_nif_function(
                         // Default types already handled in the can_delegate branch above.
                         // They cannot appear here, but guard for completeness.
                         let core_ty = format!("{core_import}::{n}");
-                        deser_lines.push(format!(
-                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                            p.name, core_ty
+                        deser_lines.push(render_deser_line(
+                            "default_deser_with_error.rs.jinja",
+                            &p.name,
+                            &core_ty,
                         ));
                         return if p.optional {
                             format!("{}_core", p.name)
@@ -313,14 +363,8 @@ pub(super) fn gen_nif_function(
                     }
                     // Non-opaque Named param: round-trip via serde_json.
                     let core_ty = format!("{core_import}::{n}");
-                    deser_lines.push(format!(
-                        "let {0}_json = serde_json::to_string(&{0}).map_err(|e| e.to_string())?;",
-                        p.name
-                    ));
-                    deser_lines.push(format!(
-                        "let {0}_core: {1} = serde_json::from_str(&{0}_json).map_err(|e| e.to_string())?;",
-                        p.name, core_ty
-                    ));
+                    deser_lines.push(render_named_deser_line("named_param_to_json.rs.jinja", &p.name));
+                    deser_lines.push(render_deser_line("named_param_from_json.rs.jinja", &p.name, &core_ty));
                     return if p.is_ref {
                         format!("&{}_core", p.name)
                     } else {
@@ -343,21 +387,19 @@ pub(super) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref { format!("{}.as_slice()", p.name) } else { format!("{}.as_slice().to_vec()", p.name) }
+                        if p.is_ref {
+                            format!("{}.as_slice()", p.name)
+                        } else {
+                            format!("{}.as_slice().to_vec()", p.name)
+                        }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
                         // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
                         if p.optional {
-                            deser_lines.push(format!(
-                                "let {0}_refs: Vec<&str> = {0}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();",
-                                p.name
-                            ));
+                            deser_lines.push(render_named_deser_line("vec_str_refs_optional.rs.jinja", &p.name));
                         } else {
-                            deser_lines.push(format!(
-                                "let {0}_refs: Vec<&str> = {0}.iter().map(|s| s.as_str()).collect();",
-                                p.name
-                            ));
+                            deser_lines.push(render_named_deser_line("vec_str_refs_required.rs.jinja", &p.name));
                         }
                         format!("&{}_refs", p.name)
                     }
@@ -375,11 +417,7 @@ pub(super) fn gen_nif_function(
             })
             .collect();
 
-        let preamble = if deser_lines.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n    ", deser_lines.join("\n    "))
-        };
+        let preamble = render_preamble(&deser_lines);
 
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
@@ -391,7 +429,7 @@ pub(super) fn gen_nif_function(
         };
         let core_call = format!("{core_fn_path}({})", call_args.join(", "));
         let wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
-        format!("{preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
+        render_result_body(&preamble, &core_call, &wrap)
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
@@ -487,7 +525,7 @@ pub(super) fn gen_nif_async_function(
                 // cannot escape into a `'static` thread::spawn closure. Always
                 // convert to an owned `Vec<u8>` (callers that take `&[u8]` re-borrow
                 // from the owned buffer at the call site).
-                deser_lines.push(format!("let {0}: Vec<u8> = {0}.as_slice().to_vec();", p.name));
+                deser_lines.push(render_named_deser_line("bytes_to_vec.rs.jinja", &p.name));
             }
         }
         let call_args: Vec<String> = func
@@ -497,9 +535,10 @@ pub(super) fn gen_nif_async_function(
                 if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
                         let core_ty = format!("{core_import}::{n}");
-                        deser_lines.push(format!(
-                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                            p.name, core_ty
+                        deser_lines.push(render_deser_line(
+                            "default_deser_with_error.rs.jinja",
+                            &p.name,
+                            &core_ty,
                         ));
                         // Handle based on whether core function expects reference or option
                         if p.optional {
@@ -535,15 +574,11 @@ pub(super) fn gen_nif_async_function(
                     TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
                         format!("{}.as_deref()", p.name)
                     }
-                    TypeRef::String | TypeRef::Char if p.optional => {
-                        p.name.to_string()
-                    }
+                    TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
                     TypeRef::String | TypeRef::Char if p.is_ref => {
                         format!("&{}", p.name)
                     }
-                    TypeRef::String | TypeRef::Char => {
-                        p.name.clone()
-                    }
+                    TypeRef::String | TypeRef::Char => p.name.clone(),
                     TypeRef::Path => {
                         if p.is_ref {
                             format!("&std::path::PathBuf::from({})", p.name)
@@ -580,11 +615,7 @@ pub(super) fn gen_nif_async_function(
             })
             .collect();
 
-        let preamble = if deser_lines.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n    ", deser_lines.join("\n    "))
-        };
+        let preamble = render_preamble(&deser_lines);
 
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
@@ -597,32 +628,10 @@ pub(super) fn gen_nif_async_function(
         let core_call = format!("{core_fn_path}({})", call_args.join(", "));
         let result_wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
         if func.error_type.is_some() {
-            format!(
-                "{preamble}std::thread::Builder::new()\n        \
-                 .stack_size(32 * 1024 * 1024)\n        \
-                 .spawn(move || {{\n            \
-                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n            \
-                 Ok({result_wrap})\n        \
-                 }})\n        \
-                 .map_err(|e| e.to_string())?\n        \
-                 .join()\n        \
-                 .map_err(|_| \"thread panicked\".to_string())?"
-            )
+            render_async_body("async_result_body.rs.jinja", &preamble, &core_call, &result_wrap)
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
-            format!(
-                "{preamble}std::thread::Builder::new()\n        \
-                 .stack_size(32 * 1024 * 1024)\n        \
-                 .spawn(move || {{\n            \
-                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
-                 let result = rt.block_on(async {{ {core_call}.await }});\n            \
-                 Ok::<_, String>({result_wrap})\n        \
-                 }})\n        \
-                 .map_err(|e| e.to_string())?\n        \
-                 .join()\n        \
-                 .map_err(|_| \"thread panicked\".to_string())?"
-            )
+            render_async_body("async_infallible_body.rs.jinja", &preamble, &core_call, &result_wrap)
         }
     } else {
         super::helpers::gen_rustler_unimplemented_body(&func.return_type, &nif_fn_name, true)
@@ -788,7 +797,7 @@ pub(super) fn gen_nif_method(
                 opaque_types,
                 method.returns_ref,
             );
-            format!("{deser_preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
+            render_result_body(&deser_preamble, &core_call, &wrap)
         } else {
             let inner = gen_rustler_wrap_return(
                 &core_call,
@@ -800,7 +809,7 @@ pub(super) fn gen_nif_method(
             if deser_preamble.is_empty() {
                 inner
             } else {
-                format!("{deser_preamble}{inner}")
+                render_wrapped_body(&deser_preamble, &inner)
             }
         }
     } else {
@@ -844,25 +853,15 @@ fn build_default_deser_preamble(
             if default_types.contains(n) {
                 let core_ty = format!("{core_import}::{n}");
                 let line = if has_error {
-                    format!(
-                        "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
-                        p.name, core_ty
-                    )
+                    render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
                 } else {
-                    format!(
-                        "let {0}_core: Option<{1}> = {0}.and_then(|s| serde_json::from_str::<{1}>(&s).ok());",
-                        p.name, core_ty
-                    )
+                    render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                 };
                 lines.push(line);
             }
         }
     }
-    if lines.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n    ", lines.join("\n    "))
-    }
+    render_preamble(&lines)
 }
 
 /// Generate a Rustler NIF async method for a struct (sync wrapper scheduled on DirtyCpu).
@@ -965,31 +964,14 @@ pub(super) fn gen_nif_async_method(
             method.returns_ref,
         );
         if method.error_type.is_some() {
-            format!(
-                "{deser_preamble}std::thread::Builder::new()\n        \
-                 .stack_size(32 * 1024 * 1024)\n        \
-                 .spawn(move || {{\n            \
-                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
-                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n            \
-                 Ok({result_wrap})\n        \
-                 }})\n        \
-                 .map_err(|e| e.to_string())?\n        \
-                 .join()\n        \
-                 .map_err(|_| \"thread panicked\".to_string())?"
-            )
+            render_async_body("async_result_body.rs.jinja", &deser_preamble, &core_call, &result_wrap)
         } else {
             // No error type, but Runtime::new() can still fail — use map_err and Ok().
-            format!(
-                "{deser_preamble}std::thread::Builder::new()\n        \
-                 .stack_size(32 * 1024 * 1024)\n        \
-                 .spawn(move || {{\n            \
-                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n            \
-                 let result = rt.block_on(async {{ {core_call}.await }});\n            \
-                 Ok::<_, String>({result_wrap})\n        \
-                 }})\n        \
-                 .map_err(|e| e.to_string())?\n        \
-                 .join()\n        \
-                 .map_err(|_| \"thread panicked\".to_string())?"
+            render_async_body(
+                "async_infallible_body.rs.jinja",
+                &deser_preamble,
+                &core_call,
+                &result_wrap,
             )
         }
     } else {

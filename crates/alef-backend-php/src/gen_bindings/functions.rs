@@ -8,7 +8,6 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use minijinja::context;
-use std::fmt::Write;
 
 use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
@@ -89,43 +88,24 @@ fn gen_php_serde_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.is_ref {
                     // Serde round-trip: binding type -> JSON -> core type.
-                    // Build code lines directly to avoid format-string escaping issues.
-                    let pname = &p.name;
                     if p.optional {
-                        // Generated code pattern:
-                        //   let {pname}_core: Option<{core}::{name}> = {pname}.as_ref()
-                        //       .map(|v| {
-                        //           let _json = serde_json::to_string(v).map_err(|e| format!("{e}"))?;
-                        //           serde_json::from_str::<{core}::{name}>(&_json).map_err(|e| format!("{e}"))
-                        //       }).transpose()?;
-                        let mut line = String::new();
-                        write!(
-                            line,
-                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()"
-                        )
-                        .ok();
-                        write!(line, "\n        .map(|v| {{").ok();
-                        write!(line, "\n            let _json = serde_json::to_string(v)").ok();
-                        write!(line, ".map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        write!(
-                            line,
-                            "\n            serde_json::from_str::<{core_import}::{name}>(&_json)"
-                        )
-                        .ok();
-                        write!(line, ".map_err(|e| format!(\"{{e}}\"))").ok();
-                        write!(line, "\n        }}).transpose()?;").ok();
-                        out.push_str(&line);
-                        out.push('\n');
+                        out.push_str(&crate::template_env::render(
+                            "php_serde_ref_named_optional_let_binding.jinja",
+                            context! {
+                                pname => &p.name,
+                                core_import => core_import,
+                                name => name,
+                            },
+                        ));
                     } else {
-                        // Generated code pattern:
-                        //   let {pname}_json = serde_json::to_string(&{pname}).map_err(|e| format!("{e}"))?;
-                        //   let {pname}_core: {core}::{name} = serde_json::from_str(&{pname}_json)
-                        //       .map_err(|e| format!("{e}"))?;
-                        let line = format!(
-                            "let {pname}_json = serde_json::to_string(&{pname})\n        .map_err(|e| format!(\"{{e}}\"))?\n;\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)\n        .map_err(|e| format!(\"{{e}}\"))?;"
-                        );
-                        out.push_str(&line);
-                        out.push('\n');
+                        out.push_str(&crate::template_env::render(
+                            "php_serde_ref_named_let_binding.jinja",
+                            context! {
+                                pname => &p.name,
+                                core_import => core_import,
+                                name => name,
+                            },
+                        ));
                     }
                 } else {
                     // Non-ref Named: use the standard .clone().into() path.
@@ -248,8 +228,11 @@ pub(crate) fn gen_instance_method(
         };
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
-                format!(
-                    "{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
+                crate::template_env::render(
+                    "php_result_unit_body.jinja",
+                    context! {
+                        core_call => &core_call,
+                    },
                 )
             } else {
                 let wrap = php_wrap_return(
@@ -261,8 +244,12 @@ pub(crate) fn gen_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                 );
-                format!(
-                    "let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                crate::template_env::render(
+                    "php_result_wrapped_body.jinja",
+                    context! {
+                        core_call => &core_call,
+                        wrap => &wrap,
+                    },
                 )
             }
         } else {
@@ -283,8 +270,12 @@ pub(crate) fn gen_instance_method(
         let core_call = format!("self.inner.{}({})", method.name, call_args);
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
-                format!(
-                    "{let_bindings}{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
+                crate::template_env::render(
+                    "php_result_unit_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &let_bindings,
+                        core_call => &core_call,
+                    },
                 )
             } else {
                 let wrap = php_wrap_return(
@@ -296,8 +287,13 @@ pub(crate) fn gen_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                 );
-                format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                crate::template_env::render(
+                    "php_result_wrapped_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &let_bindings,
+                        core_call => &core_call,
+                        wrap => &wrap,
+                    },
                 )
             }
         } else {
@@ -399,8 +395,12 @@ pub(crate) fn gen_instance_method_non_opaque(
 
         if method.error_type.is_some() {
             if is_enum_return {
-                format!(
-                    "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(format!(\"{{:?}}\", result))"
+                crate::template_env::render(
+                    "php_result_debug_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &field_conversions,
+                        core_call => &core_call,
+                    },
                 )
             } else {
                 let wrap = php_wrap_return(
@@ -412,14 +412,31 @@ pub(crate) fn gen_instance_method_non_opaque(
                     method.returns_ref,
                     method.returns_cow,
                 );
-                format!(
-                    "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                crate::template_env::render(
+                    "php_result_wrapped_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &field_conversions,
+                        core_call => &core_call,
+                        wrap => &wrap,
+                    },
                 )
             }
         } else if is_enum_return {
-            format!("{field_conversions}format!(\"{{:?}}\", {core_call})")
+            crate::template_env::render(
+                "php_debug_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &field_conversions,
+                    core_call => &core_call,
+                },
+            )
         } else {
-            format!("{field_conversions}{wrapped_call}")
+            crate::template_env::render(
+                "php_wrapped_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &field_conversions,
+                    wrapped_call => &wrapped_call,
+                },
+            )
         }
     } else {
         // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
@@ -634,8 +651,12 @@ fn gen_function_body(
         let is_enum_return = matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if func.error_type.is_some() {
             if is_enum_return {
-                format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(format!(\"{{:?}}\", result))"
+                crate::template_env::render(
+                    "php_result_debug_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &let_bindings,
+                        core_call => &core_call,
+                    },
                 )
             } else {
                 let wrap = php_wrap_return(
@@ -647,24 +668,39 @@ fn gen_function_body(
                     func.returns_ref,
                     false,
                 );
-                format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                crate::template_env::render(
+                    "php_result_wrapped_body_with_let_bindings.jinja",
+                    context! {
+                        let_bindings => &let_bindings,
+                        core_call => &core_call,
+                        wrap => &wrap,
+                    },
                 )
             }
         } else if is_enum_return {
-            format!("{let_bindings}format!(\"{{:?}}\", {core_call})")
+            crate::template_env::render(
+                "php_debug_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                },
+            )
         } else {
-            format!(
-                "{let_bindings}{}",
-                php_wrap_return(
-                    &core_call,
-                    &func.return_type,
-                    "",
-                    opaque_types,
-                    false,
-                    func.returns_ref,
-                    false
-                )
+            let wrapped_call = php_wrap_return(
+                &core_call,
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            );
+            crate::template_env::render(
+                "php_wrapped_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    wrapped_call => &wrapped_call,
+                },
             )
         }
     } else if func.sanitized
@@ -706,21 +742,30 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
             );
-            format!(
-                "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+            crate::template_env::render(
+                "php_result_wrapped_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                    wrap => &wrap,
+                },
             )
         } else {
-            format!(
-                "{let_bindings}{}",
-                php_wrap_return(
-                    &core_call,
-                    &func.return_type,
-                    "",
-                    opaque_types,
-                    false,
-                    func.returns_ref,
-                    false
-                )
+            let wrapped_call = php_wrap_return(
+                &core_call,
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            );
+            crate::template_env::render(
+                "php_wrapped_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    wrapped_call => &wrapped_call,
+                },
             )
         }
     }
@@ -817,14 +862,22 @@ fn gen_async_function_body(
             )
         };
         if func.error_type.is_some() {
-            format!(
-                "{let_bindings}WORKER_RUNTIME.block_on(async {{\n        \
-                 let result = {core_call}.await.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
-                 Ok({result_wrap})\n    }})"
+            crate::template_env::render(
+                "php_async_result_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
             )
         } else {
-            format!(
-                "{let_bindings}let result = WORKER_RUNTIME.block_on(async {{ {core_call}.await }});\n    {result_wrap}"
+            crate::template_env::render(
+                "php_async_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
             )
         }
     } else {
@@ -866,14 +919,22 @@ pub(crate) fn gen_async_instance_method(
             method.returns_cow,
         );
         if method.error_type.is_some() {
-            format!(
-                "{inner_clone}WORKER_RUNTIME.block_on(async {{\n        \
-                 let result = {core_call}.await.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
-                 Ok({result_wrap})\n    }})"
+            crate::template_env::render(
+                "php_async_result_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => inner_clone,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
             )
         } else {
-            format!(
-                "{inner_clone}let result = WORKER_RUNTIME.block_on(async {{ {core_call}.await }});\n    {result_wrap}"
+            crate::template_env::render(
+                "php_async_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => inner_clone,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
             )
         }
     } else {
@@ -926,8 +987,11 @@ pub(crate) fn gen_async_static_method(
 fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) -> String {
     if has_error {
         // Function signature is PhpResult<T> — return an error value.
-        return format!(
-            "Err(ext_php_rs::exception::PhpException::default(\"Not implemented: {func_name}\".to_string()))"
+        return crate::template_env::render(
+            "php_stub_error_body.jinja",
+            context! {
+                func_name => func_name,
+            },
         );
     }
 
