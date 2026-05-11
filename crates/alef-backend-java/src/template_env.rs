@@ -199,6 +199,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "marshal_named_type.jinja",
         include_str!("../templates/marshal_named_type.jinja"),
     ),
+    ("marshal_bytes.jinja", include_str!("../templates/marshal_bytes.jinja")),
     (
         "marshal_optional_string.jinja",
         include_str!("../templates/marshal_optional_string.jinja"),
@@ -214,6 +215,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "marshal_optional_named_type.jinja",
         include_str!("../templates/marshal_optional_named_type.jinja"),
+    ),
+    (
+        "marshal_optional_primitive.jinja",
+        include_str!("../templates/marshal_optional_primitive.jinja"),
     ),
     (
         "marshal_vec_map.jinja",
@@ -390,6 +395,22 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "stream_method_named_result.jinja",
         include_str!("../templates/stream_method_named_result.jinja"),
+    ),
+    (
+        "stream_method_unit_result.jinja",
+        include_str!("../templates/stream_method_unit_result.jinja"),
+    ),
+    (
+        "stream_method_unsupported_return.jinja",
+        include_str!("../templates/stream_method_unsupported_return.jinja"),
+    ),
+    (
+        "streaming_iterator_method.jinja",
+        include_str!("../templates/streaming_iterator_method.jinja"),
+    ),
+    (
+        "streaming_helpers.jinja",
+        include_str!("../templates/streaming_helpers.jinja"),
     ),
     (
         "stream_method_catch.jinja",

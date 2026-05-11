@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-backend-java): extract the repeated bytes-FFI result block (rc check, outPtr read, free, return) from `stream_method_bytes_result.jinja` into a `readBytesResult` helper method emitted once per class by `streaming_helpers.jinja`. Eliminates the 17-line CPD duplication flagged when two or more byte-returning methods (e.g. `speech`, `fileContent`) are generated in the same class.
+
 - fix(alef-backend-swift,alef-backend-napi,alef-codegen): harden remaining trait bridge generation edge cases. Swift trait bridge JSON envelopes now serialize success and error payloads with `serde_json`, Swift inbound wrappers handle `returns_ref` `Vec<String>` methods without overriding default trait methods, NAPI trait bridge parse errors include plugin context, and excluded type paths no longer overwrite visible binding type paths with the same short name.
 
 - fix(alef-backend-dart): the core→mirror `From` impl for struct fields of type `Duration` now emits `v.{name}.as_millis() as i64` (or `.map(|d| d.as_millis() as i64)` for optional) instead of the invalid `v.{name} as _`. `Duration` is not a primitive type and cannot be coerced with `as`; the previous codegen produced `E0605 non-primitive cast: Duration as i64` for any crate that has `Duration`-typed fields (e.g. `BrowserConfig.timeout`, `CrawlConfig.request_timeout`).
