@@ -268,6 +268,60 @@ static TEMPLATES: &[(&str, &str)] = &[
         "data_enum_member.jinja",
         include_str!("../templates/data_enum_member.jinja"),
     ),
+    ("pyo3_capsule_signature.jinja", include_str!("../templates/pyo3_capsule_signature.jinja")),
+    (
+        "pyo3_capsule_function_header.jinja",
+        include_str!("../templates/pyo3_capsule_function_header.jinja"),
+    ),
+    (
+        "pyo3_capsule_input_const.jinja",
+        include_str!("../templates/pyo3_capsule_input_const.jinja"),
+    ),
+    (
+        "pyo3_capsule_input_optional.jinja",
+        include_str!("../templates/pyo3_capsule_input_optional.jinja"),
+    ),
+    (
+        "pyo3_capsule_input_required.jinja",
+        include_str!("../templates/pyo3_capsule_input_required.jinja"),
+    ),
+    (
+        "pyo3_capsule_call_result_err.jinja",
+        include_str!("../templates/pyo3_capsule_call_result_err.jinja"),
+    ),
+    (
+        "pyo3_capsule_call_result.jinja",
+        include_str!("../templates/pyo3_capsule_call_result.jinja"),
+    ),
+    ("pyo3_capsule_into_raw.jinja", include_str!("../templates/pyo3_capsule_into_raw.jinja")),
+    (
+        "pyo3_capsule_ptr_from_raw.jinja",
+        include_str!("../templates/pyo3_capsule_ptr_from_raw.jinja"),
+    ),
+    (
+        "pyo3_capsule_construct_comment.jinja",
+        include_str!("../templates/pyo3_capsule_construct_comment.jinja"),
+    ),
+    (
+        "pyo3_capsule_construct_with_module.jinja",
+        include_str!("../templates/pyo3_capsule_construct_with_module.jinja"),
+    ),
+    (
+        "pyo3_capsule_construct_with_builtin.jinja",
+        include_str!("../templates/pyo3_capsule_construct_with_builtin.jinja"),
+    ),
+    (
+        "pyo3_capsule_missing_dependency.jinja",
+        include_str!("../templates/pyo3_capsule_missing_dependency.jinja"),
+    ),
+    (
+        "pyo3_capsule_call_result_err_inline.jinja",
+        include_str!("../templates/pyo3_capsule_call_result_err_inline.jinja"),
+    ),
+    (
+        "pyo3_capsule_call_no_capsule_return.jinja",
+        include_str!("../templates/pyo3_capsule_call_no_capsule_return.jinja"),
+    ),
     (
         "typeddict_header.jinja",
         include_str!("../templates/typeddict_header.jinja"),

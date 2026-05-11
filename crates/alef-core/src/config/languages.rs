@@ -4,6 +4,56 @@ use std::path::PathBuf;
 
 use super::extras::Language;
 
+/// Configuration for a single capsule type entry in `PythonConfig::capsule_types`.
+///
+/// Supports two TOML forms via `#[serde(untagged)]`:
+///
+/// - String: `Language = "tree_sitter.Language"` → capsule round-trip via `into_raw()`
+/// - Struct: `Parser = { python_type = "tree_sitter.Parser", construct_from = "Language" }` → Python-side construction
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum CapsuleTypeConfig {
+    /// Capsule round-trip: the Rust type exposes `into_raw()` returning a raw pointer.
+    /// The generated code calls `PyCapsule_New(value.into_raw(), capsule_name, None)` on return,
+    /// and `PyCapsule_GetPointer` + `from_raw()` on input.
+    ///
+    /// Value is the fully-qualified Python capsule name (e.g. `"tree_sitter.Language"`).
+    Capsule(String),
+    /// Python-side construction: the type does not have a direct `into_raw()`.
+    /// Instead, the generated code constructs the Python type by calling a Python factory
+    /// (e.g. `tree_sitter.Parser(language)`) where `language` is a bound capsule argument.
+    ConstructFrom {
+        /// The fully-qualified Python type to import and call (e.g. `"tree_sitter.Parser"`).
+        python_type: String,
+        /// The capsule-type argument name to pass to the Python constructor.
+        /// Must be one of the other capsule-type entries (e.g. `"Language"`).
+        construct_from: String,
+    },
+}
+
+impl CapsuleTypeConfig {
+    /// Returns the Python type string (dotted path) for this config entry.
+    pub fn python_type(&self) -> &str {
+        match self {
+            Self::Capsule(name) => name,
+            Self::ConstructFrom { python_type, .. } => python_type,
+        }
+    }
+
+    /// Returns the `construct_from` dependency type name, if this is a `ConstructFrom` entry.
+    pub fn construct_from(&self) -> Option<&str> {
+        match self {
+            Self::ConstructFrom { construct_from, .. } => Some(construct_from.as_str()),
+            Self::Capsule(_) => None,
+        }
+    }
+
+    /// Returns true when this entry represents a raw capsule round-trip (not Python-side construction).
+    pub fn is_capsule_roundtrip(&self) -> bool {
+        matches!(self, Self::Capsule(_))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PythonConfig {
     pub module_name: Option<String>,

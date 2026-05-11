@@ -1,0 +1,5 @@
+    let {{ param }}_raw: Option<*mut _> = {{ param }}.as_ref().map(|cap| {
+        let ptr = cap.bind(py);
+        // SAFETY: pointer is valid for program lifetime (static registry).
+        unsafe { pyo3::ffi::PyCapsule_GetPointer(ptr.as_ptr(), {{ cstr }}_NAME.as_ptr()) }
+    });

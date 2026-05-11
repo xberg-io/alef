@@ -1,0 +1,2 @@
+    let result = {{ core_fn_path }}({{ args }});
+    Ok(result.into_pyobject(py)?.unbind())
