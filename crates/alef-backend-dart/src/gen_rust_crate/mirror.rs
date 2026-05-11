@@ -2,8 +2,25 @@ use alef_core::ir::{EnumDef, TypeDef};
 
 use super::conversions::{frb_rust_type, frb_rust_type_inner};
 
-pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef) {
+pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
     use crate::template_env;
+
+    if ty.is_opaque {
+        // Opaque handle types cannot use #[frb(mirror)] because the local mirror struct
+        // is zero-sized while the core type has data. Instead, emit a #[frb(opaque)] wrapper
+        // struct so FRB v2 manages the value as a reference-counted opaque handle (RustAutoOpaque).
+        // Bridge functions use `.inner` to access the wrapped core type.
+        let source_module = source_crate_name.replace('-', "_");
+        out.push_str(&template_env::render(
+            "rust_opaque_wrapper_struct.jinja",
+            minijinja::context! {
+                name => ty.name.as_str(),
+                source_module => source_module.as_str(),
+            },
+        ));
+        return;
+    }
+
     // FRB v2 mirror convention: the mirror struct keeps the same name as the
     // original; the `mirror` attribute argument tells FRB which type this
     // declaration shadows for codegen purposes.

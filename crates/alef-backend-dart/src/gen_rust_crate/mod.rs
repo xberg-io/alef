@@ -104,7 +104,7 @@ fn emit_lib_rs(
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
     {
         content.push('\n');
-        emit_mirror_struct(&mut content, ty);
+        emit_mirror_struct(&mut content, ty, source_crate_name);
     }
 
     for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
@@ -182,6 +182,16 @@ fn emit_lib_rs(
     }
 
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
+
+    // Collect opaque type names (is_opaque = true, not traits) — these use a wrapper struct
+    // in the generated bridge crate and must be accessed via .inner, not transmuted.
+    let opaque_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+        .map(|t| t.name.clone())
+        .collect();
+
     for f in api
         .functions
         .iter()
@@ -195,6 +205,7 @@ fn emit_lib_rs(
             source_crate_name,
             &type_paths,
             &types_needing_from_conversion,
+            &opaque_type_names,
         );
     }
 

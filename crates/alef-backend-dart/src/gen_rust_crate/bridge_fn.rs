@@ -9,6 +9,7 @@ pub(crate) fn emit_bridge_fn(
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
+    opaque_type_names: &std::collections::HashSet<String>,
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
@@ -64,13 +65,13 @@ pub(crate) fn emit_bridge_fn(
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths, types_needing_from_conversion))
+        .map(|p| dart_call_arg_with_mirror_transmute(p, source_crate_name, type_paths, types_needing_from_conversion, opaque_type_names))
         .collect();
 
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
     // Determine if the return type needs a mirror-transmute (Named or Vec<Named> or Option<Named>).
-    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths);
+    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths, opaque_type_names);
 
     // Build suffix cast for primitives / Strings.
     let result_cast = if ret_transmute.is_empty() {
@@ -128,6 +129,7 @@ fn dart_call_arg_with_mirror_transmute(
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
+    opaque_type_names: &std::collections::HashSet<String>,
 ) -> String {
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
@@ -204,6 +206,24 @@ fn dart_call_arg_with_mirror_transmute(
                 }
                 return format!("{name}.into_iter().map(|x| x as {target}).collect::<Vec<_>>()");
             }
+        }
+    }
+
+    // Opaque wrapper types: access .inner field directly (no transmute needed).
+    // These use #[frb(opaque)] struct { inner: source::T } pattern, so the bridge fn
+    // parameter is the wrapper and .inner gives the core type.
+    if let TypeRef::Named(type_name) = &p.ty {
+        if opaque_type_names.contains(type_name.as_str()) {
+            if p.optional {
+                if p.is_ref {
+                    return format!("{name}.as_ref().map(|h| &h.inner)");
+                }
+                return format!("{name}.map(|h| h.inner)");
+            }
+            if p.is_ref {
+                return format!("&{name}.inner");
+            }
+            return format!("{name}.inner");
         }
     }
 
@@ -306,24 +326,38 @@ fn return_transmute_expr(
     ty: &TypeRef,
     _source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
+    opaque_type_names: &std::collections::HashSet<String>,
 ) -> String {
     match ty {
         TypeRef::Named(mirror_name) => {
-            // Use From conversion: core type implements Into<MirrorType> via the generated From impl.
-            format!("|v| {mirror_name}::from(v)")
+            if opaque_type_names.contains(mirror_name.as_str()) {
+                // Opaque wrapper: construct the wrapper struct from the core value.
+                format!("|inner| {mirror_name} {{ inner }}")
+            } else {
+                // Use From conversion: core type implements Into<MirrorType> via the generated From impl.
+                format!("|v| {mirror_name}::from(v)")
+            }
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+                if opaque_type_names.contains(mirror_name.as_str()) {
+                    format!("|v| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect()")
+                } else {
+                    format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+                }
             } else {
                 String::new()
             }
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                // Add explicit type annotation to avoid E0282 type inference failure
-                // when the core return type is ambiguous (e.g. returned via trait object).
-                format!("|v: Option<_>| v.map({mirror_name}::from)")
+                if opaque_type_names.contains(mirror_name.as_str()) {
+                    format!("|v: Option<_>| v.map(|inner| {mirror_name} {{ inner }})")
+                } else {
+                    // Add explicit type annotation to avoid E0282 type inference failure
+                    // when the core return type is ambiguous (e.g. returned via trait object).
+                    format!("|v: Option<_>| v.map({mirror_name}::from)")
+                }
             } else {
                 String::new()
             }
