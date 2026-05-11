@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(alef-e2e/zig): `handle` arg type in `build_args_and_setup` is now an explicit case: emits `null` when the fixture omits the engine config, or a JSON string literal when a config value is present. Aligns with the updated Zig binding that accepts `?[]const u8` for engine parameters.
 
+- fix(alef-backend-zig): `error_doc_block.jinja` and `trait_method_doc_lines.jinja` now emit the trailing newline after the final doc-comment line. Under `trim_blocks = true`, `{%- endfor %}` was stripping the newline before the tag, merging the doc comment and the following `pub const` declaration onto one line — a Zig compile error.
+
 ## [0.15.35] - 2026-05-11
 
 ### Added
