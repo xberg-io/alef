@@ -679,6 +679,20 @@ pub struct SwiftConfig {
     /// language only.
     #[serde(default)]
     pub exclude_extra_dependencies: Vec<String>,
+    /// Override the auto-generated `create_<type>(api_key, base_url)` constructor
+    /// body for opaque client types that expose methods. When set, the swift backend
+    /// emits this snippet verbatim as the function body (no implicit `Ok(...)`).
+    ///
+    /// Use this when the source crate's constructor signature differs from the
+    /// default `Type::new(api_key, base_url)` shape — e.g. liter-llm uses
+    /// `DefaultClient::new(ClientConfig, Option<&str>)` and needs to build a
+    /// `ClientConfig` from the bridge inputs first.
+    ///
+    /// The snippet is parameterised by `{type_name}` (the wrapper newtype name)
+    /// and runs in a function body with `api_key: String` and `base_url: Option<String>`
+    /// already in scope. It must return `Result<{type_name}, String>`.
+    #[serde(default)]
+    pub client_constructor_body: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

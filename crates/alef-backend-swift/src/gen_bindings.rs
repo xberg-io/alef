@@ -67,7 +67,7 @@ impl Backend for SwiftBackend {
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
-            .filter(|t| !(t.is_opaque || !t.has_serde) || t.methods.is_empty())
+            .filter(|t| t.methods.is_empty() || !t.is_opaque && t.has_serde)
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&crate::template_env::render(
@@ -332,8 +332,11 @@ fn emit_client_class(type_name: &str, methods: &[MethodDef], mapper: &impl TypeM
     out.push_str(&format!("public final class {type_name} {{\n"));
     out.push_str(&format!("    private let inner: RustBridge.{type_name}\n"));
     out.push_str("    public init(apiKey: String, baseUrl: String? = nil) throws {\n");
+    // swift-bridge generates the constructor as a free function with positional
+    // parameters (no argument labels). Calling it with `apiKey:baseUrl:` labels
+    // would not match the generated signature.
     out.push_str(&format!(
-        "        self.inner = try RustBridge.{constructor_fn}(apiKey: apiKey, baseUrl: baseUrl)\n"
+        "        self.inner = try RustBridge.{constructor_fn}(apiKey, baseUrl)\n"
     ));
     out.push_str("    }\n");
 
@@ -401,9 +404,26 @@ fn emit_client_class(type_name: &str, methods: &[MethodDef], mapper: &impl TypeM
         } else {
             let await_kw = if method.is_async { "await " } else { "" };
             let try_kw = if method.error_type.is_some() { "try " } else { "" };
-            out.push_str(&format!(
-                "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
-            ));
+            // swift-bridge bridges `Vec<u8>` as `RustVec<UInt8>` on the Swift side.
+            // The host wrapper exposes `Data` (per `SwiftMapper::bytes()`) — convert
+            // by iterating the RustVec into a Swift array, then wrapping in `Data`.
+            let bytes_suffix = if matches!(method.return_type, TypeRef::Bytes) {
+                ".map { Data($0.map { $0 }) }"
+            } else {
+                ""
+            };
+            if bytes_suffix.is_empty() {
+                out.push_str(&format!(
+                    "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                ));
+            } else {
+                // For Bytes returns we can't chain `.map` on a throwing call directly,
+                // so capture the RustVec into a local and convert.
+                out.push_str(&format!(
+                    "        let _bytes = {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                ));
+                out.push_str("        return Data(_bytes.map { $0 })\n");
+            }
         }
         out.push_str("    }\n");
     }

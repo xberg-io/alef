@@ -1,5 +1,5 @@
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -206,6 +206,17 @@ impl Backend for ZigBackend {
             }
         }
 
+        // Build a map of method_name -> item_type for Streaming adapters.
+        // Used by emit_opaque_handle to emit iterator-based bodies instead of
+        // the generic method wrapper (which would call the callback-based C symbol
+        // with the wrong argument count).
+        let streaming_item_types: std::collections::HashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .filter_map(|a| a.item_type.as_ref().map(|item| (a.name.clone(), item.clone())))
+            .collect();
+
         // Emit Zig struct wrappers for opaque handle types that have methods.
         // These types are pointer-wrapped C handles; they are not JSON-serializable
         // and require method dispatch via the FFI symbol naming convention
@@ -216,7 +227,14 @@ impl Backend for ZigBackend {
             .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde) && !t.methods.is_empty())
             .filter(|t| !exclude_types.contains(t.name.as_str()))
         {
-            emit_opaque_handle(ty, &prefix, &declared_errors, &struct_names, &mut content);
+            emit_opaque_handle(
+                ty,
+                &prefix,
+                &declared_errors,
+                &struct_names,
+                &streaming_item_types,
+                &mut content,
+            );
             content.push('\n');
         }
 

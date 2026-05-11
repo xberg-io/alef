@@ -362,7 +362,19 @@ fn render_test_file(
         let has_json_object_arg = call_config.args.iter().any(|a| a.arg_type == "json_object");
         // handle args emit create_engine(option.None) — needs option import.
         let has_handle_arg = call_config.args.iter().any(|a| a.arg_type == "handle");
-        if has_bytes_arg || has_optional_string_arg || has_json_object_arg || has_handle_arg {
+        // client_factory always emits option.None / option.Some(base_url) — need option import.
+        let has_client_factory = call_config
+            .overrides
+            .get("gleam")
+            .and_then(|o| o.client_factory.as_deref())
+            .is_some()
+            || e2e_config
+                .call
+                .overrides
+                .get("gleam")
+                .and_then(|o| o.client_factory.as_deref())
+                .is_some();
+        if has_bytes_arg || has_optional_string_arg || has_json_object_arg || has_handle_arg || has_client_factory {
             needed_modules.insert("option");
         }
         for assertion in &fixture.assertions {
@@ -766,6 +778,23 @@ fn render_test_case(
                 .and_then(|o| o.client_factory.as_deref())
         })
         .map(|s| s.to_string());
+    // Trailing verbatim args for the client factory (e.g. option.None padding for
+    // Gleam's create_client which takes more params than just api_key + base_url).
+    // Check per-fixture override first, then fall back to global gleam override.
+    let client_factory_trailing_args: Vec<String> = call_overrides
+        .map(|o| o.client_factory_trailing_args.clone())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .map(|o| o.client_factory_trailing_args.clone())
+                .unwrap_or_default()
+        });
+    // Per-call extra_args appended after normal args (e.g. "option.None" for optional
+    // query params like `list_files(client, query)` where query isn't in fixtures).
+    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
@@ -784,7 +813,7 @@ fn render_test_case(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let test_documents_path = e2e_config.test_documents_relative_from(0);
-    let (setup_lines, args_str) = build_args_and_setup(
+    let build_result = build_args_and_setup(
         &fixture.input,
         args,
         &fixture.id,
@@ -792,12 +821,26 @@ fn render_test_case(
         element_constructors,
         json_object_wrapper,
         module_path,
+        &extra_args,
     );
 
     // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
     // emit one function per fixture so failures point at the offending fixture.
     let _ = writeln!(out, "// {description}");
     let _ = writeln!(out, "pub fn {test_name}_test() {{");
+
+    // When build_args_and_setup returns None it means the test requires a typed
+    // record argument (json_object without a recipe/wrapper) that cannot be
+    // constructed in generated Gleam e2e code.  Emit a skip stub that compiles.
+    let Some((setup_lines, args_str)) = build_result else {
+        let _ = writeln!(
+            out,
+            "  // skipped: json_object arg requires typed record construction not yet supported in Gleam e2e"
+        );
+        let _ = writeln!(out, "  Nil");
+        let _ = writeln!(out, "}}");
+        return;
+    };
 
     for line in &setup_lines {
         let _ = writeln!(out, "  {line}");
@@ -808,6 +851,14 @@ fn render_test_case(
     let call_prefix = if let Some(ref factory) = client_factory {
         use heck::ToSnakeCase;
         let factory_snake = factory.to_snake_case();
+        // Build the trailing-args suffix for the factory call.
+        // These are verbatim Gleam expressions (e.g. "option.None") that pad out
+        // any positional parameters the generator doesn't otherwise supply.
+        let trailing = if client_factory_trailing_args.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", client_factory_trailing_args.join(", "))
+        };
         // Extract base_url from any mock_url arg that was set up above.
         let base_url_expr = args
             .iter()
@@ -817,10 +868,10 @@ fn render_test_case(
                 // We need just the variable name for the create_client call.
                 // base_url is the raw base: strip the fixture path suffix by re-reading env.
                 // Emit a fresh base_url binding for the client constructor.
-                format!("let base_url__ = case envoy.get(\"MOCK_SERVER_URL\") {{ Ok(u) -> u Error(_) -> \"http://localhost:8080\" }}\n  let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", base_url__)\n  let _ = client")
+                format!("let base_url__ = case envoy.get(\"MOCK_SERVER_URL\") {{ Ok(u) -> u Error(_) -> \"http://localhost:8080\" }}\n  let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", option.Some(base_url__){trailing})\n  let _ = client")
             })
             .unwrap_or_else(|| {
-                format!("let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", \"\")\n  let _ = client")
+                format!("let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", option.None{trailing})\n  let _ = client")
             });
         // Emit the client creation lines.
         for l in base_url_expr.lines() {
@@ -880,14 +931,21 @@ fn render_test_case(
 
 /// Build setup lines and the argument list for the function call.
 ///
+/// Returns `None` when the test must be skipped entirely — this happens when a
+/// `json_object` arg has no element-constructor recipe and no `json_object_wrapper`
+/// configured, meaning the generated call would pass a raw JSON string where the
+/// Gleam binding expects a typed record.  Callers should emit a `// skipped` comment
+/// and `Nil` body rather than broken code.
+///
 /// Gleam is statically typed, so each arg type must produce a correctly-typed expression:
 /// - `file_path` → quoted string literal
 /// - `bytes` → setup: `let assert Ok(data__) = e2e_gleam.read_file_bytes(...)` and arg: `data__`
 /// - `string` + optional → `option.Some("value")` or `option.None`
 /// - `string` non-optional → `"value"`
-/// - `json_object` (any shape) → JSON-string literal via `json_to_gleam`. Downstreams whose Gleam
-///   binding accepts a structured record (e.g. `<pkg>.Config(...)`) instead of a JSON string
-///   need to provide their own conversion layer outside alef.
+/// - `json_object` with recipe → list/record constructor from `element_constructors`
+/// - `json_object` with wrapper → JSON-string literal wrapped by `json_object_wrapper`
+/// - `json_object` without recipe or wrapper → caller is signalled to skip
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
@@ -896,9 +954,29 @@ fn build_args_and_setup(
     element_constructors: &[alef_core::config::GleamElementConstructor],
     json_object_wrapper: Option<&str>,
     module_path: &str,
-) -> (Vec<String>, String) {
-    if args.is_empty() {
-        return (Vec::new(), String::new());
+    extra_args: &[String],
+) -> Option<(Vec<String>, String)> {
+    if args.is_empty() && extra_args.is_empty() {
+        return Some((Vec::new(), String::new()));
+    }
+
+    // Pre-check: if any json_object arg has no recipe and no wrapper, the call
+    // cannot be expressed in Gleam (would require a typed record constructor that
+    // alef cannot auto-generate).  Signal the caller to skip this test entirely.
+    for arg in args {
+        if arg.arg_type == "json_object" {
+            let element_type = arg.element_type.as_deref().unwrap_or("");
+            let has_recipe =
+                !element_type.is_empty() && element_constructors.iter().any(|r| r.element_type == element_type);
+            let has_wrapper = json_object_wrapper.is_some();
+            // An optional json_object with no value can safely emit option.None / [].
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
+            let is_null_optional = arg.optional && matches!(val, None | Some(serde_json::Value::Null));
+            if !has_recipe && !has_wrapper && !is_null_optional {
+                return None;
+            }
+        }
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -1062,7 +1140,13 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    // Append verbatim extra_args (e.g. "option.None" for optional query params
+    // like `list_files(client, query)` where gleam needs `option.None`).
+    for extra in extra_args {
+        parts.push(extra.clone());
+    }
+
+    Some((setup_lines, parts.join(", ")))
 }
 
 /// Render a single Gleam record-constructor call for one item of a
@@ -1444,8 +1528,29 @@ fn render_assertion(
     }
 
     // Skip array-element field access — Gleam doesn't support list indexing.
+    // Matches patterns like data[0].field, data[1].field, choices[].finish_reason, etc.
     if let Some(f) = &assertion.field {
-        if f.contains("[].") || f.contains("[0].") {
+        let has_index = f.contains("[].") || {
+            // Match any [N]. pattern (N is one or more digits).
+            let mut chars = f.chars().peekable();
+            let mut found = false;
+            while let Some(c) = chars.next() {
+                if c == '[' {
+                    // Consume digits.
+                    let mut has_digits = false;
+                    while chars.peek().map(|d| d.is_ascii_digit()).unwrap_or(false) {
+                        chars.next();
+                        has_digits = true;
+                    }
+                    if has_digits && chars.next() == Some(']') && chars.peek() == Some(&'.') {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            found
+        };
+        if has_index {
             let _ = writeln!(
                 out,
                 "  // skipped: array element field '{f}' not yet supported in Gleam e2e"

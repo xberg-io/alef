@@ -1,5 +1,6 @@
 use alef_core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
 use super::errors::resolve_zig_error_type;
@@ -21,6 +22,7 @@ pub(crate) fn emit_opaque_handle(
     prefix: &str,
     declared_errors: &[String],
     struct_names: &std::collections::HashSet<String>,
+    streaming_item_types: &HashMap<String, String>,
     out: &mut String,
 ) {
     emit_cleaned_zig_doc(out, &ty.doc, "");
@@ -31,7 +33,16 @@ pub(crate) fn emit_opaque_handle(
     let type_snake = AsSnakeCase(&ty.name).to_string();
 
     for method in ty.methods.iter().filter(|m| !m.is_static) {
-        emit_opaque_method(method, ty, prefix, &type_snake, declared_errors, struct_names, out);
+        emit_opaque_method(
+            method,
+            ty,
+            prefix,
+            &type_snake,
+            declared_errors,
+            struct_names,
+            streaming_item_types,
+            out,
+        );
         let _ = writeln!(out);
     }
 
@@ -61,6 +72,128 @@ fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out: &mut Stri
     let _ = writeln!(out, "    }}");
 }
 
+/// Emit a streaming method on an opaque handle wrapper struct.
+///
+/// Streaming methods use the iterator-handle pattern (`_start` / `_next` / `_free`)
+/// rather than the callback-based C symbol. The Zig wrapper:
+///   1. Creates the request handle from JSON.
+///   2. Calls `{prefix}_{type_snake}_{method_name}_start(client, req_handle)`.
+///   3. Loops `{prefix}_{type_snake}_{method_name}_next(handle)` until null.
+///   4. Serialises each chunk to JSON, keeping the last one.
+///   5. Frees the stream handle.
+///   6. Returns the last chunk JSON (or `"{}"` if the stream was empty).
+fn emit_opaque_streaming_method(
+    method: &MethodDef,
+    ty: &TypeDef,
+    prefix: &str,
+    type_snake: &str,
+    item_type: &str,
+    declared_errors: &[String],
+    out: &mut String,
+) {
+    emit_cleaned_zig_doc(out, &method.doc, "    ");
+
+    let method_snake = AsSnakeCase(&method.name).to_string();
+    let item_snake = AsSnakeCase(item_type).to_string();
+    let upper_prefix = prefix.to_uppercase();
+
+    // Streaming methods take a single JSON request parameter.
+    // The error type comes from the method's error_type annotation.
+    let zig_error_type = method
+        .error_type
+        .as_ref()
+        .map(|e| resolve_zig_error_type(e, declared_errors))
+        .unwrap_or_else(|| "anyerror".to_string());
+
+    // The Zig wrapper signature: self + one JSON request slice → JSON string.
+    let req_param = method.params.first().map(|p| p.name.as_str()).unwrap_or("req");
+
+    let _ = writeln!(
+        out,
+        "    pub fn {method_name}(self: *{type_name}, {req_param}: []const u8) ({zig_error_type}||error{{OutOfMemory}})![]u8 {{",
+        method_name = method.name,
+        type_name = ty.name,
+    );
+
+    // Build the request handle.
+    let req_param_lower = req_param.to_lowercase();
+    let _ = writeln!(
+        out,
+        "        const {req_param_lower}_z = try std.heap.c_allocator.dupeZ(u8, {req_param_lower});",
+    );
+    // Derive the request type from the first param's type.
+    let req_type_snake = if let Some(p) = method.params.first() {
+        if let TypeRef::Named(n) = &p.ty {
+            AsSnakeCase(n).to_string()
+        } else {
+            "chat_completion_request".to_string()
+        }
+    } else {
+        "chat_completion_request".to_string()
+    };
+    let _ = writeln!(
+        out,
+        "        const {req_param_lower}_handle = c.{prefix}_{req_type_snake}_from_json({req_param_lower}_z.ptr);",
+    );
+    let _ = writeln!(out, "        std.heap.c_allocator.free({req_param_lower}_z);");
+    let _ = writeln!(
+        out,
+        "        if ({req_param_lower}_handle == null) {{ return _first_error({zig_error_type}); }}",
+    );
+    let _ = writeln!(
+        out,
+        "        defer c.{prefix}_{req_type_snake}_free({req_param_lower}_handle);",
+    );
+
+    // Start the stream.
+    let c_handle_cast = format!(
+        "@as(*c.{upper_prefix}{type_name}, @ptrCast(self._handle))",
+        type_name = ty.name
+    );
+    let _ = writeln!(
+        out,
+        "        const _stream_handle = c.{prefix}_{type_snake}_{method_snake}_start({c_handle_cast}, {req_param_lower}_handle);",
+    );
+    let _ = writeln!(
+        out,
+        "        if (_stream_handle == null) {{ return _first_error({zig_error_type}); }}",
+    );
+    let _ = writeln!(
+        out,
+        "        defer c.{prefix}_{type_snake}_{method_snake}_free(_stream_handle);",
+    );
+
+    // Collect chunks; keep the last one.
+    let _ = writeln!(out, "        var _last_json: ?[]u8 = null;");
+    let _ = writeln!(out, "        while (true) {{");
+    let _ = writeln!(
+        out,
+        "            const _chunk = c.{prefix}_{type_snake}_{method_snake}_next(_stream_handle);",
+    );
+    let _ = writeln!(out, "            if (_chunk == null) break;");
+    let _ = writeln!(out, "            if (_last_json) |j| std.heap.c_allocator.free(j);");
+    let _ = writeln!(
+        out,
+        "            const _chunk_json_ptr = c.{prefix}_{item_snake}_to_json(_chunk);",
+    );
+    let _ = writeln!(out, "            c.{prefix}_{item_snake}_free(_chunk);",);
+    let _ = writeln!(out, "            if (_chunk_json_ptr == null) continue;");
+    let _ = writeln!(out, "            const _chunk_slice = std.mem.span(_chunk_json_ptr);",);
+    let _ = writeln!(
+        out,
+        "            _last_json = try std.heap.c_allocator.dupe(u8, _chunk_slice);",
+    );
+    let _ = writeln!(out, "            c.{prefix}_free_string(_chunk_json_ptr);",);
+    let _ = writeln!(out, "        }}");
+
+    // Return last chunk JSON or empty object if stream was empty.
+    let _ = writeln!(
+        out,
+        "        return _last_json orelse try std.heap.c_allocator.dupe(u8, \"{{}}\");",
+    );
+    let _ = writeln!(out, "    }}");
+}
+
 /// Emit a single method on an opaque handle wrapper struct.
 fn emit_opaque_method(
     method: &MethodDef,
@@ -69,12 +202,20 @@ fn emit_opaque_method(
     type_snake: &str,
     declared_errors: &[String],
     struct_names: &std::collections::HashSet<String>,
+    streaming_item_types: &HashMap<String, String>,
     out: &mut String,
 ) {
     // Note: async Rust methods are exposed as synchronous C functions via
     // `tokio::runtime::block_on` in the FFI layer. The zig backend calls
     // the synchronous C symbol directly — `is_async` is intentionally not
     // checked here to avoid skipping callable methods.
+
+    // Streaming methods use the iterator-handle pattern (_start/_next/_free)
+    // rather than the callback-based C symbol. Detect them early and delegate.
+    if let Some(item_type) = streaming_item_types.get(&method.name) {
+        emit_opaque_streaming_method(method, ty, prefix, type_snake, item_type, declared_errors, out);
+        return;
+    }
 
     emit_cleaned_zig_doc(out, &method.doc, "    ");
 

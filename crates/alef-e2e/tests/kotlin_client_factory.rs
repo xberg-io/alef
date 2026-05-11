@@ -103,10 +103,10 @@ type = "json_object"
 "#;
 
 /// When `client_factory` is set, the generated test must:
-///   1. Create a `DefaultClient` instance with apiKey + baseUrl pointing at mock server
+///   1. Create a client via the facade factory `<class>.<client_factory>(apiKey, baseUrl)`
 ///   2. Call the method on the client instance (`client.chat(...)`)
 ///   3. Close the client via `client.close()`
-///   4. NOT use the flat `LiterLlm.chat(...)` call
+///   4. Wire `MOCK_SERVER_URL` into the baseUrl
 #[test]
 fn with_client_factory_emits_client_instantiation() {
     let toml = r#"
@@ -126,13 +126,13 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "dev.kreuzberg.literllm.DefaultClient"
+module = "dev.kreuzberg.literllm.LiterLlm"
 result_var = "result"
 
 [crates.e2e.call.overrides.kotlin]
-class = "DefaultClient"
+class = "LiterLlm"
 function = "chat"
-client_factory = "DefaultClient"
+client_factory = "createClient"
 
 [[crates.e2e.call.args]]
 name = "request"
@@ -142,8 +142,8 @@ type = "json_object"
     let rendered = render_kotlin_smoke(toml, "smoke_basic");
 
     assert!(
-        rendered.contains("DefaultClient(apiKey"),
-        "must instantiate DefaultClient with apiKey. Rendered:\n{rendered}"
+        rendered.contains("LiterLlm.createClient(apiKey"),
+        "must instantiate client via facade factory. Rendered:\n{rendered}"
     );
     assert!(
         rendered.contains("client.chat("),

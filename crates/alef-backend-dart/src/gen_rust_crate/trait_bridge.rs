@@ -2,7 +2,7 @@ use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
-use super::conversions::frb_rust_type;
+use super::conversions::frb_rust_type_excluded_aware;
 use super::trait_types::{
     trait_impl_param_conversion, trait_impl_param_type, trait_impl_return_conversion, trait_impl_return_type,
 };
@@ -78,7 +78,7 @@ pub(crate) fn emit_trait_bridge(
     }
     for method in &own_methods {
         let field_name = &method.name;
-        let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths);
+        let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
         out.push_str(&crate::template_env::render(
             "rust_trait_struct_field.jinja",
             minijinja::context! {
@@ -153,7 +153,7 @@ pub(crate) fn emit_trait_bridge(
         },
     ));
     for method in &own_methods {
-        emit_trait_bridge_method(out, method, source_crate_name, type_paths);
+        emit_trait_bridge_method(out, method, source_crate_name, type_paths, &api.excluded_type_paths);
         out.push('\n');
     }
     out.push_str("}\n");
@@ -181,7 +181,7 @@ pub(crate) fn emit_trait_bridge(
     }
     for method in &own_methods {
         let param_name = &method.name;
-        let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths);
+        let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
         out.push_str(&crate::template_env::render(
             "rust_trait_factory_param.jinja",
             minijinja::context! {
@@ -327,11 +327,18 @@ fn dart_fn_future_callback_type(
     method: &MethodDef,
     _source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    // Closures take owned FRB mirror types — use frb_rust_type (no source prefix).
-    let params: Vec<String> = method.params.iter().map(|p| frb_rust_type(&p.ty, p.optional)).collect();
+    // Closures take owned FRB mirror types — use frb_rust_type (no source prefix)
+    // for types with an in-scope mirror, and the qualified source-crate path for
+    // excluded internal types (e.g. `InternalDocument`) that have no mirror struct.
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| frb_rust_type_excluded_aware(&p.ty, p.optional, excluded_type_paths))
+        .collect();
 
-    let ret = frb_rust_type(&method.return_type, false);
+    let ret = frb_rust_type_excluded_aware(&method.return_type, false, excluded_type_paths);
     let dart_fn_ret = format!("flutter_rust_bridge::DartFnFuture<{ret}>");
 
     let params_str = params.join(", ");
@@ -353,6 +360,7 @@ fn emit_trait_bridge_method(
     method: &MethodDef,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
 ) {
     let method_name = &method.name;
 
@@ -392,7 +400,7 @@ fn emit_trait_bridge_method(
     // Emit owned-conversion let-bindings for each parameter before calling the closure.
     // References become owned; primitives may be widened; mut refs are copied for the callback.
     for p in &method.params {
-        let conv = trait_impl_param_conversion(p);
+        let conv = trait_impl_param_conversion(p, excluded_type_paths);
         if !conv.is_empty() {
             out.push_str(&crate::template_env::render(
                 "rust_trait_method_param_conversion.jinja",

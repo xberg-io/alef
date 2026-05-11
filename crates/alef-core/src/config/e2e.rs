@@ -690,6 +690,23 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub client_factory: Option<String>,
+    /// Verbatim trailing arguments appended after the fixed `("test-key", ...)` pair
+    /// when calling the `client_factory` function.
+    ///
+    /// Use this when the factory function takes additional positional parameters
+    /// beyond the API key and optional base URL that the generator would otherwise
+    /// emit.  Each element is emitted verbatim, separated by `, `.
+    ///
+    /// Example — Gleam `create_client` takes five positional arguments:
+    /// `(api_key, base_url, timeout_secs, max_retries, model_hint)`.  Set:
+    /// ```toml
+    /// [e2e.call.overrides.gleam]
+    /// client_factory = "create_client"
+    /// client_factory_trailing_args = ["option.None", "option.None", "option.None"]
+    /// ```
+    /// to produce `create_client("test-key", option.Some(url), option.None, option.None, option.None)`.
+    #[serde(default)]
+    pub client_factory_trailing_args: Vec<String>,
     /// Fields on the options object that require `BigInt()` wrapping (WASM only).
     ///
     /// `wasm_bindgen` maps Rust `u64`/`i64` to JavaScript `BigInt`. Numeric

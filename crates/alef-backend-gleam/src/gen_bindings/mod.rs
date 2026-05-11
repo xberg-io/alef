@@ -62,9 +62,11 @@ impl Backend for GleamBackend {
         // Emit regular (data/DTO) types here. Types that will be emitted as
         // opaque NIF resource handles below (non-trait types with methods) are
         // skipped to avoid duplicate type definitions.
-        for ty in api.types.iter().filter(|t| {
-            !exclude_types.contains(t.name.as_str()) && !(!t.is_trait && !t.methods.is_empty())
-        }) {
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !(exclude_types.contains(t.name.as_str()) || !t.is_trait && !t.methods.is_empty()))
+        {
             emit_type(ty, &mut body, &mut imports);
             body.push('\n');
         }

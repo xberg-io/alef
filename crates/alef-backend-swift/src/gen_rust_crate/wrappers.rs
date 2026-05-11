@@ -604,15 +604,31 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
 ///
 /// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
 /// This mirrors the `liter_llm::DefaultClient::new` pattern.
+///
+/// When the source crate's constructor signature differs (e.g. liter-llm's
+/// `DefaultClient::new(ClientConfig, Option<&str>)`), the caller can supply a
+/// custom body via `[crates.<crate>.swift] client_constructor_body."TypeName" = "..."`
+/// in alef.toml. The custom body is interpolated verbatim, with `{type_name}` and
+/// `{source_path}` placeholders available.
 pub(crate) fn emit_type_constructor_shim(
     ty: &TypeDef,
     source_crate: &str,
     type_paths: &HashMap<String, String>,
+    custom_body: Option<&str>,
 ) -> String {
     let type_snake = ty.name.to_snake_case();
     let fn_name = format!("create_{type_snake}");
     let type_name = &ty.name;
     let source_path = resolve_type_path(type_name, source_crate, type_paths);
+
+    if let Some(body) = custom_body {
+        let interpolated = body
+            .replace("{type_name}", type_name)
+            .replace("{source_path}", &source_path);
+        return format!(
+            "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n{interpolated}\n}}\n"
+        );
+    }
 
     format!(
         "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
@@ -636,6 +652,28 @@ pub(crate) fn emit_type_method_shims(
     let type_name = &ty.name;
 
     let mut out = String::new();
+
+    // Bring trait providers into scope so trait methods on `client.0` resolve.
+    // Methods from inherent impls have `trait_source: None`; methods from trait
+    // impls record the fully qualified trait path (e.g. `liter_llm::client::LlmClient`).
+    // Without these `use` statements rustc emits `no method named X found` for every
+    // trait-provided method.
+    let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for method in &ty.methods {
+        if method.sanitized {
+            continue;
+        }
+        if let Some(path) = method.trait_source.as_deref() {
+            trait_uses.insert(path.to_string());
+        }
+    }
+    for path in &trait_uses {
+        out.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+    }
+    if !trait_uses.is_empty() {
+        out.push('\n');
+    }
+
     for method in &ty.methods {
         if method.sanitized {
             continue;
@@ -669,6 +707,12 @@ pub(crate) fn emit_type_method_shims(
         };
 
         // Build call args for each method param (excluding the receiver).
+        //
+        // - Named newtype  → `arg.0` (unwrap to inner source-crate type)
+        // - Optional<Named> → `arg.map(|v| v.0)` (preserve None, unwrap Some)
+        // - String           → `&arg` (the underlying trait method usually takes `&str`)
+        // - JSON-bridged     → deserialize from the bridge String
+        // - Other primitives → pass through verbatim
         let call_args: Vec<String> = method
             .params
             .iter()
@@ -676,11 +720,17 @@ pub(crate) fn emit_type_method_shims(
                 let name = p.name.to_snake_case();
                 if needs_json_bridge(&p.ty) {
                     let native_ty = swift_bridge_rust_type(&p.ty);
-                    format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")")
-                } else if matches!(p.ty, TypeRef::Named(_)) {
-                    format!("{name}.0")
-                } else {
-                    name
+                    return format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+                }
+                if p.optional {
+                    if let TypeRef::Named(_) = &p.ty {
+                        return format!("{name}.map(|v| v.0)");
+                    }
+                }
+                match &p.ty {
+                    TypeRef::Named(_) => format!("{name}.0"),
+                    TypeRef::String | TypeRef::Path => format!("&{name}"),
+                    _ => name,
                 }
             })
             .collect();

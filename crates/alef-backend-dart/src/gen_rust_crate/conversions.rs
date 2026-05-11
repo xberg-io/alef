@@ -11,7 +11,32 @@ pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
     if optional { format!("Option<{inner}>") } else { inner }
 }
 
+/// Like `frb_rust_type`, but qualifies excluded named types with their source-crate
+/// path (so e.g. `InternalDocument` becomes `kreuzberg::internal::InternalDocument`
+/// when it appears in a trait-bridge closure signature without an in-scope mirror).
+pub(crate) fn frb_rust_type_excluded_aware(
+    ty: &TypeRef,
+    optional: bool,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let inner = frb_rust_type_inner_excluded_aware(ty, excluded_type_paths);
+    if optional { format!("Option<{inner}>") } else { inner }
+}
+
 pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
+    frb_rust_type_inner_excluded_aware(ty, &std::collections::HashMap::new())
+}
+
+/// Like `frb_rust_type_inner`, but emits the fully-qualified source-crate path for
+/// `TypeRef::Named` entries that appear in `excluded_type_paths`. Non-excluded named
+/// types stay bare (they reference the in-scope FRB mirror struct emitted by
+/// `#[frb(mirror(T))]`). Used by trait-bridge callback type emission where the
+/// closure signature may reference excluded internal types like `InternalDocument`
+/// that have no mirror struct.
+pub(crate) fn frb_rust_type_inner_excluded_aware(
+    ty: &TypeRef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "bool".to_string(),
@@ -21,16 +46,25 @@ pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
         },
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
-        TypeRef::Optional(inner) => format!("Option<{}>", frb_rust_type_inner(inner)),
-        TypeRef::Vec(inner) => format!("Vec<{}>", frb_rust_type_inner(inner)),
+        TypeRef::Optional(inner) => format!(
+            "Option<{}>",
+            frb_rust_type_inner_excluded_aware(inner, excluded_type_paths)
+        ),
+        TypeRef::Vec(inner) => format!(
+            "Vec<{}>",
+            frb_rust_type_inner_excluded_aware(inner, excluded_type_paths)
+        ),
         TypeRef::Map(k, v) => {
             format!(
                 "std::collections::HashMap<{}, {}>",
-                frb_rust_type_inner(k),
-                frb_rust_type_inner(v)
+                frb_rust_type_inner_excluded_aware(k, excluded_type_paths),
+                frb_rust_type_inner_excluded_aware(v, excluded_type_paths)
             )
         }
-        TypeRef::Named(name) => name.clone(),
+        TypeRef::Named(name) => match excluded_type_paths.get(name) {
+            Some(path) if !path.is_empty() => path.replace('-', "_"),
+            _ => name.clone(),
+        },
         TypeRef::Path => "String".to_string(),
         TypeRef::Unit => "()".to_string(),
         TypeRef::Json => "String".to_string(),

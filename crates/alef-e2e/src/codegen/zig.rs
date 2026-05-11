@@ -569,8 +569,7 @@ fn render_test_fn(
     // (see alef-backend-zig/src/gen_bindings/opaque_handles.rs). Force the flag
     // on whenever a client_factory is in play so the test path parses the JSON
     // result rather than attempting direct field access on `[]u8`.
-    let result_is_json_struct =
-        call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
+    let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct) || client_factory.is_some();
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;

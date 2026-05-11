@@ -91,7 +91,10 @@ pub(super) fn trait_impl_param_type(
 /// Build the conversion expression that converts the parameter from its original
 /// trait type to the FRB-friendly mirror type expected by the DartFnFuture closure.
 /// Returns an empty string if no conversion is needed.
-pub(super) fn trait_impl_param_conversion(p: &ParamDef) -> String {
+pub(super) fn trait_impl_param_conversion(
+    p: &ParamDef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
     let name = &p.name;
     if p.is_ref {
         match &p.ty {
@@ -112,7 +115,12 @@ pub(super) fn trait_impl_param_conversion(p: &ParamDef) -> String {
                     format!("let {name} = {name}.to_vec();")
                 }
             }
-            // Named ref: clone and convert to mirror type.
+            // Excluded named ref: no mirror struct, the closure signature uses the source-crate
+            // type directly via excluded-aware codegen; just clone to get owned source type.
+            TypeRef::Named(type_name) if excluded_type_paths.contains_key(type_name) => {
+                format!("let {name} = {name}.clone();")
+            }
+            // Named ref with mirror: clone and convert to mirror type.
             TypeRef::Named(type_name) => {
                 format!("let {name} = {type_name}::from({name}.clone());")
             }
@@ -120,7 +128,9 @@ pub(super) fn trait_impl_param_conversion(p: &ParamDef) -> String {
         }
     } else {
         match &p.ty {
-            // Non-ref Named: convert to mirror type.
+            // Excluded named: closure receives the source-crate type; no conversion needed.
+            TypeRef::Named(type_name) if excluded_type_paths.contains_key(type_name) => String::new(),
+            // Non-ref Named with mirror: convert to mirror type.
             TypeRef::Named(type_name) => {
                 format!("let {name} = {type_name}::from({name});")
             }

@@ -886,10 +886,9 @@ fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
-    let field_is_optional = assertion
-        .field
-        .as_deref()
-        .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(f));
+    let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
+        !f.is_empty() && (field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f)))
+    });
     let field_is_array = assertion.field.as_deref().is_some_and(|f| {
         !f.is_empty() && (field_resolver.is_array(f) || field_resolver.is_array(field_resolver.resolve(f)))
     });
@@ -923,8 +922,13 @@ fn render_assertion(
         // To get a string representation, we need to match on the enum or use a description.
         // For now, just use the enum name directly without .rawValue.
         field_expr.clone()
-    } else if field_is_optional || accessor_is_optional {
+    } else if field_is_optional {
+        // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
         format!("({field_expr}?.toString() ?? \"\")")
+    } else if accessor_is_optional {
+        // Ancestor optional chain propagates; leaf is non-optional RustString within chain.
+        // Use .toString() directly — the whole expr is Optional<String> due to propagation.
+        format!("({field_expr}.toString() ?? \"\")")
     } else {
         format!("{field_expr}.toString()")
     };
@@ -1096,10 +1100,9 @@ fn render_assertion(
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
                 // For optional numeric fields, coalesce to 0 before comparing.
-                let field_is_optional = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_optional(f));
+                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
+                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1111,10 +1114,9 @@ fn render_assertion(
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let field_is_optional = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_optional(f));
+                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
+                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1127,10 +1129,9 @@ fn render_assertion(
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
                 // For optional numeric fields, coalesce to 0 before comparing.
-                let field_is_optional = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_optional(f));
+                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
+                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {
@@ -1142,10 +1143,9 @@ fn render_assertion(
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let swift_val = json_to_swift(val);
-                let field_is_optional = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_optional(f));
+                let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
+                    field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f))
+                });
                 let compare_expr = if field_is_optional {
                     format!("({field_expr} ?? 0)")
                 } else {

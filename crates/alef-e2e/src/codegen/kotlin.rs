@@ -863,7 +863,10 @@ fn render_test_method(
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
 
     // When client_factory is set, emit client-object instantiation + instance method call.
-    if let Some(_factory) = client_factory {
+    // The factory name is a function on the Kotlin facade object (e.g. `LiterLlm.createClient`)
+    // that constructs the coroutine-friendly Kotlin client wrapper from the
+    // raw apiKey + baseUrl pair the test owns.
+    if let Some(factory) = client_factory {
         let fixture_id = &fixture.id;
         let mock_url_expr = format!("System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"");
         for line in &setup_lines {
@@ -871,7 +874,7 @@ fn render_test_method(
         }
         let _ = writeln!(
             out,
-            "        val client = {class_name}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+            "        val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
         );
         if expects_error {
             let _ = writeln!(out, "        assertFailsWith<Exception> {{");
