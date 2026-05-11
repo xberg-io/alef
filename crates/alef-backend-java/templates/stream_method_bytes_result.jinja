@@ -1,0 +1,18 @@
+            var outPtrHolder = arena.allocate(ValueLayout.ADDRESS);
+            var outLenHolder = arena.allocate(ValueLayout.JAVA_LONG);
+            var outCapHolder = arena.allocate(ValueLayout.JAVA_LONG);
+            int rc = (int) {{ ffi_handle }}.invoke({{ args_joined }}, outPtrHolder, outLenHolder, outCapHolder);
+{{ named_frees }}            if (rc != 0) {
+                checkLastFfiError();
+                {{ empty_return }}
+            }
+            var outPtr = outPtrHolder.get(ValueLayout.ADDRESS, 0);
+            long outLen = outLenHolder.get(ValueLayout.JAVA_LONG, 0);
+            long outCap = outCapHolder.get(ValueLayout.JAVA_LONG, 0);
+            if (outPtr.equals(MemorySegment.NULL)) {
+                checkLastFfiError();
+                {{ empty_return }}
+            }
+            byte[] result = outPtr.reinterpret(outLen).toArray(ValueLayout.JAVA_BYTE);
+            {{ free_bytes }}.invoke(outPtr, outLen, outCap);
+            return {{ success_return }};

@@ -374,6 +374,38 @@ static TEMPLATES: &[(&str, &str)] = &[
         "rust_trait_method_ok_block_on.jinja",
         include_str!("../templates/rust_trait_method_ok_block_on.jinja"),
     ),
+    (
+        "rust_trait_register_forwarder.jinja",
+        include_str!("../templates/rust_trait_register_forwarder.jinja"),
+    ),
+    (
+        "rust_trait_unregister_forwarder.jinja",
+        include_str!("../templates/rust_trait_unregister_forwarder.jinja"),
+    ),
+    (
+        "rust_trait_clear_forwarder.jinja",
+        include_str!("../templates/rust_trait_clear_forwarder.jinja"),
+    ),
+    (
+        "rust_from_core_struct_open.jinja",
+        include_str!("../templates/rust_from_core_struct_open.jinja"),
+    ),
+    (
+        "rust_from_mirror_struct_open.jinja",
+        include_str!("../templates/rust_from_mirror_struct_open.jinja"),
+    ),
+    (
+        "rust_from_core_enum_open.jinja",
+        include_str!("../templates/rust_from_core_enum_open.jinja"),
+    ),
+    (
+        "rust_from_mirror_enum_open.jinja",
+        include_str!("../templates/rust_from_mirror_enum_open.jinja"),
+    ),
+    (
+        "rust_from_impl_close.jinja",
+        include_str!("../templates/rust_from_impl_close.jinja"),
+    ),
     // Error class, bridge class, and extra templates
     (
         "error_class_header.jinja",

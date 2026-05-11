@@ -1,0 +1,7 @@
+            MemorySegment {{ c_name }};
+            if ({{ param_name }} == null) { {{ c_name }} = MemorySegment.NULL; } else {
+                String {{ c_name }}Json = STREAM_MAPPER.writeValueAsString({{ param_name }});
+                var {{ c_name }}JsonSeg = arena.allocateFrom({{ c_name }}Json);
+                {{ c_name }} = (MemorySegment) {{ from_json }}.invoke({{ c_name }}JsonSeg);
+                if ({{ c_name }}.equals(MemorySegment.NULL)) { checkLastFfiError(); throw new {{ exception_class }}("{{ method_name }}: failed to marshal {{ param_name }}", (Throwable) null); }
+            }

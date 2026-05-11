@@ -1,0 +1,6 @@
+if _out_result.is_null() {
+    return String::new();
+}
+// SAFETY: out_result was written by the callee as a valid CString.
+let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
+cs.to_string_lossy().into_owned()

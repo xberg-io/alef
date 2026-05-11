@@ -348,8 +348,12 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
         ty.rust_path.replace('-', "_")
     };
 
-    out.push_str(&format!(
-        "impl From<{core_ty}> for {name} {{\n    fn from(v: {core_ty}) -> Self {{\n        {name} {{\n"
+    out.push_str(&crate::template_env::render(
+        "rust_from_core_struct_open.jinja",
+        minijinja::context! {
+            core_ty => core_ty.as_str(),
+            name => name.as_str(),
+        },
     ));
 
     for field in &ty.fields {
@@ -372,7 +376,10 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
 
     // Note: no ..Default::default() here — the mirror struct has exactly the fields
     // known to the IR. has_stripped_cfg_fields only affects the CORE struct, not the mirror.
-    out.push_str("        }\n    }\n}\n");
+    out.push_str(&crate::template_env::render(
+        "rust_from_impl_close.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Build the conversion expression for one struct field (core → mirror direction).
@@ -529,6 +536,7 @@ fn vec_inner_from_expr(
             format!("{inner_name}::from")
         }
         (TypeRef::String | TypeRef::Char, _) => "|s| s.into()".to_string(),
+        (TypeRef::Json, _) => "|j| serde_json::to_string(&j).unwrap_or_default()".to_string(),
         (TypeRef::Path, _) => "|p: std::path::PathBuf| p.to_string_lossy().into_owned()".to_string(),
         (TypeRef::Bytes, CoreWrapper::Arc | CoreWrapper::ArcMutex) => "|a| (*a).clone().into()".to_string(),
         (TypeRef::Bytes, _) => "|b| b.into()".to_string(),
@@ -592,8 +600,12 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
         ty.rust_path.replace('-', "_")
     };
 
-    out.push_str(&format!(
-        "impl From<{name}> for {core_ty} {{\n    fn from(v: {name}) -> Self {{\n        {core_ty} {{\n"
+    out.push_str(&crate::template_env::render(
+        "rust_from_mirror_struct_open.jinja",
+        minijinja::context! {
+            core_ty => core_ty.as_str(),
+            name => name.as_str(),
+        },
     ));
 
     for field in &ty.fields {
@@ -618,7 +630,10 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
     if ty.has_stripped_cfg_fields {
         out.push_str("            ..Default::default()\n");
     }
-    out.push_str("        }\n    }\n}\n");
+    out.push_str(&crate::template_env::render(
+        "rust_from_impl_close.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Emit a `From<MirrorEnum> for kreuzberg::Enum` implementation.
@@ -632,8 +647,12 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
         en.rust_path.replace('-', "_")
     };
 
-    out.push_str(&format!(
-        "impl From<{name}> for {core_ty} {{\n    fn from(v: {name}) -> Self {{\n        match v {{\n"
+    out.push_str(&crate::template_env::render(
+        "rust_from_mirror_enum_open.jinja",
+        minijinja::context! {
+            core_ty => core_ty.as_str(),
+            name => name.as_str(),
+        },
     ));
 
     for variant in &en.variants {
@@ -676,7 +695,10 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
         }
     }
 
-    out.push_str("        }\n    }\n}\n");
+    out.push_str(&crate::template_env::render(
+        "rust_from_impl_close.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Build conversion expression for one enum variant field in the mirror-to-core direction.
@@ -966,8 +988,12 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
         en.rust_path.replace('-', "_")
     };
 
-    out.push_str(&format!(
-        "impl From<{core_ty}> for {name} {{\n    fn from(v: {core_ty}) -> Self {{\n        match v {{\n"
+    out.push_str(&crate::template_env::render(
+        "rust_from_core_enum_open.jinja",
+        minijinja::context! {
+            core_ty => core_ty.as_str(),
+            name => name.as_str(),
+        },
     ));
 
     for variant in &en.variants {
@@ -1014,7 +1040,10 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
         }
     }
 
-    out.push_str("        }\n    }\n}\n");
+    out.push_str(&crate::template_env::render(
+        "rust_from_impl_close.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Build the conversion expression for one enum variant field.

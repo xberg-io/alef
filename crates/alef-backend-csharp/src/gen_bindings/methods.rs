@@ -265,10 +265,16 @@ fn gen_wrapper_function(
         for param in visible_params.iter() {
             let param_name = param.name.to_lower_camel_case();
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-            args_block.push_str(&format!("            {arg},\n"));
+            args_block.push_str(&render(
+                "native_arg_line.jinja",
+                minijinja::context! { indent => "            ", arg },
+            ));
             // For byte-slice input parameters, emit the length argument immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
-                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+                args_block.push_str(&render(
+                    "native_bytes_len_arg_line.jinja",
+                    minijinja::context! { indent => "            ", param_name },
+                ));
             }
         }
         // Build cleanup block for try-finally
@@ -615,15 +621,24 @@ fn gen_wrapper_method(
         // Build the args block: receiver (if any) then visible params, each with trailing comma.
         let mut args_block = String::new();
         if has_receiver {
-            args_block.push_str("            handle,\n");
+            args_block.push_str(&render(
+                "native_arg_line.jinja",
+                minijinja::context! { indent => "            ", arg => "handle" },
+            ));
         }
         for param in visible_params.iter() {
             let param_name = param.name.to_lower_camel_case();
             let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-            args_block.push_str(&format!("            {arg},\n"));
+            args_block.push_str(&render(
+                "native_arg_line.jinja",
+                minijinja::context! { indent => "            ", arg },
+            ));
             // For byte-slice input parameters, emit the length argument immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
-                args_block.push_str(&format!("            (UIntPtr){param_name}.Length,\n"));
+                args_block.push_str(&render(
+                    "native_bytes_len_arg_line.jinja",
+                    minijinja::context! { indent => "            ", param_name },
+                ));
             }
         }
         // Build cleanup block for try-finally

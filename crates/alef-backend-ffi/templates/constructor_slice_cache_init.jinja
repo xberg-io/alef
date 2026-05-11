@@ -1,0 +1,25 @@
+        // Cache {{ method_name }}() result for the lifetime of the bridge (required: returns &[&str]).
+        let {{ field_name }}: &'static [&'static str] = if let Some(fp) = vtable.{{ method_name }} {
+            let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();
+            // SAFETY: fp is a valid non-null function pointer; user_data validity is the caller's
+            // responsibility (documented in the vtable API contract).
+            let _rc = unsafe { fp(user_data, &mut _out_result) };
+            if _out_result.is_null() {
+                &[]
+            } else {
+                // SAFETY: out_result was written by the callee as a valid NUL-terminated string.
+                let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
+                let json = cs.to_string_lossy();
+                let owned: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+                // Leak each string into a `'static str`; these live for the process lifetime.
+                // The bridge struct is expected to live for the duration of the program
+                // (registered plugins are not typically removed), so this is acceptable.
+                let leaked: Vec<&'static str> = owned
+                    .into_iter()
+                    .map(|s| -> &'static str { Box::leak(s.into_boxed_str()) })
+                    .collect();
+                Box::leak(leaked.into_boxed_slice())
+            }
+        } else {
+            &[]
+        };

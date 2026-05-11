@@ -249,28 +249,17 @@ fn emit_register_forwarder(
         .unwrap_or_default();
     let trait_path = format!("{source_crate_name}::plugins::{}", bridge_config.trait_name);
 
-    out.push('\n');
-    out.push_str(&format!(
-        "/// Register a Dart implementation as a `{}` plugin.\n",
-        bridge_config.trait_name
+    out.push_str(&crate::template_env::render(
+        "rust_trait_register_forwarder.jinja",
+        minijinja::context! {
+            trait_name => bridge_config.trait_name.as_str(),
+            registry_getter => registry_getter,
+            register_fn => register_fn,
+            struct_name => struct_name,
+            trait_path => trait_path.as_str(),
+            extra_args => extra_args.as_str(),
+        },
     ));
-    out.push_str("///\n");
-    out.push_str(&format!(
-        "/// Wraps `impl_` in an `Arc` and inserts it into `{registry_getter}()`.\n"
-    ));
-    out.push_str("/// Errors from the host registry are stringified for FRB transport.\n");
-    out.push_str(&format!(
-        "pub fn {register_fn}(impl_: {struct_name}) -> Result<(), String> {{\n"
-    ));
-    out.push_str(&format!(
-        "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(impl_);\n"
-    ));
-    out.push_str(&format!("    let registry = {registry_getter}();\n"));
-    out.push_str("    let mut registry = registry.write();\n");
-    out.push_str(&format!(
-        "    registry.register(arc{extra_args}).map_err(|e| e.to_string())\n"
-    ));
-    out.push_str("}\n");
 }
 
 /// Emit a Dart-side `unregister_*` forwarder for a configured trait bridge.
@@ -285,21 +274,14 @@ fn emit_unregister_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig
         return;
     };
 
-    out.push('\n');
-    out.push_str(&format!(
-        "/// Unregister a previously-registered `{}` plugin by name.\n",
-        bridge_config.trait_name
+    out.push_str(&crate::template_env::render(
+        "rust_trait_unregister_forwarder.jinja",
+        minijinja::context! {
+            trait_name => bridge_config.trait_name.as_str(),
+            registry_getter => registry_getter,
+            unregister_fn => unregister_fn,
+        },
     ));
-    out.push_str(&format!(
-        "/// Removes the plugin from `{registry_getter}()` and stringifies any host error.\n"
-    ));
-    out.push_str(&format!(
-        "pub fn {unregister_fn}(name: String) -> Result<(), String> {{\n"
-    ));
-    out.push_str(&format!("    let registry = {registry_getter}();\n"));
-    out.push_str("    let mut registry = registry.write();\n");
-    out.push_str("    registry.remove(&name).map_err(|e| e.to_string())\n");
-    out.push_str("}\n");
 }
 
 /// Emit a Rust-side `clear_*` forwarder for a configured trait bridge.
@@ -314,19 +296,14 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
         return;
     };
 
-    out.push('\n');
-    out.push_str(&format!(
-        "/// Clear all registered `{}` plugins.\n",
-        bridge_config.trait_name
+    out.push_str(&crate::template_env::render(
+        "rust_trait_clear_forwarder.jinja",
+        minijinja::context! {
+            trait_name => bridge_config.trait_name.as_str(),
+            registry_getter => registry_getter,
+            clear_fn => clear_fn,
+        },
     ));
-    out.push_str(&format!(
-        "/// Removes every plugin from `{registry_getter}()` and stringifies any host error.\n"
-    ));
-    out.push_str(&format!("pub fn {clear_fn}() -> Result<(), String> {{\n"));
-    out.push_str(&format!("    let registry = {registry_getter}();\n"));
-    out.push_str("    let mut registry = registry.write();\n");
-    out.push_str("    registry.clear().map_err(|e| e.to_string())\n");
-    out.push_str("}\n");
 }
 
 /// Build the callback closure type stored in the bridge struct field.

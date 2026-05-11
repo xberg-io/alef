@@ -1,0 +1,13 @@
+impl {{ bridge_name }} {
+    /// Create a new bridge from a vtable and opaque user_data pointer.
+    ///
+    /// # Safety
+    ///
+    /// `vtable` must remain valid for the lifetime of the returned bridge.
+    /// `user_data` must be valid for any thread that calls methods on this bridge.
+    /// All required fn pointers in `vtable` must be non-null.
+    pub unsafe fn new(name: String, vtable: {{ vtable_name }}, user_data: *const std::ffi::c_void) -> Self {
+{{ cache_init_blocks }}
+        Self { vtable, user_data, cached_name: name, cached_version: String::new(), {{ field_inits }}}
+    }
+}

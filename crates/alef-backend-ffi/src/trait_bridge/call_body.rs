@@ -336,36 +336,14 @@ impl FfiBridgeGenerator {
 
         // Handle the return
         if has_error {
-            out.push_str(
-                "if _rc != 0 {
-",
-            );
-            out.push_str(
-                "    let msg = if _out_error.is_null() {
-",
-            );
-            out.push_str(&format!(
-                "        format!(\"vtable.{name} returned error code {{}}\", _rc)\n"
+            let error_return = make_err("msg".to_string());
+            out.push_str(&crate::template_env::render(
+                "ffi_vtable_error_check.jinja",
+                minijinja::context! {
+                    name => name,
+                    error_return => &error_return,
+                },
             ));
-            out.push_str(
-                "    } else {
-",
-            );
-            out.push_str("// SAFETY: out_error was written by the callee as a valid CString.\n");
-            out.push_str("let cs = unsafe { std::ffi::CString::from_raw(_out_error) };\n");
-            out.push_str(
-                "        cs.to_string_lossy().into_owned()
-",
-            );
-            out.push_str(
-                "    };
-",
-            );
-            out.push_str(&make_err("msg".to_string()));
-            out.push_str(
-                "}
-",
-            );
 
             // Decode successful return
             match &method.return_type {
@@ -376,27 +354,10 @@ impl FfiBridgeGenerator {
                     );
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    out.push_str(
-                        "if _out_result.is_null() {
-",
-                    );
-                    out.push_str(
-                        "    return Ok(String::new());
-",
-                    );
-                    out.push_str(
-                        "}
-",
-                    );
-                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
-                    out.push_str(
-                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
-",
-                    );
-                    out.push_str(
-                        "Ok(cs.to_string_lossy().into_owned())
-",
-                    );
+                    out.push_str(&crate::template_env::render(
+                        "ffi_decode_string_result.jinja",
+                        minijinja::context! {},
+                    ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
@@ -429,8 +390,12 @@ impl FfiBridgeGenerator {
                     } else {
                         // Sync method body — error type is the trait's ErrorType
                         let err_constructor = spec.make_error("e.to_string()");
-                        out.push_str(&format!(
-                            "serde_json::from_str::<{ret_ty}>(&json).map_err(|e| {err_constructor})\n"
+                        out.push_str(&crate::template_env::render(
+                            "ffi_sync_serde_from_str_err.jinja",
+                            minijinja::context! {
+                                ret_ty => &ret_ty,
+                                err_constructor => &err_constructor,
+                            },
                         ));
                     }
                 }
@@ -455,27 +420,10 @@ impl FfiBridgeGenerator {
             match &method.return_type {
                 TypeRef::Unit => {}
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    out.push_str(
-                        "if _out_result.is_null() {
-",
-                    );
-                    out.push_str(
-                        "    return String::new();
-",
-                    );
-                    out.push_str(
-                        "}
-",
-                    );
-                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
-                    out.push_str(
-                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
-",
-                    );
-                    out.push_str(
-                        "cs.to_string_lossy().into_owned()
-",
-                    );
+                    out.push_str(&crate::template_env::render(
+                        "ffi_decode_string_value.jinja",
+                        minijinja::context! {},
+                    ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
