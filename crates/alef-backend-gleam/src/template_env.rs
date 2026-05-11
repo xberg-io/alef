@@ -2,6 +2,14 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     ("type_opaque.jinja", include_str!("../templates/type_opaque.jinja")),
+    (
+        "type_opaque_resource.jinja",
+        include_str!("../templates/type_opaque_resource.jinja"),
+    ),
+    (
+        "resource_method_external.jinja",
+        include_str!("../templates/resource_method_external.jinja"),
+    ),
     ("type_header.jinja", include_str!("../templates/type_header.jinja")),
     ("field_labeled.jinja", include_str!("../templates/field_labeled.jinja")),
     (

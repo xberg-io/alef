@@ -1,5 +1,5 @@
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{EnumDef, ErrorDef, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, ErrorDef, FieldDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 
 use crate::type_map::GleamMapper;
@@ -231,4 +231,77 @@ fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static st
         }
         _ => mapper.map_type(ty),
     }
+}
+
+/// Emit an opaque resource type for a NIF-backed struct with methods.
+///
+/// Generates:
+/// ```gleam
+/// pub opaque type DefaultClient {
+///   DefaultClient(resource: dynamic.Dynamic)
+/// }
+/// ```
+pub(crate) fn emit_resource_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
+    imports.insert("import gleam/dynamic");
+    emit_cleaned_gleam_doc(out, &ty.doc, "");
+    out.push_str(&crate::template_env::render(
+        "type_opaque_resource.jinja",
+        minijinja::context! {
+            name => &ty.name,
+        },
+    ));
+}
+
+/// Emit an external NIF binding for an instance method on a resource type.
+///
+/// The NIF entry point name is `{snake_type}_{snake_method}` and the first
+/// parameter is `self_: TypeName` (the opaque resource handle).
+///
+/// Generates:
+/// ```gleam
+/// @external(erlang, "Elixir.MyModule", "default_client_chat")
+/// pub fn chat(self_: DefaultClient, req: ChatRequest) -> Result(ChatResponse, LlmError)
+/// ```
+pub(crate) fn emit_method(
+    method: &MethodDef,
+    type_name: &str,
+    nif_module: &str,
+    declared_errors: &[String],
+    out: &mut String,
+    imports: &mut BTreeSet<&'static str>,
+) {
+    use heck::ToSnakeCase;
+    emit_cleaned_gleam_doc(out, &method.doc, "");
+    let snake_type = type_name.to_snake_case();
+    let snake_method = method.name.to_snake_case();
+    let nif_fn_name = format!("{snake_type}_{snake_method}");
+    out.push_str(&crate::template_env::render(
+        "resource_method_external.jinja",
+        minijinja::context! {
+            nif_module => nif_module,
+            nif_fn_name => &nif_fn_name,
+        },
+    ));
+    let return_ty = gleam_type(&method.return_type, false, imports);
+    let return_str = if let Some(err_ty) = &method.error_type {
+        let resolved = resolve_gleam_error_type(err_ty, declared_errors);
+        format!("Result({return_ty}, {resolved})")
+    } else {
+        return_ty
+    };
+    let self_param = format!("self_: {type_name}");
+    let rest_params: Vec<String> = method.params.iter().map(|p| format_param(p, imports)).collect();
+    let all_params = if rest_params.is_empty() {
+        self_param
+    } else {
+        format!("{self_param}, {}", rest_params.join(", "))
+    };
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            name => &snake_method,
+            params => &all_params,
+            return_type => &return_str,
+        },
+    ));
 }

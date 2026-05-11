@@ -10,7 +10,7 @@ mod nif_external;
 mod trait_bridge;
 mod variant_collision;
 
-use nif_external::{emit_enum, emit_error_type, emit_function, emit_type};
+use nif_external::{emit_enum, emit_error_type, emit_function, emit_method, emit_resource_type, emit_type};
 use trait_bridge::{emit_trait_bridge_shims, emit_trait_support_nifs};
 use variant_collision::build_collision_set;
 
@@ -84,6 +84,21 @@ impl Backend for GleamBackend {
         {
             emit_function(f, &nif_module, &declared_errors, &mut body, &mut imports);
             body.push('\n');
+        }
+
+        // Emit opaque resource types and their instance methods (e.g. DefaultClient).
+        // Only non-trait types with at least one method that are not excluded get emitted.
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()) && !t.methods.is_empty())
+        {
+            emit_resource_type(ty, &mut body, &mut imports);
+            body.push('\n');
+            for method in &ty.methods {
+                emit_method(method, &ty.name, &nif_module, &declared_errors, &mut body, &mut imports);
+                body.push('\n');
+            }
         }
 
         // Emit trait bridge shims for each configured bridge not excluded from Gleam.

@@ -111,7 +111,11 @@ impl E2eCodegen for GleamE2eCodegen {
             start_app() ->\n\
             \x20\x20\x20\x20%% Elixir runtime must be started before {app_name} NIF init\n\
             \x20\x20\x20\x20%% because Rustler uses Elixir.Application.app_dir/2 to locate the .so.\n\
-            \x20\x20\x20\x20{{ok, _}} = application:ensure_all_started(elixir),\n\
+            \x20\x20\x20\x20%% Gracefully fall back when Elixir is not a runtime dependency.\n\
+            \x20\x20\x20\x20case application:ensure_all_started(elixir) of\n\
+            \x20\x20\x20\x20\x20\x20\x20\x20{{ok, _}} -> ok;\n\
+            \x20\x20\x20\x20\x20\x20\x20\x20{{error, _}} -> ok\n\
+            \x20\x20\x20\x20end,\n\
             \x20\x20\x20\x20{{ok, _}} = application:ensure_all_started({app_name}),\n\
             \x20\x20\x20\x20nil.\n",
         );
@@ -751,6 +755,17 @@ fn render_test_case(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
+    // Detect client_factory: check per-fixture override first, then global gleam override.
+    let client_factory: Option<String> = call_overrides
+        .and_then(|o| o.client_factory.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.as_deref())
+        })
+        .map(|s| s.to_string());
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
@@ -788,13 +803,52 @@ fn render_test_case(
         let _ = writeln!(out, "  {line}");
     }
 
-    if expects_error {
-        let _ = writeln!(out, "  {module_path}.{function_name}({args_str}) |> should.be_error()");
-        let _ = writeln!(out, "}}");
-        return;
-    }
-
-    let _ = writeln!(out, "  let {result_var} = {module_path}.{function_name}({args_str})");
+    // When client_factory is set, create a client instance before calling the method.
+    // Extract the base_url from a mock_url setup line when present.
+    let call_prefix = if let Some(ref factory) = client_factory {
+        use heck::ToSnakeCase;
+        let factory_snake = factory.to_snake_case();
+        // Extract base_url from any mock_url arg that was set up above.
+        let base_url_expr = args
+            .iter()
+            .find(|a| a.arg_type == "mock_url")
+            .map(|_a| {
+                // The setup line binds `let <name> = case envoy.get(...) ...`
+                // We need just the variable name for the create_client call.
+                // base_url is the raw base: strip the fixture path suffix by re-reading env.
+                // Emit a fresh base_url binding for the client constructor.
+                format!("let base_url__ = case envoy.get(\"MOCK_SERVER_URL\") {{ Ok(u) -> u Error(_) -> \"http://localhost:8080\" }}\n  let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", base_url__)\n  let _ = client")
+            })
+            .unwrap_or_else(|| {
+                format!("let assert Ok(client) = {module_path}.{factory_snake}(\"test-key\", \"\")\n  let _ = client")
+            });
+        // Emit the client creation lines.
+        for l in base_url_expr.lines() {
+            let _ = writeln!(out, "  {l}");
+        }
+        // Build the call using the client as first argument.
+        let full_args = if args_str.is_empty() {
+            "client".to_string()
+        } else {
+            format!("client, {args_str}")
+        };
+        if expects_error {
+            let _ = writeln!(out, "  {module_path}.{function_name}({full_args}) |> should.be_error()");
+            let _ = writeln!(out, "}}");
+            return;
+        }
+        let _ = writeln!(out, "  let {result_var} = {module_path}.{function_name}({full_args})");
+        None // signal that call already emitted
+    } else {
+        if expects_error {
+            let _ = writeln!(out, "  {module_path}.{function_name}({args_str}) |> should.be_error()");
+            let _ = writeln!(out, "}}");
+            return;
+        }
+        let _ = writeln!(out, "  let {result_var} = {module_path}.{function_name}({args_str})");
+        Some(()) // signal that call emitted via normal path
+    };
+    let _ = call_prefix; // suppress unused warning
     let _ = writeln!(out, "  {result_var} |> should.be_ok()");
     let _ = writeln!(out, "  let assert Ok(r) = {result_var}");
 

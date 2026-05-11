@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(gleam): opaque-resource codegen — types with non-empty `TypeDef.methods` now emit `pub opaque type TypeName { TypeName(resource: dynamic.Dynamic) }` plus one `@external` NIF binding per method. Mirrors the Swift/Kotlin/Dart client-object pattern.
+- feat(gleam e2e): `[e2e.call.overrides.gleam].client_factory` support — when set, generated Gleam tests call the factory function and pass the client as the first argument to the method under test.
+- fix(gleam e2e): Erlang startup shim now uses a `case` expression with a graceful `{error, _} -> ok` fallback when starting the Elixir application, avoiding test failures in environments without an Elixir runtime dependency.
+
 - feat(dart e2e): `[e2e.call.overrides.dart].client_factory` support — when set, generated `package:test` tests call `await {BridgeClass}.{factory}('test-key', baseUrl: mockUrl)` before the assertion and dispatch the method on the resulting `_client` instance. Mirrors the Go/TypeScript/Zig/Swift/Kotlin client-factory pattern; no special-casing per library.
 
 ### Changed
