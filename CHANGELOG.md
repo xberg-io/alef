@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+## [0.15.35] - 2026-05-11
+
+### Added
+
+- feat(alef-backend-pyo3): `capsule_types` in `[crates.python]` is now wired into codegen. Types listed there are emitted as PyCapsule pass-through (via `PyCapsule_New` / `PyCapsule_GetPointer`) instead of opaque `#[pyclass]` wrappers. Supports two TOML forms: a bare string (`Language = "tree_sitter.Language"`) for capsule round-trips, and a struct (`Parser = { python_type = "tree_sitter.Parser", construct_from = "Language" }`) for Python-side construction (e.g. `tree_sitter.Parser(language)`).
+
+### Fixed
+
+- fix(alef-core): `PythonConfig.capsule_types` schema is now `HashMap<String, CapsuleTypeConfig>` (was `HashMap<String, String>`). Existing `alef.toml` files using bare string values (e.g. `Language = "tree_sitter.Language"`) continue to deserialize correctly via `#[serde(untagged)]`.
+
+### Changed
+
 - refactor(alef-backend-zig,alef-backend-gleam,alef-backend-extendr): migrate additional interpolated `push_str`/`writeln!` emission paths to Jinja templates for trait bridge docs, error docs, import line emission, and visitor bridge assembly.
 - refactor(alef-backend-csharp): replace inline `push_str`/`writeln!` visitor record emission for generated `NodeContext.cs` and `VisitResult.cs` with Jinja templates (`node_context.jinja`, `visit_result.jinja`).
 - refactor(alef-backend-go): migrate additional `gen_visitor.rs` emission from inline `push_str` blocks to Jinja templates for visitor interface/registry/helper/trampoline/control-flow; generated `ConvertWithVisitor` now routes through `convertWithVisitorHelper` for shared logic.
