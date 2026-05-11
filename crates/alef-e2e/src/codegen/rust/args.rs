@@ -25,7 +25,7 @@ pub fn render_rust_arg(
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         let lines = vec![format!(
-            "let {name} = format!(\"{{}}/fixtures/{{}}\", std::env::var(\"MOCK_SERVER_URL\").expect(\"MOCK_SERVER_URL not set\"), \"{fixture_id}\");"
+            "let {name} = format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\");"
         )];
         return (lines, format!("&{name}"));
     }

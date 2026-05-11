@@ -14,7 +14,7 @@ mod assertion_helpers;
 mod assertion_synthetic;
 
 pub use cargo_toml::render_cargo_toml;
-pub use mock_server::{render_mock_server_binary, render_mock_server_module};
+pub use mock_server::{render_common_module, render_mock_server_binary, render_mock_server_module};
 
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -106,6 +106,12 @@ impl E2eCodegen for RustE2eCodegen {
             files.push(GeneratedFile {
                 path: output_base.join("tests").join("mock_server.rs"),
                 content: render_mock_server_module(),
+                generated_header: true,
+            });
+            // Generate common.rs module for spawning the standalone mock-server binary.
+            files.push(GeneratedFile {
+                path: output_base.join("tests").join("common.rs"),
+                content: render_common_module(),
                 generated_header: true,
             });
         }
