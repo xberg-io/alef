@@ -641,12 +641,13 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     enums: &[EnumDef],
 ) -> String {
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    let allow = if typ.has_stripped_cfg_fields {
-        "#[allow(clippy::needless_update)]\n        "
-    } else {
-        ""
-    };
-    let mut out = format!("{allow}let core_self = {core_path} {{\n");
+    let mut out = crate::template_env::render(
+        "php_lossy_binding_struct_begin.jinja",
+        context! {
+            core_type => &core_path,
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+        },
+    );
     for field in &typ.fields {
         // Skip cfg-gated fields — they are absent from the binding struct.
         // The ..Default::default() spread below fills them when the feature is enabled.
@@ -1092,17 +1093,44 @@ fn gen_string_to_enum_expr(
     /// Build the variant constructor expression, filling data variant fields with defaults.
     fn variant_expr(core_path: &str, variant: &alef_core::ir::EnumVariant) -> String {
         if variant.fields.is_empty() {
-            format!("{core_path}::{}", variant.name)
+            crate::template_env::render(
+                "php_enum_variant_unit_expr.jinja",
+                context! {
+                    core_path => core_path,
+                    variant_name => &variant.name,
+                },
+            )
         } else if alef_codegen::conversions::is_tuple_variant(&variant.fields) {
             let defaults: Vec<&str> = variant.fields.iter().map(|_| "Default::default()").collect();
-            format!("{core_path}::{}({})", variant.name, defaults.join(", "))
+            crate::template_env::render(
+                "php_enum_variant_tuple_expr.jinja",
+                context! {
+                    core_path => core_path,
+                    variant_name => &variant.name,
+                    defaults => defaults.join(", "),
+                },
+            )
         } else {
-            let defaults: Vec<String> = variant
+            let fields: Vec<String> = variant
                 .fields
                 .iter()
-                .map(|f| format!("{}: Default::default()", f.name))
+                .map(|field| {
+                    crate::template_env::render(
+                        "php_enum_variant_default_field_expr.jinja",
+                        context! {
+                            field_name => &field.name,
+                        },
+                    )
+                })
                 .collect();
-            format!("{core_path}::{} {{ {} }}", variant.name, defaults.join(", "))
+            crate::template_env::render(
+                "php_enum_variant_struct_expr.jinja",
+                context! {
+                    core_path => core_path,
+                    variant_name => &variant.name,
+                    fields => fields.join(", "),
+                },
+            )
         }
     }
 

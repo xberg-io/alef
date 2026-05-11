@@ -1,0 +1,6 @@
+fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {
+{{ registrations }}
+    true
+}
+
+rustler::init!("{{ module }}", load = on_load);

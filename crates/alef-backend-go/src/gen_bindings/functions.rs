@@ -5,7 +5,6 @@ use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
-use std::fmt::Write;
 
 /// Returns true if any parameter in the list requires JSON marshaling (non-opaque Named, Vec, or Map).
 ///
@@ -150,18 +149,13 @@ pub(super) fn gen_function_wrapper(
         if is_bridge_param(param, bridge_param_names, bridge_type_aliases) {
             continue;
         }
-        write!(
-            out,
-            "{}",
-            gen_param_to_c(
-                param,
-                returns_value_and_error,
-                can_return_error,
-                ffi_prefix,
-                opaque_names
-            )
-        )
-        .ok();
+        out.push_str(&gen_param_to_c(
+            param,
+            returns_value_and_error,
+            can_return_error,
+            ffi_prefix,
+            opaque_names,
+        ));
     }
 
     // Build the C call with converted parameters.

@@ -1,4 +1,5 @@
 let {{ name }}_core: Option<{{ core_path }}> = {{ name }}.map(|v| {
-            let json = serde_json::to_string(&v){{ err_conv }}?;
-            serde_json::from_str(&json){{ err_conv }}
-        }).transpose()?;
+{{ indent }}    let json = serde_json::to_string(&v){{ err_conv }}?;
+{{ indent }}    serde_json::from_str(&json){{ err_conv }}
+{{ indent }}}).transpose()?;
+{{ indent -}}

@@ -217,6 +217,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/enum_marshal_json.jinja"),
     ),
     (
+        "passthrough_raw_message_enum_body.jinja",
+        include_str!("../templates/passthrough_raw_message_enum_body.jinja"),
+    ),
+    (
+        "untagged_union_marshalers.jinja",
+        include_str!("../templates/untagged_union_marshalers.jinja"),
+    ),
+    (
         "enum_unmarshal_json.jinja",
         include_str!("../templates/enum_unmarshal_json.jinja"),
     ),
@@ -238,6 +246,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "method_empty_return.jinja",
         include_str!("../templates/method_empty_return.jinja"),
+    ),
+    (
+        "streaming_method_signature.jinja",
+        include_str!("../templates/streaming_method_signature.jinja"),
+    ),
+    (
+        "streaming_method_body.jinja",
+        include_str!("../templates/streaming_method_body.jinja"),
     ),
     ("free_string.jinja", include_str!("../templates/free_string.jinja")),
     ("free_type.jinja", include_str!("../templates/free_type.jinja")),
@@ -479,6 +495,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "c_options_defer_free.jinja",
         include_str!("../templates/c_options_defer_free.jinja"),
+    ),
+    (
+        "c_options_from_value.jinja",
+        include_str!("../templates/c_options_from_value.jinja"),
     ),
     ("c_bridge_new.jinja", include_str!("../templates/c_bridge_new.jinja")),
     (

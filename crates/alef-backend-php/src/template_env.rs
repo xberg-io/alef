@@ -86,6 +86,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/php_lossy_binding_struct_end.jinja"),
     ),
     (
+        "php_lossy_binding_struct_begin.jinja",
+        include_str!("../templates/php_lossy_binding_struct_begin.jinja"),
+    ),
+    (
         "php_default_update.jinja",
         include_str!("../templates/php_default_update.jinja"),
     ),
@@ -459,6 +463,22 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "php_enum_string_match_expr.jinja",
         include_str!("../templates/php_enum_string_match_expr.jinja"),
+    ),
+    (
+        "php_enum_variant_unit_expr.jinja",
+        include_str!("../templates/php_enum_variant_unit_expr.jinja"),
+    ),
+    (
+        "php_enum_variant_tuple_expr.jinja",
+        include_str!("../templates/php_enum_variant_tuple_expr.jinja"),
+    ),
+    (
+        "php_enum_variant_struct_expr.jinja",
+        include_str!("../templates/php_enum_variant_struct_expr.jinja"),
+    ),
+    (
+        "php_enum_variant_default_field_expr.jinja",
+        include_str!("../templates/php_enum_variant_default_field_expr.jinja"),
     ),
     (
         "php_method_definition_no_params.jinja",

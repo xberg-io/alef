@@ -159,8 +159,12 @@ fn render_build_gradle(
             format!(r#"    testImplementation("{kotlin_pkg_id}:{pkg_name}:{pkg_version}")"#)
         }
         crate::config::DependencyMode::Local => {
-            // Local mode: reference local JAR from kreuzberg binding
-            format!(r#"    testImplementation(files("../../target/release/{pkg_name}.jar"))"#)
+            // Local mode: reference local JAR from kreuzberg binding.
+            // Strip the Maven group prefix (e.g. "group:artifact" → "artifact")
+            // because colons in `files()` path strings are treated as classpath
+            // separators by Gradle on Linux/macOS.
+            let jar_name = pkg_name.rsplit(':').next().unwrap_or(pkg_name);
+            format!(r#"    testImplementation(files("../../target/release/{jar_name}.jar"))"#)
         }
     };
 

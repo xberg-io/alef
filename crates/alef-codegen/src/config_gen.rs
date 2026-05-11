@@ -25,221 +25,140 @@ fn use_unwrap_or_default(field: &FieldDef) -> bool {
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
 /// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
-    lines.push("#[new]".to_string());
+    let signature_defaults = typ
+        .fields
+        .iter()
+        .map(|field| format!("{}={}", field.name, default_value_for_field(field, "python")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                type => type_mapper(&field.ty),
+            }
+        })
+        .collect();
 
-    // Build the signature line with defaults
-    let mut sig_parts = Vec::new();
-    for field in &typ.fields {
-        let default_str = default_value_for_field(field, "python");
-        sig_parts.push(format!("{}={}", field.name, default_str));
-    }
-    let signature = format!("#[pyo3(signature = ({}))]", sig_parts.join(", "));
-    lines.push(signature);
-
-    // Function signature
-    lines.push("fn new(".to_string());
-    for (i, field) in typ.fields.iter().enumerate() {
-        let type_str = type_mapper(&field.ty);
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        lines.push(format!("    {}: {}{}", field.name, type_str, comma));
-    }
-    lines.push(") -> Self {".to_string());
-
-    // Body
-    lines.push("    Self {".to_string());
-    for field in &typ.fields {
-        lines.push(format!("        {},", field.name));
-    }
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/pyo3_kwargs_constructor.jinja",
+        minijinja::context! {
+            signature_defaults => signature_defaults,
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate NAPI constructor that applies defaults for missing optional fields.
 pub fn gen_napi_defaults_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
-    lines.push("pub fn new(mut env: napi::Env, obj: napi::Object) -> napi::Result<Self> {".to_string());
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "rust"),
+            }
+        })
+        .collect();
 
-    // Field assignments with defaults
-    for field in &typ.fields {
-        let type_str = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "rust");
-        lines.push(format!(
-            "    let {}: {} = obj.get(\"{}\").unwrap_or({})?;",
-            field.name, type_str, field.name, default_str
-        ));
-    }
-
-    lines.push("    Ok(Self {".to_string());
-    for field in &typ.fields {
-        lines.push(format!("        {},", field.name));
-    }
-    lines.push("    })".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/napi_defaults_constructor.jinja",
+        minijinja::context! {
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate Go functional options pattern for a type with `has_default`.
 /// Returns: type definition + Option type + WithField functions + NewConfig constructor
 pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|field| !is_tuple_field(field))
+        .map(|field| {
+            minijinja::context! {
+                name => field.name.clone(),
+                pascal_name => field.name.to_pascal_case(),
+                field_name => field.name.to_pascal_case(),
+                go_type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "go"),
+            }
+        })
+        .collect();
 
-    // Type definition
-    lines.push(format!("// {} is a configuration type.", typ.name));
-    lines.push(format!("type {} struct {{", typ.name));
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let go_type = type_mapper(&field.ty);
-        lines.push(format!("    {} {}", field.name.to_pascal_case(), go_type));
-    }
-    lines.push("}".to_string());
-    lines.push("".to_string());
-
-    // Option function type
-    lines.push(format!(
-        "// {}Option is a functional option for {}.",
-        typ.name, typ.name
-    ));
-    lines.push(format!("type {}Option func(*{})", typ.name, typ.name));
-    lines.push("".to_string());
-
-    // WithField functions
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let option_name = format!("With{}{}", typ.name, field.name.to_pascal_case());
-        let go_type = type_mapper(&field.ty);
-        lines.push(format!("// {} sets the {}.", option_name, field.name));
-        lines.push(format!("func {}(val {}) {}Option {{", option_name, go_type, typ.name));
-        lines.push(format!("    return func(c *{}) {{", typ.name));
-        lines.push(format!("        c.{} = val", field.name.to_pascal_case()));
-        lines.push("    }".to_string());
-        lines.push("}".to_string());
-        lines.push("".to_string());
-    }
-
-    // New constructor
-    lines.push(format!(
-        "// New{} creates a new {} with default values and applies options.",
-        typ.name, typ.name
-    ));
-    lines.push(format!(
-        "func New{}(opts ...{}Option) *{} {{",
-        typ.name, typ.name, typ.name
-    ));
-    lines.push(format!("    c := &{} {{", typ.name));
-    for field in &typ.fields {
-        if is_tuple_field(field) {
-            continue;
-        }
-        let default_str = default_value_for_field(field, "go");
-        lines.push(format!("        {}: {},", field.name.to_pascal_case(), default_str));
-    }
-    lines.push("    }".to_string());
-    lines.push("    for _, opt := range opts {".to_string());
-    lines.push("        opt(c)".to_string());
-    lines.push("    }".to_string());
-    lines.push("    return c".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/go_functional_options.jinja",
+        minijinja::context! {
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate Java builder pattern for a type with `has_default`.
 /// Returns: Builder inner class with withField methods + build() method
 pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .map(|field| {
+            minijinja::context! {
+                name_lower => field.name.to_lowercase(),
+                type => type_mapper(&field.ty),
+                default => default_value_for_field(field, "java"),
+                method_name => format!("with{}", field.name.to_pascal_case()),
+            }
+        })
+        .collect();
 
-    lines.push(format!(
-        "// DO NOT EDIT - auto-generated by alef\npackage {};\n",
-        package
-    ));
-    lines.push("/// Builder for creating instances of {} with sensible defaults".to_string());
-    lines.push(format!("public class {}Builder {{", typ.name));
-
-    // Fields
-    for field in &typ.fields {
-        let java_type = type_mapper(&field.ty);
-        lines.push(format!("    private {} {};", java_type, field.name.to_lowercase()));
-    }
-    lines.push("".to_string());
-
-    // Constructor
-    lines.push(format!("    public {}Builder() {{", typ.name));
-    for field in &typ.fields {
-        let default_str = default_value_for_field(field, "java");
-        lines.push(format!("        this.{} = {};", field.name.to_lowercase(), default_str));
-    }
-    lines.push("    }".to_string());
-    lines.push("".to_string());
-
-    // withField methods
-    for field in &typ.fields {
-        let java_type = type_mapper(&field.ty);
-        let method_name = format!("with{}", field.name.to_pascal_case());
-        lines.push(format!(
-            "    public {}Builder {}({} value) {{",
-            typ.name, method_name, java_type
-        ));
-        lines.push(format!("        this.{} = value;", field.name.to_lowercase()));
-        lines.push("        return this;".to_string());
-        lines.push("    }".to_string());
-        lines.push("".to_string());
-    }
-
-    // build() method
-    lines.push(format!("    public {} build() {{", typ.name));
-    lines.push(format!("        return new {}(", typ.name));
-    for (i, field) in typ.fields.iter().enumerate() {
-        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        lines.push(format!("            this.{}{}", field.name.to_lowercase(), comma));
-    }
-    lines.push("        );".to_string());
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/java_builder.jinja",
+        minijinja::context! {
+            package => package,
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Generate C# record with init properties for a type with `has_default`.
 pub fn gen_csharp_record(typ: &TypeDef, namespace: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    let mut lines = Vec::new();
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|field| !is_tuple_field(field))
+        .map(|field| {
+            minijinja::context! {
+                type => type_mapper(&field.ty),
+                name_pascal => field.name.to_pascal_case(),
+                default => default_value_for_field(field, "csharp"),
+            }
+        })
+        .collect();
 
-    lines.push("// This file is auto-generated by alef. DO NOT EDIT.".to_string());
-    lines.push("using System;".to_string());
-    lines.push("".to_string());
-    lines.push(format!("namespace {};\n", namespace));
-
-    lines.push(format!("/// Configuration record: {}", typ.name));
-    lines.push(format!("public record {} {{", typ.name));
-
-    for field in &typ.fields {
-        // Skip tuple struct internals (e.g., _0, _1, etc.)
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
-            continue;
-        }
-
-        let cs_type = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "csharp");
-        lines.push(format!(
-            "    public {} {} {{ get; init; }} = {};",
-            cs_type,
-            field.name.to_pascal_case(),
-            default_str
-        ));
-    }
-
-    lines.push("}".to_string());
-
-    lines.join("\n")
+    crate::template_env::render(
+        "config_gen/csharp_record.jinja",
+        minijinja::context! {
+            namespace => namespace,
+            type_name => typ.name.clone(),
+            fields => fields,
+        },
+    )
+    .trim_end_matches('\n')
+    .to_string()
 }
 
 /// Get a language-appropriate default value string for a field.

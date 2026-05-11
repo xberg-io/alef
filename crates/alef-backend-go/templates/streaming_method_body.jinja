@@ -1,0 +1,35 @@
+	handle := {{ start_call }}
+	if handle == nil {
+		if err := lastError(); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to start {{ method_snake }} stream")
+	}
+	ch := make(chan {{ item_type }})
+	go func() {
+		defer close(ch)
+		defer C.{{ ffi_prefix }}_{{ type_snake }}_{{ method_snake }}_free(handle)
+		for {
+			chunkPtr := C.{{ ffi_prefix }}_{{ type_snake }}_{{ method_snake }}_next(handle)
+			if chunkPtr == nil {
+				// Null = clean end-of-stream (errno 0) or stream error (errno != 0).
+				// In either case there are no more chunks; close the channel.
+				return
+			}
+			jsonPtr := C.{{ ffi_prefix }}_{{ item_snake }}_to_json(chunkPtr)
+			if jsonPtr == nil {
+				C.{{ ffi_prefix }}_{{ item_snake }}_free(chunkPtr)
+				return
+			}
+			var chunk {{ item_type }}
+			unmarshalErr := json.Unmarshal([]byte(C.GoString(jsonPtr)), &chunk)
+			C.{{ ffi_prefix }}_free_string(jsonPtr)
+			C.{{ ffi_prefix }}_{{ item_snake }}_free(chunkPtr)
+			if unmarshalErr != nil {
+				return
+			}
+			ch <- chunk
+		}
+	}()
+	return ch, nil
+}

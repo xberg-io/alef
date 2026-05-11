@@ -4,7 +4,6 @@ use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
 use alef_core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
 
 /// Generate a streaming wrapper for a method decorated with the `Streaming` adapter pattern.
 ///
@@ -50,35 +49,29 @@ pub(super) fn gen_streaming_method_wrapper(
         })
         .collect();
 
-    // Function signature: receiver, name, params, return type.
-    writeln!(
-        out,
-        "func ({} *{}) {}({}) (<-chan {}, error) {{",
-        receiver_name,
-        go_receiver_type,
-        method_go_name,
-        params.join(", "),
-        item_go_type,
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "streaming_method_signature.jinja",
+        minijinja::context! {
+            receiver_name => receiver_name,
+            receiver_type => &go_receiver_type,
+            method_name => &method_go_name,
+            params => params.join(", "),
+            item_type => &item_go_type,
+        },
+    ));
 
     // Marshal each parameter exactly like gen_method_wrapper does for the
     // synchronous case. The start function's signature accepts the same C
     // request handle as the regular `chat` method, so reuse the existing
     // gen_param_to_c emitter (returning `(value, error)`-shape).
     for param in &method.params {
-        write!(
-            out,
-            "{}",
-            gen_param_to_c(
-                param,
-                /* returns_value_and_error = */ true,
-                /* can_return_error = */ true,
-                ffi_prefix,
-                opaque_names,
-            )
-        )
-        .ok();
+        out.push_str(&gen_param_to_c(
+            param,
+            /* returns_value_and_error = */ true,
+            /* can_return_error = */ true,
+            ffi_prefix,
+            opaque_names,
+        ));
     }
 
     // Build the C parameter list (e.g. `cReq`) — same as gen_method_wrapper.
@@ -119,52 +112,17 @@ pub(super) fn gen_streaming_method_wrapper(
         )
     };
 
-    // Body: open the handle, spawn a goroutine, deliver chunks on the channel.
-    write!(
-        out,
-        "\thandle := {start_call}\n\
-         \tif handle == nil {{\n\
-         \t\tif err := lastError(); err != nil {{\n\
-         \t\t\treturn nil, err\n\
-         \t\t}}\n\
-         \t\treturn nil, fmt.Errorf(\"failed to start {method_snake} stream\")\n\
-         \t}}\n\
-         \tch := make(chan {item_go_type})\n\
-         \tgo func() {{\n\
-         \t\tdefer close(ch)\n\
-         \t\tdefer C.{ffi_prefix}_{type_snake}_{method_snake}_free(handle)\n\
-         \t\tfor {{\n\
-         \t\t\tchunkPtr := C.{ffi_prefix}_{type_snake}_{method_snake}_next(handle)\n\
-         \t\t\tif chunkPtr == nil {{\n\
-         \t\t\t\t// Null = clean end-of-stream (errno 0) or stream error (errno != 0).\n\
-         \t\t\t\t// In either case there are no more chunks; close the channel.\n\
-         \t\t\t\treturn\n\
-         \t\t\t}}\n\
-         \t\t\tjsonPtr := C.{ffi_prefix}_{item_snake}_to_json(chunkPtr)\n\
-         \t\t\tif jsonPtr == nil {{\n\
-         \t\t\t\tC.{ffi_prefix}_{item_snake}_free(chunkPtr)\n\
-         \t\t\t\treturn\n\
-         \t\t\t}}\n\
-         \t\t\tvar chunk {item_go_type}\n\
-         \t\t\tunmarshalErr := json.Unmarshal([]byte(C.GoString(jsonPtr)), &chunk)\n\
-         \t\t\tC.{ffi_prefix}_free_string(jsonPtr)\n\
-         \t\t\tC.{ffi_prefix}_{item_snake}_free(chunkPtr)\n\
-         \t\t\tif unmarshalErr != nil {{\n\
-         \t\t\t\treturn\n\
-         \t\t\t}}\n\
-         \t\t\tch <- chunk\n\
-         \t\t}}\n\
-         \t}}()\n\
-         \treturn ch, nil\n\
-         }}\n",
-        start_call = start_call,
-        ffi_prefix = ffi_prefix,
-        type_snake = type_snake,
-        method_snake = method_snake,
-        item_snake = item_snake,
-        item_go_type = item_go_type,
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "streaming_method_body.jinja",
+        minijinja::context! {
+            start_call => &start_call,
+            ffi_prefix => ffi_prefix,
+            type_snake => &type_snake,
+            method_snake => &method_snake,
+            item_snake => &item_snake,
+            item_type => &item_go_type,
+        },
+    ));
 
     out
 }
@@ -270,18 +228,13 @@ pub(super) fn gen_method_wrapper(
         // Note: method_can_return_error is set above (includes synthesized error for marshal-requiring methods).
         let returns_value_and_error = method_can_return_error && !matches!(method.return_type, TypeRef::Unit);
         for param in &method.params {
-            write!(
-                out,
-                "{}",
-                gen_param_to_c(
-                    param,
-                    returns_value_and_error,
-                    method_can_return_error,
-                    ffi_prefix,
-                    opaque_names
-                )
-            )
-            .ok();
+            out.push_str(&gen_param_to_c(
+                param,
+                returns_value_and_error,
+                method_can_return_error,
+                ffi_prefix,
+                opaque_names,
+            ));
         }
 
         // Bytes params expand to two C arguments: the pointer and the length.

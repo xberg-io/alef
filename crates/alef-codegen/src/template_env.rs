@@ -166,6 +166,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/binding_helpers/serde_vec_named_simple.jinja"),
     ),
     (
+        "binding_helpers/sanitized_vec_string_filter_optional.jinja",
+        include_str!("../templates/binding_helpers/sanitized_vec_string_filter_optional.jinja"),
+    ),
+    (
+        "binding_helpers/sanitized_vec_string_filter_simple.jinja",
+        include_str!("../templates/binding_helpers/sanitized_vec_string_filter_simple.jinja"),
+    ),
+    (
+        "binding_helpers/serde_sanitized_vec_string_optional.jinja",
+        include_str!("../templates/binding_helpers/serde_sanitized_vec_string_optional.jinja"),
+    ),
+    (
+        "binding_helpers/serde_sanitized_vec_string_simple.jinja",
+        include_str!("../templates/binding_helpers/serde_sanitized_vec_string_simple.jinja"),
+    ),
+    (
         "conversions/enum_from_binding_to_core",
         include_str!("../templates/conversions/enum_from_binding_to_core.jinja"),
     ),

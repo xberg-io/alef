@@ -2,7 +2,6 @@ use crate::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast}
 use crate::generators::{AsyncPattern, RustBindingConfig};
 use ahash::AHashSet;
 use alef_core::ir::{CoreWrapper, ParamDef, TypeDef, TypeRef};
-use std::fmt::Write;
 
 /// Helper: wrap an opaque inner value in the correct smart pointer expression.
 ///
@@ -880,27 +879,17 @@ fn gen_named_let_bindings_inner(
             TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
             {
-                if p.optional {
-                    write!(
-                        bindings,
-                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| \
-                         strs.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
-                         .collect()\n    \
-                         );\n    ",
-                        n = p.name,
-                    )
-                    .ok();
+                let template = if p.optional {
+                    "binding_helpers/sanitized_vec_string_filter_optional.jinja"
                 } else {
-                    write!(
-                        bindings,
-                        "let {n}_core: Vec<_> = {n}.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
-                         .collect();\n    ",
-                        n = p.name,
-                    )
-                    .ok();
-                }
+                    "binding_helpers/sanitized_vec_string_filter_simple.jinja"
+                };
+                bindings.push_str(&crate::template_env::render(
+                    template,
+                    minijinja::context! {
+                        name => &p.name,
+                    },
+                ));
             }
             _ => {}
         }
@@ -928,45 +917,38 @@ pub fn gen_serde_let_bindings(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_path = format!("{}::{}", core_import, name);
                 if p.optional {
-                    write!(
-                        bindings,
-                        "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n\
-                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                         {indent}    serde_json::from_str(&json){err_conv}\n\
-                         {indent}}}).transpose()?;\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 } else if promoted {
                     // Promoted-optional: param is required in core but wrapped in Option<T>
                     // in the binding because an earlier param is optional. Use unwrap_or_default()
                     // so JS callers can omit it (pass undefined/null) to get default behaviour.
-                    write!(
-                        bindings,
-                        "let {name}_core: {core_path} = {name}.map(|v| {{\n\
-                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                         {indent}    serde_json::from_str::<{core_path}>(&json){err_conv}\n\
-                         {indent}}}).transpose()?{indent}.unwrap_or_default();\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 } else {
-                    write!(
-                        bindings,
-                        "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
-                         {indent}let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
-                        name = p.name,
-                        core_path = core_path,
-                        err_conv = err_conv,
-                        indent = indent,
-                    )
-                    .ok();
+                    bindings.push_str(&crate::template_env::render(
+                        "binding_helpers/serde_named_let_binding_simple.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_path => core_path,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 }
             }
             TypeRef::Vec(inner) => {
@@ -974,59 +956,43 @@ pub fn gen_serde_let_bindings(
                     if !opaque_types.contains(name.as_str()) {
                         let core_path = format!("{}::{}", core_import, name);
                         if p.optional {
-                            write!(
-                                bindings,
-                                "let {name}_core: Option<Vec<{core_path}>> = {name}.map(|v| {{\n\
-                                 {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
-                                 {indent}    serde_json::from_str(&json){err_conv}\n\
-                                 {indent}}}).transpose()?;\n{indent}",
-                                name = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
-                                indent = indent,
-                            )
-                            .ok();
+                            bindings.push_str(&crate::template_env::render(
+                                "binding_helpers/serde_vec_named_optional.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                    core_path => core_path,
+                                    err_conv => err_conv,
+                                    indent => indent,
+                                },
+                            ));
                         } else {
-                            write!(
-                                bindings,
-                                "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
-                                 {indent}let {name}_core: Vec<{core_path}> = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
-                                name = p.name,
-                                core_path = core_path,
-                                err_conv = err_conv,
-                                indent = indent,
-                            )
-                            .ok();
+                            bindings.push_str(&crate::template_env::render(
+                                "binding_helpers/serde_vec_named_simple.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                    core_path => core_path,
+                                    err_conv => err_conv,
+                                    indent => indent,
+                                },
+                            ));
                         }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
                     // Deserialize each JSON string as a tuple using serde_json.
-                    if p.optional {
-                        write!(
-                            bindings,
-                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n\
-                             {indent}    strs.into_iter()\n\
-                             {indent}    .map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
-                             {indent}    .collect::<Result<Vec<_>, _>>()\n\
-                             {indent}}}).transpose()?;\n{indent}",
-                            n = p.name,
-                            err_conv = err_conv,
-                            indent = indent,
-                        )
-                        .ok();
+                    let template = if p.optional {
+                        "binding_helpers/serde_sanitized_vec_string_optional.jinja"
                     } else {
-                        write!(
-                            bindings,
-                            "let {n}_core: Vec<_> = {n}.into_iter()\n\
-                             {indent}.map(|s| serde_json::from_str::<_>(&s){err_conv})\n\
-                             {indent}.collect::<Result<Vec<_>, _>>()?;\n{indent}",
-                            n = p.name,
-                            err_conv = err_conv,
-                            indent = indent,
-                        )
-                        .ok();
-                    }
+                        "binding_helpers/serde_sanitized_vec_string_simple.jinja"
+                    };
+                    bindings.push_str(&crate::template_env::render(
+                        template,
+                        minijinja::context! {
+                            name => &p.name,
+                            err_conv => err_conv,
+                            indent => indent,
+                        },
+                    ));
                 }
             }
             _ => {}

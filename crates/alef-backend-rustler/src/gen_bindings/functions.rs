@@ -70,6 +70,47 @@ fn render_async_body(template_name: &str, preamble: &str, core_call: &str, resul
     )
 }
 
+fn render_method_call(
+    template_name: &str,
+    core_import: &str,
+    struct_name: &str,
+    method_name: &str,
+    call_args: &str,
+) -> String {
+    template_env::render(
+        template_name,
+        minijinja::context! {
+            core_import => core_import,
+            struct_name => struct_name,
+            method_name => method_name,
+            call_args => call_args,
+        },
+    )
+    .trim_end()
+    .to_string()
+}
+
+fn render_method_call_with_preamble(
+    preamble: &str,
+    core_import: &str,
+    struct_name: &str,
+    method_name: &str,
+    call_args: &str,
+) -> String {
+    template_env::render(
+        "rust_method_static_call_with_preamble.rs.jinja",
+        minijinja::context! {
+            preamble => preamble,
+            core_import => core_import,
+            struct_name => struct_name,
+            method_name => method_name,
+            call_args => call_args,
+        },
+    )
+    .trim_end()
+    .to_string()
+}
+
 /// Build call argument expressions for Rustler opaque method (receiver is `resource`).
 pub(super) fn gen_rustler_method_call_args(
     params: &[ParamDef],
@@ -731,13 +772,21 @@ pub(super) fn gen_nif_method(
             }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
-            let inner_ty = format!("{core_import}::{struct_name}");
-            format!("{inner_ty}::{}({})", method.name, call_args)
+            render_method_call(
+                "rust_method_static_call.rs.jinja",
+                core_import,
+                struct_name,
+                &method.name,
+                &call_args,
+            )
         } else if method.receiver.is_some() {
             // Instance method on non-opaque: convert binding struct to core type, then call
-            format!(
-                "{core_import}::{}::from(obj).{}({})",
-                struct_name, method.name, call_args
+            render_method_call(
+                "rust_method_instance_call.rs.jinja",
+                core_import,
+                struct_name,
+                &method.name,
+                &call_args,
             )
         } else {
             // Static method on non-opaque: call directly on core type.
@@ -753,7 +802,13 @@ pub(super) fn gen_nif_method(
                 .filter(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !default_types.contains(n.as_str())))
                 .collect();
             if named_params.is_empty() {
-                format!("{core_import}::{}::{}({})", struct_name, method.name, call_args)
+                render_method_call(
+                    "rust_method_static_call.rs.jinja",
+                    core_import,
+                    struct_name,
+                    &method.name,
+                    &call_args,
+                )
             } else {
                 // Build annotated let-bindings for each Named param and substitute in call_args.
                 let mut preamble = String::new();
@@ -783,10 +838,7 @@ pub(super) fn gen_nif_method(
                         }
                     }
                 }
-                format!(
-                    "{preamble}{core_import}::{}::{}({})",
-                    struct_name, method.name, resolved_args
-                )
+                render_method_call_with_preamble(&preamble, core_import, struct_name, &method.name, &resolved_args)
             }
         };
         if method.error_type.is_some() {
@@ -945,16 +997,30 @@ pub(super) fn gen_nif_async_method(
             }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
-            let inner_ty = format!("{core_import}::{struct_name}");
-            format!("{inner_ty}::{}({})", method.name, call_args)
+            render_method_call(
+                "rust_method_static_call.rs.jinja",
+                core_import,
+                struct_name,
+                &method.name,
+                &call_args,
+            )
         } else if method.receiver.is_some() {
-            format!(
-                "{core_import}::{}::from(obj).{}({})",
-                struct_name, method.name, call_args
+            render_method_call(
+                "rust_method_instance_call.rs.jinja",
+                core_import,
+                struct_name,
+                &method.name,
+                &call_args,
             )
         } else {
             // Static method on non-opaque: call directly on core type
-            format!("{core_import}::{}::{}({})", struct_name, method.name, call_args)
+            render_method_call(
+                "rust_method_static_call.rs.jinja",
+                core_import,
+                struct_name,
+                &method.name,
+                &call_args,
+            )
         };
         let result_wrap = gen_rustler_wrap_return(
             "result",

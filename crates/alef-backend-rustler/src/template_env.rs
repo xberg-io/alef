@@ -784,6 +784,46 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("../templates/nif_enum_default_footer.jinja"),
     ),
     (
+        "rust_method_instance_call.rs.jinja",
+        include_str!("../templates/rust_method_instance_call.rs.jinja"),
+    ),
+    (
+        "rust_method_static_call.rs.jinja",
+        include_str!("../templates/rust_method_static_call.rs.jinja"),
+    ),
+    (
+        "rust_method_static_call_with_preamble.rs.jinja",
+        include_str!("../templates/rust_method_static_call_with_preamble.rs.jinja"),
+    ),
+    (
+        "elixir_streaming_start_wrapper.jinja",
+        include_str!("../templates/elixir_streaming_start_wrapper.jinja"),
+    ),
+    (
+        "elixir_streaming_next_wrapper.jinja",
+        include_str!("../templates/elixir_streaming_next_wrapper.jinja"),
+    ),
+    (
+        "elixir_streaming_unfold_wrapper.jinja",
+        include_str!("../templates/elixir_streaming_unfold_wrapper.jinja"),
+    ),
+    (
+        "rustler_resource_registration.rs.jinja",
+        include_str!("../templates/rustler_resource_registration.rs.jinja"),
+    ),
+    (
+        "rustler_init_with_load.rs.jinja",
+        include_str!("../templates/rustler_init_with_load.rs.jinja"),
+    ),
+    (
+        "rustler_init.rs.jinja",
+        include_str!("../templates/rustler_init.rs.jinja"),
+    ),
+    (
+        "streaming_default_deser_binding.rs.jinja",
+        include_str!("../templates/streaming_default_deser_binding.rs.jinja"),
+    ),
+    (
         "trait_impl_header.jinja",
         include_str!("../templates/trait_impl_header.jinja"),
     ),

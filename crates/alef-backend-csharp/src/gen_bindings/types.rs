@@ -514,8 +514,9 @@ pub(super) fn gen_record_type(
         if is_flattened_json {
             let cs_name = to_csharp_name(&field.name);
             out.push_str("    [JsonExtensionData]\n");
-            out.push_str(&format!(
-                "    public Dictionary<string, JsonElement> {cs_name} {{ get; set; }} = new();\n"
+            out.push_str(&render(
+                "json_extension_data_property.jinja",
+                minijinja::context! { cs_name },
             ));
             out.push('\n');
             continue;

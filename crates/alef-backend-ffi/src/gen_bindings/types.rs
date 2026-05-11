@@ -4,7 +4,6 @@ use alef_codegen::conversions::{core_enum_path, core_type_path};
 use alef_core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use minijinja::context;
-use std::fmt::Write;
 
 use super::helpers::{gen_value_to_c, null_return_value};
 
@@ -180,12 +179,12 @@ fn gen_field_access_body(
                 context! { field_name => field_name },
             ));
             out.push_str("        Some(Some(inner_val)) => {\n");
-            write!(
-                out,
-                "{}",
-                gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names)
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_value_to_c(inner_val_expr, inner, "            ", enum_names, clone_names),
+                },
+            ));
             out.push_str("        }\n");
             out.push_str(&crate::template_env::render(
                 "match_arm_value.jinja",
@@ -217,12 +216,12 @@ fn gen_field_access_body(
                 context! { field_name => field_name },
             ));
             out.push_str("        Some(val) => {\n");
-            write!(
-                out,
-                "{}",
-                gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names)
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "emitted_code_block.jinja",
+                context! {
+                    content => gen_value_to_c(val_expr, &field.ty, "            ", enum_names, clone_names),
+                },
+            ));
             out.push_str("        }\n");
             out.push_str(&crate::template_env::render(
                 "match_arm_value.jinja",
@@ -255,12 +254,12 @@ fn gen_field_access_body(
         } else {
             format!("obj.{field_name}")
         };
-        write!(
-            out,
-            "{}",
-            gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names)
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "emitted_code_block.jinja",
+            context! {
+                content => gen_value_to_c(&access_expr, &field.ty, "    ", enum_names, clone_names),
+            },
+        ));
     }
 
     out

@@ -1,4 +1,5 @@
 let {{ name }}_core: {{ core_path }} = {{ name }}.map(|v| {
-            let json = serde_json::to_string(&v){{ err_conv }}?;
-            serde_json::from_str::<{{ core_path }}>(&json){{ err_conv }}
-        }).transpose()?{{ indent }}.unwrap_or_default();
+{{ indent }}    let json = serde_json::to_string(&v){{ err_conv }}?;
+{{ indent }}    serde_json::from_str::<{{ core_path }}>(&json){{ err_conv }}
+{{ indent }}}).transpose()?{{ indent }}.unwrap_or_default();
+{{ indent -}}
