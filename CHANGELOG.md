@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - refactor(alef-backend-csharp): replace inline `push_str`/`writeln!` visitor record emission for generated `NodeContext.cs` and `VisitResult.cs` with Jinja templates (`node_context.jinja`, `visit_result.jinja`).
 - refactor(alef-backend-go): migrate additional `gen_visitor.rs` emission from inline `push_str` blocks to Jinja templates for visitor interface/registry/helper/trampoline/control-flow; generated `ConvertWithVisitor` now routes through `convertWithVisitorHelper` for shared logic.
 - refactor(alef-backend-ffi): continue migrating parameterized trait-bridge code generation to Jinja templates for vtable error messages and async registration body lines (`ffi_vtable_not_initialised_msg.jinja`, `ffi_nul_byte_*_param_msg.jinja`, `ffi_vtable_null_out_result_msg.jinja`, plus async cached-name/clone/`map_err` templates).
+- refactor(alef-backend-magnus): move more trait-bridge generation into Jinja templates (`trait_bridge_async_method_body.rs.jinja`, `trait_bridge_constructor.rs.jinja`, `trait_bridge_registration_fn.rs.jinja`, `trait_bridge_return_conversion.rs.jinja`), keeping behavior unchanged.
 
 ### Fixed
 

@@ -1,0 +1,36 @@
+let inner = self.inner;
+let cached_name = self.cached_name.clone();
+let cached_name_for_blocking = cached_name.clone();
+
+{{ conversions }}
+let join: std::result::Result<{{ result_ty }}, tokio::task::JoinError> =
+    tokio::task::spawn_blocking(move || -> {{ result_ty }} {
+        // SAFETY: spawn_blocking thread acquires GVL via Ruby::get_unchecked
+        let ruby = unsafe { magnus::Ruby::get_unchecked() };
+        let value = inner.get_inner_with(&ruby);
+        let val: magnus::Value = match {{ call }} {
+            Ok(v) => v,
+            Err(e) => {
+                {%- if has_error %}
+                return Err({{ err_expr_call }});
+                {%- else %}
+                let _ = e;
+                return Default::default();
+                {%- endif %}
+            }
+        };
+{%- if is_unit %}
+        let _ = val;
+        {%- if has_error %}
+        Ok(())
+        {%- endif %}
+{%- else %}
+{{ return_conversion }}
+{%- endif %}
+    }).await;
+
+match join {
+    Ok(v) => v,{%- if has_error %}
+    Err(e) => Err({{ err_expr_join }}),{%- else %}
+    Err(_) => Default::default(),{%- endif %}
+}

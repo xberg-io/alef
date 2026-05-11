@@ -52,6 +52,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/sync_method_body.rs.jinja"),
     ),
     (
+        "trait_bridge_async_method_body.rs.jinja",
+        include_str!("../templates/trait_bridge_async_method_body.rs.jinja"),
+    ),
+    (
+        "trait_bridge_constructor.rs.jinja",
+        include_str!("../templates/trait_bridge_constructor.rs.jinja"),
+    ),
+    (
+        "trait_bridge_registration_fn.rs.jinja",
+        include_str!("../templates/trait_bridge_registration_fn.rs.jinja"),
+    ),
+    (
+        "trait_bridge_return_conversion.rs.jinja",
+        include_str!("../templates/trait_bridge_return_conversion.rs.jinja"),
+    ),
+    (
         "function_scan_args_call.rs.jinja",
         include_str!("../templates/function_scan_args_call.rs.jinja"),
     ),

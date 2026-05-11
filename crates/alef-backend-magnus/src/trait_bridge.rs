@@ -349,7 +349,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         );
 
         if !is_unit {
-            self.write_return_conversion(&mut body, method, has_error);
+            body.push_str(&self.return_conversion(method, has_error, ""));
         }
 
         body
@@ -359,19 +359,11 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let name = &method.name;
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
-        let mut out = String::with_capacity(1024);
 
         // async_trait wraps the body in `Pin<Box<dyn Future + Send>>`, so anything
         // captured into the future must be Send. magnus::Value is !Send, so we
         // capture only the Send wrappers (Opaque<Value>, owned param copies),
         // then dereference inside spawn_blocking which holds GVL on the worker thread.
-
-        out.push_str("let inner = self.inner;\n");
-        out.push_str("let cached_name = self.cached_name.clone();\n");
-        // cached_name is referenced both inside the spawn_blocking closure and after
-        // the await for the JoinError fallback, so clone once for each consumer.
-        out.push_str("let cached_name_for_blocking = cached_name.clone();\n");
-        let _ = name;
 
         // Clone params into Send-safe owned copies for the blocking task.
         let conversions: Vec<String> = method
@@ -384,8 +376,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
                 _ => format!("let {}_owned = {}.clone();\n", p.name, p.name),
             })
             .collect();
-        out.push_str(&conversions.join(""));
-        out.push('\n');
+        let conversion_bindings = conversions.join("");
 
         let return_type_rust = if is_unit {
             "()".to_string()
@@ -399,16 +390,15 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             return_type_rust.clone()
         };
 
-        // The shared generator emits `async fn ...` with `#[async_trait]`; the body is
-        // the function body. async_trait wraps it into `Pin<Box<dyn Future + Send>>`.
-        let spawn_blocking_setup = format!(
-            "let join: std::result::Result<{result_ty}, tokio::task::JoinError> =\n\
-             tokio::task::spawn_blocking(move || -> {result_ty} {{\n"
+        let conversions = format!(
+            "let inner = self.inner;\n\
+let cached_name = self.cached_name.clone();\n\
+// cached_name is referenced both inside the spawn_blocking closure and after\n\
+// the await for the JoinError fallback, so clone once for each consumer.\n\
+let cached_name_for_blocking = cached_name.clone();\n\
+{conversion_bindings}\n",
+            conversion_bindings = conversion_bindings,
         );
-        out.push_str(&spawn_blocking_setup);
-        out.push_str("            // SAFETY: spawn_blocking thread acquires GVL via Ruby::get_unchecked\n");
-        out.push_str("            let ruby = unsafe { magnus::Ruby::get_unchecked() };\n");
-        out.push_str("            let value = inner.get_inner_with(&ruby);\n");
 
         let args: Vec<String> = method
             .params
@@ -434,90 +424,41 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             format!("value.funcall::<_, _, magnus::Value>(\"{name}\", {args_tuple})")
         };
 
-        out.push_str("            let val: magnus::Value = match ");
-        out.push_str(&call);
-        out.push_str(" {\n");
-        out.push_str("                Ok(v) => v,\n");
-        out.push_str("                Err(e) => {\n");
-        if has_error {
-            let err_expr = self.make_error(&format!(
-                "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name_for_blocking, e)"
-            ));
-            out.push_str("                    return Err(");
-            out.push_str(&err_expr);
-            out.push_str(");\n");
+        let err_expr_call = self.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name_for_blocking, e)"
+        ));
+        let err_expr_join = if has_error {
+            self.make_error("format!(\"spawn_blocking failed for '{}': {}\", cached_name, e)")
         } else {
-            out.push_str("                    let _ = e;\n");
-            out.push_str("                    return Default::default();\n");
-        }
-        out.push_str("                }\n");
-        out.push_str("            };\n");
+            String::new()
+        };
 
-        if is_unit {
-            out.push_str("            let _ = val;\n");
-            if has_error {
-                out.push_str("            Ok(())\n");
-            }
-        } else {
-            self.write_async_return_conversion(&mut out, method, has_error);
-        }
-
-        out.push_str("        }).await;\n");
-        out.push('\n');
-        out.push_str("match join {\n");
-        out.push_str("    Ok(v) => v,\n");
-        if has_error {
-            // Format string with placeholders for the error message. The string is written
-            // directly to the output code, so we use single braces {} for format placeholders.
-            let msg_expr = "format!(\"spawn_blocking failed for '{}': {}\", cached_name, e)";
-            let err_expr = self.make_error(msg_expr);
-            out.push_str("    Err(e) => Err(");
-            out.push_str(&err_expr);
-            out.push_str("),\n");
-        } else {
-            out.push_str("    Err(_) => Default::default(),\n");
-        }
-        out.push_str("}\n");
-        out
+        crate::template_env::render(
+            "trait_bridge_async_method_body.rs.jinja",
+            minijinja::context! {
+                conversions => conversions,
+                call => call,
+                has_error => has_error,
+                is_unit => is_unit,
+                result_ty => result_ty,
+                err_expr_call => err_expr_call,
+                err_expr_join => err_expr_join,
+                return_conversion => self.return_conversion(method, has_error, "            "),
+            },
+        )
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
-        let mut out = String::with_capacity(512);
+        let required_methods: Vec<_> = spec.required_methods().iter().map(|m| m.name.as_str()).collect();
 
-        out.push_str("impl ");
-        out.push_str(&wrapper);
-        out.push_str(" {\n");
-        out.push_str("    /// Create a new bridge wrapping a Ruby object.\n");
-        out.push_str("    /// Validates that the Ruby object responds to all required methods.\n");
-        out.push_str("    pub fn new(rb_obj: magnus::Value, name: String) -> Result<Self, magnus::Error> {\n");
-
-        // Validate required methods respond_to?
-        for req_method in spec.required_methods() {
-            out.push_str("        if !rb_obj.respond_to(\"");
-            out.push_str(&req_method.name);
-            out.push_str("\", false).unwrap_or(false) {\n");
-            let ruby = "unsafe { magnus::Ruby::get_unchecked() }";
-            out.push_str("            let ruby = ");
-            out.push_str(ruby);
-            out.push_str(";\n");
-            out.push_str("            return Err(magnus::Error::new(\n");
-            out.push_str("                ruby.exception_runtime_error(),\n");
-            out.push_str("                format!(\"Ruby object missing required method: {}\", \"");
-            out.push_str(&req_method.name);
-            out.push_str("\"),\n");
-            out.push_str("            ));\n");
-            out.push_str("        }\n");
-        }
-
-        out.push('\n');
-        out.push_str("        Ok(Self {\n");
-        out.push_str("            inner: magnus::value::Opaque::from(rb_obj),\n");
-        out.push_str("            cached_name: name,\n");
-        out.push_str("        })\n");
-        out.push_str("    }\n");
-        out.push_str("}\n");
-        out
+        crate::template_env::render(
+            "trait_bridge_constructor.rs.jinja",
+            minijinja::context! {
+                wrapper => wrapper,
+                required_methods => required_methods,
+            },
+        )
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -563,70 +504,31 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
-        let core_import = spec.core_import;
+        let required_methods: Vec<_> = spec
+            .required_methods()
+            .iter()
+            .map(|m| format!("\"{}\"", m.name))
+            .collect();
+        let required_methods = required_methods.join(", ");
 
-        let mut out = String::with_capacity(1024);
-
-        // Free function the main #[magnus::init] block can register via
-        // `module.define_module_function("{register_fn}", function!({register_fn}, 2))?`.
-        // We do NOT emit our own #[magnus::init] — there is exactly one per cdylib and
-        // the gen_bindings init owns it.
-        out.push_str("pub fn ");
-        out.push_str(register_fn);
-        out.push_str("(rb_obj: magnus::Value, name: String) -> Result<(), magnus::Error> {\n");
-
-        // Validate required methods exist on the Ruby object
-        let req_methods: Vec<_> = spec.required_methods();
-        if !req_methods.is_empty() {
-            out.push_str("    let required_methods = [");
-            out.push_str(
-                &req_methods
-                    .iter()
-                    .map(|m| format!("\"{}\"", m.name))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-            out.push_str("];\n");
-            out.push_str("    for method in &required_methods {\n");
-            out.push_str("        if !rb_obj.respond_to(*method, false).unwrap_or(false) {\n");
-            out.push_str("            let ruby = unsafe { magnus::Ruby::get_unchecked() };\n");
-            out.push_str("            return Err(magnus::Error::new(\n");
-            out.push_str("                ruby.exception_runtime_error(),\n");
-            out.push_str("                format!(\"Backend missing required method: {}\", method),\n");
-            out.push_str("            ));\n");
-            out.push_str("        }\n");
-            out.push_str("    }\n");
-            out.push('\n');
-        }
-
-        out.push_str("    let wrapper = ");
-        out.push_str(&wrapper);
-        out.push_str("::new(rb_obj, name)?;\n");
-        out.push_str("    let arc: Arc<dyn ");
-        out.push_str(&trait_path);
-        out.push_str("> = Arc::new(wrapper);\n");
-
-        let extra = spec
+        let register_extra_args = spec
             .bridge_config
             .register_extra_args
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
-        out.push_str("    ");
-        out.push_str(registry_getter);
-        out.push_str("().write().register(arc");
-        out.push_str(&extra);
-        out.push_str(").map_err(|e| {\n");
-        out.push_str("        let ruby = unsafe { magnus::Ruby::get_unchecked() };\n");
-        out.push_str(
-            "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"register failed: {}\", e))\n",
-        );
-        out.push_str("    })?;\n");
-        out.push_str("    Ok(())\n");
-        out.push_str("}\n");
 
-        let _ = core_import;
-        out
+        crate::template_env::render(
+            "trait_bridge_registration_fn.rs.jinja",
+            minijinja::context! {
+                register_fn => register_fn,
+                registry_getter => registry_getter,
+                wrapper => wrapper,
+                trait_path => trait_path,
+                required_methods => required_methods,
+                register_extra_args => register_extra_args,
+            },
+        )
     }
 }
 
@@ -692,120 +594,45 @@ impl MagnusBridgeGenerator {
     /// Emit code that converts the Ruby `val` (in scope) into the Rust return type
     /// and either returns it (if has_error: false) or wraps it in `Ok(...)` (if has_error: true).
     /// For sync bodies — no leading whitespace.
-    fn write_return_conversion(&self, out: &mut String, method: &MethodDef, has_error: bool) {
+    fn return_conversion(&self, method: &MethodDef, has_error: bool, indent: &str) -> String {
         let rust_ty = self.return_rust_type(&method.return_type);
-        if self.needs_json_marshalling(&method.return_type) {
-            // Ruby callback should return either a Hash/Array (we'll JSON.dump it)
-            // or a JSON String we parse directly. Try string first, fall back to to_json.
-            out.push_str("let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {\n");
-            out.push_str("    s\n");
-            out.push_str("} else {\n");
-            out.push_str("    match val.funcall::<_, _, String>(\"to_json\", ()) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str("        Err(e) => {\n");
-            if has_error {
-                let err_expr = self.make_error(&format!(
-                    "format!(\"Ruby method '{}' returned non-JSON value: {{}}\", e)",
-                    method.name
-                ));
-                out.push_str("            return Err(");
-                out.push_str(&err_expr);
-                out.push_str(");\n");
-            } else {
-                out.push_str("            let _ = e;\n");
-                out.push_str("            return Default::default();\n");
-            }
-            out.push_str("        }\n");
-            out.push_str("    }\n");
-            out.push_str("};\n");
-            if has_error {
-                let err_expr = self.make_error(&format!(
-                    "format!(\"Failed to deserialize Ruby '{}' return value: {{}}\", e)",
-                    method.name
-                ));
-                out.push_str("serde_json::from_str::<");
-                out.push_str(&rust_ty);
-                out.push_str(">(&json_str)\n    .map_err(|e| ");
-                out.push_str(&err_expr);
-                out.push_str(")\n");
-            } else {
-                out.push_str("serde_json::from_str::<");
-                out.push_str(&rust_ty);
-                out.push_str(">(&json_str).unwrap_or_default()\n");
-            }
+        let err_non_json = if has_error {
+            self.make_error(&format!(
+                "format!(\"Ruby method '{}' returned non-JSON value: {{}}\", e)",
+                method.name
+            ))
         } else {
-            // Direct TryConvert path for primitives, String, etc.
-            if has_error {
-                let err_expr = self.make_error(&format!(
-                    "format!(\"Failed to convert Ruby '{}' return value: {{}}\", e)",
-                    method.name
-                ));
-                let convert_code =
-                    format!("<{rust_ty} as magnus::TryConvert>::try_convert(val)\n    .map_err(|e| {err_expr})\n");
-                out.push_str(&convert_code);
-            } else {
-                out.push('<');
-                out.push_str(&rust_ty);
-                out.push_str(" as magnus::TryConvert>::try_convert(val).unwrap_or_default()\n");
-            }
-        }
-    }
-
-    /// Same as `write_return_conversion` but indented for use inside spawn_blocking closure.
-    fn write_async_return_conversion(&self, out: &mut String, method: &MethodDef, has_error: bool) {
-        let rust_ty = self.return_rust_type(&method.return_type);
-        if self.needs_json_marshalling(&method.return_type) {
-            out.push_str("            let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {\n");
-            out.push_str("                s\n");
-            out.push_str("            } else {\n");
-            out.push_str("                match val.funcall::<_, _, String>(\"to_json\", ()) {\n");
-            out.push_str("                    Ok(s) => s,\n");
-            out.push_str("                    Err(e) => {\n");
-            if has_error {
-                let err_expr = self.make_error(&format!(
-                    "format!(\"Ruby method '{}' returned non-JSON value: {{}}\", e)",
-                    method.name
-                ));
-                out.push_str("                        return Err(");
-                out.push_str(&err_expr);
-                out.push_str(");\n");
-            } else {
-                out.push_str("                        let _ = e;\n");
-                out.push_str("                        return Default::default();\n");
-            }
-            out.push_str("                    }\n");
-            out.push_str("                }\n");
-            out.push_str("            };\n");
-            if has_error {
-                let err_expr = self.make_error(&format!(
-                    "format!(\"Failed to deserialize Ruby '{}' return value: {{}}\", e)",
-                    method.name
-                ));
-                out.push_str("            serde_json::from_str::<");
-                out.push_str(&rust_ty);
-                out.push_str(">(&json_str)\n                .map_err(|e| ");
-                out.push_str(&err_expr);
-                out.push_str(")\n");
-            } else {
-                out.push_str("            serde_json::from_str::<");
-                out.push_str(&rust_ty);
-                out.push_str(">(&json_str).unwrap_or_default()\n");
-            }
-        } else if has_error {
-            let err_expr = self.make_error(&format!(
+            String::new()
+        };
+        let err_deserialize = if has_error {
+            self.make_error(&format!(
+                "format!(\"Failed to deserialize Ruby '{}' return value: {{}}\", e)",
+                method.name
+            ))
+        } else {
+            String::new()
+        };
+        let err_convert = if has_error {
+            self.make_error(&format!(
                 "format!(\"Failed to convert Ruby '{}' return value: {{}}\", e)",
                 method.name
-            ));
-            out.push_str("            <");
-            out.push_str(&rust_ty);
-            out.push_str(" as magnus::TryConvert>::try_convert(val)\n                .map_err(|e| ");
-            out.push_str(&err_expr);
-            out.push_str(")\n");
+            ))
         } else {
-            out.push_str("            <");
-            out.push_str(&rust_ty);
-            out.push_str(" as magnus::TryConvert>::try_convert(val).unwrap_or_default()\n");
-        }
+            String::new()
+        };
+
+        crate::template_env::render(
+            "trait_bridge_return_conversion.rs.jinja",
+            minijinja::context! {
+                has_error => has_error,
+                needs_json => self.needs_json_marshalling(&method.return_type),
+                indent => indent,
+                rust_ty => rust_ty,
+                err_non_json => err_non_json,
+                err_deserialize => err_deserialize,
+                err_convert => err_convert,
+            },
+        )
     }
 
     /// Build a Ruby arg expression for funcall given a Rust parameter.

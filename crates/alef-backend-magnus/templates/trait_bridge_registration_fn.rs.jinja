@@ -1,0 +1,23 @@
+pub fn {{ register_fn }}(rb_obj: magnus::Value, name: String) -> Result<(), magnus::Error> {
+{%- if required_methods | length > 0 %}
+    let required_methods = [{{ required_methods }}];
+    for method in &required_methods {
+        if !rb_obj.respond_to(*method, false).unwrap_or(false) {
+            let ruby = unsafe { magnus::Ruby::get_unchecked() };
+            return Err(magnus::Error::new(
+                ruby.exception_runtime_error(),
+                format!("Backend missing required method: {}", method),
+            ));
+        }
+    }
+
+{%- endif %}
+    let wrapper = {{ wrapper }}::new(rb_obj, name)?;
+    let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
+
+    {{ registry_getter }}().write().register(arc{{ register_extra_args }}).map_err(|e| {
+        let ruby = unsafe { magnus::Ruby::get_unchecked() };
+        magnus::Error::new(ruby.exception_runtime_error(), format!("register failed: {}", e))
+    })?;
+    Ok(())
+}
