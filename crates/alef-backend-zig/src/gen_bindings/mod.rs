@@ -142,10 +142,6 @@ impl Backend for ZigBackend {
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
-            // Async functions are not supported — skip silently.
-            if f.is_async {
-                continue;
-            }
             if trait_bridge_fn_names.contains(&f.name) {
                 continue;
             }
