@@ -19,7 +19,7 @@ mod helpers;
 mod registration;
 mod vtable;
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugin_impl, gen_bridge_trait_impl};
+use alef_codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugin_impl};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
 use heck::ToPascalCase;
@@ -249,8 +249,10 @@ pub fn gen_trait_bridge(
         }
     }
 
-    // Trait impl — uses shared gen_bridge_trait_impl which calls gen_sync/async_method_body
-    out.push_str(&gen_bridge_trait_impl(&spec, &generator));
+    // Trait impl — generate for FFI, including methods with default impls (which the vtable
+    // must forward through). Unlike most bindings, FFI bridges must implement ALL methods
+    // because the vtable pattern requires forwarding even methods with defaults.
+    out.push_str(&generator.gen_ffi_trait_impl(&spec));
     out.push('\n');
 
     // Registration + unregistration functions

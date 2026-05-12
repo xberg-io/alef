@@ -1,6 +1,6 @@
 //! Constructor generation and extern "C" registration/unregistration functions.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, format_type_ref};
 use alef_core::ir::{MethodDef, TypeRef};
 
 use super::FfiBridgeGenerator;
@@ -146,6 +146,122 @@ impl FfiBridgeGenerator {
         ));
 
         out
+    }
+
+    /// Generate the trait impl for FFI visitor bridges.
+    ///
+    /// Unlike the shared `gen_bridge_trait_impl` which filters out methods with default
+    /// implementations, this function generates all methods (including defaults) because
+    /// the FFI vtable pattern requires each method to forward through the vtable.
+    /// This is critical for visitor traits like `HtmlVisitor` where all methods have
+    /// default implementations.
+    pub(super) fn gen_ffi_trait_impl(&self, spec: &TraitBridgeSpec) -> String {
+        use alef_codegen::generators::trait_bridge::{gen_bridge_plugin_impl, format_return_type};
+
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        // Check if the trait has async methods
+        let has_async_methods = spec
+            .trait_def
+            .methods
+            .iter()
+            .any(|m| m.is_async);
+        let async_trait_is_send = <Self as TraitBridgeGenerator>::async_trait_is_send(self);
+
+        // Include ALL methods, not just those without defaults (unlike gen_bridge_trait_impl).
+        // FFI visitor bridges must implement every method so the vtable pattern works.
+        let mut methods_code = String::with_capacity(2048);
+        for (i, method) in spec.trait_def.methods.iter().enumerate() {
+            if i > 0 {
+                methods_code.push_str("\n\n");
+            }
+
+            // Build the method signature
+            let async_kw = if method.is_async { "async " } else { "" };
+            let receiver = match &method.receiver {
+                Some(alef_core::ir::ReceiverKind::Ref) => "&self",
+                Some(alef_core::ir::ReceiverKind::RefMut) => "&mut self",
+                Some(alef_core::ir::ReceiverKind::Owned) => "self",
+                None => "",
+            };
+
+            // Build params (excluding self)
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let ty = format_type_ref(&p.ty, &spec.type_paths);
+                    format!("{}: {}", p.name, ty)
+                })
+                .collect();
+
+            let all_params = if receiver.is_empty() {
+                params.join(", ")
+            } else if params.is_empty() {
+                receiver.to_string()
+            } else {
+                format!("{}, {}", receiver, params.join(", "))
+            };
+
+            // Return type
+            let error_override = method.error_type.as_ref().map(|_| spec.error_path());
+            let ret = format_return_type(
+                &method.return_type,
+                error_override.as_deref(),
+                &spec.type_paths,
+                method.returns_ref,
+            );
+
+            // Generate body using FFI's vtable call generator
+            let raw_body = if method.is_async {
+                self.gen_async_method_body(method, spec)
+            } else {
+                self.gen_sync_method_body(method, spec)
+            };
+
+            // Indent body
+            let indented_body = raw_body
+                .lines()
+                .map(|line| format!("        {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            methods_code.push_str(&crate::template_env::render(
+                "generators/trait_bridge/trait_method.jinja",
+                minijinja::context! {
+                    async_kw => async_kw,
+                    method_name => &method.name,
+                    all_params => all_params,
+                    ret => ret,
+                    indented_body => &indented_body,
+                },
+            ));
+        }
+
+        // Plugin impl (if any)
+        let mut impl_code = String::new();
+        if let Some(plugin_impl) = self.gen_ffi_plugin_impl(spec) {
+            impl_code.push_str(&plugin_impl);
+            impl_code.push('\n');
+        } else if let Some(plugin_impl) = gen_bridge_plugin_impl(spec, self) {
+            impl_code.push_str(&plugin_impl);
+            impl_code.push('\n');
+        }
+
+        // Trait impl
+        impl_code.push_str(&crate::template_env::render(
+            "generators/trait_bridge/trait_impl.jinja",
+            minijinja::context! {
+                has_async_methods => has_async_methods,
+                async_trait_is_send => async_trait_is_send,
+                trait_path => trait_path,
+                wrapper_name => wrapper,
+                methods_code => methods_code,
+            },
+        ));
+
+        impl_code
     }
 }
 

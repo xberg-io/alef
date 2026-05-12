@@ -7,6 +7,27 @@ use crate::type_map::GleamMapper;
 use super::helpers::emit_cleaned_gleam_doc;
 use super::variant_collision::variant_constructor_name;
 
+/// Emit a `<snake_type>_from_json(json: String) -> Result(<TypeName>, String)` NIF external
+/// for a non-opaque serde-capable struct type.
+pub(crate) fn emit_from_json_fn(ty: &TypeDef, nif_module: &str, out: &mut String) {
+    use heck::ToSnakeCase;
+    let type_name = &ty.name;
+    let snake = type_name.to_snake_case();
+    let fn_name = format!("{snake}_from_json");
+    out.push_str(&crate::template_env::render(
+        "function_external.jinja",
+        minijinja::context! { nif_module => nif_module, name => &fn_name },
+    ));
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            name => &fn_name,
+            params => "json: String",
+            return_type => &format!("Result({type_name}, String)"),
+        },
+    ));
+}
+
 pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     emit_cleaned_gleam_doc(out, &ty.doc, "");
     if ty.fields.is_empty() {
