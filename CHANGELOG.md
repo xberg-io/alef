@@ -7,16 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.49] - 2026-05-12
+
+### Added
+
+- feat(core,backends): `TraitBridgeConfig` gains `context_type` and `result_type` fields, plus a `ResolvedCrateConfig::bridge_associated_types()` helper that aggregates them across all configured bridges. Backends use this to skip generic record/POJO codegen for the bridge's associated types instead of hardcoding literal `"NodeContext"` / `"VisitResult"` checks against h2m's HtmlVisitor types. Any project with a callback-style trait can now wire its own context/result types through the bridge codegen.
+
 ### Fixed
 
+- fix(codegen): scope cfg-gated trait-bridge field detection to fields whose type references an opaque wrapper (per `cfg.opaque_type_names`). The previous logic in `gen_from_core_to_binding_cfg` + the struct emitters forced `Default::default()` / `#[serde(skip)]` for any cfg-gated field listed in `never_skip_cfg_field_names`, which incorrectly defaulted regular convertible fields like `metadata: HtmlMetadata` on `ConversionResult`. Restores `result.metadata.document.*` access in the Python binding (h2m).
+- fix(backend-pyo3,backend-wasm): drive trait-bridge post-process from `core_import` instead of hardcoded crate names. The pyo3 visitor-fallback rewrite and the wasm `From<Wasm*>` impl rewrite previously matched the literal string `html_to_markdown_rs`, breaking codegen for any other project using `bind_via = "options_field"`. Both now build their search/replace patterns via the configured `core_import` plus the per-bridge `type_alias` / `options_type` / `resolved_options_field`. The wasm rewrite also no longer relies on a hardcoded anchor field (`strong_em_symbol`) to scope the From-impl search — it now finds the impl block by its full `impl From<Wasm{options_type}> for ...` header.
 - fix(wasm-backend): WASM trait bridge constructor now correctly reads the JS object's `name` property as a plain string. The previous implementation called `dyn_into::<js_sys::Function>()` on the value returned by `Reflect::get(&js_obj, "name")`, which always failed because `name` is a string property, not a method — causing the chain to fall through to `unwrap_or_else(|| "wasm_bridge".to_string())` unconditionally. Fixed by removing the intermediate `dyn_into::<Function>` step and calling `.as_string()` directly on the `JsValue` returned by `Reflect::get`.
 - fix(wasm-backend): `build_wasm_arg` no longer uses Rust `{:?}` Debug formatting for non-primitive JS bridge arguments. The previous fallback emitted binary debug repr for `&[u8]` parameters (e.g. `[72, 101, 108, 108, 111]` instead of a `Uint8Array`) and Rust field syntax for complex types, both of which are unrecognisable at the JS call site. Fixed: `TypeRef::Bytes` now emits `js_sys::Uint8Array::from(...)` for correct typed-array interop; all remaining complex types (`Named`, `Vec`, `Map`, etc.) now use `serde_wasm_bindgen::to_value(...)` so they arrive as plain JS objects.
 - fix(wasm-backend): async WASM trait bridge methods now correctly await the `Promise` returned by the JS function. `func.apply()` on a JavaScript `async` function returns a `Promise` object, not the resolved value; the previous implementation treated it as the final result and called `.as_string()` on the `Promise` itself, so all async bridge methods silently returned the default value. Fixed by casting via `dyn_into::<js_sys::Promise>()` and awaiting with `wasm_bindgen_futures::JsFuture::from(promise).await`.
-
-## [0.15.49] - 2026-05-12
-
-### Fixed
-
 - fix(alef-e2e/swift): `[].` traversal element accessor now resolves field aliases before computing the Swift method name (e.g. `assets[].category` → `assetCategory()` not `category()`); enum elements now call `.toString()` not `.to_string().toString()`.
 - fix(alef-backend-dart): add `rust_input: crate` to the generated `flutter_rust_bridge.yaml` — omitting it caused `flutter_rust_bridge_codegen generate` to panic.
 - fix(alef-backend-go): filter `ffi_skip_methods` in trait bridge generation so FFI-incompatible methods are not emitted in the Go C-VTable.
