@@ -97,6 +97,7 @@ impl Backend for JavaBackend {
                 .trait_bridges
                 .iter()
                 .any(|b| b.bind_via == BridgeBinding::OptionsField);
+        let bridge_associated_types = config.bridge_associated_types();
 
         let mut files = Vec::new();
 
@@ -203,7 +204,7 @@ impl Backend for JavaBackend {
             let is_unit_serde = !typ.is_opaque && typ.fields.is_empty() && typ.has_serde;
             if !typ.is_opaque && (!typ.fields.is_empty() || is_unit_serde) {
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_pattern && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_pattern && bridge_associated_types.contains(typ.name.as_str()) {
                     continue;
                 }
                 files.push(GeneratedFile {
@@ -268,7 +269,7 @@ impl Backend for JavaBackend {
         // 5. Enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_pattern && enum_def.name == "VisitResult" {
+            if has_visitor_pattern && bridge_associated_types.contains(enum_def.name.as_str()) {
                 continue;
             }
             files.push(GeneratedFile {
@@ -417,7 +418,6 @@ impl Backend for JavaBackend {
                 .trait_bridges
                 .iter()
                 .any(|b| b.bind_via == BridgeBinding::OptionsField);
-
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
         let public_class = main_class.trim_end_matches("Rs").to_string();

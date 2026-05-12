@@ -85,6 +85,20 @@ pub struct TraitBridgeConfig {
     /// `param_name`. Ignored when `bind_via = "function_param"`.
     #[serde(default)]
     pub options_field: Option<String>,
+    /// IR type name of the trait's context associated type (e.g., `"NodeContext"`).
+    ///
+    /// When set, backends skip generic record/enum codegen for this type and instead
+    /// emit the richer visitor-specific version. Replaces the former literal
+    /// `"NodeContext"` string comparisons scattered across backends.
+    #[serde(default)]
+    pub context_type: Option<String>,
+    /// IR type name of the trait's result associated type (e.g., `"VisitResult"`).
+    ///
+    /// When set, backends skip generic record/enum codegen for this type and instead
+    /// emit the richer visitor-specific version. Replaces the former literal
+    /// `"VisitResult"` string comparisons scattered across backends.
+    #[serde(default)]
+    pub result_type: Option<String>,
 }
 
 /// How a trait bridge attaches to the public API.
@@ -108,6 +122,21 @@ impl TraitBridgeConfig {
     /// Returns `None` if neither is set.
     pub fn resolved_options_field(&self) -> Option<&str> {
         self.options_field.as_deref().or(self.param_name.as_deref())
+    }
+
+    /// Return the names of associated types declared in `context_type` and `result_type`.
+    ///
+    /// Backends use this list to skip generic record/enum codegen for these types,
+    /// deferring to visitor-specific generators instead.
+    pub fn associated_type_names(&self) -> Vec<&str> {
+        let mut names = Vec::new();
+        if let Some(s) = self.context_type.as_deref() {
+            names.push(s);
+        }
+        if let Some(s) = self.result_type.as_deref() {
+            names.push(s);
+        }
+        names
     }
 }
 
@@ -192,5 +221,28 @@ options_field = "callback"
 "#;
         let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
         assert_eq!(cfg.resolved_options_field(), Some("callback"));
+    }
+
+    #[test]
+    fn associated_type_names_returns_configured_names() {
+        let toml_src = r#"
+trait_name = "HtmlVisitor"
+context_type = "NodeContext"
+result_type = "VisitResult"
+"#;
+        let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
+        assert_eq!(cfg.context_type.as_deref(), Some("NodeContext"));
+        assert_eq!(cfg.result_type.as_deref(), Some("VisitResult"));
+        let names = cfg.associated_type_names();
+        assert_eq!(names, vec!["NodeContext", "VisitResult"]);
+    }
+
+    #[test]
+    fn associated_type_names_empty_when_not_set() {
+        let toml_src = r#"
+trait_name = "OcrBackend"
+"#;
+        let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
+        assert!(cfg.associated_type_names().is_empty());
     }
 }

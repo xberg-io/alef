@@ -157,6 +157,8 @@ mod tests {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
         }
     }
 

@@ -127,6 +127,8 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -316,6 +318,8 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 
@@ -357,6 +361,8 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 
@@ -440,6 +446,8 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 
@@ -493,6 +501,8 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 
@@ -604,6 +614,8 @@ fn test_gen_trait_bridge_safety_comments_present() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 
@@ -702,6 +714,8 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api();
 

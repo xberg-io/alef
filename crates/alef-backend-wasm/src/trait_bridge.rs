@@ -96,7 +96,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
         let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
 
-        let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
+        let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, spec.bridge_config)).collect();
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
@@ -139,7 +139,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
         let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
 
-        let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
+        let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, spec.bridge_config)).collect();
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
@@ -395,7 +395,7 @@ pub fn gen_trait_bridge(
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
@@ -407,7 +407,7 @@ fn gen_visitor_bridge(
         .filter(|m| m.trait_source.is_none())
         .map(|method| {
             let mut method_out = String::new();
-            gen_visitor_method_wasm(&mut method_out, method, type_paths);
+            gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths);
             minijinja::context! {
                 code => method_out,
             }
@@ -426,7 +426,7 @@ fn gen_visitor_bridge(
 }
 
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
-fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
+fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, bridge_cfg: &TraitBridgeConfig, type_paths: &HashMap<String, String>) {
     let name = &method.name;
     let js_name = to_camel_case(name);
 
@@ -445,7 +445,7 @@ fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &Ha
         other => param_type(other, "", false, type_paths),
     };
 
-    let params: Vec<String> = method.params.iter().map(build_wasm_arg).collect();
+    let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, bridge_cfg)).collect();
 
     let ctx = minijinja::context! {
         name => name.clone(),
@@ -471,9 +471,9 @@ fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, type_paths: &Ha
 }
 
 /// Build a single wasm arg expression for a visitor method parameter.
-fn build_wasm_arg(p: &alef_core::ir::ParamDef) -> String {
+fn build_wasm_arg(p: &alef_core::ir::ParamDef, bridge_cfg: &TraitBridgeConfig) -> String {
     if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
+        if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
             return format!("nodecontext_to_js_value({}{})", if p.is_ref { "" } else { "&" }, p.name);
         }
     }

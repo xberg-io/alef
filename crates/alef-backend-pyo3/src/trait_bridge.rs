@@ -411,7 +411,7 @@ pub fn gen_trait_bridge(
 /// - No super-trait forwarding
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     type_paths: &HashMap<String, String>,
@@ -445,7 +445,7 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method(&mut methods_code, method, trait_path, type_paths);
+        gen_visitor_method(&mut methods_code, method, trait_path, bridge_cfg, type_paths);
     }
 
     let mut out = String::with_capacity(4096);
@@ -467,7 +467,13 @@ fn gen_visitor_bridge(
 /// 2. If yes, calls the method with converted arguments and converts the Python return value
 ///    to the appropriate Rust return type.
 /// 3. If no (attribute absent), returns the trait default (typically `VisitResult::Continue`).
-fn gen_visitor_method(out: &mut String, method: &MethodDef, _trait_path: &str, type_paths: &HashMap<String, String>) {
+fn gen_visitor_method(
+    out: &mut String,
+    method: &MethodDef,
+    _trait_path: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &HashMap<String, String>,
+) {
     use alef_core::ir::TypeRef;
 
     let name = &method.name;
@@ -491,7 +497,7 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, _trait_path: &str, t
     };
 
     // Build argument expressions for the Python call
-    let py_args = build_visitor_py_args(method);
+    let py_args = build_visitor_py_args(method, bridge_cfg);
 
     let py_call = if py_args.is_empty() {
         format!("obj.call_method0(\"{name}\")")
@@ -519,15 +525,15 @@ fn gen_visitor_method(out: &mut String, method: &MethodDef, _trait_path: &str, t
 /// - `Option<&str>` params: passed as `Option<&str>` (PyO3 maps `None` → Python `None`)
 /// - `bool` and integer params: passed directly
 /// - `&[String]` / `Vec<String>` params: passed as Python lists
-fn build_visitor_py_args(method: &MethodDef) -> String {
+fn build_visitor_py_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> String {
     use alef_core::ir::TypeRef;
     let args: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            // NodeContext: convert to Python dict
+            // context_type param: convert to Python dict
             if let TypeRef::Named(n) = &p.ty {
-                if n == "NodeContext" {
+                if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
                     return if p.is_ref {
                         format!("nodecontext_to_py_dict(py, {})", p.name)
                     } else {

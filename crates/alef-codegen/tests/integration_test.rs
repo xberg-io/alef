@@ -3114,6 +3114,8 @@ fn simple_bridge_config() -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -3293,6 +3295,8 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,

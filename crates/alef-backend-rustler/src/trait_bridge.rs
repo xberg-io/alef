@@ -67,7 +67,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             .params
             .iter()
             .map(|p| {
-                let json_expr = build_json_arg(p);
+                let json_expr = build_json_arg(p, spec.bridge_config);
                 minijinja::context! {
                     name => p.name.clone(),
                     json_expr => json_expr
@@ -117,7 +117,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             .params
             .iter()
             .map(|p| {
-                let expr = build_json_arg(p);
+                let expr = build_json_arg(p, spec.bridge_config);
                 minijinja::context! {
                     name => p.name.clone(),
                     expr => expr
@@ -258,6 +258,7 @@ pub fn gen_trait_bridge(
                 trait_path: &trait_path,
                 core_crate: core_import,
                 type_paths: &type_paths,
+                bridge_cfg,
             },
         );
         BridgeOutput {
@@ -297,6 +298,7 @@ struct VisitorBridgeCtx<'a> {
     trait_path: &'a str,
     core_crate: &'a str,
     type_paths: &'a std::collections::HashMap<String, String>,
+    bridge_cfg: &'a alef_core::config::TraitBridgeConfig,
 }
 
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.
@@ -314,6 +316,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         trait_path,
         core_crate,
         type_paths,
+        bridge_cfg,
     } = ctx;
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
     let ctx_helper = minijinja::context! {
@@ -384,7 +387,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_async(out, method, type_paths, struct_name);
+        gen_visitor_method_async(out, method, type_paths, struct_name, bridge_cfg);
     }
     out.push_str("}\n");
     out.push('\n');
@@ -400,6 +403,7 @@ fn gen_visitor_method_async(
     method: &MethodDef,
     type_paths: &std::collections::HashMap<String, String>,
     _struct_name: &str,
+    bridge_cfg: &alef_core::config::TraitBridgeConfig,
 ) {
     let name = &method.name;
 
@@ -431,7 +435,7 @@ fn gen_visitor_method_async(
         .params
         .iter()
         .map(|p| {
-            let json_expr = build_json_arg(p);
+            let json_expr = build_json_arg(p, bridge_cfg);
             minijinja::context! {
                 key => p.name.clone(),
                 expr => json_expr
@@ -450,10 +454,10 @@ fn gen_visitor_method_async(
 }
 
 /// Build a serde_json::Value expression for a visitor method parameter (for the args JSON object).
-fn build_json_arg(p: &alef_core::ir::ParamDef) -> String {
-    // NodeContext: serialize as a JSON object via serde_json.
+fn build_json_arg(p: &alef_core::ir::ParamDef, bridge_cfg: &alef_core::config::TraitBridgeConfig) -> String {
+    // context_type param: serialize as a JSON object via serde_json.
     if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
+        if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
             let ref_expr = if p.is_ref {
                 p.name.clone()
             } else {

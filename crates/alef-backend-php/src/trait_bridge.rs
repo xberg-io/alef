@@ -306,7 +306,7 @@ pub fn gen_trait_bridge(
 /// then calls it and maps the PHP return value to `VisitResult`.
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     type_paths: &HashMap<String, String>,
@@ -367,7 +367,7 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_php(&mut out, method, type_paths);
+        gen_visitor_method_php(&mut out, method, bridge_cfg, type_paths);
     }
     out.push_str("}\n");
     out.push('\n');
@@ -376,7 +376,12 @@ fn gen_visitor_bridge(
 }
 
 /// Generate a single visitor method that checks for a snake_case PHP method and calls it.
-fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &HashMap<String, String>) {
+fn gen_visitor_method_php(
+    out: &mut String,
+    method: &MethodDef,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &HashMap<String, String>,
+) {
     let name = &method.name;
 
     let mut sig_parts = vec!["&mut self".to_string()];
@@ -410,7 +415,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         out.push_str("        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();\n");
         for p in &method.params {
             if let TypeRef::Named(n) = &p.ty {
-                if n == "NodeContext" {
+                if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
                     out.push_str(&crate::template_env::render(
                         "php_visitor_arg_nodecontext.jinja",
                         context! {
@@ -494,7 +499,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     let mut tmpl_var_names: Vec<String> = Vec::new();
     for p in &method.params {
         if let TypeRef::Named(n) = &p.ty {
-            if n == "NodeContext" {
+            if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
                 continue;
             }
         }

@@ -943,6 +943,8 @@ mod tests {
             bind_via: BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
         }
     }
 
@@ -1910,6 +1912,8 @@ mod tests {
         bind_via: BridgeBinding,
         options_type: Option<&str>,
         options_field: Option<&str>,
+        context_type: Option<&str>,
+        result_type: Option<&str>,
     ) -> TraitBridgeConfig {
         TraitBridgeConfig {
             trait_name: "HtmlVisitor".to_string(),
@@ -1926,6 +1930,8 @@ mod tests {
             bind_via,
             options_type: options_type.map(str::to_string),
             options_field: options_field.map(str::to_string),
+            context_type: context_type.map(str::to_string),
+            result_type: result_type.map(str::to_string),
         }
     }
 

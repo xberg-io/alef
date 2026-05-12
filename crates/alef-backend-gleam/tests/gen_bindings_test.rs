@@ -443,6 +443,8 @@ fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -467,6 +469,8 @@ fn make_bridge_cfg_full(
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 

@@ -1298,6 +1298,8 @@ fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef_core::config::TraitBridg
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1317,6 +1319,8 @@ fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef_core:
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1497,6 +1501,8 @@ fn test_php_plugin_bridge_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api_php();
 

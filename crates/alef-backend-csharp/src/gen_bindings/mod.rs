@@ -69,6 +69,7 @@ impl Backend for CsharpBackend {
             .collect();
         // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
+        let bridge_associated_types = config.bridge_associated_types();
 
         // Streaming adapter methods are emitted via the iterator-handle FFI protocol
         // (`{prefix}_{owner}_{name}_start` / `_next` / `_free`) — not as direct P/Invoke calls
@@ -313,7 +314,7 @@ impl Backend for CsharpBackend {
                     continue;
                 }
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_callbacks && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_callbacks && bridge_associated_types.contains(typ.name.as_str()) {
                     continue;
                 }
 
@@ -338,7 +339,7 @@ impl Backend for CsharpBackend {
         // 6. Generate enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_callbacks && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
+            if has_visitor_callbacks && bridge_associated_types.contains(enum_def.name.as_str()) {
                 continue;
             }
             let enum_filename = enum_def.name.to_pascal_case();

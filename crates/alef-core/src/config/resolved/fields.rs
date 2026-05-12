@@ -126,6 +126,21 @@ impl ResolvedCrateConfig {
         rust_path.to_string()
     }
 
+    /// Collect all associated type names declared across every configured trait bridge.
+    ///
+    /// Returns the union of [`crate::config::TraitBridgeConfig::associated_type_names`]
+    /// for all bridges. Backends use this set to skip generic record/enum codegen for
+    /// these types, deferring to visitor-specific generators instead.
+    pub fn bridge_associated_types(&self) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        for bridge in &self.trait_bridges {
+            for name in bridge.associated_type_names() {
+                set.insert(name.to_string());
+            }
+        }
+        set
+    }
+
     /// Attempt to read the resolved version string from the configured `version_from` file.
     ///
     /// Returns `None` if the file cannot be read or the version cannot be found.

@@ -79,7 +79,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let has_error = method.error_type.is_some();
 
         // Get the JS function from the object
-        let js_args_exprs = build_napi_args(method);
+        let js_args_exprs = build_napi_args(method, spec.bridge_config);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
             inner_tuple_ty.clone()
@@ -149,7 +149,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let name = &method.name;
 
         // Build the JS function call
-        let js_args_exprs = build_napi_args(method);
+        let js_args_exprs = build_napi_args(method, spec.bridge_config);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
             inner_tuple_ty.clone()
@@ -364,7 +364,7 @@ pub fn gen_trait_bridge(
 /// then calls it with converted arguments and maps the JS return value to `VisitResult`.
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
@@ -375,7 +375,7 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_napi(&mut method_impls, method, trait_path, core_crate, type_paths);
+        gen_visitor_method_napi(&mut method_impls, method, trait_path, core_crate, bridge_cfg, type_paths);
     }
 
     crate::template_env::render(
@@ -404,6 +404,7 @@ fn gen_visitor_method_napi(
     method: &MethodDef,
     _trait_path: &str,
     _core_crate: &str,
+    bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
 ) {
     let name = &method.name;
@@ -433,7 +434,7 @@ fn gen_visitor_method_napi(
         format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
     };
 
-    let js_args_exprs = build_napi_args(method);
+    let js_args_exprs = build_napi_args(method, bridge_cfg);
     let arg_exprs: Vec<String> = js_args_exprs
         .iter()
         .map(|expr| expr.replace("self.env()", "__env"))
@@ -466,14 +467,14 @@ fn gen_visitor_method_napi(
 /// Build NAPI argument expressions for a visitor method.
 ///
 /// Returns one expression per parameter, each producing a `napi::bindgen_prelude::Unknown`.
-fn build_napi_args(method: &MethodDef) -> Vec<String> {
+fn build_napi_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> Vec<String> {
     method
         .params
         .iter()
 
         .map(|p| {
             if let TypeRef::Named(n) = &p.ty {
-                if n == "NodeContext" {
+                if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
                     return format!(
                         "match nodecontext_to_js_object(&self.env(), {}{}) {{ Ok(o) => o.to_unknown(), Err(_) => unsafe {{ \
                          let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \

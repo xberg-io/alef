@@ -790,6 +790,8 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
         }
     }
 
@@ -811,6 +813,8 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
         }
     }
 
@@ -972,6 +976,8 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            context_type: None,
+            result_type: None,
         };
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

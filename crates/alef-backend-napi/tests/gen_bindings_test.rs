@@ -1199,6 +1199,8 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> alef_core::config::TraitBridgeCon
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1220,6 +1222,8 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef_core::con
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }
 }
 
@@ -1398,6 +1402,8 @@ fn test_napi_plugin_bridge_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     };
     let api = make_api_napi();
 

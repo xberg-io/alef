@@ -665,6 +665,8 @@ fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }];
     cfg
 }
@@ -973,6 +975,8 @@ fn config_with_full_bridge(
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        context_type: None,
+        result_type: None,
     }];
     cfg
 }
