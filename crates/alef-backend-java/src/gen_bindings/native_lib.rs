@@ -46,6 +46,19 @@ pub(crate) fn gen_native_lib(
         })
         .collect();
 
+    // Collect bridge type aliases (e.g., "VisitorHandle") that should not get _from_json handles.
+    // Bridge types are not real FFI types — they're trait wrapper handles that don't have
+    // _from_json/_free functions in the FFI layer.
+    let bridge_type_aliases: AHashSet<String> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| {
+            !b.exclude_languages
+                .contains(&alef_core::config::Language::Java.to_string())
+        })
+        .filter_map(|b| b.type_alias.clone())
+        .collect();
+
     // Collect FFI-excluded function names so we can emit nullable handles for them.
     // Functions excluded from the FFI layer are still present in the IR (and thus appear
     // in the Java facade) but their native symbols are not compiled into the shared library.
@@ -262,7 +275,8 @@ pub(crate) fn gen_native_lib(
                 _ => None,
             };
             if let Some(name) = inner_name {
-                if !opaque_type_names.contains(name.as_str()) {
+                // Skip opaque types and bridge type aliases — these don't have _from_json/_free in the FFI.
+                if !opaque_type_names.contains(name.as_str()) && !bridge_type_aliases.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
                     let type_upper = type_snake.to_uppercase();
 
@@ -622,29 +636,32 @@ pub(crate) fn gen_native_lib(
                     _ => None,
                 };
                 if let Some(name) = param_named {
-                    let type_snake = name.to_snake_case();
-                    let type_upper = type_snake.to_uppercase();
-                    let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
-                    let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
-                    if emitted_from_json_handles.insert(from_json_handle.clone()) {
-                        accessor_handles.push(crate::template_env::render(
-                            "method_handle_from_json.jinja",
-                            minijinja::context! {
-                                handle_name => from_json_handle,
-                                ffi_name => from_json_ffi,
-                            },
-                        ));
-                    }
-                    let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
-                    let free_ffi = format!("{}_{}_free", prefix, type_snake);
-                    if emitted_free_handles.insert(free_handle.clone()) {
-                        accessor_handles.push(crate::template_env::render(
-                            "method_handle_free.jinja",
-                            minijinja::context! {
-                                handle_name => free_handle,
-                                ffi_name => free_ffi,
-                            },
-                        ));
+                    // Skip bridge type aliases — these don't have _from_json/_free in the FFI.
+                    if !bridge_type_aliases.contains(name.as_str()) {
+                        let type_snake = name.to_snake_case();
+                        let type_upper = type_snake.to_uppercase();
+                        let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
+                        let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
+                        if emitted_from_json_handles.insert(from_json_handle.clone()) {
+                            accessor_handles.push(crate::template_env::render(
+                                "method_handle_from_json.jinja",
+                                minijinja::context! {
+                                    handle_name => from_json_handle,
+                                    ffi_name => from_json_ffi,
+                                },
+                            ));
+                        }
+                        let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                        let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                        if emitted_free_handles.insert(free_handle.clone()) {
+                            accessor_handles.push(crate::template_env::render(
+                                "method_handle_free.jinja",
+                                minijinja::context! {
+                                    handle_name => free_handle,
+                                    ffi_name => free_ffi,
+                                },
+                            ));
+                        }
                     }
                 }
             }
