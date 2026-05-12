@@ -78,6 +78,38 @@ result_var = "result"
 name = "request"
 field = "input.request"
 type = "json_object"
+
+[crates.e2e.call.overrides.gleam]
+options_via = "from_json"
+options_type = "ChatCompletionRequest"
+"#;
+
+const WITH_CLIENT_FACTORY_TOML: &str = r#"
+[workspace]
+languages = ["gleam"]
+
+[[crates]]
+name = "liter-llm"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "chat"
+module = "liter_llm"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "request"
+field = "input.request"
+type = "json_object"
+
+[crates.e2e.call.overrides.gleam]
+options_via = "from_json"
+options_type = "ChatCompletionRequest"
+client_factory = "create_client"
 "#;
 
 /// When `client_factory` is set, the generated test must:
@@ -86,14 +118,7 @@ type = "json_object"
 ///   3. NOT call the module-level function directly without client
 #[test]
 fn with_client_factory_emits_client_instantiation() {
-    let toml = format!(
-        r#"{}
-[crates.e2e.call.overrides.gleam]
-client_factory = "create_client"
-"#,
-        BASE_TOML
-    );
-    let rendered = render_gleam_smoke(&toml, "smoke_basic");
+    let rendered = render_gleam_smoke(WITH_CLIENT_FACTORY_TOML, "smoke_basic");
 
     assert!(
         rendered.contains("create_client("),

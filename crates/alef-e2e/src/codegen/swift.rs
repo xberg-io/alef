@@ -1005,10 +1005,9 @@ fn render_assertion(
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
         // swift-bridge exposes enum types as opaque classes. The generated Rust wrapper
-        // now implements `fn to_string(&self) -> String` (exposed as `.toString()` returning
-        // `RustString`). Calling `.toString()` on `RustString` converts it to a Swift String.
-        // Double `.toString()`: first call returns `RustString`, second converts to `String`.
-        format!("{field_expr}.toString().toString()")
+        // implements `fn to_string(&self) -> String` (swift-bridge keeps Rust name as
+        // `.to_string()` returning `RustString`). `.toString()` converts RustString to Swift String.
+        format!("{field_expr}.to_string().toString()")
     } else if field_is_optional {
         // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
         format!("({field_expr}?.toString() ?? \"\")")
