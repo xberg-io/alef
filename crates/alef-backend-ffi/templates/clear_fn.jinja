@@ -1,0 +1,22 @@
+/// Remove all registered C plugins of this trait.
+///
+/// # Parameters
+///
+/// - `out_error`: receives a heap-allocated error string on failure.
+///
+/// # Safety
+///
+/// `out_error` may be null. When non-null, the caller owns the resulting string
+/// and must free it with `kreuzberg_free_string`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ full_clear_name }}(
+    out_error: *mut *mut std::ffi::c_char,
+) -> i32 {
+    let registry = {{ registry_getter }}();
+    let mut registry = registry.write();
+    if let Err(e) = registry.clear() {
+        ffi_set_out_error(out_error, &e.to_string());
+        return 1;
+    }
+    0
+}

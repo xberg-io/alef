@@ -104,6 +104,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/value_to_c_conversion.jinja"),
     ),
     ("unregister_fn.jinja", include_str!("../templates/unregister_fn.jinja")),
+    ("clear_fn.jinja", include_str!("../templates/clear_fn.jinja")),
     (
         "vtable_delegation_method.jinja",
         include_str!("../templates/vtable_delegation_method.jinja"),
