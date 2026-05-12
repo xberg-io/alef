@@ -1020,7 +1020,16 @@ fn render_test_function(
     // assertions on pseudo-fields resolve to those locals rather than to
     // non-existent accessor functions on a single chunk handle.
     if client_factory.is_some() && function_name == "chat_stream" {
-        render_chat_stream_test_function(out, fixture, prefix, result_var, args, options_type_name, expects_error);
+        render_chat_stream_test_function(
+            out,
+            fixture,
+            prefix,
+            result_var,
+            args,
+            options_type_name,
+            expects_error,
+            api_key_var,
+        );
         return;
     }
 
@@ -2077,6 +2086,7 @@ fn render_chat_stream_test_function(
     args: &[crate::config::ArgMapping],
     options_type_name: &str,
     expects_error: bool,
+    api_key_var: Option<&str>,
 ) {
     let prefix_upper = prefix.to_uppercase();
 
@@ -2124,7 +2134,20 @@ fn render_chat_stream_test_function(
         .to_string();
 
     let fixture_id = &fixture.id;
-    if fixture.needs_mock_server() {
+    let has_mock = fixture.needs_mock_server();
+    if has_mock && api_key_var.is_some() {
+        // `api_key` and `base_url_buf` are already declared by the env-fallback
+        // block above (the smoke+mock path). Reuse them — don't redeclare
+        // `mock_base`/`base_url`, which would be a C compile error.
+        let _ = writeln!(
+            out,
+            "    const char* _base_url_arg = (api_key && api_key[0] != '\\0') ? NULL : base_url_buf;"
+        );
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
+        );
+    } else if has_mock {
         let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
         let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
         let _ = writeln!(out, "    char base_url[1024];");

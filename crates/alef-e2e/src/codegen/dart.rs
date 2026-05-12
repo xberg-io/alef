@@ -339,6 +339,11 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_streaming = fixture.is_streaming_mock();
+    // `result_is_simple = true` means the dart return is a scalar/bytes value
+    // (e.g. `Uint8List` for speech/file_content), not a struct. Field-based
+    // assertions like `audio.not_empty` collapse to whole-result checks so we
+    // don't emit `result.audio` against a `Uint8List` receiver.
+    let result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple) || call_config.result_is_simple;
 
     // Resolve options_type and options_via from per-fixture → per-call → default.
     // These drive how `json_object` args are constructed:
@@ -673,7 +678,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
             if is_streaming {
                 render_streaming_assertion_dart(out, assertion, result_var);
             } else {
-                render_assertion_dart(out, assertion, result_var);
+                render_assertion_dart(out, assertion, result_var, result_is_simple);
             }
         }
     }
@@ -696,7 +701,7 @@ fn dart_format_value(val: &serde_json::Value) -> String {
 ///
 /// Field paths are converted per-segment to camelCase (FRB v2 convention) using
 /// [`field_to_dart_accessor`].  All 24 fixture assertion types are handled.
-fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str, result_is_simple: bool) {
     // Handle array traversal (e.g. "links[].link_type" → any() expression).
     if let Some(f) = assertion.field.as_deref() {
         if let Some(dot) = f.find("[].") {
@@ -763,9 +768,16 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
         }
     }
 
-    let field_accessor = match assertion.field.as_deref() {
-        Some(f) if !f.is_empty() => format!("{result_var}.{}", field_to_dart_accessor(f)),
-        _ => result_var.to_string(),
+    let field_accessor = if result_is_simple {
+        // Whole-result assertion path: the dart return is a scalar (e.g. a
+        // `Uint8List` for speech/file_content), so any `field` on the
+        // assertion resolves to the whole value rather than a sub-accessor.
+        result_var.to_string()
+    } else {
+        match assertion.field.as_deref() {
+            Some(f) if !f.is_empty() => format!("{result_var}.{}", field_to_dart_accessor(f)),
+            _ => result_var.to_string(),
+        }
     };
 
     let format_value = |val: &serde_json::Value| -> String { dart_format_value(val) };
@@ -850,28 +862,31 @@ fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &s
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}.length, greaterThanOrEqualTo({n}));");
+                    // Use `?.length ?? 0` so a null receiver (FRB v2 maps
+                    // Rust `Option<Vec<T>>` to dart `List<T>?`) still yields
+                    // an int for the matcher.
+                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));");
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}.length, lessThanOrEqualTo({n}));");
+                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, lessThanOrEqualTo({n}));");
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}.length, equals({n}));");
+                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, equals({n}));");
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_accessor}.length, greaterThanOrEqualTo({n}));");
+                    let _ = writeln!(out, "    expect({field_accessor}?.length ?? 0, greaterThanOrEqualTo({n}));");
                 }
             }
         }
@@ -1034,11 +1049,15 @@ fn field_to_dart_accessor(path: &str) -> String {
             result.push('.');
         }
         // Separate a trailing `[...]` bracket from the field name so we only
-        // camelCase the identifier part, not the bracket content.
+        // camelCase the identifier part, not the bracket content. The owning
+        // collection may be `List<T>?` when the underlying Rust field is
+        // `Option<Vec<T>>`; force-unwrap with `!` so the `[N]` lookup and any
+        // subsequent member access compile under sound null safety.
         if let Some(bracket_pos) = segment.find('[') {
             let name = &segment[..bracket_pos];
             let bracket = &segment[bracket_pos..];
             result.push_str(&name.to_lower_camel_case());
+            result.push('!');
             result.push_str(bracket);
         } else {
             result.push_str(&segment.to_lower_camel_case());

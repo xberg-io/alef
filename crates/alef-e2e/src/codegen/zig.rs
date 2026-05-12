@@ -576,6 +576,19 @@ fn render_test_fn(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let (setup_lines, args_str, setup_needs_gpa) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
+    // Append per-call zig extra_args (e.g. `["null"]` for the trailing
+    // optional `query` parameter on `list_files` / `list_batches`). Mirrors
+    // the same mechanism used by go/python/swift codegen — zig's method
+    // signatures require every optional positional argument to be supplied
+    // explicitly, so the e2e config carries a per-language extras list.
+    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let args_str = if extra_args.is_empty() {
+        args_str
+    } else if args_str.is_empty() {
+        extra_args.join(", ")
+    } else {
+        format!("{args_str}, {}", extra_args.join(", "))
+    };
 
     // Pre-compute whether any assertion will emit code that references `result` /
     // `allocator`. Used to decide whether to emit the GPA allocator binding.
@@ -867,9 +880,24 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
             prev_seg = Some(seg);
             continue;
         }
-        // Handle array accessor notation: "links[]" → access the array, then first element.
+        // Handle array accessor notation:
+        //   "links[]"     → access the array, then first element.
+        //   "results[0]"  → access the array, then specific index N.
         if let Some(key) = seg.strip_suffix("[]") {
             expr = format!("{expr}.object.get(\"{key}\").?.array.items[0]");
+        } else if let Some(bracket_pos) = seg.find('[') {
+            if let Some(end_pos) = seg.find(']') {
+                if end_pos > bracket_pos + 1 && end_pos == seg.len() - 1 {
+                    let key = &seg[..bracket_pos];
+                    let idx = &seg[bracket_pos + 1..end_pos];
+                    if idx.chars().all(|c| c.is_ascii_digit()) {
+                        expr = format!("{expr}.object.get(\"{key}\").?.array.items[{idx}]");
+                        prev_seg = Some(seg);
+                        continue;
+                    }
+                }
+            }
+            expr = format!("{expr}.object.get(\"{seg}\").?");
         } else {
             expr = format!("{expr}.object.get(\"{seg}\").?");
         }
@@ -976,6 +1004,11 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
     let is_null_val = matches!(&assertion.value, Some(serde_json::Value::Null));
     let n = assertion.value.as_ref().map(json_to_zig).unwrap_or_default();
     let has_n = assertion.value.as_ref().is_some_and(|v| v.is_number() || v.is_u64());
+    // Distinguish float vs integer JSON values: `std.json.Value` exposes
+    // `.integer` (i64) and `.float` (f64) as separate variants. Comparing
+    // `.integer` against a literal with a fractional part (e.g. `0.9`) is a
+    // Zig compile error, so the template must select the right tag.
+    let is_float_val = matches!(&assertion.value, Some(serde_json::Value::Number(n)) if !n.is_i64() && !n.is_u64());
     let values_list: Vec<String> = assertion
         .values
         .as_deref()
@@ -1003,6 +1036,7 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
             is_null_val => is_null_val,
             n => n,
             has_n => has_n,
+            is_float_val => is_float_val,
             values_list => values_list,
         },
     );

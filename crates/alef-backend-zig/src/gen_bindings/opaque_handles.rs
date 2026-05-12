@@ -394,6 +394,31 @@ fn emit_method_param_conversion(
         return;
     }
 
+    // `Option<NamedStruct>` may surface as `TypeRef::Optional(Named(_))` OR
+    // as `TypeRef::Named(_)` with `p.optional = true` depending on how the
+    // IR builder normalised the Rust source. Handle both shapes uniformly
+    // before falling through to the non-optional path.
+    let optional_named: Option<&str> = match &p.ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if struct_names.contains(n) => Some(n.as_str()),
+            _ => None,
+        },
+        TypeRef::Named(n) if p.optional && struct_names.contains(n) => Some(n.as_str()),
+        _ => None,
+    };
+    if let Some(n) = optional_named {
+        let snake = AsSnakeCase(n).to_string();
+        let _ = writeln!(
+            out,
+            "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
+        );
+        let _ = writeln!(
+            out,
+            "        const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
+        );
+        return;
+    }
+
     match &p.ty {
         TypeRef::String | TypeRef::Path => {
             let _ = writeln!(
@@ -417,6 +442,14 @@ fn emit_method_param_conversion(
                 out,
                 "        const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
             );
+        }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
+                let _ = writeln!(
+                    out,
+                    "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
+                );
+            }
         }
         _ => {}
     }
@@ -450,6 +483,26 @@ fn emit_method_param_free(
         return;
     }
 
+    // Mirror the conversion logic: an Optional<NamedStruct> may be encoded
+    // as `TypeRef::Optional(Named(_))` or `Named(_)` + `p.optional`.
+    let optional_named: Option<&str> = match &p.ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if struct_names.contains(n) => Some(n.as_str()),
+            _ => None,
+        },
+        TypeRef::Named(n) if p.optional && struct_names.contains(n) => Some(n.as_str()),
+        _ => None,
+    };
+    if let Some(n) = optional_named {
+        let snake = AsSnakeCase(n).to_string();
+        let _ = writeln!(out, "        if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        let _ = writeln!(
+            out,
+            "        if ({name}_handle != null) c.{prefix}_{snake}_free({name}_handle);"
+        );
+        return;
+    }
+
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             let _ = writeln!(out, "        std.heap.c_allocator.free({name}_z);");
@@ -459,12 +512,33 @@ fn emit_method_param_free(
             let _ = writeln!(out, "        std.heap.c_allocator.free({name}_z);");
             let _ = writeln!(out, "        c.{prefix}_{snake}_free({name}_handle);");
         }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
+                let _ = writeln!(out, "        if ({name}_z) |z| std.heap.c_allocator.free(z);");
+            }
+        }
         _ => {}
     }
 }
 
 /// Build the C argument name(s) for a method parameter.
 fn method_c_arg_names(p: &alef_core::ir::ParamDef, struct_names: &std::collections::HashSet<String>) -> Vec<String> {
+    // `Option<NamedStruct>` parameters use a conditional handle: `null` when
+    // the caller passed `null`, otherwise the FFI handle produced via
+    // `_from_json`. Check the optional form first so non-optional Named
+    // params don't shadow it. The optional may be encoded as `Optional(Named)`
+    // or as `Named` + `p.optional = true`.
+    let optional_named: Option<&str> = match &p.ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if struct_names.contains(n) => Some(n.as_str()),
+            _ => None,
+        },
+        TypeRef::Named(n) if p.optional && struct_names.contains(n) => Some(n.as_str()),
+        _ => None,
+    };
+    if optional_named.is_some() {
+        return vec![format!("{}_handle", p.name)];
+    }
     if let TypeRef::Named(n) = &p.ty {
         if struct_names.contains(n.as_str()) {
             return vec![format!("{}_handle", p.name)];

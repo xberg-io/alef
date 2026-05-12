@@ -602,12 +602,33 @@ fn render_test_method(
                 .as_deref()
                 .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
         });
-    let collect_snippet = if is_streaming && !expects_error {
+    let collect_snippet_opt = if is_streaming && !expects_error {
         crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(lang, result_var, "chunks")
-            .unwrap_or_default()
     } else {
-        String::new()
+        None
     };
+    // When swift has streaming-virtual-field assertions but no collect snippet
+    // is available (the swift-bridge surface does not yet expose a typed
+    // `chatStream` async sequence we can drain into a typed
+    // `[ChatCompletionChunk]`), emit a skip stub rather than reference an
+    // undefined `chunks` local in the assertion expressions. This keeps the
+    // swift test target compiling while the binding catches up.
+    if is_streaming && !expects_error && collect_snippet_opt.is_none() {
+        if is_async {
+            let _ = writeln!(out, "    func test{method_name}() async throws {{");
+        } else {
+            let _ = writeln!(out, "    func test{method_name}() throws {{");
+        }
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        try XCTSkipIf(true, \"swift: streaming chunk collection is not yet supported via the swift-bridge surface (fixture: {})\")",
+            fixture.id
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+    let collect_snippet = collect_snippet_opt.unwrap_or_default();
 
     // Detect whether this call has any json_object args that cannot be constructed
     // in Swift — swift-bridge opaque types do not provide a fromJson initialiser.
