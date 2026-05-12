@@ -907,8 +907,7 @@ fn render_test_case(
     // When result_is_simple is true the return value is a primitive (e.g. BitArray,
     // String) — field accessors don't exist on it.  Skip assertions that reference
     // a specific field since they would generate `r.field` on a non-record type.
-    let result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple)
-        || call_config.result_is_simple;
+    let result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple) || call_config.result_is_simple;
     // Tagged-union assertions need the package module qualifier for variant
     // pattern matches. Resolve from `[e2e.packages.gleam] name`, falling back
     // to the snake-cased crate name (matching the gleam.toml dependency name
@@ -940,10 +939,7 @@ fn render_test_case(
         if result_is_simple {
             if let Some(f) = &assertion.field {
                 if !f.is_empty() {
-                    let _ = writeln!(
-                        out,
-                        "  // skipped: field '{f}' not accessible on simple result type"
-                    );
+                    let _ = writeln!(out, "  // skipped: field '{f}' not accessible on simple result type");
                     continue;
                 }
             }

@@ -77,8 +77,26 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the Java Maven groupId.
+    ///
+    /// Prefers the explicit `[java] group_id` override when set; otherwise falls back to
+    /// the Java package name (most projects publish under `groupId == java package`).
     pub fn java_group_id(&self) -> String {
+        if let Some(gid) = self.java.as_ref().and_then(|j| j.group_id.as_ref()) {
+            return gid.clone();
+        }
         self.java_package()
+    }
+
+    /// Get the Java Maven artifactId.
+    ///
+    /// Prefers the explicit `[java] artifact_id` override; otherwise falls back to the
+    /// crate name (`[[crates]] name`).
+    pub fn java_artifact_id(&self) -> String {
+        self.java
+            .as_ref()
+            .and_then(|j| j.artifact_id.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.name.clone())
     }
 
     /// Get the Kotlin package name, returning an error when neither

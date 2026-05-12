@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.44] - 2026-05-12
+
+### Added
+
+- feat(alef-core/java): `[java] group_id` and `[java] artifact_id` config overrides for the Maven coords emitted by `alef-scaffold/java`. When unset, `java_group_id()` falls back to the Java package and `java_artifact_id()` falls back to the source crate name. Set these when the published Maven coords need to differ from the Java package / source crate name (e.g. crate `html-to-markdown-rs` publishes as artifactId `html-to-markdown` under groupId `dev.kreuzberg`).
+
+### Fixed
+
+- fix(alef-e2e/zig): drop the misleading `// Note: async functions not yet fully supported; treating as sync` comment from generated tests in all three emission paths (error, no-assertion, happy). The generated tests already exercise the real async code path via `tokio::runtime::block_on` in the FFI shim, so the comment was cosmetic noise.
+- fix(alef-e2e/kotlin): remove the dead `call_overrides.is_none()` short-circuit that emitted `Assumptions.assumeTrue(false, "TODO: implement Kotlin e2e test")` for every fixture lacking a per-call override. The existing fallback resolves `function_name`/`result_var`/`args` from `call_config.function.to_lower_camel_case()` and the global `[e2e.call.overrides.kotlin]` block, so the real assertion renderer is now reachable for all kotlin fixtures. Also extend `client_factory` lookup to fall back to the global block (mirrors dart pattern), so per-call kotlin overrides don't lose the global `createClient` factory.
+- fix(alef-e2e/dart): emit `expect(...)` assertion calls after the `await` in the non-HTTP test path. Previously the renderer dropped the result on the floor (`final result = await ...;` with no following assertions). Added `render_assertion_dart` helper handling `equals`, `field_equals`, `contains`, `not_null`, `not_error`; unknown assertion types emit a `// skipped:` comment as before.
+
 ## [0.15.43] - 2026-05-12
 
 ### Fixed

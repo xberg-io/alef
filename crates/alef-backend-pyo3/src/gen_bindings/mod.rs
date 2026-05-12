@@ -862,7 +862,9 @@ mod alef_json_str_opt {
                 // field is `#[cfg(feature = "...")]`-gated and the struct generator strips
                 // cfg-gated fields), referencing it would fail to compile with `E0609 no
                 // field`. Gate the rewrite on the field being present in the binding.
-                let Some(options_type) = bridge.options_type.as_deref() else { continue; };
+                let Some(options_type) = bridge.options_type.as_deref() else {
+                    continue;
+                };
                 let field_in_binding = api
                     .types
                     .iter()

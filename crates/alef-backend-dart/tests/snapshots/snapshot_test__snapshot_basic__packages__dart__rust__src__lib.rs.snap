@@ -59,3 +59,12 @@ impl From<demo::Status> for Status {
 pub fn process(input: String, count: i64) -> Result<String, String> {
     demo::process(input, count as u32).map(|v| v.to_string()).map_err(|e| e.to_string())
 }
+
+// `create_<Type>_from_json` helpers — deserialize a JSON string into a mirror type.
+
+#[frb]
+pub fn create_config_from_json(json: String) -> Result<Config, String> {
+    serde_json::from_str::<demo::Config>(&json)
+        .map(Config::from)
+        .map_err(|e| e.to_string())
+}

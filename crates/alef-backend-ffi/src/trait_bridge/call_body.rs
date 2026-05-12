@@ -44,6 +44,11 @@ impl FfiBridgeGenerator {
         // (starts with `"`) we append `.to_string()` so the generated code compiles
         // regardless of whether the error variant accepts `&str` or `String`.
         let make_err = |msg_literal: String| -> String {
+            // Templates often end with a trailing newline; strip it so that
+            // appended suffixes (`.to_string()`, etc.) stay on the same source
+            // line as the literal — keeps the per-line lint in the regression
+            // test (`bug_sync_static_error_literal_coerced_to_string`) honest.
+            let msg_literal = msg_literal.trim_end().to_string();
             if inside_closure {
                 format!("return Err(Box::from({msg_literal}));\n")
             } else {

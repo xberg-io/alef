@@ -445,14 +445,27 @@ fn render_test_file(
     // Detect if any fixture in this group is an HTTP server test.
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
-    // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
-    let needs_object_mapper_for_options = options_type.is_some()
-        && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                arg.arg_type == "json_object" && f.input.get(field).is_some_and(|v| !v.is_null())
-            })
-        });
+    // Collect every (per-call) options_type referenced by fixtures in this file.
+    // Per-call kotlin overrides win over the file-level options_type passed in.
+    // Each entry is a json_object arg's options_type — we need to import each one.
+    let mut per_fixture_options_types: HashSet<String> = HashSet::new();
+    for f in fixtures.iter() {
+        let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+        let call_overrides = cc.overrides.get("kotlin");
+        let effective_opts = call_overrides.and_then(|o| o.options_type.as_deref()).or(options_type);
+        if let Some(opts) = effective_opts {
+            // Prefer the per-call args (which carry the correct arg_type + field for the
+            // resolved call); fall back to the file-level args only when the call has none.
+            let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
+            let has_json_obj = fixture_args
+                .iter()
+                .any(|arg| arg.arg_type == "json_object" && !super::resolve_field(&f.input, &arg.field).is_null());
+            if has_json_obj {
+                per_fixture_options_types.insert(opts.to_string());
+            }
+        }
+    }
+    let needs_object_mapper_for_options = !per_fixture_options_types.is_empty();
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         args.iter().filter(|a| a.arg_type == "handle").any(|a| {
@@ -477,15 +490,16 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module");
     }
-    // Import the options type if tests use it (it's in the same package as the main class).
-    if let Some(opts_type) = options_type {
-        if needs_object_mapper && has_call_fixtures {
-            // Derive the fully-qualified name from the main class import path.
+    // Import every options type referenced by per-call kotlin overrides in this file.
+    if needs_object_mapper && has_call_fixtures {
+        let mut sorted_opts: Vec<&String> = per_fixture_options_types.iter().collect();
+        sorted_opts.sort();
+        for opts_type in sorted_opts {
             let opts_package = if !import_path.is_empty() {
                 let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
                 format!("{pkg}.{opts_type}")
             } else {
-                opts_type.to_string()
+                opts_type.clone()
             };
             let _ = writeln!(out, "import {opts_package}");
         }
@@ -795,25 +809,16 @@ fn render_test_method(
     let lang = "kotlin";
     let call_overrides = call_config.overrides.get(lang);
 
-    // Emit a compilable stub for non-HTTP fixtures that have no Kotlin-specific call
-    // override — these fixtures call the default function (e.g., `handleRequest`) which
-    // may not exist in the Kotlin binding at this target (e.g., asyncapi, websocket).
-    if call_overrides.is_none() {
-        let method_name = fixture.id.to_upper_camel_case();
-        let description = &fixture.description;
-        let _ = writeln!(out, "    @Test");
-        let _ = writeln!(out, "    fun test{method_name}() {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(
-            out,
-            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Kotlin e2e test for fixture '{}'\")",
-            fixture.id
-        );
-        let _ = writeln!(out, "    }}");
-        return;
-    }
     // Check for client_factory — when set, use instance-method call style.
-    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref());
+    // Falls back to the global `[e2e.call.overrides.kotlin]` `client_factory` when
+    // a per-call override is absent, matching the dart/swift renderers.
+    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
 
     let effective_function_name = call_overrides
         .and_then(|o| o.function.as_ref())
@@ -824,16 +829,21 @@ fn render_test_method(
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
     let args: &[crate::config::ArgMapping] = effective_args.as_slice();
+    // Per-call override of options_type wins over the global one passed in.
+    let effective_options_type = call_overrides.and_then(|o| o.options_type.as_deref()).or(options_type);
+    let options_type = effective_options_type;
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
+    // Uses `resolve_field` so that `field = "input"` resolves to the whole fixture
+    // input (and not a nested key called "input"), matching dart/swift behavior.
     let needs_deser = options_type.is_some()
         && args
             .iter()
-            .any(|arg| arg.arg_type == "json_object" && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null()));
+            .any(|arg| arg.arg_type == "json_object" && !super::resolve_field(&fixture.input, &arg.field).is_null());
 
     let _ = writeln!(out, "    @Test");
     let _ = writeln!(out, "    fun test{method_name}() {{");
@@ -843,18 +853,16 @@ fn render_test_method(
     if let (true, Some(opts_type)) = (needs_deser, options_type) {
         for arg in args {
             if arg.arg_type == "json_object" {
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                if let Some(val) = fixture.input.get(field) {
-                    if !val.is_null() {
-                        let normalized = super::normalize_json_keys_to_snake_case(val);
-                        let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                        let var_name = &arg.name;
-                        let _ = writeln!(
-                            out,
-                            "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
-                            escape_kotlin(&json_str)
-                        );
-                    }
+                let val = super::resolve_field(&fixture.input, &arg.field);
+                if !val.is_null() {
+                    let normalized = super::normalize_json_keys_to_snake_case(val);
+                    let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                    let var_name = &arg.name;
+                    let _ = writeln!(
+                        out,
+                        "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
+                        escape_kotlin(&json_str)
+                    );
                 }
             }
         }
@@ -991,8 +999,13 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        // Use resolve_field so field = "input" resolves to the whole fixture input.
+        let val_resolved = super::resolve_field(input, &arg.field);
+        let val: Option<&serde_json::Value> = if val_resolved.is_null() {
+            None
+        } else {
+            Some(val_resolved)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 continue;

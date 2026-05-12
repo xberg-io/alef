@@ -177,11 +177,10 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 }
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
-    // FRB v2 schema: `rust_root` points at the Rust crate dir, `dart_output` at the
-    // bindings directory, and `rust_input` selects the scanned module. We pin
-    // `crate` so FRB picks up every top-level `pub fn` (including plugin lifecycle
-    // helpers like `unregister_*`) — defaulting it produces partial bindings.
-    let content = format!("rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\nrust_input: crate\n");
+    // FRB v2 schema: `rust_root` points at the Rust crate dir and `dart_output`
+    // at the bindings directory. The v1 keys `rust_input` and `rust_output` have
+    // been removed — FRB v2 auto-discovers `pub fn`s from the crate root.
+    let content = format!("rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\n");
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
         content,
