@@ -17,7 +17,7 @@ sha2 = "0.11"
 toml = { workspace = true }
 toml_edit = { workspace = true }
 tracing = { workspace = true }
-zip = { version = "7", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"
