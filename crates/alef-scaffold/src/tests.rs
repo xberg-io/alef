@@ -1074,6 +1074,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: Vec::new(),
     }];
 
     let api = test_api();
@@ -1133,6 +1134,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: Vec::new(),
     }];
 
     let api = test_api();

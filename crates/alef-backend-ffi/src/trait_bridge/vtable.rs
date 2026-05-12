@@ -215,6 +215,7 @@ mod tests {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -386,6 +387,7 @@ mod tests {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: Vec::new(),
         };
         let trait_def = make_trait_def("Backend", vec![]);
         let spec = make_spec(&trait_def, &bridge_cfg);
@@ -442,6 +444,7 @@ mod tests {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+            ffi_skip_methods: Vec::new(),
         };
         let trait_def = make_trait_def("Backend", vec![]);
         let spec = make_spec(&trait_def, &bridge_cfg);

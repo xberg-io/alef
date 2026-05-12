@@ -1021,6 +1021,7 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+        ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1118,6 +1119,7 @@ mod trait_bridge {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
+        ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1707,6 +1709,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
         bind_via: BridgeBinding::OptionsField,
         options_type: Some("ConversionOptions".to_string()),
         options_field: None,
+        ffi_skip_methods: Vec::new(),
     };
 
     let api = ApiSurface {
