@@ -473,6 +473,14 @@ impl Backend for RustlerBackend {
             ));
         }
 
+        // from_json NIF shims for Gleam e2e tests.
+        for typ in api.types.iter().filter(|t| {
+            !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde
+                && !exclude_types.contains(t.name.as_str())
+        }) {
+            builder.add_item(&gen_from_json_nif(typ, &core_import));
+        }
+
         builder.add_item(&gen_nif_init(api, config, &exclude_functions, &exclude_types));
 
         let content = builder.build();
@@ -1218,6 +1226,24 @@ impl Backend for RustlerBackend {
             post_build: vec![],
         })
     }
+}
+
+/// Generate a from_json NIF shim for one serde-capable struct type.
+fn gen_from_json_nif(typ: &alef_core::ir::TypeDef, core_import: &str) -> String {
+    let type_name = &typ.name;
+    let snake = type_name.to_snake_case();
+    let fn_name = format!("{snake}_from_json");
+    let core_ty = if typ.rust_path.is_empty() {
+        format!("{core_import}::{type_name}")
+    } else {
+        typ.rust_path.replace('-', "_")
+    };
+    format!(
+        "#[rustler::nif]\npub fn {fn_name}(json: String) -> Result<{type_name}, String> {{\n    \
+        serde_json::from_str::<{core_ty}>(&json)\n        \
+        .map({type_name}::from)\n        \
+        .map_err(|e| e.to_string())\n}}\n"
+    )
 }
 
 /// Generate the rustler::init! macro invocation.

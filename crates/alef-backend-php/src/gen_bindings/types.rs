@@ -317,7 +317,10 @@ fn gen_struct_methods_impl(
         // use partial JSON. PHP enum fields map to String in the binding; their Rust-native
         // defaults (e.g. BrowserMode::Auto) are not valid in the generated binding code, so
         // a PHP kwargs __construct would fail to compile for any struct with enum-typed fields.
-        let use_from_json = has_serde && (has_named_params || typ.has_default);
+        // Special case: ConversionOptions has a hand-written impl Default (not #[derive(Default)])
+        // so the IR may not detect has_default=true. Force from_json for it since it's serializable.
+        let force_from_json_for_options = typ.name == "ConversionOptions";
+        let use_from_json = has_serde && (has_named_params || typ.has_default || force_from_json_for_options);
         if use_from_json {
             let constructor = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
                  serde_json::from_str(&json)\n        \

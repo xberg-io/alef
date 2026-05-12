@@ -10,7 +10,7 @@ mod nif_external;
 mod trait_bridge;
 mod variant_collision;
 
-use nif_external::{emit_enum, emit_error_type, emit_function, emit_method, emit_resource_type, emit_type};
+use nif_external::{emit_enum, emit_error_type, emit_from_json_fn, emit_function, emit_method, emit_resource_type, emit_type};
 use trait_bridge::{emit_trait_bridge_shims, emit_trait_support_nifs};
 use variant_collision::build_collision_set;
 
@@ -90,6 +90,18 @@ impl Backend for GleamBackend {
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
             emit_function(f, &nif_module, &declared_errors, &mut body, &mut imports);
+            body.push('\n');
+        }
+
+        // Emit from_json NIF externals for every non-opaque serde-capable struct type.
+        for ty in api.types.iter().filter(|t| {
+            !t.is_trait
+                && !t.is_opaque
+                && !t.fields.is_empty()
+                && t.has_serde
+                && !exclude_types.contains(t.name.as_str())
+        }) {
+            emit_from_json_fn(ty, &nif_module, &mut body);
             body.push('\n');
         }
 
