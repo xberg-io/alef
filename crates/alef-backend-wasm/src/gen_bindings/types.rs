@@ -201,11 +201,11 @@ fn gen_opaque_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
-    // Streaming adapters return JsValue (via serde_wasm_bindgen), override the IR return type
+    // Streaming adapters return JsValue (via js_sys::Array or serde_wasm_bindgen), override the IR return type
     let return_annotation = if has_adapter
         && adapter_bodies
             .get(&adapter_key)
-            .is_some_and(|b| b.contains("serde_wasm_bindgen::to_value"))
+            .is_some_and(|b| b.contains("js_sys::Array") || b.contains("serde_wasm_bindgen::to_value"))
     {
         "Result<JsValue, JsValue>".to_string()
     } else {

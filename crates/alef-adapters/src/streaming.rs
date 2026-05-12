@@ -443,21 +443,32 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    // WASM: use serde_wasm_bindgen to convert core types (which have Serialize) to JsValue.
-    // Return JsValue instead of String for idiomatic WASM interop.
+    // WASM: collect stream chunks into a js_sys::Array of typed Wasm wrapper objects
+    // (e.g. WasmChatCompletionChunk) so JavaScript callers access fields via the
+    // `#[wasm_bindgen(getter, js_name = "...")]`-annotated camelCase getters.
+    // Using serde_wasm_bindgen::to_value(&core_chunks) would emit snake_case field
+    // names that don't match the generated e2e test assertions (finishReason, etc.).
     let core_item = adapter.item_type.as_deref().unwrap_or("()");
+    let wasm_item = if core_item == "()" || core_item == "JsValue" {
+        core_item.to_string()
+    } else {
+        format!("{prefix}{core_item}")
+    };
     let body = format!(
         "use futures_util::StreamExt;\n    \
          {bindings_block}\
          let stream = self.inner.{core_path}({call_str}).await\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         let chunks: Vec<{core_import}::{core_item}> = stream\n        \
+         let core_chunks: Vec<{core_import}::{core_item}> = stream\n        \
              .collect::<Vec<_>>().await\n        \
              .into_iter()\n        \
              .collect::<std::result::Result<Vec<_>, _>>()\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         serde_wasm_bindgen::to_value(&chunks)\n        \
-             .map_err(|e| JsValue::from_str(&e.to_string()))"
+         let arr = js_sys::Array::new();\n    \
+         for chunk in core_chunks {{\n        \
+             arr.push(&JsValue::from({wasm_item}::from(chunk)));\n    \
+         }}\n    \
+         Ok(arr.into())"
     );
 
     (body, None)
