@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.43] - 2026-05-12
+
+### Fixed
+
+- fix(alef-backend-go): emit gofmt-clean output from the visitor templates — `visitor_preamble.jinja` now ends with a trailing newline (so `gofmt` doesn't insert a blank line between the import block and the first declaration), and `visitor_registry_block.jinja` aligns the `visitorRegistry`/`visitorIDCounter` field types so `gofmt` doesn't realign them. Without this, the alef-verify pre-commit hook fails because `gofmt` reformats the regen output and the resulting hash no longer matches the `alef:hash` header.
+
 ## [0.15.42] - 2026-05-12
 
 ### Fixed
