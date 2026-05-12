@@ -55,6 +55,7 @@ impl ExtendrBackend {
             // attempting .clone().into() which would fail to compile.
             lossy_skip_types,
             serializable_opaque_type_names: &[],
+            never_skip_cfg_field_names: &[],
         }
     }
 }

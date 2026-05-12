@@ -47,6 +47,7 @@ impl Pyo3Backend {
             named_non_opaque_params_by_ref: false,
             lossy_skip_types: &[],
             serializable_opaque_type_names: &[],
+            never_skip_cfg_field_names: &[],
         }
     }
 
@@ -262,6 +263,19 @@ impl Backend for Pyo3Backend {
         cfg_unsendable.opaque_type_names = &opaque_names_vec;
         cfg.serializable_opaque_type_names = &serializable_opaque_names_vec;
         cfg_unsendable.serializable_opaque_type_names = &serializable_opaque_names_vec;
+        let never_skip_cfg_field_names: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| {
+                if b.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                    b.resolved_options_field().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
+        cfg_unsendable.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         let mutex_types: AHashSet<String> = api
             .types
             .iter()

@@ -5,6 +5,7 @@
 
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::EnumDef;
+use heck::ToSnakeCase;
 use std::collections::HashMap;
 
 pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &HashMap<String, String>) -> String {
@@ -75,7 +76,67 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     }
     out.push_str("        }\n");
     out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    // `to_string` impl — returns the serialized (serde) name of the variant so that
+    // swift-bridge can expose it as a `toString() -> RustString` Swift method.
+    // This lets e2e tests do `linkType().toString().toString()` to get "anchor" etc.
+    // instead of relying on `String(describing:)` which yields the opaque class description.
+    out.push_str(&format!("impl {} {{\n", en.name));
+    out.push_str("    pub fn to_string(&self) -> String {\n");
+    out.push_str("        match self {\n");
+    for variant in &unit_variants {
+        let serde_name = serde_variant_name(variant, en.serde_rename_all.as_deref());
+        out.push_str(&format!(
+            "            Self::{} => \"{}\".to_string(),\n",
+            variant.name, serde_name
+        ));
+    }
+    if has_data_variants {
+        out.push_str("            Self::Unknown => \"unknown\".to_string(),\n");
+    }
+    out.push_str("        }\n");
+    out.push_str("    }\n");
     out.push_str("}\n");
 
     out
+}
+
+/// Compute the serde-serialized name for a unit enum variant.
+///
+/// Priority order:
+/// 1. Explicit `#[serde(rename = "...")]` on the variant.
+/// 2. `rename_all` transformation applied to the Rust identifier.
+/// 3. Raw Rust identifier (no transformation).
+fn serde_variant_name(variant: &alef_core::ir::EnumVariant, rename_all: Option<&str>) -> String {
+    if let Some(rename) = &variant.serde_rename {
+        return rename.clone();
+    }
+    match rename_all {
+        Some("snake_case") => variant.name.to_snake_case(),
+        Some("lowercase") => variant.name.to_lowercase(),
+        Some("UPPERCASE") => variant.name.to_uppercase(),
+        Some("camelCase") => {
+            // to_lower_camel_case from heck
+            use heck::ToLowerCamelCase;
+            variant.name.to_lower_camel_case()
+        }
+        Some("PascalCase") | Some("UpperCamelCase") => {
+            use heck::ToUpperCamelCase;
+            variant.name.to_upper_camel_case()
+        }
+        Some("SCREAMING_SNAKE_CASE") => {
+            use heck::ToShoutySnakeCase;
+            variant.name.to_shouty_snake_case()
+        }
+        Some("kebab-case") => {
+            use heck::ToKebabCase;
+            variant.name.to_kebab_case()
+        }
+        Some("SCREAMING-KEBAB-CASE") => {
+            use heck::ToShoutyKebabCase;
+            variant.name.to_shouty_kebab_case()
+        }
+        _ => variant.name.clone(),
+    }
 }
