@@ -108,7 +108,10 @@ pub(super) fn render_test_function(
         }
         exprs.join(", ")
     };
-    let await_prefix = if is_async { "await " } else { "" };
+    // For streaming fixtures, chat_stream() is synchronous (block_on) and returns
+    // the iterator directly — do NOT await it even though the test function is async
+    // (the async is needed to drive `async for chunk in result`).
+    let await_prefix = if is_async && !is_streaming { "await " } else { "" };
 
     // Client factory: when configured, create a client and dispatch as a method.
     // Fixtures with mock_response point the client at the mock server via base_url so
@@ -433,10 +436,13 @@ fn emit_streaming_virtual_assertion(out: &mut String, assertion: &crate::fixture
             let _ = writeln!(out, "    assert not {expr}  # noqa: S101");
         }
         "is_true" => {
-            let _ = writeln!(out, "    assert {expr}  # noqa: S101");
+            // Normalize "true"/"false" literals to Python's True/False.
+            let py_expr = if expr == "true" { "True".to_string() } else if expr == "false" { "False".to_string() } else { expr.clone() };
+            let _ = writeln!(out, "    assert {py_expr}  # noqa: S101");
         }
         "is_false" => {
-            let _ = writeln!(out, "    assert not {expr}  # noqa: S101");
+            let py_expr = if expr == "true" { "True".to_string() } else if expr == "false" { "False".to_string() } else { expr.clone() };
+            let _ = writeln!(out, "    assert not {py_expr}  # noqa: S101");
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
