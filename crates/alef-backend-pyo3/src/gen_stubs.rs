@@ -400,12 +400,12 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &ResolvedCrateCon
             if is_python_builtin_name(name) {
                 wrapped.push_str(&crate::template_env::render(
                     "stub_param_wrapped_noqa.jinja",
-                    minijinja::context! { param => param },
+                    minijinja::context! { param => param, indent => "        " },
                 ));
             } else {
                 wrapped.push_str(&crate::template_env::render(
                     "stub_param_wrapped.jinja",
-                    minijinja::context! { param => param },
+                    minijinja::context! { param => param, indent => "        " },
                 ));
             }
         }
@@ -711,12 +711,12 @@ fn gen_function_stub(
             if is_python_builtin_name(name) {
                 wrapped.push_str(&crate::template_env::render(
                     "stub_param_wrapped_noqa.jinja",
-                    minijinja::context! { param => param },
+                    minijinja::context! { param => param, indent => "    " },
                 ));
             } else {
                 wrapped.push_str(&crate::template_env::render(
                     "stub_param_wrapped.jinja",
-                    minijinja::context! { param => param },
+                    minijinja::context! { param => param, indent => "    " },
                 ));
             }
         }

@@ -130,13 +130,16 @@ pub struct StubsConfig {
 ///
 /// When set, the named Rust type is NOT emitted as a `#[napi]` opaque wrapper.
 /// Instead, functions returning this type produce a `JsObject` carrying the raw
-/// pointer in a `__parser` `Napi::External<T>` property — the layout consumed
+/// pointer in a configurable `Napi::External<T>` property — the layout consumed
 /// by the `tree-sitter` npm package's `Parser.setLanguage()`.
 ///
 /// TOML form:
 /// ```toml
-/// [crates.node.capsule_types]
-/// Language = { type = "Language", from_module = "tree-sitter" }
+/// [crates.node.capsule_types.Language]
+/// type = "Language"
+/// from_module = "tree-sitter"
+/// property_name = "language"
+/// type_tag = { lower = "0x8AF2E5212AD58ABF", upper = "0xD5006CAD83ABBA16" }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeCapsuleTypeConfig {
@@ -147,18 +150,37 @@ pub struct NodeCapsuleTypeConfig {
     /// npm package to import the type from (e.g. `"tree-sitter"`).
     /// Emitted as the `from` clause in the generated `import type` line.
     pub from_module: String,
-    /// Codegen strategy. Currently only `"external_pointer"` is supported:
-    /// the Rust shim returns a `JsObject` with `__parser` property set to
-    /// `Napi::External<T>` wrapping the raw pointer obtained via
-    /// `value.into_raw()`.
-    ///
+    /// Codegen strategy. Currently only `"external_pointer"` is supported.
     /// Defaults to `"external_pointer"`.
     #[serde(default = "default_node_capsule_construct")]
     pub construct: String,
+    /// JS property name to set on the returned object. `node-tree-sitter`
+    /// reads `value["language"]`; other consumers may use different names.
+    /// Defaults to `"__parser"` for back-compat with existing configs.
+    #[serde(default = "default_node_capsule_property_name")]
+    pub property_name: String,
+    /// Optional N-API type tag to apply via `napi_type_tag_object`. Required
+    /// when the consumer library (e.g. `node-tree-sitter`) calls
+    /// `napi_check_object_type_tag` to validate the External before using it.
+    #[serde(default)]
+    pub type_tag: Option<NapiTypeTagConfig>,
+}
+
+/// An N-API `napi_type_tag` value, expressed as two 64-bit hex strings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NapiTypeTagConfig {
+    /// Lower 64 bits of the tag, hex (e.g. `"0x8AF2E5212AD58ABF"`).
+    pub lower: String,
+    /// Upper 64 bits of the tag, hex (e.g. `"0xD5006CAD83ABBA16"`).
+    pub upper: String,
 }
 
 fn default_node_capsule_construct() -> String {
     "external_pointer".to_string()
+}
+
+fn default_node_capsule_property_name() -> String {
+    "__parser".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

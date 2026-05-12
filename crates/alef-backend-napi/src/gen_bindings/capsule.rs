@@ -65,7 +65,7 @@ pub(super) fn return_type_name<'a>(
 ///   `__parser` property of a new `JsObject`.
 pub(super) fn gen_capsule_function(
     func: &FunctionDef,
-    _capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
+    capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
     core_import: &str,
 ) -> String {
     let js_name = to_node_name(&func.name);
@@ -117,28 +117,70 @@ pub(super) fn gen_capsule_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
 
-    // Emit the shim body using NAPI v3 API:
-    //   - napi::bindgen_prelude::Object::new(&env) replaces env.create_object()
-    //   - napi::bindgen_prelude::External::new(ptr) replaces env.create_external(ptr, None)
-    // SAFETY comment: into_raw() transfers ownership of the raw pointer to the External.
-    // The tree-sitter npm package stores it in a JS External and calls back into the
-    // C ABI. Dropping this pointer prematurely would be a use-after-free; we rely on
-    // the downstream JS runtime keeping the External alive for as long as the parser runs.
+    // Look up the capsule config for this function's return type to read
+    // `property_name` and optional `type_tag`. Fall back to defaults when missing
+    // so the codegen never panics on a malformed config (validation lives in
+    // alef-core::config).
+    let capsule_name = return_type_name(func, capsule_types).unwrap_or("");
+    let cfg = capsule_types.get(capsule_name);
+    let property_name = cfg
+        .map(|c| c.property_name.clone())
+        .unwrap_or_else(|| "__parser".to_string());
+    let type_tag_const = cfg.and_then(|c| c.type_tag.as_ref()).map(|_| {
+        format!("__ALEF_CAPSULE_TAG_{}", capsule_name.to_ascii_uppercase())
+    });
+
+    // node-tree-sitter's `Napi::Value::As<External<TSLanguage>>` only recognises
+    // values produced by raw `napi_create_external`. napi-rs's
+    // `bindgen_prelude::External::new()` wraps the value differently and fails
+    // the C++-side `IsExternal()` check at runtime. We therefore call
+    // `napi_create_external` directly through a hand-declared FFI extern.
+    let tag_block = if let Some(const_name) = &type_tag_const {
+        format!(
+            r#"    let status = unsafe {{
+        napi_type_tag_object(env_raw, external_value, &{const_name})
+    }};
+    if status != napi::sys::Status::napi_ok {{
+        return Err(napi::Error::new(
+            napi::Status::GenericFailure,
+            format!("napi_type_tag_object failed: status={{status}}"),
+        ));
+    }}
+"#
+        )
+    } else {
+        String::new()
+    };
+
     let body = format!(
         r#"    let value = {core_fn_path}({args}){err_conv};
-    // ASSUMPTION: the capsule type exposes `into_raw()` returning a raw pointer.
-    // This is a compile-time assumption — if the method name changes in a future
-    // version of tree-sitter, this shim will fail to compile in the downstream crate.
-    // SAFETY: `into_raw()` transfers ownership of the raw pointer. The external value
-    // is kept alive by the JS runtime as long as the returned object is reachable.
+    // SAFETY: `into_raw()` transfers ownership of the raw pointer. The downstream JS
+    // runtime keeps the External alive as long as the returned object is reachable;
+    // dropping the pointer prematurely would be a use-after-free.
     let ptr = value.into_raw() as *mut std::ffi::c_void;
-    let mut obj = napi::bindgen_prelude::Object::new(&env)?;
-    let external = napi::bindgen_prelude::External::new(ptr);
-    obj.set_named_property("__parser", external)?;
+    let mut obj = napi::bindgen_prelude::Object::new(env)?;
+    let env_raw = env.raw();
+    let mut external_value: napi::sys::napi_value = std::ptr::null_mut();
+    let create_status = unsafe {{
+        napi_create_external(env_raw, ptr, None, std::ptr::null_mut(), &mut external_value)
+    }};
+    if create_status != napi::sys::Status::napi_ok {{
+        return Err(napi::Error::new(
+            napi::Status::GenericFailure,
+            format!("napi_create_external failed: status={{create_status}}"),
+        ));
+    }}
+{tag_block}    // SAFETY: external_value was just created by napi_create_external on env_raw.
+    let unknown = unsafe {{
+        napi::bindgen_prelude::Unknown::from_raw_unchecked(env_raw, external_value)
+    }};
+    obj.set_named_property("{property_name}", unknown)?;
     Ok(obj)"#,
         core_fn_path = core_fn_path,
         args = call_args.join(", "),
         err_conv = err_conv,
+        tag_block = tag_block,
+        property_name = property_name,
     );
 
     format!(
@@ -148,6 +190,60 @@ pub(super) fn gen_capsule_function(
         params = sig_params.join(", "),
         body = body,
     )
+}
+
+/// Emit the FFI extern declarations used by every capsule-returning shim.
+/// Emitted once per crate when any capsule_types are configured.
+pub(super) fn gen_ffi_declarations() -> String {
+    r#"#[repr(C)]
+struct NapiTypeTag {
+    lower: u64,
+    upper: u64,
+}
+
+unsafe extern "C" {
+    fn napi_create_external(
+        env: napi::sys::napi_env,
+        data: *mut std::ffi::c_void,
+        finalize_cb: Option<
+            unsafe extern "C" fn(
+                env: napi::sys::napi_env,
+                data: *mut std::ffi::c_void,
+                hint: *mut std::ffi::c_void,
+            ),
+        >,
+        finalize_hint: *mut std::ffi::c_void,
+        result: *mut napi::sys::napi_value,
+    ) -> napi::sys::napi_status;
+    fn napi_type_tag_object(
+        env: napi::sys::napi_env,
+        value: napi::sys::napi_value,
+        type_tag: *const NapiTypeTag,
+    ) -> napi::sys::napi_status;
+}
+"#
+    .to_string()
+}
+
+/// Emit a `const __ALEF_CAPSULE_TAG_<NAME>: NapiTypeTag = ...;` for each capsule
+/// type that has a configured type_tag. Skipped for types without a tag.
+pub(super) fn gen_type_tag_constants(capsule_types: &HashMap<String, NodeCapsuleTypeConfig>) -> String {
+    let mut entries: Vec<(&String, &NodeCapsuleTypeConfig)> = capsule_types.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut out = String::new();
+    for (name, cfg) in entries {
+        if let Some(tag) = &cfg.type_tag {
+            let lower = tag.lower.trim_start_matches("0x");
+            let upper = tag.upper.trim_start_matches("0x");
+            out.push_str(&format!(
+                "const __ALEF_CAPSULE_TAG_{}: NapiTypeTag = NapiTypeTag {{\n    lower: 0x{},\n    upper: 0x{},\n}};\n",
+                name.to_ascii_uppercase(),
+                lower,
+                upper,
+            ));
+        }
+    }
+    out
 }
 
 fn prim_rust_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
@@ -181,6 +277,8 @@ mod tests {
             type_name: type_name.to_string(),
             from_module: from_module.to_string(),
             construct: "external_pointer".to_string(),
+            property_name: "__parser".to_string(),
+            type_tag: None,
         }
     }
 
@@ -257,7 +355,7 @@ mod tests {
         assert_eq!(return_type_name(&func, &capsules), Some("Language"));
     }
 
-    /// gen_capsule_function emits a napi shim with __parser + External.
+    /// gen_capsule_function emits a napi shim using raw napi_create_external + property name.
     #[test]
     fn gen_capsule_function_emits_external_and_parser_property() {
         let func = make_get_language_fn();
@@ -270,7 +368,76 @@ mod tests {
             "must return bindgen_prelude::Object: {out}"
         );
         assert!(out.contains("into_raw"), "must call into_raw(): {out}");
-        assert!(out.contains("External::new"), "must call External::new: {out}");
-        assert!(out.contains("__parser"), "must set __parser property: {out}");
+        assert!(
+            out.contains("napi_create_external"),
+            "must call raw napi_create_external (not bindgen_prelude::External::new): {out}"
+        );
+        assert!(
+            !out.contains("bindgen_prelude::External::new"),
+            "must NOT use bindgen_prelude::External::new (rejected by node-tree-sitter): {out}"
+        );
+        assert!(out.contains("__parser"), "must default property name to __parser: {out}");
+        assert!(
+            !out.contains("napi_type_tag_object"),
+            "must NOT emit type-tag call when type_tag is unset: {out}"
+        );
+    }
+
+    /// When a type_tag is configured, the shim emits napi_type_tag_object with the tag constant.
+    #[test]
+    fn gen_capsule_function_emits_type_tag_when_configured() {
+        let func = make_get_language_fn();
+        let mut cfg = make_capsule_config("Language", "tree-sitter");
+        cfg.property_name = "language".to_string();
+        cfg.type_tag = Some(alef_core::config::NapiTypeTagConfig {
+            lower: "0x8AF2E5212AD58ABF".to_string(),
+            upper: "0xD5006CAD83ABBA16".to_string(),
+        });
+        let capsules = capsule_map(&[("Language", cfg)]);
+        let out = gen_capsule_function(&func, &capsules, "ts_pack");
+        assert!(
+            out.contains("napi_type_tag_object"),
+            "must call napi_type_tag_object when type_tag set: {out}"
+        );
+        assert!(
+            out.contains("__ALEF_CAPSULE_TAG_LANGUAGE"),
+            "must reference the per-capsule tag constant: {out}"
+        );
+        assert!(
+            out.contains(r#"set_named_property("language""#),
+            "must honour configured property_name: {out}"
+        );
+    }
+
+    /// gen_type_tag_constants emits one const per tagged capsule type.
+    #[test]
+    fn gen_type_tag_constants_emits_only_tagged_entries() {
+        let mut tagged = make_capsule_config("Language", "tree-sitter");
+        tagged.type_tag = Some(alef_core::config::NapiTypeTagConfig {
+            lower: "0x8AF2E5212AD58ABF".to_string(),
+            upper: "0xD5006CAD83ABBA16".to_string(),
+        });
+        let untagged = make_capsule_config("Parser", "tree-sitter");
+        let capsules = capsule_map(&[("Language", tagged), ("Parser", untagged)]);
+        let out = gen_type_tag_constants(&capsules);
+        assert!(
+            out.contains("__ALEF_CAPSULE_TAG_LANGUAGE"),
+            "must emit constant for tagged entry: {out}"
+        );
+        assert!(out.contains("0x8AF2E5212AD58ABF"), "must inline lower hex: {out}");
+        assert!(out.contains("0xD5006CAD83ABBA16"), "must inline upper hex: {out}");
+        assert!(
+            !out.contains("__ALEF_CAPSULE_TAG_PARSER"),
+            "must skip untagged entries: {out}"
+        );
+    }
+
+    /// gen_ffi_declarations exposes the two raw N-API entry points the shims need.
+    #[test]
+    fn gen_ffi_declarations_exposes_required_n_api_entry_points() {
+        let out = gen_ffi_declarations();
+        assert!(out.contains("fn napi_create_external"));
+        assert!(out.contains("fn napi_type_tag_object"));
+        assert!(out.contains("struct NapiTypeTag"));
     }
 }

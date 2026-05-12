@@ -161,6 +161,13 @@ impl Backend for NapiBackend {
         // requires the JsObjectValue trait to be in scope.
         if !capsule_types.is_empty() {
             builder.add_import("napi::bindgen_prelude::JsObjectValue");
+            // Emit the FFI declarations for napi_create_external and napi_type_tag_object,
+            // and any per-capsule type tag constants. Done once per crate.
+            builder.add_item(&capsule::gen_ffi_declarations());
+            let constants = capsule::gen_type_tag_constants(&capsule_types);
+            if !constants.is_empty() {
+                builder.add_item(&constants);
+            }
         }
 
         // Check if we have opaque types and trait types (visitors)
