@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(alef-e2e/swift): `[].` traversal element accessor now resolves field aliases before computing the Swift method name (e.g. `assets[].category` → `assetCategory()` not `category()`); enum elements now call `.toString()` not `.to_string().toString()`.
+- fix(alef-backend-dart): add `rust_input: crate` to the generated `flutter_rust_bridge.yaml` — omitting it caused `flutter_rust_bridge_codegen generate` to panic.
+- fix(alef-backend-go): filter `ffi_skip_methods` in trait bridge generation so FFI-incompatible methods are not emitted in the Go C-VTable.
+- fix(alef-backend-java): add a post-generation line-length wrapping pass to keep Checkstyle happy on compound annotation and call-argument lines.
+- fix(alef-backend-napi): skip opaque-struct methods whose return type is a capsule type; the capsule shim uses `napi_create_external` directly, so no wrapper class is emitted for the return type and the method codegen path would reference a nonexistent type.
+- fix(alef-backend-rustler): refactor method-call rendering to use a single `core_path` template variable instead of separate `core_import`/`struct_name`, fixing static method dispatch.
+- fix(alef-e2e/kotlin): resolve `options_type` across language overrides (csharp/c/go/php/python) so Kotlin e2e tests pick up the correct options type without a redundant kotlin-specific override.
 - fix(alef-backend-napi): napi capsule passthrough is now runtime-compatible with the `tree-sitter` npm package. The generated `getLanguage`-style shim now uses raw `napi_create_external` (the previous `napi::bindgen_prelude::External::new()` produced a wrapper that `Napi::Value::As<External<T>>` did not recognise), optionally calls `napi_type_tag_object` with a configurable GUID, and the property name is configurable (default `__parser`, set `property_name = "language"` to satisfy `node-tree-sitter`'s `UnwrapLanguage`). `NodeCapsuleTypeConfig` gains two optional fields: `property_name` (default `"__parser"` for back-compat) and `type_tag = { lower = "0x...", upper = "0x..." }`. Verified end-to-end in tree-sitter-language-pack: `getLanguage("python")` round-trips through `new Parser().setLanguage(lang).parse(...)` and yields the correct AST. Method-on-opaque-type capsule path remains a known limitation.
 
 ## [0.15.48] - 2026-05-12
