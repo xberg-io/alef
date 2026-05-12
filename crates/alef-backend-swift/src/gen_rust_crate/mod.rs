@@ -306,6 +306,15 @@ fn emit_lib_rs(
     // these specific types.
     let has_e2e_types = api_has_e2e_types(api);
 
+    // Collect serde-enabled non-opaque types that appear as method parameters but
+    // are NOT already covered by the kreuzberg e2e shims above. These need their
+    // own `{type_snake}_from_json` free-function shims so Swift e2e tests can
+    // deserialise fixture JSON into the strongly-typed request objects expected by
+    // the swift-bridge wrappers.
+    let e2e_type_names = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
+    let extra_serde_param_types: Vec<&TypeDef> =
+        collect_serde_param_types(api, &visible_types, &visible_functions, &e2e_type_names);
+
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
         out.push_str(block);
@@ -322,6 +331,19 @@ fn emit_lib_rs(
             "        fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String>;\n",
             "    }\n",
         ));
+    }
+    if !extra_serde_param_types.is_empty() {
+        out.push_str("    extern \"Rust\" {\n\n");
+        for ty in &extra_serde_param_types {
+            use heck::{AsSnakeCase, ToLowerCamelCase};
+            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+            let type_name = &ty.name;
+            let swift_name = format!("{}_from_json", type_snake).to_lower_camel_case();
+            out.push_str(&format!(
+                "        #[swift_bridge(swift_name = \"{swift_name}\")]\n        fn {type_snake}_from_json(json: String) -> Result<{type_name}, String>;\n"
+            ));
+        }
+        out.push_str("    }\n");
     }
     out.push_str("}\n\n");
 
@@ -399,6 +421,26 @@ fn emit_lib_rs(
     // The matching extern declarations are emitted in the ffi module above.
     if has_e2e_types {
         emit_json_factory_shims(&source_crate, &mut out);
+    }
+
+    // Emit from_json shim implementations for extra serde param types.
+    // These allow Swift e2e tests to deserialise fixture JSON into the strongly-typed
+    // request objects (e.g. ChatCompletionRequest) that the swift-bridge wrappers require.
+    for ty in &extra_serde_param_types {
+        use heck::AsSnakeCase;
+        let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+        let type_name = &ty.name;
+        let source_path = alef_codegen::generators::type_paths::resolve_type_path(
+            type_name,
+            &source_crate,
+            &type_paths,
+        );
+        out.push_str(&format!(
+            "pub fn {type_snake}_from_json(json: String) -> Result<{type_name}, String> {{\n    \
+             serde_json::from_str::<{source_path}>(&json)\n        \
+             .map({type_name})\n        \
+             .map_err(|e| e.to_string())\n}}\n\n"
+        ));
     }
 
     out
@@ -486,4 +528,48 @@ fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool
 
     // For unrecognised formats, include the type (conservative default).
     true
+}
+
+/// Collect serde-enabled, non-opaque types from `visible_types` that appear as
+/// parameters in either free functions or type methods, excluding those already
+/// covered by the static kreuzberg e2e shims (`already_covered`).
+///
+/// These types need `{type_snake}_from_json` shims so Swift e2e tests can
+/// deserialise fixture JSON into the strongly-typed request objects required by
+/// swift-bridge wrappers (e.g. `ChatCompletionRequest` on `DefaultClient.chat`).
+fn collect_serde_param_types<'a>(
+    api: &'a ApiSurface,
+    visible_types: &[&'a TypeDef],
+    visible_functions: &[&FunctionDef],
+    already_covered: &[&str],
+) -> Vec<&'a TypeDef> {
+    let covered: std::collections::HashSet<&str> = already_covered.iter().copied().collect();
+
+    /// Return true if any param in `params` references the type named `name`.
+    fn param_uses_type(params: &[alef_core::ir::ParamDef], name: &str) -> bool {
+        params.iter().any(|p| p.ty.references_named(name))
+    }
+
+    visible_types
+        .iter()
+        .copied()
+        .filter(|ty| {
+            // Must be serde-enabled and non-opaque (serde types are the request/response structs).
+            ty.has_serde && !ty.is_opaque && !ty.is_trait
+        })
+        .filter(|ty| !covered.contains(ty.name.as_str()))
+        .filter(|ty| {
+            let name = ty.name.as_str();
+            // Check free-function params.
+            let in_free_fn = visible_functions
+                .iter()
+                .any(|f| param_uses_type(&f.params, name));
+            // Check method params on all types in the API surface.
+            let in_method = api
+                .types
+                .iter()
+                .any(|t| t.methods.iter().any(|m| param_uses_type(&m.params, name)));
+            in_free_fn || in_method
+        })
+        .collect()
 }
