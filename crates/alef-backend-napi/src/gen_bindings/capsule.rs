@@ -80,13 +80,7 @@ pub(super) fn gen_capsule_function(
     let mut sig_params: Vec<String> = vec!["env: napi::Env".to_string()];
     for param in &func.params {
         let ts = match &param.ty {
-            TypeRef::String | TypeRef::Char => {
-                if param.is_ref {
-                    "String".to_string()
-                } else {
-                    "String".to_string()
-                }
-            }
+            TypeRef::String | TypeRef::Char => "String".to_string(),
             TypeRef::Optional(inner) => match inner.as_ref() {
                 TypeRef::String | TypeRef::Char => "Option<String>".to_string(),
                 TypeRef::Primitive(p) => format!("Option<{}>", prim_rust_str(p)),
