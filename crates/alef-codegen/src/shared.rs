@@ -194,16 +194,25 @@ pub fn constructor_parts_with_renames(
         })
         .collect();
 
-    // Assignments keep original field order (for struct literal), excluding cfg-gated.
+    // Assignments keep original field order (for struct literal). Cfg-gated fields
+    // remain present on the binding struct, so emit a default expression for them
+    // (the caller cannot supply the trait-bridge wrapper value through the params).
     // When a field is renamed, emit `renamed: original` instead of just `original`.
     let assignments: Vec<String> = fields
         .iter()
-        .filter(|f| f.cfg.is_none())
         .map(|f| {
-            if let Some(renames) = field_renames {
-                if let Some(renamed) = renames.get(&f.name) {
-                    return format!("{}: {}", renamed, f.name);
-                }
+            let binding_name = field_renames
+                .and_then(|r| r.get(&f.name))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
+            if f.cfg.is_some() {
+                let default_expr = match &f.ty {
+                    TypeRef::Optional(_) => "None",
+                    _ => "Default::default()",
+                };
+                return format!("{binding_name}: {default_expr}");
+            }
+            if binding_name != f.name {
+                return format!("{binding_name}: {}", f.name);
             }
             f.name.clone()
         })
@@ -367,13 +376,22 @@ fn config_constructor_parts_inner(
     // Assignments use unwrap_or_else with the typed default.
     // `binding_name` is the struct field name (possibly renamed for keyword escaping),
     // `f.name` is the original name used as the constructor parameter.
+    // Cfg-gated fields remain on the binding struct but cannot be supplied by the
+    // caller (their wrapper types aren't decodable from the host language); emit a
+    // default expression for them so the struct literal stays complete.
     let assignments: Vec<String> = fields
         .iter()
-        .filter(|f| f.cfg.is_none())
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
+            if f.cfg.is_some() {
+                let default_expr = match &f.ty {
+                    TypeRef::Optional(_) => "None",
+                    _ => "Default::default()",
+                };
+                return format!("{binding_name}: {default_expr}");
+            }
             // Duration fields on has_default types are stored as Option<u64> when
             // option_duration_on_defaults is set — treat them as passthrough.
             if option_duration_on_defaults && matches!(f.ty, TypeRef::Duration) {

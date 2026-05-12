@@ -336,10 +336,9 @@ mod tests {
         // Regular fields should be present
         assert!(result.contains("name: val.name"));
         assert!(result.contains("timeout: val.timeout"));
-        // cfg-gated field should NOT be accessed from val (it doesn't exist in binding struct)
-        assert!(!result.contains("layout: val.layout"));
-        // But ..Default::default() should be present to fill cfg-gated fields
-        assert!(result.contains("..Default::default()"));
+        // Cfg-gated fields are now preserved on the binding struct, so the conversion
+        // accesses them directly rather than padding with ..Default::default().
+        assert!(result.contains("layout: val.layout"));
     }
 
     #[test]
@@ -370,8 +369,8 @@ mod tests {
         assert!(result.contains("impl From<my_crate::Config> for Config"));
         // Regular fields should be present
         assert!(result.contains("name: val.name"));
-        // cfg-gated field should NOT be in the struct literal
-        assert!(!result.contains("layout:"));
+        // Cfg-gated fields are now preserved on the binding struct and round-tripped.
+        assert!(result.contains("layout: val.layout"));
     }
 
     #[test]
