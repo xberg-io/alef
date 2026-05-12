@@ -188,6 +188,8 @@ pub(super) fn gen_init_py(
     {
         let mut names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
         names.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
+        names.extend(crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges));
+        names.extend(crate::trait_bridge::collect_bridge_clear_fns(trait_bridges));
         names.sort();
         names.dedup();
         imports_from_api.extend(names);
@@ -344,6 +346,8 @@ pub(super) fn gen_init_py(
     // Include trait-bridge registration helpers in __all__ — they are exported via api.py
     // and must be discoverable from the package root.
     all_items.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
+    all_items.extend(crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges));
+    all_items.extend(crate::trait_bridge::collect_bridge_clear_fns(trait_bridges));
     all_items.extend(needed_enums);
     all_items.extend(imports_from_native.iter().cloned());
     all_items.extend(config_types);

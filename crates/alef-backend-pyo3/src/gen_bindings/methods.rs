@@ -99,6 +99,23 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     for register_fn in crate::trait_bridge::collect_bridge_register_fns(&config.trait_bridges) {
         lines.push(format!("    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"));
     }
+    // Register trait bridge unregister functions. The emitted Rust symbol is
+    // `_alef_<unregister_fn>` (see trait_bridge/unregistration_fn.jinja) but pyo3 exposes
+    // it under the bare `unregister_*` name via `#[pyo3(name = ...)]`. Without this
+    // `m.add_function` call the symbol is not part of the native module and Python
+    // callers see `AttributeError: module ... has no attribute 'unregister_*'`.
+    for unregister_fn in crate::trait_bridge::collect_bridge_unregister_fns(&config.trait_bridges) {
+        lines.push(format!(
+            "    m.add_function(wrap_pyfunction!(_alef_{unregister_fn}, m)?)?;"
+        ));
+    }
+    // Register trait bridge clear functions. Same `_alef_<clear_fn>` symbol convention
+    // as unregister — must be added to the module so Python callers can access them.
+    for clear_fn in crate::trait_bridge::collect_bridge_clear_fns(&config.trait_bridges) {
+        lines.push(format!(
+            "    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"
+        ));
+    }
 
     // Register error exception types
     let mut seen_registrations = AHashSet::new();
