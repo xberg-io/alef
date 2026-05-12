@@ -226,6 +226,31 @@ pub fn render_test_file(
             }
         }
         for elem_type in &element_types {
+            // Skip primitive / std types — they're already in scope via the Rust prelude
+            // and emitting `use kreuzberg::String;` (etc.) would fail with E0432.
+            if matches!(
+                elem_type.as_str(),
+                "String"
+                    | "str"
+                    | "bool"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "i128"
+                    | "isize"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "u128"
+                    | "usize"
+                    | "f32"
+                    | "f64"
+                    | "char"
+            ) {
+                continue;
+            }
             let _ = writeln!(out, "use {module}::{elem_type};");
         }
     }
