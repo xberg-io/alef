@@ -1743,7 +1743,7 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     }
 }
 
@@ -1998,7 +1998,7 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -2039,7 +2039,7 @@ fn test_gen_registration_fn_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -2098,7 +2098,7 @@ fn test_gen_registration_fn_calls_registry_getter() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -2148,7 +2148,7 @@ fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -2198,7 +2198,7 @@ fn test_gen_unregistration_fn_returns_empty_when_unset() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -2237,7 +2237,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -2278,7 +2278,7 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -2315,7 +2315,7 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -2364,7 +2364,7 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
+        ffi_skip_methods: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -2996,7 +2996,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            ffi_skip_methods: vec![],
+            ffi_skip_methods: Vec::new(),
         },
         TraitBridgeConfig {
             trait_name: "EmbeddingBackend".to_string(),
@@ -3014,7 +3014,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            ffi_skip_methods: vec![],
+            ffi_skip_methods: Vec::new(),
         },
     ];
 
@@ -3243,7 +3243,21 @@ fn test_capsule_types_end_to_end() {
             },
         ],
         enums: vec![],
-        errors: vec![],
+        errors: vec![ErrorDef {
+            name: "Error".to_string(),
+            rust_path: "ts_pack::Error".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".to_string(),
+                message_template: Some("language not found: {0}".to_string()),
+                fields: vec![make_field("msg", TypeRef::String, false)],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
         excluded_type_paths: ::std::collections::HashMap::new(),
     };
 
@@ -3321,6 +3335,107 @@ fn test_capsule_types_end_to_end() {
     assert!(
         content.contains("allow(unsafe_code)"),
         "preamble must include #![allow(unsafe_code)]; content:\n{content}"
+    );
+
+    // Bug 1 — error_converter_name must emit function-ref, not redundant closure.
+    // With Error in the IR, error_to_py_err is a known converter; it must appear as
+    // `.map_err(error_to_py_err)`, NOT `.map_err(|e| error_to_py_err(e))`.
+    assert!(
+        content.contains(".map_err(error_to_py_err)"),
+        "lib.rs must use .map_err(error_to_py_err) (function ref, not closure); content:\n{content}"
+    );
+    assert!(
+        !content.contains(".map_err(|e| error_to_py_err(e))"),
+        "lib.rs must NOT contain redundant closure .map_err(|e| error_to_py_err(e)); content:\n{content}"
+    );
+
+    // Bugs 2 and 3 — api.py import order and capsule type imports.
+    let pub_files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api with capsule_types should succeed");
+    let api_py = pub_files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not generated");
+    let api_py_content = &api_py.content;
+
+    // Bug 2: stdlib `from typing import` must appear BEFORE any `from .` local imports.
+    let typing_pos = api_py_content
+        .find("from typing import")
+        .expect("api.py must contain 'from typing import'");
+    let first_local_pos = api_py_content.find("from .").unwrap_or(api_py_content.len());
+    assert!(
+        typing_pos < first_local_pos,
+        "api.py: 'from typing import' must come before 'from .' imports (isort I001);\ncontent:\n{api_py_content}"
+    );
+
+    // Bug 3: capsule types must have an explicit import so bare names resolve (ruff F821).
+    // Both Language (tree_sitter.Language) and Parser (tree_sitter.Parser) share the
+    // `tree_sitter` module, so a single `from tree_sitter import Language, Parser` is expected.
+    assert!(
+        api_py_content.contains("from tree_sitter import"),
+        "api.py must contain 'from tree_sitter import' for capsule types; content:\n{api_py_content}"
+    );
+    assert!(
+        api_py_content.contains("Language"),
+        "api.py capsule import must include Language; content:\n{api_py_content}"
+    );
+    assert!(
+        api_py_content.contains("Parser"),
+        "api.py capsule import must include Parser; content:\n{api_py_content}"
+    );
+    // Capsule types must NOT be imported from ._native (they have no #[pyclass] there).
+    let native_import_line = api_py_content
+        .lines()
+        .find(|l| l.contains("from ._ts_pack import") || l.contains("from ._native import"))
+        .unwrap_or("");
+    assert!(
+        !native_import_line.contains("Language"),
+        "api.py must NOT import Language from the native module; native line: {native_import_line:?}"
+    );
+    assert!(
+        !native_import_line.contains("Parser"),
+        "api.py must NOT import Parser from the native module; native line: {native_import_line:?}"
+    );
+
+    // Stub assertions: capsule types must not be declared as opaque classes in _native.pyi
+    // and function stubs must use `Any` for capsule return types.
+    let mut stubs_config = config.clone();
+    if let Some(ref mut py) = stubs_config.python {
+        py.stubs = Some(alef_core::config::StubsConfig {
+            output: std::path::PathBuf::from("packages/python/ts_pack"),
+        });
+    }
+    let stub_files = backend
+        .generate_type_stubs(&api, &stubs_config)
+        .expect("generate_type_stubs with capsule_types should succeed");
+    assert_eq!(stub_files.len(), 1, "expected exactly one .pyi file");
+    let stub_content = &stub_files[0].content;
+
+    // Capsule types must NOT appear as standalone class declarations.
+    assert!(
+        !stub_content.contains("class Language:") && !stub_content.contains("class Language: ..."),
+        "stub must NOT declare class Language; content:\n{stub_content}"
+    );
+    assert!(
+        !stub_content.contains("class Parser:") && !stub_content.contains("class Parser: ..."),
+        "stub must NOT declare class Parser; content:\n{stub_content}"
+    );
+
+    // Free function stubs must return `Any` for capsule types.
+    assert!(
+        stub_content.contains("def get_language(name: str) -> Any: ..."),
+        "stub must contain 'def get_language(name: str) -> Any: ...'; content:\n{stub_content}"
+    );
+    assert!(
+        stub_content.contains("def get_parser(name: str) -> Any: ..."),
+        "stub must contain 'def get_parser(name: str) -> Any: ...'; content:\n{stub_content}"
+    );
+
+    // The stub must import Any from typing since it is now referenced.
+    assert!(
+        stub_content.contains("from typing import") && stub_content.contains("Any"),
+        "stub must contain 'from typing import ... Any ...'; content:\n{stub_content}"
     );
 }
 
@@ -3483,5 +3598,42 @@ fn test_capsule_types_in_methods() {
     assert!(
         content.contains("allow(unsafe_code)"),
         "preamble must include #![allow(unsafe_code)]; content:\n{content}"
+    );
+
+    // Stub assertions: LanguageRegistry.get_language must return `Any` in .pyi.
+    let mut stubs_config = config.clone();
+    if let Some(ref mut py) = stubs_config.python {
+        py.stubs = Some(alef_core::config::StubsConfig {
+            output: std::path::PathBuf::from("packages/python/ts_pack"),
+        });
+    }
+    let stub_files = backend
+        .generate_type_stubs(&api, &stubs_config)
+        .expect("generate_type_stubs with capsule_types on methods should succeed");
+    assert_eq!(stub_files.len(), 1, "expected exactly one .pyi file");
+    let stub_content = &stub_files[0].content;
+
+    // Language must NOT appear as a standalone class declaration.
+    assert!(
+        !stub_content.contains("class Language:") && !stub_content.contains("class Language: ..."),
+        "stub must NOT declare class Language; content:\n{stub_content}"
+    );
+
+    // LanguageRegistry must be declared (it is NOT a capsule type).
+    assert!(
+        stub_content.contains("class LanguageRegistry:"),
+        "stub must declare class LanguageRegistry; content:\n{stub_content}"
+    );
+
+    // Within LanguageRegistry, get_language must return `Any`.
+    assert!(
+        stub_content.contains("def get_language(self, name: str) -> Any: ..."),
+        "stub must contain 'def get_language(self, name: str) -> Any: ...'; content:\n{stub_content}"
+    );
+
+    // Any must be imported.
+    assert!(
+        stub_content.contains("from typing import") && stub_content.contains("Any"),
+        "stub must contain 'from typing import ... Any ...'; content:\n{stub_content}"
     );
 }

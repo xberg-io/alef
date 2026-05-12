@@ -27,10 +27,7 @@ impl FfiBridgeGenerator {
         }
 
         // One field per trait method (own methods only; super-trait methods are covered above).
-        // Methods listed in `bridge_config.ffi_skip_methods` are dropped from the vtable —
-        // typically because their signatures involve trait-object references (`&dyn Trait`)
-        // that can't traverse the C FFI boundary. The trait's default implementation takes
-        // over for these methods (e.g. `DocumentExtractor::as_sync_extractor` returns None).
+        // Methods listed in `ffi_skip_methods` fall back to the trait default — no vtable slot.
         let skip = &spec.bridge_config.ffi_skip_methods;
         let own_methods: Vec<_> = spec
             .trait_def

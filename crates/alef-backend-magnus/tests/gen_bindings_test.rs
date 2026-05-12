@@ -1018,10 +1018,10 @@ mod trait_bridge {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            ffi_skip_methods: Vec::new(),
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1116,10 +1116,10 @@ mod trait_bridge {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            ffi_skip_methods: Vec::new(),
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1706,10 +1706,10 @@ fn test_visitor_bridge_debug_not_duplicated() {
         param_name: Some("visitor".to_string()),
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: BridgeBinding::OptionsField,
         options_type: Some("ConversionOptions".to_string()),
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
 
     let api = ApiSurface {

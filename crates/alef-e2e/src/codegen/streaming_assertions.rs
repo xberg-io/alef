@@ -28,9 +28,6 @@
 //!   `assert!(true)` / `assertTrue` for languages without post-DONE chunk plumbing)
 //! - `tool_calls`          → flat list of tool_calls from all chunk deltas
 //! - `finish_reason`       → finish_reason string from the last chunk
-//!
-//! Deep-nested paths of the form `<root>[N].field.subfield` are also supported
-//! for roots that are streaming-virtual (e.g. `tool_calls[0].function.name`).
 
 /// The set of field names treated as streaming-virtual fields.
 pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
@@ -43,24 +40,27 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
     "finish_reason",
 ];
 
-/// Virtual-field roots that accept deep-nested path suffixes.
+/// The set of streaming-virtual root names that may have deep-path continuations.
 ///
-/// A field like `tool_calls[0].function.name` starts with the root `tool_calls`
-/// followed by a `[` or `.` suffix, which makes the whole path a streaming-virtual
-/// deep path that [`is_streaming_virtual_field`] should accept.
+/// A field like `tool_calls[0].function.name` starts with `tool_calls` and has
+/// a continuation `[0].function.name`. These are handled by
+/// [`StreamingFieldResolver::accessor`] via the deep-path logic.
 const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason"];
 
-/// Returns `true` when `field` is a streaming-virtual field name.
+/// Returns `true` when `field` is a streaming-virtual field name, including
+/// deep-nested paths that start with a known streaming-virtual root.
 ///
-/// This includes both the flat fields listed in [`STREAMING_VIRTUAL_FIELDS`] and
-/// deep-nested paths whose root is one of [`STREAMING_VIRTUAL_ROOTS`], such as
-/// `tool_calls[0].function.name` or `tool_calls[0].id`.
+/// Examples that return `true`:
+/// - `"tool_calls"` (exact root)
+/// - `"tool_calls[0].function.name"` (deep path)
+/// - `"tool_calls[0].id"` (deep path)
 pub fn is_streaming_virtual_field(field: &str) -> bool {
     if STREAMING_VIRTUAL_FIELDS.contains(&field) {
         return true;
     }
+    // Check deep-path prefixes: `tool_calls[…` or `tool_calls.`
     for root in STREAMING_VIRTUAL_ROOTS {
-        if field.len() > root.len() && field.starts_with(root) {
+        if field.len() > root.len() {
             let rest = &field[root.len()..];
             if rest.starts_with('[') || rest.starts_with('.') {
                 return true;
@@ -70,12 +70,11 @@ pub fn is_streaming_virtual_field(field: &str) -> bool {
     false
 }
 
-/// Splits `field` into `(root, tail)` when it is a deep-nested streaming path.
+/// Split a field path into `(root, tail)` when it starts with a streaming-virtual
+/// root and has a continuation.
 ///
-/// Returns `None` when `field` is not a deep-nested path (i.e. it is a flat
-/// streaming-virtual field or an unknown field).
-///
-/// Example: `"tool_calls[0].function.name"` → `Some(("tool_calls", "[0].function.name"))`.
+/// Returns `None` when the field is an exact root match (no tail) or is not a
+/// streaming-virtual root at all.
 fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
     for root in STREAMING_VIRTUAL_ROOTS {
         if field.len() > root.len() && field.starts_with(root) {
@@ -88,126 +87,6 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
     None
 }
 
-/// A single navigation segment parsed from a deep-path tail string.
-#[derive(Debug, PartialEq)]
-enum TailSeg {
-    /// Array / list index: `[N]`.
-    Index(usize),
-    /// Named field access: `.name`.
-    Field(String),
-}
-
-/// Parses a tail string such as `"[0].function.name"` into a [`Vec`] of [`TailSeg`].
-fn parse_tail(tail: &str) -> Vec<TailSeg> {
-    let mut segs = Vec::new();
-    let mut rest = tail;
-    while !rest.is_empty() {
-        if let Some(after_bracket) = rest.strip_prefix('[') {
-            if let Some(close) = after_bracket.find(']') {
-                let idx_str = &after_bracket[..close];
-                if let Ok(idx) = idx_str.parse::<usize>() {
-                    segs.push(TailSeg::Index(idx));
-                }
-                rest = &after_bracket[close + 1..];
-                continue;
-            }
-        }
-        if let Some(name_start) = rest.strip_prefix('.') {
-            let end = name_start.find(['.', '[']).unwrap_or(name_start.len());
-            let name = &name_start[..end];
-            if !name.is_empty() {
-                segs.push(TailSeg::Field(name.to_string()));
-            }
-            rest = &name_start[end..];
-            continue;
-        }
-        // Unrecognised character — stop parsing.
-        break;
-    }
-    segs
-}
-
-/// Renders a deep-path navigation expression starting from `root_expr`.
-///
-/// `tail` is the raw suffix string (e.g. `"[0].function.name"`).
-/// `lang` controls per-language syntax for indexing and field naming.
-fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
-    use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-
-    let segs = parse_tail(tail);
-    let mut expr = root_expr.to_string();
-
-    for seg in segs {
-        match seg {
-            TailSeg::Index(idx) => match lang {
-                "java" => {
-                    expr = format!("{expr}.get({idx})");
-                }
-                "kotlin" => {
-                    if idx == 0 {
-                        expr = format!("{expr}.first()");
-                    } else {
-                        expr = format!("{expr}.get({idx})");
-                    }
-                }
-                "elixir" => {
-                    expr = format!("Enum.at({expr}, {idx})");
-                }
-                "zig" => {
-                    expr = format!("{expr}.items[{idx}]");
-                }
-                _ => {
-                    expr = format!("{expr}[{idx}]");
-                }
-            },
-            TailSeg::Field(ref name) => match lang {
-                "rust" | "python" | "elixir" | "ruby" => {
-                    let snake = name.to_snake_case();
-                    expr = format!("{expr}.{snake}");
-                }
-                "go" => {
-                    // Go uses PascalCase with initialism expansion (ID, URL, etc.)
-                    let pascal = name.to_pascal_case();
-                    // Promote common initialisms that heck does not handle.
-                    let go_name = match pascal.as_str() {
-                        "Id" => "ID".to_string(),
-                        "Url" => "URL".to_string(),
-                        "Http" => "HTTP".to_string(),
-                        other => other.to_string(),
-                    };
-                    expr = format!("{expr}.{go_name}");
-                }
-                "java" | "kotlin" => {
-                    // Java/Kotlin record accessor methods: lowerCamelCase()
-                    let camel = name.to_lower_camel_case();
-                    expr = format!("{expr}.{camel}()");
-                }
-                "csharp" => {
-                    let pascal = name.to_pascal_case();
-                    expr = format!("{expr}.{pascal}");
-                }
-                "php" => {
-                    let camel = name.to_lower_camel_case();
-                    expr = format!("{expr}->{camel}");
-                }
-                "swift" => {
-                    // swift-bridge exposes Rust struct fields as snake_case method calls.
-                    // e.g. `function` → `.function()`, `name` → `.name()`
-                    let snake = name.to_snake_case();
-                    expr = format!("{expr}.{snake}()");
-                }
-                _ => {
-                    // node / typescript / dart / wasm / zig
-                    let camel = name.to_lower_camel_case();
-                    expr = format!("{expr}.{camel}");
-                }
-            },
-        }
-    }
-
-    expr
-}
-
 /// Shared streaming-virtual-fields resolver for e2e test codegen.
 pub struct StreamingFieldResolver;
 
@@ -217,10 +96,6 @@ impl StreamingFieldResolver {
     ///
     /// Returns `None` when the field name is not a known streaming-virtual
     /// field or the language has no streaming support.
-    ///
-    /// Deep-nested paths such as `tool_calls[0].function.name` are also
-    /// supported: the root is resolved first and the tail is rendered using
-    /// per-language navigation conventions.
     pub fn accessor(field: &str, lang: &str, chunks_var: &str) -> Option<String> {
         match field {
             "chunks" => Some(match lang {
@@ -239,8 +114,6 @@ impl StreamingFieldResolver {
                 "kotlin" => format!("{chunks_var}.size"),
                 // zig: chunks_var is ArrayList([]u8); use .items.len
                 "zig" => format!("{chunks_var}.items.len"),
-                // swift: [ChatCompletionChunk] Swift array uses .count
-                "swift" => format!("{chunks_var}.count"),
                 // node/wasm/typescript use .length
                 _ => format!("{chunks_var}.length"),
             }),
@@ -283,12 +156,6 @@ impl StreamingFieldResolver {
                     // the collect snippet. `.items` gives a `[]u8` slice of the content.
                     format!("{chunks_var}_content.items")
                 }
-                // swift: [ChatCompletionChunk] — compactMap over choices().first?.delta().content()
-                // choices() returns RustVec<StreamChoice> (Collection), delta() is non-optional,
-                // content() returns Optional<RustString>; toString() converts to Swift String.
-                "swift" => {
-                    format!("{chunks_var}.compactMap {{ $0.choices().first?.delta().content()?.toString() }}.joined()")
-                }
                 // node/wasm/typescript
                 _ => {
                     format!("{chunks_var}.map((c: any) => c.choices?.[0]?.delta?.content ?? '').join('')")
@@ -330,10 +197,6 @@ impl StreamingFieldResolver {
                 // was collected (chunks.items is non-empty) as a proxy for completion.
                 "zig" => {
                     format!("{chunks_var}.items.len > 0")
-                }
-                // swift: non-empty array and last chunk's first choice has a non-nil finish_reason
-                "swift" => {
-                    format!("!{chunks_var}.isEmpty && {chunks_var}.last?.choices().first?.finish_reason() != nil")
                 }
                 // node/wasm/typescript
                 _ => {
@@ -395,13 +258,6 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items")
                 }
-                // swift: flat-map tool_calls from all chunk deltas; tool_calls() returns
-                // Optional<RustVec<StreamToolCall>> so use ?? [] (coalesced to empty Array via map)
-                "swift" => {
-                    format!(
-                        "{chunks_var}.flatMap {{ c -> [StreamToolCall] in (c.choices().first?.delta().tool_calls()).map {{ vec in (0..<vec.len()).map {{ vec[$0] as! StreamToolCall }} }} ?? [] }}"
-                    )
-                }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
                 }
@@ -409,9 +265,8 @@ impl StreamingFieldResolver {
 
             "finish_reason" => Some(match lang {
                 "rust" => {
-                    // FinishReason is an enum (not Deref<str>); convert via Display.
                     format!(
-                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_ref().map(|r| r.to_string())).unwrap_or_default()"
+                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_deref()).unwrap_or(\"\")"
                     )
                 }
                 "go" => {
@@ -449,12 +304,6 @@ impl StreamingFieldResolver {
                         "(blk: {{ if ({chunks_var}.items.len == 0) break :blk \"\"; var _lcp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {chunks_var}.items[{chunks_var}.items.len - 1], .{{}}) catch break :blk \"\"; defer _lcp.deinit(); if (_lcp.value.object.get(\"choices\")) |_lchs| if (_lchs.array.items.len > 0) if (_lchs.array.items[0].object.get(\"finish_reason\")) |_fr| if (_fr == .string) break :blk _fr.string; break :blk \"\"; }})"
                     )
                 }
-                // swift: finish_reason from last chunk's first StreamChoice.
-                // finish_reason() returns Optional<FinishReason> (opaque swift-bridge type);
-                // to_string().toString() converts it to a Swift String for comparisons.
-                "swift" => {
-                    format!("{chunks_var}.last?.choices().first?.finish_reason()?.to_string().toString() ?? \"\"")
-                }
                 _ => {
                     format!(
                         "{chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].choices?.[0]?.finishReason : undefined"
@@ -463,57 +312,10 @@ impl StreamingFieldResolver {
             }),
 
             _ => {
-                // Check for deep-nested path with a streaming-virtual root.
+                // Deep-path: e.g. `tool_calls[0].function.name`
+                // Split into root + tail, get the root's inline expression, then
+                // render the tail (index + fields) in a per-language style on top.
                 if let Some((root, tail)) = split_streaming_deep_path(field) {
-                    // Rust-specific: StreamToolCall.function is Option<StreamFunctionCall>
-                    // and StreamFunctionCall.name is Option<String>.  Direct field access
-                    // on an Option fails at compile time.  Rewrite deep paths of the form
-                    // `tool_calls[N].function.name` / `tool_calls[N].function.arguments`
-                    // into a monadic chain so the expression type-checks.
-                    if lang == "rust" && root == "tool_calls" {
-                        let root_expr = Self::accessor(root, lang, chunks_var)?;
-                        // Parse the tail to extract index and sub-fields.
-                        let segs = parse_tail(tail);
-                        // Expect the tail to start with an index segment.
-                        if let Some(TailSeg::Index(idx)) = segs.first() {
-                            let base = format!("{root_expr}[{idx}]");
-                            // Collect the remaining field names after the index.
-                            let sub_fields: Vec<&str> = segs[1..]
-                                .iter()
-                                .filter_map(|s| {
-                                    if let TailSeg::Field(name) = s {
-                                        Some(name.as_str())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            // Build an Option-aware chain for known StreamToolCall fields.
-                            let expr = match sub_fields.as_slice() {
-                                // tool_calls[N].function.name → monadic chain through Option<StreamFunctionCall>
-                                ["function", "name"] => {
-                                    format!("{base}.function.as_ref().and_then(|f| f.name.as_deref()).unwrap_or(\"\")")
-                                }
-                                // tool_calls[N].function.arguments
-                                ["function", "arguments"] => {
-                                    format!(
-                                        "{base}.function.as_ref().and_then(|f| f.arguments.as_deref()).unwrap_or(\"\")"
-                                    )
-                                }
-                                // tool_calls[N].id
-                                ["id"] => {
-                                    format!("{base}.id.as_deref().unwrap_or(\"\")")
-                                }
-                                // tool_calls[N].function (bare)
-                                ["function"] => {
-                                    format!("{base}.function.as_ref().unwrap()")
-                                }
-                                // Fallback: use generic deep tail (may not type-check for all paths)
-                                _ => render_deep_tail(&base, tail, lang),
-                            };
-                            return Some(expr);
-                        }
-                    }
                     let root_expr = Self::accessor(root, lang, chunks_var)?;
                     Some(render_deep_tail(&root_expr, tail, lang))
                 } else {
@@ -531,7 +333,7 @@ impl StreamingFieldResolver {
     pub fn collect_snippet(lang: &str, stream_var: &str, chunks_var: &str) -> Option<String> {
         match lang {
             "rust" => Some(format!(
-                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Result<Vec<_>, _>>({stream_var}).await.expect(\"stream error\");"
+                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await;"
             )),
             "go" => Some(format!(
                 "var {chunks_var} []pkg.ChatCompletionChunk\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
@@ -549,12 +351,6 @@ impl StreamingFieldResolver {
                 Some(format!("val {chunks_var} = {stream_var}.asSequence().toList()"))
             }
             "elixir" => Some(format!("{chunks_var} = Enum.to_list({stream_var})")),
-            // swift: chatStream returns an AsyncSequence<ChatCompletionChunk>; drain with
-            // `for try await chunk in result { ... }`.  The result variable must be the
-            // async sequence returned by chatStream (default: "result").
-            "swift" => Some(format!(
-                "var {chunks_var}: [ChatCompletionChunk] = []\n        for try await _chunk in {stream_var} {{\n            {chunks_var}.append(_chunk)\n        }}"
-            )),
             "node" | "wasm" | "typescript" => Some(format!(
                 "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
@@ -626,6 +422,130 @@ impl StreamingFieldResolver {
             _ => None,
         }
     }
+}
+
+/// Parse a deep-path tail (e.g. `[0].function.name`) into structured segments.
+///
+/// The tail always starts with either `[N]` (array index) or `.field`.
+/// Returns a list of segments: `TailSeg::Index(N)` or `TailSeg::Field(name)`.
+#[derive(Debug, PartialEq)]
+enum TailSeg {
+    Index(usize),
+    Field(String),
+}
+
+fn parse_tail(tail: &str) -> Vec<TailSeg> {
+    let mut segs = Vec::new();
+    let mut rest = tail;
+    while !rest.is_empty() {
+        if let Some(inner) = rest.strip_prefix('[') {
+            // Array index: `[N]`
+            if let Some(close) = inner.find(']') {
+                let idx_str = &inner[..close];
+                if let Ok(idx) = idx_str.parse::<usize>() {
+                    segs.push(TailSeg::Index(idx));
+                }
+                rest = &inner[close + 1..];
+            } else {
+                break;
+            }
+        } else if let Some(inner) = rest.strip_prefix('.') {
+            // Field name: up to next `.` or `[`
+            let end = inner.find(['.', '[']).unwrap_or(inner.len());
+            segs.push(TailSeg::Field(inner[..end].to_string()));
+            rest = &inner[end..];
+        } else {
+            break;
+        }
+    }
+    segs
+}
+
+/// Render the full deep accessor expression by appending per-language tail
+/// segments onto `root_expr`.
+fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
+    use heck::{ToLowerCamelCase, ToPascalCase};
+
+    let segs = parse_tail(tail);
+    let mut out = root_expr.to_string();
+
+    for seg in &segs {
+        match (seg, lang) {
+            (TailSeg::Index(n), "rust") => {
+                out = format!("({out})[{n}]");
+            }
+            (TailSeg::Index(n), "java") => {
+                out = format!("({out}).get({n})");
+            }
+            (TailSeg::Index(n), "kotlin") => {
+                if *n == 0 {
+                    out = format!("({out}).first()");
+                } else {
+                    out = format!("({out}).get({n})");
+                }
+            }
+            (TailSeg::Index(n), "elixir") => {
+                out = format!("Enum.at({out}, {n})");
+            }
+            (TailSeg::Index(n), "zig") => {
+                out = format!("({out}).items[{n}]");
+            }
+            (TailSeg::Index(n), "php") => {
+                out = format!("({out})[{n}]");
+            }
+            (TailSeg::Index(n), _) => {
+                // rust-like for go (but we handle Field differently), python, node, ts, kotlin, etc.
+                out = format!("({out})[{n}]");
+            }
+            (TailSeg::Field(f), "rust") => {
+                use heck::ToSnakeCase;
+                out.push('.');
+                out.push_str(&f.to_snake_case());
+            }
+            (TailSeg::Field(f), "go") => {
+                use alef_codegen::naming::to_go_name;
+                out.push('.');
+                out.push_str(&to_go_name(f));
+            }
+            (TailSeg::Field(f), "java") => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("()");
+            }
+            (TailSeg::Field(f), "kotlin") => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("()");
+            }
+            (TailSeg::Field(f), "csharp") => {
+                out.push('.');
+                out.push_str(&f.to_pascal_case());
+            }
+            (TailSeg::Field(f), "php") => {
+                out.push_str("->");
+                out.push_str(&f.to_lower_camel_case());
+            }
+            (TailSeg::Field(f), "elixir") => {
+                out.push('.');
+                out.push_str(f);
+            }
+            (TailSeg::Field(f), "zig") => {
+                out.push('.');
+                out.push_str(f);
+            }
+            (TailSeg::Field(f), "python") | (TailSeg::Field(f), "ruby") => {
+                out.push('.');
+                out.push_str(f);
+            }
+            // node, wasm, typescript, kotlin, dart, swift all use camelCase
+            (TailSeg::Field(f), _) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+            }
+        }
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -755,10 +675,6 @@ mod tests {
         let snip = StreamingFieldResolver::collect_snippet("rust", "result", "chunks").unwrap();
         assert!(snip.contains("tokio_stream::StreamExt::collect"), "rust: {snip}");
         assert!(snip.contains("let chunks"), "rust: {snip}");
-        assert!(
-            snip.contains("Result<Vec<_"),
-            "rust collect must unwrap Results: {snip}"
-        );
     }
 
     #[test]
@@ -829,212 +745,172 @@ mod tests {
         );
     }
 
-    // ---- deep-nested path tests ----
+    // -----------------------------------------------------------------------
+    // Deep-path tests: tool_calls[0].function.name and tool_calls[0].id
+    // -----------------------------------------------------------------------
 
     #[test]
     fn is_streaming_virtual_field_recognizes_deep_tool_calls_paths() {
         assert!(
             is_streaming_virtual_field("tool_calls[0].function.name"),
-            "tool_calls[0].function.name should be virtual"
+            "tool_calls[0].function.name should be recognized"
         );
         assert!(
             is_streaming_virtual_field("tool_calls[0].id"),
-            "tool_calls[0].id should be virtual"
+            "tool_calls[0].id should be recognized"
         );
         assert!(
             is_streaming_virtual_field("tool_calls[1].function.arguments"),
-            "tool_calls[1].function.arguments should be virtual"
+            "tool_calls[1].function.arguments should be recognized"
         );
-        // Plain prefix without valid suffix must NOT match.
+        // bare root still recognized
+        assert!(is_streaming_virtual_field("tool_calls"));
+        // unrelated deep path must NOT be recognized
+        assert!(!is_streaming_virtual_field("tool_calls_extra.name"));
+        assert!(!is_streaming_virtual_field("nonexistent[0].field"));
+    }
+
+    /// Snapshot: `tool_calls[0].function.name` for Rust, Kotlin, TypeScript.
+    ///
+    /// These three languages cover the main accessor styles:
+    /// - Rust: snake_case field, explicit `[0]` index on collected Vec
+    /// - Kotlin: camelCase method calls with `.first()` for index 0
+    /// - TypeScript/Node: camelCase properties with `[0]` bracket
+    #[test]
+    fn deep_tool_calls_function_name_snapshot_rust_kotlin_ts() {
+        let field = "tool_calls[0].function.name";
+
+        let rust = StreamingFieldResolver::accessor(field, "rust", "chunks").unwrap();
+        // Rust: wraps inline flat_map expression with [0] then .function.name (snake)
         assert!(
-            !is_streaming_virtual_field("tool_callsX"),
-            "tool_callsX must not be virtual"
+            rust.contains("[0]"),
+            "rust deep tool_calls: expected [0] index, got: {rust}"
         );
         assert!(
-            !is_streaming_virtual_field("tool_calls_extra"),
-            "tool_calls_extra must not be virtual"
+            rust.contains(".function"),
+            "rust deep tool_calls: expected .function segment, got: {rust}"
         );
+        assert!(
+            rust.contains(".name"),
+            "rust deep tool_calls: expected .name segment, got: {rust}"
+        );
+        assert!(
+            !rust.contains("// skipped"),
+            "rust deep tool_calls: must not emit skip comment, got: {rust}"
+        );
+
+        let kotlin = StreamingFieldResolver::accessor(field, "kotlin", "chunks").unwrap();
+        // Kotlin: uses .first() for index 0, then .function().name()
+        assert!(
+            kotlin.contains(".first()"),
+            "kotlin deep tool_calls: expected .first() for index 0, got: {kotlin}"
+        );
+        assert!(
+            kotlin.contains(".function()"),
+            "kotlin deep tool_calls: expected .function() method call, got: {kotlin}"
+        );
+        assert!(
+            kotlin.contains(".name()"),
+            "kotlin deep tool_calls: expected .name() method call, got: {kotlin}"
+        );
+
+        let ts = StreamingFieldResolver::accessor(field, "node", "chunks").unwrap();
+        // TypeScript/Node: uses [0] then .function.name (camelCase)
+        assert!(
+            ts.contains("[0]"),
+            "ts/node deep tool_calls: expected [0] index, got: {ts}"
+        );
+        assert!(
+            ts.contains(".function"),
+            "ts/node deep tool_calls: expected .function segment, got: {ts}"
+        );
+        assert!(
+            ts.contains(".name"),
+            "ts/node deep tool_calls: expected .name segment, got: {ts}"
+        );
+    }
+
+    #[test]
+    fn deep_tool_calls_id_snapshot_all_langs() {
+        let field = "tool_calls[0].id";
+
+        let rust = StreamingFieldResolver::accessor(field, "rust", "chunks").unwrap();
+        assert!(rust.contains("[0]"), "rust: {rust}");
+        assert!(rust.contains(".id"), "rust: {rust}");
+
+        let go = StreamingFieldResolver::accessor(field, "go", "chunks").unwrap();
+        assert!(go.contains("[0]"), "go: {go}");
+        // Go: ID is a well-known initialism → uppercase
+        assert!(go.contains(".ID"), "go: expected .ID initialism, got: {go}");
+
+        let python = StreamingFieldResolver::accessor(field, "python", "chunks").unwrap();
+        assert!(python.contains("[0]"), "python: {python}");
+        assert!(python.contains(".id"), "python: {python}");
+
+        let php = StreamingFieldResolver::accessor(field, "php", "chunks").unwrap();
+        assert!(php.contains("[0]"), "php: {php}");
+        assert!(php.contains("->id"), "php: expected ->id, got: {php}");
+
+        let java = StreamingFieldResolver::accessor(field, "java", "chunks").unwrap();
+        assert!(java.contains(".get(0)"), "java: expected .get(0), got: {java}");
+        assert!(java.contains(".id()"), "java: expected .id() method call, got: {java}");
+
+        let csharp = StreamingFieldResolver::accessor(field, "csharp", "chunks").unwrap();
+        assert!(csharp.contains("[0]"), "csharp: {csharp}");
+        assert!(
+            csharp.contains(".Id"),
+            "csharp: expected .Id (PascalCase), got: {csharp}"
+        );
+
+        let elixir = StreamingFieldResolver::accessor(field, "elixir", "chunks").unwrap();
+        assert!(elixir.contains("Enum.at("), "elixir: expected Enum.at(, got: {elixir}");
+        assert!(elixir.contains(".id"), "elixir: {elixir}");
+    }
+
+    #[test]
+    fn deep_tool_calls_function_name_snapshot_python_elixir_zig() {
+        let field = "tool_calls[0].function.name";
+
+        let python = StreamingFieldResolver::accessor(field, "python", "chunks").unwrap();
+        assert!(python.contains("[0]"), "python: {python}");
+        assert!(python.contains(".function"), "python: {python}");
+        assert!(python.contains(".name"), "python: {python}");
+
+        let elixir = StreamingFieldResolver::accessor(field, "elixir", "chunks").unwrap();
+        // Elixir: Enum.at(…, 0).function.name
+        assert!(elixir.contains("Enum.at("), "elixir: {elixir}");
+        assert!(elixir.contains(".function"), "elixir: {elixir}");
+        assert!(elixir.contains(".name"), "elixir: {elixir}");
+
+        let zig = StreamingFieldResolver::accessor(field, "zig", "chunks").unwrap();
+        // Zig uses .items[N] for ArrayList element access
+        assert!(zig.contains(".items[0]"), "zig: expected .items[0], got: {zig}");
+        assert!(zig.contains(".function"), "zig: {zig}");
+        assert!(zig.contains(".name"), "zig: {zig}");
     }
 
     #[test]
     fn parse_tail_parses_index_then_field_segments() {
         let segs = parse_tail("[0].function.name");
-        assert_eq!(
-            segs,
-            vec![
-                TailSeg::Index(0),
-                TailSeg::Field("function".to_string()),
-                TailSeg::Field("name".to_string()),
-            ]
-        );
+        assert_eq!(segs.len(), 3, "expected 3 segments, got: {segs:?}");
+        assert_eq!(segs[0], TailSeg::Index(0));
+        assert_eq!(segs[1], TailSeg::Field("function".to_string()));
+        assert_eq!(segs[2], TailSeg::Field("name".to_string()));
     }
 
     #[test]
     fn parse_tail_parses_simple_index_field() {
         let segs = parse_tail("[0].id");
-        assert_eq!(segs, vec![TailSeg::Index(0), TailSeg::Field("id".to_string()),]);
+        assert_eq!(segs.len(), 2, "expected 2 segments, got: {segs:?}");
+        assert_eq!(segs[0], TailSeg::Index(0));
+        assert_eq!(segs[1], TailSeg::Field("id".to_string()));
     }
 
     #[test]
     fn parse_tail_handles_nonzero_index() {
-        let segs = parse_tail("[2].type");
-        assert_eq!(segs, vec![TailSeg::Index(2), TailSeg::Field("type".to_string()),]);
-    }
-
-    #[test]
-    fn deep_tool_calls_function_name_snapshot_rust_kotlin_ts() {
-        let rust = StreamingFieldResolver::accessor("tool_calls[0].function.name", "rust", "chunks")
-            .expect("rust deep path must resolve");
-        // Rust: flat_map root → [0] → Option-aware chain for function.name
-        // StreamToolCall.function is Option<StreamFunctionCall> and name is Option<String>,
-        // so the expression uses and_then chains rather than direct field access.
-        assert!(
-            rust.contains("[0].function.as_ref().and_then(|f| f.name.as_deref()).unwrap_or(\"\")"),
-            "rust deep path: {rust}"
-        );
-
-        let kotlin = StreamingFieldResolver::accessor("tool_calls[0].function.name", "kotlin", "chunks")
-            .expect("kotlin deep path must resolve");
-        // Kotlin: .first() for index 0, then .function() and .name() method calls
-        assert!(kotlin.contains(".first()"), "kotlin deep path index: {kotlin}");
-        assert!(kotlin.contains(".function()"), "kotlin deep path field: {kotlin}");
-        assert!(kotlin.contains(".name()"), "kotlin deep path field: {kotlin}");
-
-        let ts = StreamingFieldResolver::accessor("tool_calls[0].function.name", "node", "chunks")
-            .expect("ts/node deep path must resolve");
-        // TypeScript/node: [0].function.name  (camelCase, but these are already camel)
-        assert!(ts.contains("[0].function.name"), "ts deep path: {ts}");
-    }
-
-    #[test]
-    fn deep_tool_calls_id_snapshot_all_langs() {
-        let cases: &[(&str, &str)] = &[
-            ("rust", "[0].id"),
-            ("go", "[0].ID"),
-            ("java", ".get(0).id()"),
-            ("kotlin", ".first().id()"),
-            ("python", "[0].id"),
-            ("elixir", ", 0).id"),
-            ("php", "[0]->id"),
-            ("csharp", "[0].Id"),
-            ("node", "[0].id"),
-        ];
-
-        for (lang, expected_fragment) in cases {
-            let expr = StreamingFieldResolver::accessor("tool_calls[0].id", lang, "chunks")
-                .unwrap_or_else(|| panic!("lang {lang} must resolve tool_calls[0].id"));
-            assert!(
-                expr.contains(expected_fragment),
-                "lang={lang}: expected fragment '{expected_fragment}' in '{expr}'"
-            );
-        }
-    }
-
-    #[test]
-    fn deep_tool_calls_function_name_snapshot_python_elixir_zig() {
-        let python = StreamingFieldResolver::accessor("tool_calls[0].function.name", "python", "chunks")
-            .expect("python deep path must resolve");
-        assert!(python.contains("[0].function.name"), "python: {python}");
-
-        let elixir = StreamingFieldResolver::accessor("tool_calls[0].function.name", "elixir", "chunks")
-            .expect("elixir deep path must resolve");
-        // Elixir: Enum.at(root, 0).function.name  (snake_case fields, Enum.at for index)
-        assert!(elixir.contains("Enum.at("), "elixir Enum.at: {elixir}");
-        assert!(elixir.contains(".function"), "elixir .function field: {elixir}");
-        assert!(elixir.contains(".name"), "elixir .name field: {elixir}");
-
-        let zig = StreamingFieldResolver::accessor("tool_calls[0].function.name", "zig", "chunks")
-            .expect("zig deep path must resolve");
-        // Zig: .items[0].function.name  (zig ArrayList root uses .items)
-        assert!(zig.contains(".items[0]"), "zig .items[0]: {zig}");
-        assert!(zig.contains(".function"), "zig .function: {zig}");
-        assert!(zig.contains(".name"), "zig .name: {zig}");
-    }
-
-    // ---- swift-specific tests ----
-
-    #[test]
-    fn accessor_swift_chunks_length_uses_count() {
-        let expr = StreamingFieldResolver::accessor("chunks.length", "swift", "chunks").unwrap();
-        assert_eq!(expr, "chunks.count", "swift chunks.length: {expr}");
-    }
-
-    #[test]
-    fn accessor_swift_stream_content_uses_compact_map_joined() {
-        let expr = StreamingFieldResolver::accessor("stream_content", "swift", "chunks").unwrap();
-        assert!(
-            expr.contains("compactMap"),
-            "swift stream_content must use compactMap: {expr}"
-        );
-        assert!(
-            expr.contains("joined()"),
-            "swift stream_content must use joined(): {expr}"
-        );
-        assert!(
-            expr.contains("choices()"),
-            "swift stream_content must use choices(): {expr}"
-        );
-        assert!(
-            expr.contains("delta()"),
-            "swift stream_content must use delta(): {expr}"
-        );
-        assert!(
-            expr.contains("content()"),
-            "swift stream_content must use content(): {expr}"
-        );
-    }
-
-    #[test]
-    fn accessor_swift_stream_complete_uses_finish_reason() {
-        let expr = StreamingFieldResolver::accessor("stream_complete", "swift", "chunks").unwrap();
-        assert!(expr.contains("chunks.isEmpty"), "swift stream_complete: {expr}");
-        assert!(
-            expr.contains("finish_reason()"),
-            "swift stream_complete must use finish_reason(): {expr}"
-        );
-    }
-
-    #[test]
-    fn accessor_swift_finish_reason_uses_last_chunk() {
-        let expr = StreamingFieldResolver::accessor("finish_reason", "swift", "chunks").unwrap();
-        assert!(
-            expr.contains("chunks.last"),
-            "swift finish_reason must use chunks.last: {expr}"
-        );
-        assert!(
-            expr.contains("finish_reason()"),
-            "swift finish_reason must use finish_reason(): {expr}"
-        );
-        assert!(
-            expr.contains("to_string()"),
-            "swift finish_reason must use to_string(): {expr}"
-        );
-    }
-
-    #[test]
-    fn collect_snippet_swift_uses_for_await() {
-        let snip = StreamingFieldResolver::collect_snippet("swift", "result", "chunks").unwrap();
-        assert!(
-            snip.contains("var chunks: [ChatCompletionChunk]"),
-            "swift collect: {snip}"
-        );
-        assert!(snip.contains("for try await _chunk in result"), "swift collect: {snip}");
-        assert!(snip.contains("chunks.append(_chunk)"), "swift collect: {snip}");
-    }
-
-    #[test]
-    fn deep_tool_calls_function_name_snapshot_swift() {
-        let swift = StreamingFieldResolver::accessor("tool_calls[0].function.name", "swift", "chunks")
-            .expect("swift deep path must resolve");
-        // Swift: [0] (subscript on array), then .function() and .name() method calls
-        assert!(swift.contains("[0]"), "swift deep path index: {swift}");
-        assert!(swift.contains(".function()"), "swift deep path .function(): {swift}");
-        assert!(swift.contains(".name()"), "swift deep path .name(): {swift}");
-    }
-
-    #[test]
-    fn accessor_swift_no_chunks_after_done_returns_true() {
-        let expr = StreamingFieldResolver::accessor("no_chunks_after_done", "swift", "chunks").unwrap();
-        assert_eq!(expr, "true", "swift no_chunks_after_done: {expr}");
+        let segs = parse_tail("[2].function.arguments");
+        assert_eq!(segs[0], TailSeg::Index(2));
+        assert_eq!(segs[1], TailSeg::Field("function".to_string()));
+        assert_eq!(segs[2], TailSeg::Field("arguments".to_string()));
     }
 }

@@ -529,11 +529,7 @@ fn gen_bridge_field_wrapper_function(
     let mut out = String::with_capacity(2048);
 
     // Visible params (bridge field is embedded in the options param)
-    let visible_params: Vec<alef_core::ir::ParamDef> = func
-        .params
-        .iter()
-        .cloned()
-        .collect();
+    let visible_params: Vec<alef_core::ir::ParamDef> = func.params.to_vec();
 
     // XML doc comment
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
@@ -606,17 +602,15 @@ fn gen_bridge_field_wrapper_function(
     ));
 
     // If-bridge-present logic
-    out.push_str(&format!("        try\n        {{\n            if ({field_name} != null)\n            {{\n"));
+    out.push_str(&format!(
+        "        try\n        {{\n            if ({field_name} != null)\n            {{\n"
+    ));
     out.push_str(&format!(
         "                using var bridge = new HtmlVisitorBridge({field_name});\n"
     ));
-    out.push_str(&format!(
-        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n"
-    ));
-    out.push_str(&format!(
-        "                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n"
-    ));
-    out.push_str(&format!("                try\n                {{\n"));
+    out.push_str("                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n");
+    out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
+    out.push_str("                try\n                {\n");
 
     // Call native function with injected bridge
     let cs_native_name = to_csharp_name(&func.name);
@@ -641,7 +635,7 @@ fn gen_bridge_field_wrapper_function(
             if p.name == *options_param {
                 return Some(format!("{options_param_camel}Handle"));
             }
-            Some(format!("{}", p.name.to_lower_camel_case()))
+            Some(p.name.to_lower_camel_case().to_string())
         })
         .collect();
 
@@ -660,21 +654,11 @@ fn gen_bridge_field_wrapper_function(
 
     // Handle return value (simplified for now - assumes ConversionResult-like marshalling)
     if func.return_type != TypeRef::Unit {
-        out.push_str(&format!(
-            "                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n"
-        ));
-        out.push_str(&format!(
-            "                    NativeMethods.FreeString(jsonPtr);\n"
-        ));
-        out.push_str(&format!(
-            "                    NativeMethods.ConversionResultFree(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n"
-        ));
+        out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str("                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
+        out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
+        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
     }
 
     out.push_str("                }\n");
@@ -704,28 +688,20 @@ fn gen_bridge_field_wrapper_function(
 
     if func.return_type != TypeRef::Unit {
         out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str(&format!(
-            "                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                var json = Marshal.PtrToStringUTF8(jsonPtr);\n"
-        ));
-        out.push_str(&format!(
-            "                NativeMethods.FreeString(jsonPtr);\n"
-        ));
-        out.push_str(&format!(
-            "                NativeMethods.ConversionResultFree(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n"
-        ));
+        out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
+        out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
+        out.push_str("                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
     }
 
     out.push_str("            }\n");
     out.push_str("        }\n");
     out.push_str("        finally\n");
     out.push_str("        {\n");
-    out.push_str(&format!("            NativeMethods.ConversionOptionsFree({options_param_camel}Handle);\n"));
+    out.push_str(&format!(
+        "            NativeMethods.ConversionOptionsFree({options_param_camel}Handle);\n"
+    ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 

@@ -1014,10 +1014,12 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(cname);
             }
             TypeRef::Path => {
-                // Path requires .toString() before allocateFrom — it is not a bare String.
+                // Path → C string requires `.toString()` because Java's SegmentAllocator.allocateFrom
+                // accepts String, not java.nio.file.Path. Reuse marshal_path.jinja which already
+                // emits the conversion.
                 out.push_str(&crate::template_env::render(
                     "marshal_path.jinja",
-                    minijinja::context! { cname => &cname, name => &pname },
+                    minijinja::context! { cname => &cname, name => pname },
                 ));
                 call_args.push(cname);
             }
@@ -1029,6 +1031,9 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(cname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+                // Optional Path also needs `.toString()` — reuse marshal_optional_path
+                // (declared below in the marshal module). Inline the conversion to avoid
+                // adding another template.
                 out.push_str(&format!(
                     "            var {cname} = {pname} != null ? arena.allocateFrom({pname}.toString()) : MemorySegment.NULL;\n"
                 ));

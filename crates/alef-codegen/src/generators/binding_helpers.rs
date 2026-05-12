@@ -176,9 +176,9 @@ pub fn wrap_return_with_mutex(
             }
             TypeRef::String => {
                 if returns_ref {
-                    // `&[&str]` → `Vec<String>`: convert each `&&str` to a `String`. The
-                    // naive `Into::into` form would require `impl From<&&str> for String`,
-                    // which doesn't exist; clone-through-to_string side-steps that.
+                    // Core returns `&[&str]` / `&[String]`; `.iter()` yields `&&str` / `&String`.
+                    // `Into::into` on those fails (`From<&&str>` is not implemented). Force
+                    // an explicit ToString hop so the binding always sees owned `String`s.
                     format!("{expr}.iter().map(|s| s.to_string()).collect()")
                 } else {
                     expr.to_string()
@@ -186,7 +186,6 @@ pub fn wrap_return_with_mutex(
             }
             TypeRef::Bytes => {
                 if returns_ref {
-                    // `&[&[u8]]` → `Vec<Vec<u8>>`.
                     format!("{expr}.iter().map(|b| b.to_vec()).collect()")
                 } else {
                     expr.to_string()

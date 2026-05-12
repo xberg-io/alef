@@ -939,10 +939,10 @@ mod tests {
             param_name: None,
             register_extra_args: None,
             exclude_languages: Vec::new(),
+            ffi_skip_methods: Vec::new(),
             bind_via: BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            ffi_skip_methods: Vec::new(),
         }
     }
 
@@ -1922,10 +1922,10 @@ mod tests {
             param_name: param_name.map(str::to_string),
             register_extra_args: None,
             exclude_languages: vec![],
+            ffi_skip_methods: Vec::new(),
             bind_via,
             options_type: options_type.map(str::to_string),
             options_field: options_field.map(str::to_string),
-            ffi_skip_methods: Vec::new(),
         }
     }
 

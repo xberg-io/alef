@@ -682,25 +682,93 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
     let _ = writeln!(out);
 }
 
+fn dart_format_value(val: &serde_json::Value) -> String {
+    match val {
+        serde_json::Value::String(s) => format!("'{}'", escape_dart(s)),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => "null".to_string(),
+        other => format!("'{}'", escape_dart(&other.to_string())),
+    }
+}
+
 /// Render a single fixture assertion as a Dart `package:test` `expect(...)` call.
 ///
 /// Field paths are converted per-segment to camelCase (FRB v2 convention) using
 /// [`field_to_dart_accessor`].  All 24 fixture assertion types are handled.
 fn render_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
+    // Handle array traversal (e.g. "links[].link_type" → any() expression).
+    if let Some(f) = assertion.field.as_deref() {
+        if let Some(dot) = f.find("[].") {
+            let array_part = &f[..dot];
+            let elem_part = &f[dot + 3..];
+            let array_accessor = if array_part.is_empty() {
+                result_var.to_string()
+            } else {
+                format!("{result_var}.{}", field_to_dart_accessor(array_part))
+            };
+            let elem_accessor = field_to_dart_accessor(elem_part);
+            match assertion.assertion_type.as_str() {
+                "contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let dart_val = dart_format_value(expected);
+                        let _ = writeln!(
+                            out,
+                            "    expect({array_accessor}.any((e) => e.{elem_accessor}.toString().contains({dart_val})), isTrue);"
+                        );
+                    }
+                }
+                "contains_all" => {
+                    if let Some(values) = &assertion.values {
+                        for val in values {
+                            let dart_val = dart_format_value(val);
+                            let _ = writeln!(
+                                out,
+                                "    expect({array_accessor}.any((e) => e.{elem_accessor}.toString().contains({dart_val})), isTrue);"
+                            );
+                        }
+                    }
+                }
+                "not_contains" => {
+                    if let Some(expected) = &assertion.value {
+                        let dart_val = dart_format_value(expected);
+                        let _ = writeln!(
+                            out,
+                            "    expect({array_accessor}.any((e) => e.{elem_accessor}.toString().contains({dart_val})), isFalse);"
+                        );
+                    } else if let Some(values) = &assertion.values {
+                        for val in values {
+                            let dart_val = dart_format_value(val);
+                            let _ = writeln!(
+                                out,
+                                "    expect({array_accessor}.any((e) => e.{elem_accessor}.toString().contains({dart_val})), isFalse);"
+                            );
+                        }
+                    }
+                }
+                "not_empty" => {
+                    let _ = writeln!(
+                        out,
+                        "    expect({array_accessor}.any((e) => e.{elem_accessor}.toString().isNotEmpty), isTrue);"
+                    );
+                }
+                other => {
+                    let _ = writeln!(
+                        out,
+                        "    // skipped: unsupported traversal assertion '{other}' on '{f}'"
+                    );
+                }
+            }
+            return;
+        }
+    }
+
     let field_accessor = match assertion.field.as_deref() {
         Some(f) if !f.is_empty() => format!("{result_var}.{}", field_to_dart_accessor(f)),
         _ => result_var.to_string(),
     };
 
-    let format_value = |val: &serde_json::Value| -> String {
-        match val {
-            serde_json::Value::String(s) => format!("'{}'", escape_dart(s)),
-            serde_json::Value::Bool(b) => b.to_string(),
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::Null => "null".to_string(),
-            other => format!("'{}'", escape_dart(&other.to_string())),
-        }
-    };
+    let format_value = |val: &serde_json::Value| -> String { dart_format_value(val) };
 
     match assertion.assertion_type.as_str() {
         "equals" | "field_equals" => {

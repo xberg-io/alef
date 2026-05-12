@@ -983,10 +983,10 @@ fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef_core::config::TraitBrid
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
     }
 }
 
@@ -1004,10 +1004,10 @@ fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef_core
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
     }
 }
 
@@ -1182,10 +1182,10 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
     };
     let api = make_api_wasm();
 
@@ -1360,10 +1360,10 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: vec![],
     }];
 
     let files = backend

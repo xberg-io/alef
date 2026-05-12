@@ -201,6 +201,10 @@ fn emit_lib_rs(
         })
         .collect();
 
+    // Pre-build the type-path lookup so impl-block emission can resolve Named types
+    // referenced in method signatures and emit the corresponding `use` statements.
+    let type_paths_for_impls = build_type_path_lookup_for_source(api, source_crate_name);
+
     // Emit impl blocks for opaque types that expose methods.
     // FRB generates Dart-side methods on opaque handles only when the bridge crate
     // contains `impl TypeName { #[frb] pub fn method(...) }` blocks. Without these
@@ -220,6 +224,7 @@ fn emit_lib_rs(
             &types_needing_from_conversion,
             &streaming_adapters,
             config,
+            &type_paths_for_impls,
         );
     }
 
@@ -1458,13 +1463,32 @@ fn emit_opaque_impl_block(
     types_needing_from_conversion: &HashSet<String>,
     streaming_adapters: &std::collections::HashMap<String, &AdapterConfig>,
     config: &ResolvedCrateConfig,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     let type_name = &ty.name;
 
-    // Collect unique trait sources that need to be brought into scope so that
-    // trait methods on `self.inner` resolve. Without these `use` statements rustc
-    // emits `no method named X found` for every trait-provided method.
+    // Collect unique paths that need to be brought into scope:
+    //   1. Trait sources, so trait-provided methods on `self.inner` resolve.
+    //   2. Named types referenced in method param/return signatures — FRB strips full
+    //      module paths from generated code, so types like `InternalDocument` and
+    //      `SyncExtractor` referenced via fully-qualified paths in the IR appear bare
+    //      in the emitted bridge and need a `use` to resolve.
     let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    fn collect_named(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
+        use alef_core::ir::TypeRef;
+        match ty {
+            TypeRef::Named(n) => {
+                out.insert(n.clone());
+            }
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named(inner, out),
+            TypeRef::Map(k, v) => {
+                collect_named(k, out);
+                collect_named(v, out);
+            }
+            _ => {}
+        }
+    }
+    let mut named_refs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for method in &ty.methods {
         if method.sanitized && !stub_methods.contains(&method.name) {
             let adapter_key = format!("{type_name}.{}", method.name);
@@ -1474,6 +1498,22 @@ fn emit_opaque_impl_block(
         }
         if let Some(path) = method.trait_source.as_deref() {
             trait_uses.insert(path.to_string());
+        }
+        for p in &method.params {
+            collect_named(&p.ty, &mut named_refs);
+        }
+        collect_named(&method.return_type, &mut named_refs);
+    }
+    // Map each Named name → its qualified Rust path, and skip names that resolve to the
+    // current type (already in scope) or that lack a path entry (primitives, sanitized, etc.).
+    for name in &named_refs {
+        if name == type_name {
+            continue;
+        }
+        if let Some(path) = type_paths.get(name)
+            && path.contains("::")
+        {
+            trait_uses.insert(path.clone());
         }
     }
     for path in &trait_uses {

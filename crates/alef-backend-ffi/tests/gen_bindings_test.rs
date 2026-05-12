@@ -123,10 +123,10 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     }
 }
 
@@ -312,10 +312,10 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 
@@ -353,10 +353,10 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 
@@ -436,10 +436,10 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 
@@ -489,10 +489,10 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 
@@ -600,10 +600,10 @@ fn test_gen_trait_bridge_safety_comments_present() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 
@@ -698,10 +698,10 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         param_name: None,
         register_extra_args: None,
         exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        ffi_skip_methods: Vec::new(),
     };
     let api = make_api();
 

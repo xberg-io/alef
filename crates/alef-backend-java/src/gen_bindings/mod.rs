@@ -277,17 +277,19 @@ impl Backend for JavaBackend {
             });
         }
 
-        // 6. Error exception classes.
-        // The hardcoded FFI-infrastructure exceptions above (InvalidInputException,
-        // ConversionErrorException) own those class paths and embed the numeric FFI error
-        // codes. gen_java_error_types may also emit classes at the same paths for Rust
-        // error variants whose generated names collide (e.g. ConversionError::InvalidInput
-        // → InvalidInputException). Skip those to avoid double-writes that produce
-        // malformed Java with duplicate constructor blocks.
-        const INFRASTRUCTURE_EXCEPTION_NAMES: &[&str] = &["InvalidInputException", "ConversionErrorException"];
+        // 6. Error exception classes
+        //
+        // Filter out variants whose generated class name collides with the FFI infrastructure
+        // exceptions emitted at step 3b. Both paths target the same .java file; without this
+        // filter, the gen_java_error_types content was overwriting (or worse, mangling — the
+        // InvalidInputException file ended up with a duplicate constructor block appended
+        // after the closing brace) the canonical infrastructure-emitted class.
+        let infrastructure_exception_names: AHashSet<&str> = ["InvalidInputException", "ConversionErrorException"]
+            .into_iter()
+            .collect();
         for error in &api.errors {
             for (class_name, content) in alef_codegen::error_gen::gen_java_error_types(error, &package) {
-                if INFRASTRUCTURE_EXCEPTION_NAMES.contains(&class_name.as_str()) {
+                if infrastructure_exception_names.contains(class_name.as_str()) {
                     continue;
                 }
                 files.push(GeneratedFile {

@@ -203,9 +203,10 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        // Add rename_all = "camelCase" so PHP can pass camelCase JSON (e.g., includeDocumentStructure)
-        // while the Rust struct keeps snake_case field names. This allows round-tripping through
-        // the core config which also expects camelCase JSON in its public API.
+        // PHP test fixtures and user code pass camelCase JSON keys (e.g.
+        // `includeDocumentStructure`) via `Type::from_json(json_encode([...]))`.
+        // Adding `rename_all = "camelCase"` lets serde map those camelCase keys to the
+        // snake_case Rust field names so deserialization populates the struct correctly.
         serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
@@ -265,6 +266,7 @@ pub(crate) fn gen_struct_methods(
         enums,
         &[],              // exclude_functions: empty by default
         &AHashSet::new(), // bridge_type_aliases: empty by default
+        &[],              // never_skip_cfg_field_names: empty by default
     )
 }
 
@@ -279,6 +281,7 @@ pub fn gen_struct_methods_with_exclude(
     enums: &[EnumDef],
     exclude_functions: &[String],
     bridge_type_aliases: &AHashSet<String>,
+    never_skip_cfg_field_names: &[String],
 ) -> String {
     gen_struct_methods_impl(
         typ,
@@ -290,6 +293,7 @@ pub fn gen_struct_methods_with_exclude(
         enums,
         exclude_functions,
         bridge_type_aliases,
+        never_skip_cfg_field_names,
     )
 }
 
@@ -304,6 +308,7 @@ fn gen_struct_methods_impl(
     enums: &[EnumDef],
     exclude_functions: &[String],
     bridge_type_aliases: &AHashSet<String>,
+    _never_skip_cfg_field_names: &[String],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -441,18 +446,16 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
+                    // Iterate every field — cfg-gated fields stay in the binding struct so
+                    // the Self literal must initialize them too. The .map below emits
+                    // `Default::default()` for cfg-gated fields, which cannot be supplied
+                    // as constructor parameters.
                     .map(|f| {
-                        // Cfg-gated fields remain on the binding struct (struct emission keeps
-                        // them with #[serde(skip)]) but cannot be supplied by the PHP caller;
-                        // emit a default expression to keep the struct literal complete.
-                        if f.cfg.is_some() {
-                            let default_expr = match &f.ty {
-                                TypeRef::Optional(_) => "None",
-                                _ => "Default::default()",
-                            };
-                            return format!("{}: {}", f.name, default_expr);
-                        }
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        if f.cfg.is_some() {
+                            // Force-restored cfg-gated field: no constructor parameter, default-init.
+                            return format!("{}: Default::default()", f.name);
+                        }
                         if field_can_be_param(&f.ty, enum_names, opaque_types) {
                             // Check if this needs let-binding conversion
                             if let TypeRef::Vec(inner) = &f.ty {
@@ -562,18 +565,14 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
+                    // Iterate every field — cfg-gated fields stay in the binding struct so
+                    // the Self literal must initialize them too. The .map below emits
+                    // `Default::default()` for cfg-gated fields.
                     .map(|f| {
-                        // Cfg-gated fields remain on the binding struct (struct emission keeps
-                        // them with #[serde(skip)]) but cannot be supplied by the PHP caller;
-                        // emit a default expression to keep the struct literal complete.
-                        if f.cfg.is_some() {
-                            let default_expr = match &f.ty {
-                                TypeRef::Optional(_) => "None",
-                                _ => "Default::default()",
-                            };
-                            return format!("{}: {}", f.name, default_expr);
-                        }
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
+                        if f.cfg.is_some() {
+                            return format!("{}: Default::default()", f.name);
+                        }
                         // Check if this needs let-binding conversion
                         if let TypeRef::Vec(inner) = &f.ty {
                             if let TypeRef::Named(name) = inner.as_ref() {
@@ -600,8 +599,8 @@ fn gen_struct_methods_impl(
 
     // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
     // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
-    // Include cfg-gated fields: if a field is present in the generated struct (because its
-    // feature is enabled), it should be accessible via PHP.
+    // Cfg-gated fields stay in the binding struct (gen_struct keeps them with #[serde(skip)])
+    // so PHP also needs a getter to access them — do not skip them here.
     for field in &typ.fields {
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {

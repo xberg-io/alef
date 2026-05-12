@@ -30,14 +30,9 @@ pub fn gen_constructor_with_renames(
 ) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-    // For types with has_default, generate optional kwargs-style constructor.
-    // Trait-bridge cfg-gated fields (listed in `cfg.never_skip_cfg_field_names`) are
-    // kept as real constructor parameters because their binding wrapper types
-    // implement the host-language extract trait (FromPyObject / FromWasmAbi /
-    // FromZval / NAPI From<JsUnknown>); other cfg-gated fields are still emitted
-    // in the struct literal but defaulted.
+    // For types with has_default, generate optional kwargs-style constructor
     let (param_list, sig_defaults, assignments) = if typ.has_default {
-        crate::shared::config_constructor_parts_with_renames_and_cfg_kept(
+        crate::shared::config_constructor_parts_with_renames_and_cfg_restore(
             &typ.fields,
             &map_fn,
             cfg.option_duration_on_defaults,
@@ -45,7 +40,7 @@ pub fn gen_constructor_with_renames(
             cfg.never_skip_cfg_field_names,
         )
     } else {
-        crate::shared::constructor_parts_with_renames_and_cfg_kept(
+        crate::shared::constructor_parts_with_renames_and_cfg_restore(
             &typ.fields,
             &map_fn,
             field_renames,

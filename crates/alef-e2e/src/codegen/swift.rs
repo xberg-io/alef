@@ -1176,62 +1176,118 @@ fn render_assertion(
                         "        XCTAssertTrue({result_var}.map {{ $0.as_str().toString() }}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
                     );
                 } else {
-                    // For array fields (RustVec<RustString>), check membership via map+contains.
-                    let field_is_array = assertion
-                        .field
-                        .as_deref()
-                        .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
-                    if field_is_array {
-                        let contains_expr =
-                            swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
-                        let _ = writeln!(
-                            out,
-                            "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                        );
-                    } else if field_is_enum {
-                        // Enum fields: use `toString().toString()` (via string_expr) to get the
-                        // serde variant name as a Swift String, then check substring containment.
-                        let _ = writeln!(
-                            out,
-                            "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                        );
+                    // []. traversal: field like "links[].url" → contains(where:) closure.
+                    let traversal_handled = if let Some(f) = assertion.field.as_deref() {
+                        if let Some(dot) = f.find("[].") {
+                            let array_part = &f[..dot];
+                            let elem_part = &f[dot + 3..];
+                            let line = swift_traversal_contains_assert(
+                                array_part,
+                                elem_part,
+                                f,
+                                &swift_val,
+                                result_var,
+                                false,
+                                &format!("expected to contain: \\({swift_val})"),
+                                enum_fields,
+                                field_resolver,
+                            );
+                            let _ = writeln!(out, "{line}");
+                            true
+                        } else {
+                            false
+                        }
                     } else {
-                        let _ = writeln!(
-                            out,
-                            "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                        );
+                        false
+                    };
+                    if !traversal_handled {
+                        // For array fields (RustVec<RustString>), check membership via map+contains.
+                        let field_is_array = assertion
+                            .field
+                            .as_deref()
+                            .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+                        if field_is_array {
+                            let contains_expr =
+                                swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                            let _ = writeln!(
+                                out,
+                                "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                            );
+                        } else if field_is_enum {
+                            // Enum fields: use `toString().toString()` (via string_expr) to get the
+                            // serde variant name as a Swift String, then check substring containment.
+                            let _ = writeln!(
+                                out,
+                                "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                            );
+                        }
                     }
                 }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                // For array fields (RustVec<RustString>), check membership via map+contains.
-                let field_is_array = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
-                if field_is_array {
-                    let contains_expr =
-                        swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
-                    for val in values {
-                        let swift_val = json_to_swift(val);
-                        let _ = writeln!(
-                            out,
-                            "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                        );
-                    }
-                } else if field_is_enum {
-                    // Enum fields: use `toString().toString()` (via string_expr) to get the
-                    // serde variant name as a Swift String, then check substring containment.
-                    for val in values {
-                        let swift_val = json_to_swift(val);
-                        let _ = writeln!(
-                            out,
-                            "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
-                        );
+                // []. traversal: field like "links[].link_type" → contains(where:) per value.
+                if let Some(f) = assertion.field.as_deref() {
+                    if let Some(dot) = f.find("[].") {
+                        let array_part = &f[..dot];
+                        let elem_part = &f[dot + 3..];
+                        for val in values {
+                            let swift_val = json_to_swift(val);
+                            let line = swift_traversal_contains_assert(
+                                array_part,
+                                elem_part,
+                                f,
+                                &swift_val,
+                                result_var,
+                                false,
+                                &format!("expected to contain: \\({swift_val})"),
+                                enum_fields,
+                                field_resolver,
+                            );
+                            let _ = writeln!(out, "{line}");
+                        }
+                        // handled — skip remaining branches
+                    } else {
+                        // For array fields (RustVec<RustString>), check membership via map+contains.
+                        let field_is_array = field_resolver.is_array(field_resolver.resolve(f));
+                        if field_is_array {
+                            let contains_expr =
+                                swift_array_contains_expr(assertion.field.as_deref(), result_var, field_resolver);
+                            for val in values {
+                                let swift_val = json_to_swift(val);
+                                let _ = writeln!(
+                                    out,
+                                    "        XCTAssertTrue(({contains_expr} ?? []).contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                );
+                            }
+                        } else if field_is_enum {
+                            // Enum fields: use `toString().toString()` (via string_expr) to get the
+                            // serde variant name as a Swift String, then check substring containment.
+                            for val in values {
+                                let swift_val = json_to_swift(val);
+                                let _ = writeln!(
+                                    out,
+                                    "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                );
+                            }
+                        } else {
+                            for val in values {
+                                let swift_val = json_to_swift(val);
+                                let _ = writeln!(
+                                    out,
+                                    "        XCTAssertTrue({string_expr}.contains({swift_val}), \"expected to contain: \\({swift_val})\")"
+                                );
+                            }
+                        }
                     }
                 } else {
+                    // No field — fall back to existing string_expr path.
                     for val in values {
                         let swift_val = json_to_swift(val);
                         let _ = writeln!(
@@ -1245,10 +1301,36 @@ fn render_assertion(
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let swift_val = json_to_swift(expected);
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertFalse({string_expr}.contains({swift_val}), \"expected NOT to contain: \\({swift_val})\")"
-                );
+                // []. traversal: "links[].url" → XCTAssertFalse(array.contains(where:))
+                let traversal_handled = if let Some(f) = assertion.field.as_deref() {
+                    if let Some(dot) = f.find("[].") {
+                        let array_part = &f[..dot];
+                        let elem_part = &f[dot + 3..];
+                        let line = swift_traversal_contains_assert(
+                            array_part,
+                            elem_part,
+                            f,
+                            &swift_val,
+                            result_var,
+                            true,
+                            &format!("expected NOT to contain: \\({swift_val})"),
+                            enum_fields,
+                            field_resolver,
+                        );
+                        let _ = writeln!(out, "{line}");
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if !traversal_handled {
+                    let _ = writeln!(
+                        out,
+                        "        XCTAssertFalse({string_expr}.contains({swift_val}), \"expected NOT to contain: \\({swift_val})\")"
+                    );
+                }
             }
         }
         "not_empty" => {
@@ -1257,25 +1339,55 @@ fn render_assertion(
             // For result_is_simple (e.g. Data, String), use .isEmpty directly on
             // the result — avoids calling .toString() on non-RustString types.
             // For string fields, convert to Swift String and check .isEmpty.
-            if field_is_optional {
-                let _ = writeln!(out, "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")");
-            } else if field_is_array {
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertFalse({field_expr}.isEmpty, \"expected non-empty value\")"
-                );
-            } else if result_is_simple {
-                // result_is_simple: result is a primitive (Data, String, etc.) — use .isEmpty directly.
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertFalse({result_var}.isEmpty, \"expected non-empty value\")"
-                );
+            // []. traversal: "links[].url" → contains(where: { !elem.isEmpty })
+            let traversal_not_empty_handled = if let Some(f) = assertion.field.as_deref() {
+                if let Some(dot) = f.find("[].") {
+                    let array_part = &f[..dot];
+                    let elem_part = &f[dot + 3..];
+                    let array_accessor = field_resolver.accessor(array_part, "swift", result_var);
+                    let elem_accessor = field_resolver.accessor(elem_part, "swift", "$0");
+                    let elem_is_enum = enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f));
+                    let elem_is_optional = field_resolver.is_optional(elem_part)
+                        || field_resolver.is_optional(field_resolver.resolve(elem_part));
+                    let elem_str = if elem_is_enum {
+                        format!("{elem_accessor}.to_string().toString()")
+                    } else if elem_is_optional {
+                        format!("({elem_accessor}?.toString() ?? \"\")")
+                    } else {
+                        format!("{elem_accessor}.toString()")
+                    };
+                    let _ = writeln!(
+                        out,
+                        "        XCTAssertTrue({array_accessor}.contains(where: {{ !{elem_str}.isEmpty }}), \"expected non-empty value\")"
+                    );
+                    true
+                } else {
+                    false
+                }
             } else {
-                // string_expr has .toString() appended; .isEmpty works on Swift String.
-                let _ = writeln!(
-                    out,
-                    "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
-                );
+                false
+            };
+            if !traversal_not_empty_handled {
+                if field_is_optional {
+                    let _ = writeln!(out, "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")");
+                } else if field_is_array {
+                    let _ = writeln!(
+                        out,
+                        "        XCTAssertFalse({field_expr}.isEmpty, \"expected non-empty value\")"
+                    );
+                } else if result_is_simple {
+                    // result_is_simple: result is a primitive (Data, String, etc.) — use .isEmpty directly.
+                    let _ = writeln!(
+                        out,
+                        "        XCTAssertFalse({result_var}.isEmpty, \"expected non-empty value\")"
+                    );
+                } else {
+                    // string_expr has .toString() appended; .isEmpty works on Swift String.
+                    let _ = writeln!(
+                        out,
+                        "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
+                    );
+                }
             }
         }
         "is_empty" => {
@@ -1520,6 +1632,39 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
 /// `?.map { $0.as_str().toString() }` converts each `RustStringRef` to a Swift `String`,
 /// giving `[String]` wrapped in `Optional`. The `?? []` in callers coalesces nil to an empty
 /// array.
+/// Generate a `XCTAssert{True|False}(array.contains(where: { elem_str.contains(val) }), msg)` line
+/// for field paths that traverse a collection with `[].` notation (e.g. `links[].url`).
+///
+/// `array_part` — left side of `[].` (e.g. `"links"`)
+/// `element_part` — right side (e.g. `"url"` or `"link_type"`)
+/// `full_field` — original assertion.field (used for enum lookup against the full path)
+fn swift_traversal_contains_assert(
+    array_part: &str,
+    element_part: &str,
+    full_field: &str,
+    val_expr: &str,
+    result_var: &str,
+    negate: bool,
+    msg: &str,
+    enum_fields: &std::collections::HashSet<String>,
+    field_resolver: &FieldResolver,
+) -> String {
+    let array_accessor = field_resolver.accessor(array_part, "swift", result_var);
+    let elem_accessor = field_resolver.accessor(element_part, "swift", "$0");
+    let elem_is_enum = enum_fields.contains(full_field) || enum_fields.contains(field_resolver.resolve(full_field));
+    let elem_is_optional =
+        field_resolver.is_optional(element_part) || field_resolver.is_optional(field_resolver.resolve(element_part));
+    let elem_str = if elem_is_enum {
+        format!("{elem_accessor}.to_string().toString()")
+    } else if elem_is_optional {
+        format!("({elem_accessor}?.toString() ?? \"\")")
+    } else {
+        format!("{elem_accessor}.toString()")
+    };
+    let assert_fn = if negate { "XCTAssertFalse" } else { "XCTAssertTrue" };
+    format!("        {assert_fn}({array_accessor}.contains(where: {{ {elem_str}.contains({val_expr}) }}), \"{msg}\")")
+}
+
 fn swift_array_contains_expr(field: Option<&str>, result_var: &str, field_resolver: &FieldResolver) -> String {
     let Some(f) = field else {
         return format!("{result_var}.map {{ $0.as_str().toString() }}");
