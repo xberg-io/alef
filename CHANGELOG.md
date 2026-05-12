@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.50] - 2026-05-12
+
+### Removed
+
+- chore: drop Gleam language backend, codegen, scaffold, publish support, and `Language::Gleam` enum variant
+
 ## [0.15.49] - 2026-05-12
 
 ### Added
