@@ -151,7 +151,7 @@ pub fn partition_methods(methods: &[MethodDef]) -> (Vec<&MethodDef>, Vec<&Method
 /// Returns (param_list, signature_with_defaults, field_assignments).
 /// If param_list exceeds 100 chars, uses multiline format with trailing commas.
 pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> (String, String, String) {
-    constructor_parts_with_renames(fields, type_mapper, None)
+    constructor_parts_with_renames_and_cfg_kept(fields, type_mapper, None, &[])
 }
 
 /// Like `constructor_parts` but with optional field renames for keyword escaping.
@@ -162,10 +162,26 @@ pub fn constructor_parts_with_renames(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
+    constructor_parts_with_renames_and_cfg_kept(fields, type_mapper, field_renames, &[])
+}
+
+/// Like `constructor_parts_with_renames` but also keeps cfg-gated fields named in
+/// `cfg_kept_field_names` as real constructor parameters (typically trait-bridge
+/// `bind_via = "options_field"` fields whose binding wrapper has FromPyObject /
+/// FromWasmAbi / FromZval / FromJsValue and CAN be supplied by the host caller).
+/// Other cfg-gated fields are still emitted in the struct literal but defaulted.
+pub fn constructor_parts_with_renames_and_cfg_kept(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    field_renames: Option<&HashMap<String, String>>,
+    cfg_kept_field_names: &[String],
+) -> (String, String, String) {
+    let is_cfg_kept = |f: &FieldDef| cfg_kept_field_names.iter().any(|n| n == &f.name);
     // Sort fields: required first, then optional.
     // Many FFI frameworks (PyO3, NAPI) require required params before optional ones.
-    // Skip cfg-gated fields — they depend on features that may not be enabled.
-    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none()).collect();
+    // Cfg-gated fields are dropped from params unless they're kept by the caller's
+    // list (trait-bridge fields whose wrapper is host-decodable).
+    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none() || is_cfg_kept(f)).collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
 
     let params: Vec<String> = sorted_fields
@@ -195,16 +211,15 @@ pub fn constructor_parts_with_renames(
         .collect();
 
     // Assignments keep original field order (for struct literal). Cfg-gated fields
-    // remain present on the binding struct, so emit a default expression for them
-    // (the caller cannot supply the trait-bridge wrapper value through the params).
-    // When a field is renamed, emit `renamed: original` instead of just `original`.
+    // not in the kept list remain present on the binding struct but get a default
+    // expression because the caller has no parameter to supply.
     let assignments: Vec<String> = fields
         .iter()
         .map(|f| {
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
-            if f.cfg.is_some() {
+            if f.cfg.is_some() && !is_cfg_kept(f) {
                 let default_expr = match &f.ty {
                     TypeRef::Optional(_) => "None",
                     _ => "Default::default()",
@@ -321,7 +336,7 @@ pub fn config_constructor_parts_with_options(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, None)
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, None, &[])
 }
 
 /// Like `config_constructor_parts_with_options` but with field renames for keyword escaping.
@@ -331,14 +346,33 @@ pub fn config_constructor_parts_with_renames(
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, field_renames)
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, field_renames, &[])
+}
+
+/// Like `config_constructor_parts_with_renames` but also keeps cfg-gated fields named
+/// in `cfg_kept_field_names` as real constructor parameters. See
+/// `constructor_parts_with_renames_and_cfg_kept` for the rationale.
+pub fn config_constructor_parts_with_renames_and_cfg_kept(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    option_duration_on_defaults: bool,
+    field_renames: Option<&HashMap<String, String>>,
+    cfg_kept_field_names: &[String],
+) -> (String, String, String) {
+    config_constructor_parts_inner(
+        fields,
+        type_mapper,
+        option_duration_on_defaults,
+        field_renames,
+        cfg_kept_field_names,
+    )
 }
 
 pub fn config_constructor_parts(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, false, None)
+    config_constructor_parts_inner(fields, type_mapper, false, None, &[])
 }
 
 fn config_constructor_parts_inner(
@@ -346,8 +380,10 @@ fn config_constructor_parts_inner(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
+    cfg_kept_field_names: &[String],
 ) -> (String, String, String) {
-    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none()).collect();
+    let is_cfg_kept = |f: &FieldDef| cfg_kept_field_names.iter().any(|n| n == &f.name);
+    let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none() || is_cfg_kept(f)).collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
 
     let params: Vec<String> = sorted_fields
@@ -385,7 +421,7 @@ fn config_constructor_parts_inner(
             let binding_name = field_renames
                 .and_then(|r| r.get(&f.name))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
-            if f.cfg.is_some() {
+            if f.cfg.is_some() && !is_cfg_kept(f) {
                 let default_expr = match &f.ty {
                     TypeRef::Optional(_) => "None",
                     _ => "Default::default()",
