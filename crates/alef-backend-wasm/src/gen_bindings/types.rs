@@ -444,12 +444,14 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], 
 
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-    // Filter out cfg-gated fields (struct body excludes them) and fields whose types
-    // reference excluded types (the Js* wrapper won't exist).
+    // Filter out fields whose types reference excluded types (the Js* wrapper won't exist).
+    // Cfg-gated fields are retained: the struct body keeps them (with #[serde(skip)]) and the
+    // shared `constructor_parts*` helpers emit a `Default::default()` initializer so the
+    // struct literal stays complete; the host caller cannot supply trait-bridge wrappers.
     let filtered_fields: Vec<_> = typ
         .fields
         .iter()
-        .filter(|f| f.cfg.is_none() && !field_references_excluded_type(&f.ty, exclude_types))
+        .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
         .cloned()
         .collect();
 

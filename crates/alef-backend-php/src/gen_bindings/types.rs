@@ -442,10 +442,17 @@ fn gen_struct_methods_impl(
                 let param_init = typ
                     .fields
                     .iter()
-                    // cfg-gated fields are absent from the binding struct — exclude them
-                    // from the struct literal to avoid "no field named X" errors.
-                    .filter(|f| f.cfg.is_none())
                     .map(|f| {
+                        // Cfg-gated fields remain on the binding struct (struct emission keeps
+                        // them with #[serde(skip)]) but cannot be supplied by the PHP caller;
+                        // emit a default expression to keep the struct literal complete.
+                        if f.cfg.is_some() {
+                            let default_expr = match &f.ty {
+                                TypeRef::Optional(_) => "None",
+                                _ => "Default::default()",
+                            };
+                            return format!("{}: {}", f.name, default_expr);
+                        }
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         if field_can_be_param(&f.ty, enum_names, opaque_types) {
                             // Check if this needs let-binding conversion
