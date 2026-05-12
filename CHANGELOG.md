@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.48] - 2026-05-12
+
 ### Changed
 
 - chore(alef-core,alef-backend-php,alef-e2e): make `ResolvedCrateConfig::serde_rename_all_for_language` the single source of truth for per-language JSON wire casing. Flipped registry defaults so PHP, Kotlin, Swift, Dart return `camelCase` (matching their idiomatic variable conventions); Python/Ruby/Go/Elixir/R/Rust/Gleam/Zig/C/FFI stay `snake_case`. PHP backend's hard-coded `serde(rename_all = "camelCase")` now reads from the registry via a new `lang_rename_all` parameter threaded through `gen_php_struct`. Replaced `alef-e2e::codegen::normalize_json_keys_to_snake_case(value)` with `transform_json_keys_for_language(value, wire_case)` accepting any serde rename strategy; existing rust/c/kotlin callers pass `"snake_case"`, java codegen's `fromJson(...)` emission now transforms fixture keys to `"camelCase"` to match Jackson `@JsonProperty`, and php codegen's typed `from_json(json_encode([...]))` path uses `json_to_php_camel_keys` (also camelCase wire). This eliminates the band-aid "everything-to-snake" pre-pass and lets each binding receive JSON in the wire case its serde wrapper actually expects.
