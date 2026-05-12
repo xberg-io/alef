@@ -1002,22 +1002,33 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let pname = p.name.to_lower_camel_case();
         let cname = format!("c{}", to_class_name(&p.name));
         match &p.ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+            TypeRef::String | TypeRef::Char | TypeRef::Json => {
                 out.push_str(&crate::template_env::render(
                     "stream_method_string_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },
                 ));
                 call_args.push(cname);
             }
+            TypeRef::Path => {
+                // Path requires .toString() before allocateFrom — it is not a bare String.
+                out.push_str(&crate::template_env::render(
+                    "marshal_path.jinja",
+                    minijinja::context! { cname => &cname, name => &pname },
+                ));
+                call_args.push(cname);
+            }
             TypeRef::Optional(inner)
-                if matches!(
-                    inner.as_ref(),
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
-                ) =>
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) =>
             {
                 out.push_str(&crate::template_env::render(
                     "stream_method_optional_string_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+                out.push_str(&format!(
+                    "            var {cname} = {pname} != null ? arena.allocateFrom({pname}.toString()) : MemorySegment.NULL;\n"
                 ));
                 call_args.push(cname);
             }
