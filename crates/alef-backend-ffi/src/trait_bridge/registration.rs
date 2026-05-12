@@ -145,6 +145,22 @@ impl FfiBridgeGenerator {
             },
         ));
 
+        // --- clear function ---
+        // Other backends (go/java/csharp/kotlin) expect `{prefix}_clear_{trait_snake}`,
+        // so we always emit under that name regardless of the alef.toml `clear_fn`
+        // alias (which only governs the host-language wrapper name).
+        if spec.bridge_config.clear_fn.is_some() {
+            let full_clear_name = format!("{prefix}_clear_{trait_snake}");
+            out.push('\n');
+            out.push_str(&crate::template_env::render(
+                "clear_fn.jinja",
+                minijinja::context! {
+                    full_clear_name => &full_clear_name,
+                    registry_getter => registry_getter,
+                },
+            ));
+        }
+
         out
     }
 
