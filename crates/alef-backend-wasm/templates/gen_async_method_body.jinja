@@ -34,11 +34,19 @@ args.push(&{{ param }});
 {% endfor %}
 
 {% if has_error %}
-let result = func.apply(&self.inner, &args)
+let promise_val = func.apply(&self.inner, &args)
     .map_err(|_| {{ error_apply }})?;
+let promise: js_sys::Promise = promise_val.dyn_into()
+    .map_err(|_| {{ error_promise }})?;
+let result = wasm_bindgen_futures::JsFuture::from(promise)
+    .await
+    .map_err(|e| {{ error_promise_rejected }})?;
 {% else %}
 let result = match func.apply(&self.inner, &args) {
-    Ok(r) => r,
+    Ok(v) => match wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(v)).await {
+        Ok(r) => r,
+        Err(_) => return Default::default(),
+    },
     Err(_) => return Default::default(),
 };
 {% endif %}
