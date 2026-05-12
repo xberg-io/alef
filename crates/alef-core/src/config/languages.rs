@@ -126,6 +126,41 @@ pub struct StubsConfig {
     pub output: PathBuf,
 }
 
+/// Configuration for a single capsule type entry in `NodeConfig::capsule_types`.
+///
+/// When set, the named Rust type is NOT emitted as a `#[napi]` opaque wrapper.
+/// Instead, functions returning this type produce a `JsObject` carrying the raw
+/// pointer in a `__parser` `Napi::External<T>` property — the layout consumed
+/// by the `tree-sitter` npm package's `Parser.setLanguage()`.
+///
+/// TOML form:
+/// ```toml
+/// [crates.node.capsule_types]
+/// Language = { type = "Language", from_module = "tree-sitter" }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeCapsuleTypeConfig {
+    /// User-facing class name in the ecosystem library (e.g. `"Language"`).
+    /// Emitted as the return-type annotation in the generated `index.d.ts`.
+    #[serde(rename = "type")]
+    pub type_name: String,
+    /// npm package to import the type from (e.g. `"tree-sitter"`).
+    /// Emitted as the `from` clause in the generated `import type` line.
+    pub from_module: String,
+    /// Codegen strategy. Currently only `"external_pointer"` is supported:
+    /// the Rust shim returns a `JsObject` with `__parser` property set to
+    /// `Napi::External<T>` wrapping the raw pointer obtained via
+    /// `value.into_raw()`.
+    ///
+    /// Defaults to `"external_pointer"`.
+    #[serde(default = "default_node_capsule_construct")]
+    pub construct: String,
+}
+
+fn default_node_capsule_construct() -> String {
+    "external_pointer".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
     pub package_name: Option<String>,
@@ -141,6 +176,12 @@ pub struct NodeConfig {
     /// Defaults to `"Js"`.
     #[serde(default)]
     pub type_prefix: Option<String>,
+    /// Map of Rust type name -> capsule config for raw-pointer passthrough.
+    /// Types listed here skip the default `#[napi]` opaque-wrapper emission;
+    /// functions returning them produce a `JsObject` with a `__parser`
+    /// `Napi::External<T>` property instead. See [`NodeCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, NodeCapsuleTypeConfig>,
     /// Functions to exclude from Node binding generation.
     #[serde(default)]
     pub exclude_functions: Vec<String>,
