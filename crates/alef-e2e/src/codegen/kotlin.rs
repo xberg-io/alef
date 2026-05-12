@@ -930,6 +930,11 @@ fn render_test_method(
             .any(|cand| call_config.overrides.get(*cand).is_some_and(|o| o.result_is_simple));
     let result_is_simple = effective_result_is_simple;
 
+    // Resolve per-fixture result_is_option: prefer the kotlin override, then the
+    // call-level default. When set the function returns `T?` and bare-result
+    // emptiness assertions must use a null-check instead of `.isEmpty()`.
+    let result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
+
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -1030,6 +1035,7 @@ fn render_test_method(
                 class_name,
                 field_resolver,
                 result_is_simple,
+                result_is_option,
                 enum_fields,
             );
         }
@@ -1073,6 +1079,7 @@ fn render_test_method(
             class_name,
             field_resolver,
             result_is_simple,
+            result_is_option,
             enum_fields,
         );
     }
@@ -1248,6 +1255,7 @@ fn emit_kotlin_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Str
     format!("listOf({})", parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
@@ -1255,6 +1263,7 @@ fn render_assertion(
     _class_name: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_option: bool,
     enum_fields: &HashSet<String>,
 ) {
     // Streaming virtual fields resolve against the `chunks` collected-list variable.
@@ -1455,7 +1464,11 @@ fn render_assertion(
             // (e.g. DocumentStructure) for which `.orEmpty()` is undefined. A
             // null-check is the safe primitive: it works for any reference type
             // and matches the Java codegen's `Optional.ofNullable(...).isEmpty()`.
-            if field_is_optional {
+            // When the bare result is `T?` (result_is_option) the same null-check
+            // applies, because `.isEmpty()` is undefined on arbitrary nullable types.
+            let bare_result_is_option =
+                result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
+            if field_is_optional || bare_result_is_option {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} != null, \"expected non-empty value\")"
@@ -1468,7 +1481,9 @@ fn render_assertion(
             }
         }
         "is_empty" => {
-            if field_is_optional {
+            let bare_result_is_option =
+                result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
+            if field_is_optional || bare_result_is_option {
                 let _ = writeln!(
                     out,
                     "        assertTrue({field_expr} == null, \"expected empty value\")"
