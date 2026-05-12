@@ -1,24 +1,50 @@
 //! TypeScript declaration file (`.d.ts`) generation for NAPI-RS bindings.
 
 use alef_codegen::naming::to_node_name;
+use alef_core::config::NodeCapsuleTypeConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use std::collections::HashMap;
 
 pub(super) fn gen_dts(
     api: &ApiSurface,
     prefix: &str,
     exclude_functions: &ahash::AHashSet<String>,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
+    capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
     lines.push("/* eslint-disable */".to_string());
 
+    // Emit `import type { TypeName } from "module"` for each capsule type.
+    // These must appear after the header but before all declarations so TypeScript
+    // resolves them before they are referenced in function signatures.
+    if !capsule_types.is_empty() {
+        // Group by from_module for compact output.
+        let mut by_module: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+        for cfg in capsule_types.values() {
+            by_module
+                .entry(cfg.from_module.as_str())
+                .or_default()
+                .push(cfg.type_name.as_str());
+        }
+        for (module, mut names) in by_module {
+            names.sort_unstable();
+            lines.push(format!("import type {{ {} }} from \"{module}\";", names.join(", ")));
+        }
+    }
+
     // Collect all declarations: opaque types (classes), plain structs (interfaces), visitor traits (interfaces), enums, functions.
     // Sort each group alphabetically to produce stable, deterministic output.
 
     // Opaque non-trait types → `export declare class`
-    let mut opaque_types: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_opaque && !t.is_trait).collect();
+    // Skip capsule types — they are not emitted as napi classes.
+    let mut opaque_types: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && !capsule_types.contains_key(&t.name))
+        .collect();
     opaque_types.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Plain structs → `export interface`
@@ -193,7 +219,15 @@ pub(super) fn gen_dts(
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
                 let params = dts_params(&func.params, prefix);
-                let ret = dts_return_type(&func.return_type, func.error_type.is_some(), func.is_async, prefix);
+                // When the function returns a capsule type, use the ecosystem type name
+                // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
+                let ret = dts_return_type_capsule(
+                    &func.return_type,
+                    func.error_type.is_some(),
+                    func.is_async,
+                    prefix,
+                    capsule_types,
+                );
                 lines.extend(format_jsdoc(&func.doc, ""));
                 lines.push(format!("export declare function {js_name}({params}): {ret};"));
             }
@@ -323,6 +357,34 @@ pub(super) fn dts_params(params: &[ParamDef], prefix: &str) -> String {
 pub(super) fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str) -> String {
     let base = match ret {
         TypeRef::Unit => "void".to_string(),
+        other => dts_type(other, prefix),
+    };
+    if is_async { format!("Promise<{base}>") } else { base }
+}
+
+/// Render the TypeScript return type for a function/method in `.d.ts`, substituting
+/// the ecosystem type name for capsule-configured types.
+///
+/// When the return type is a capsule type (e.g. `Language` → `tree-sitter`), emits
+/// the type_name from the capsule config (e.g. `Language`) instead of the Js-prefixed
+/// wrapper name (e.g. `JsLanguage`). The `import type` line at the top of the file
+/// makes that name resolvable.
+pub(super) fn dts_return_type_capsule(
+    ret: &TypeRef,
+    _has_error: bool,
+    is_async: bool,
+    prefix: &str,
+    capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
+) -> String {
+    let base = match ret {
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::Named(name) => {
+            if let Some(cfg) = capsule_types.get(name.as_str()) {
+                cfg.type_name.clone()
+            } else {
+                dts_type(ret, prefix)
+            }
+        }
         other => dts_type(other, prefix),
     };
     if is_async { format!("Promise<{base}>") } else { base }
