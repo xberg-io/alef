@@ -120,7 +120,7 @@ pub fn gen_struct_with_per_field_attrs(
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
     for field in &typ.fields {
-        if field.cfg.is_some() {
+        if field.cfg.is_some() && !cfg.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         let force_optional = cfg.option_duration_on_defaults
@@ -197,7 +197,7 @@ pub fn gen_struct_with_rename(
     sb.add_derive("serde::Deserialize");
     let has_serde = true;
     for field in &typ.fields {
-        if field.cfg.is_some() {
+        if field.cfg.is_some() && !cfg.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         let force_optional = cfg.option_duration_on_defaults
@@ -280,7 +280,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to
         // handle conditional compilation which struct literal initializers can't express.
-        if field.cfg.is_some() {
+        if field.cfg.is_some() && !cfg.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
         // When option_duration_on_defaults is set, wrap non-optional Duration fields in

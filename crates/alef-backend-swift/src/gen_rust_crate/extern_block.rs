@@ -126,6 +126,10 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
             name => &en.name,
         },
     ));
+    // Expose a `toString()` method so Swift can get the lowercase variant name
+    // (e.g. "anchor", "document") without relying on `String(describing:)`, which
+    // gives the opaque class description rather than the enum case name.
+    block.push_str("        fn to_string(&self) -> String;\n");
     block.push_str("    }\n\n");
     block
 }

@@ -227,15 +227,14 @@ impl FfiBridgeGenerator {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            methods_code.push_str(&crate::template_env::render(
-                "generators/trait_bridge/trait_method.jinja",
-                minijinja::context! {
-                    async_kw => async_kw,
-                    method_name => &method.name,
-                    all_params => all_params,
-                    ret => ret,
-                    indented_body => &indented_body,
-                },
+            // Generate method inline (trait_method.jinja is not in FFI template_env)
+            methods_code.push_str(&format!(
+                "    {async_kw}fn {method_name}({all_params}) -> {ret} {{\n{indented_body}\n    }}\n",
+                async_kw = async_kw,
+                method_name = &method.name,
+                all_params = all_params,
+                ret = ret,
+                indented_body = indented_body,
             ));
         }
 
@@ -249,16 +248,19 @@ impl FfiBridgeGenerator {
             impl_code.push('\n');
         }
 
-        // Trait impl
-        impl_code.push_str(&crate::template_env::render(
-            "generators/trait_bridge/trait_impl.jinja",
-            minijinja::context! {
-                has_async_methods => has_async_methods,
-                async_trait_is_send => async_trait_is_send,
-                trait_path => trait_path,
-                wrapper_name => wrapper,
-                methods_code => methods_code,
-            },
+        // Trait impl (trait_impl.jinja is not in FFI template_env, so generate inline)
+        if has_async_methods {
+            if async_trait_is_send {
+                impl_code.push_str("#[async_trait::async_trait]\n");
+            } else {
+                impl_code.push_str("#[async_trait::async_trait(?Send)]\n");
+            }
+        }
+        impl_code.push_str(&format!(
+            "impl {trait_path} for {wrapper_name} {{\n{methods_code}}}\n",
+            trait_path = trait_path,
+            wrapper_name = wrapper,
+            methods_code = methods_code,
         ));
 
         impl_code

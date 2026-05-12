@@ -101,6 +101,11 @@ pub struct RustBindingConfig<'a> {
     /// round-trips on parent structs (e.g. `ChatCompletionRequest.messages: Vec<Message>`)
     /// don't silently drop the field to `Default::default()`.
     pub serializable_opaque_type_names: &'a [String],
+    /// Field names that should NOT be skipped even if they are cfg-gated.
+    /// Used when the binding crate enables the feature that gates the field,
+    /// so the field must appear in the binding struct and From impl.
+    /// Typically populated from trait bridge options field names.
+    pub never_skip_cfg_field_names: &'a [String],
 }
 
 /// Method names that conflict with standard trait methods.

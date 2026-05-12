@@ -233,6 +233,7 @@ pub(crate) fn gen_php_struct(
             named_non_opaque_params_by_ref: cfg.named_non_opaque_params_by_ref,
             lossy_skip_types: cfg.lossy_skip_types,
             serializable_opaque_type_names: cfg.serializable_opaque_type_names,
+            never_skip_cfg_field_names: cfg.never_skip_cfg_field_names,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {

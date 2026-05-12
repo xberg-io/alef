@@ -812,6 +812,11 @@ fn render_test_case(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    let options_type: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
+    let options_via: &str = call_overrides
+        .and_then(|o| o.options_via.as_deref())
+        .unwrap_or("default");
+
     let test_documents_path = e2e_config.test_documents_relative_from(0);
     let build_result = build_args_and_setup(
         &fixture.input,
@@ -822,6 +827,8 @@ fn render_test_case(
         json_object_wrapper,
         module_path,
         &extra_args,
+        options_type,
+        options_via,
     );
 
     // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
@@ -973,7 +980,8 @@ fn render_test_case(
 /// - `string` non-optional → `"value"`
 /// - `json_object` with recipe → list/record constructor from `element_constructors`
 /// - `json_object` with wrapper → JSON-string literal wrapped by `json_object_wrapper`
-/// - `json_object` without recipe or wrapper → caller is signalled to skip
+/// - `json_object` with `options_via = "from_json"` → `<snake_type>_from_json("{json}")` NIF call
+/// - `json_object` without recipe, wrapper, or from_json → caller is signalled to skip
 #[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
@@ -984,25 +992,27 @@ fn build_args_and_setup(
     json_object_wrapper: Option<&str>,
     module_path: &str,
     extra_args: &[String],
+    options_type: Option<&str>,
+    options_via: &str,
 ) -> Option<(Vec<String>, String)> {
     if args.is_empty() && extra_args.is_empty() {
         return Some((Vec::new(), String::new()));
     }
 
-    // Pre-check: if any json_object arg has no recipe and no wrapper, the call
-    // cannot be expressed in Gleam (would require a typed record constructor that
-    // alef cannot auto-generate).  Signal the caller to skip this test entirely.
+    // Pre-check: if any json_object arg has no recipe, wrapper, or from_json override,
+    // the call cannot be expressed in Gleam.  Signal the caller to skip.
     for arg in args {
         if arg.arg_type == "json_object" {
             let element_type = arg.element_type.as_deref().unwrap_or("");
             let has_recipe =
                 !element_type.is_empty() && element_constructors.iter().any(|r| r.element_type == element_type);
             let has_wrapper = json_object_wrapper.is_some();
+            let has_from_json = options_via == "from_json" && options_type.is_some();
             // An optional json_object with no value can safely emit option.None / [].
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
             let is_null_optional = arg.optional && matches!(val, None | Some(serde_json::Value::Null));
-            if !has_recipe && !has_wrapper && !is_null_optional {
+            if !has_recipe && !has_wrapper && !has_from_json && !is_null_optional {
                 return None;
             }
         }
@@ -1097,6 +1107,26 @@ fn build_args_and_setup(
                 }
             }
             "json_object" => {
+                // from_json path: use `<snake_type>_from_json(json)` NIF.
+                if options_via == "from_json" {
+                    if let Some(opts_type) = options_type {
+                        let empty_obj = serde_json::Value::Object(Default::default());
+                        let config_val = val.unwrap_or(&empty_obj);
+                        if !config_val.is_null() {
+                            use heck::ToSnakeCase;
+                            let snake_opts = opts_type.to_snake_case();
+                            let json_str = serde_json::to_string(config_val).unwrap_or_default();
+                            let escaped = escape_gleam(&json_str);
+                            let var_name = format!("{}_json__", &arg.name);
+                            setup_lines.push(format!(
+                                "let assert Ok({var_name}) = {module_path}.{snake_opts}_from_json(\"{escaped}\")"
+                            ));
+                            parts.push(var_name);
+                        }
+                        continue;
+                    }
+                }
+
                 // Look up a per-`element_type` constructor recipe declared in
                 // `[crates.gleam.element_constructors]`. When present, build a
                 // record literal from the recipe; otherwise fall back to a
@@ -2059,6 +2089,8 @@ mod tests {
             Some("k.config_from_json_string({json})"),
             "kreuzberg",
             &[],
+            None,
+            "default",
         ) else {
             panic!("expected Some result from build_args_and_setup");
         };
@@ -2075,7 +2107,7 @@ mod tests {
     }
 
     #[test]
-    fn build_args_without_json_object_wrapper_emits_bare_json_string() {
+    fn build_args_without_json_object_wrapper_returns_none_for_skip() {
         use crate::config::ArgMapping;
         let arg = ArgMapping {
             name: "config".to_string(),
@@ -2087,7 +2119,8 @@ mod tests {
             go_type: None,
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
-        let Some((_setup, args_str)) = build_args_and_setup(
+        // No recipe, no wrapper, no from_json — must return None for skip.
+        let result = build_args_and_setup(
             &input,
             &[arg],
             "test_fixture",
@@ -2096,18 +2129,12 @@ mod tests {
             None,
             "kreuzberg",
             &[],
-        ) else {
-            panic!("expected Some result from build_args_and_setup");
-        };
-        // Default behaviour: bare JSON-string literal, no wrapper. The
-        // emission must NOT contain any function-call shape from a wrapper.
-        assert!(
-            !args_str.contains("from_json_string"),
-            "no wrapper configured must not synthesise one; got:\n{args_str}"
+            None,
+            "default",
         );
         assert!(
-            args_str.starts_with('"'),
-            "bare emission is a Gleam string literal starting with a quote; got:\n{args_str}"
+            result.is_none(),
+            "json_object without recipe/wrapper/from_json must return None for skip; got: {result:?}"
         );
     }
 
