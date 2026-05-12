@@ -481,10 +481,27 @@ fn render_test_file(
     let _ = writeln!(out, "import kotlin.test.assertTrue");
     let _ = writeln!(out, "import kotlin.test.assertFalse");
     let _ = writeln!(out, "import kotlin.test.assertFailsWith");
+    // Effective binding package for FQN imports. When the binding `class_name` is
+    // not fully-qualified, fall back to `kotlin_pkg_id` — the kotlin binding emits
+    // top-level typealiases at that package (e.g. `package com.github.kreuzberg_dev`)
+    // while the test files live at `<kotlin_pkg_id>.e2e`. Child packages do NOT
+    // import their parent's symbols implicitly, so explicit imports are required.
+    let binding_pkg_for_imports: String = if !import_path.is_empty() {
+        import_path
+            .rsplit_once('.')
+            .map(|(p, _)| p.to_string())
+            .unwrap_or_else(|| kotlin_pkg_id.to_string())
+    } else {
+        kotlin_pkg_id.to_string()
+    };
     // Only import the binding class when there are non-HTTP fixtures that call it.
     let has_call_fixtures = fixtures.iter().any(|f| !f.is_http_test());
-    if has_call_fixtures && !import_path.is_empty() {
-        let _ = writeln!(out, "import {import_path}");
+    if has_call_fixtures {
+        if !import_path.is_empty() {
+            let _ = writeln!(out, "import {import_path}");
+        } else if !class_name.is_empty() {
+            let _ = writeln!(out, "import {binding_pkg_for_imports}.{class_name}");
+        }
     }
     if needs_object_mapper {
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper");
@@ -495,19 +512,12 @@ fn render_test_file(
         let mut sorted_opts: Vec<&String> = per_fixture_options_types.iter().collect();
         sorted_opts.sort();
         for opts_type in sorted_opts {
-            let opts_package = if !import_path.is_empty() {
-                let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-                format!("{pkg}.{opts_type}")
-            } else {
-                opts_type.clone()
-            };
-            let _ = writeln!(out, "import {opts_package}");
+            let _ = writeln!(out, "import {binding_pkg_for_imports}.{opts_type}");
         }
     }
     // Import CrawlConfig when handle args need JSON deserialization.
-    if needs_object_mapper_for_handle && !import_path.is_empty() {
-        let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-        let _ = writeln!(out, "import {pkg}.CrawlConfig");
+    if needs_object_mapper_for_handle {
+        let _ = writeln!(out, "import {binding_pkg_for_imports}.CrawlConfig");
     }
     let _ = writeln!(out);
 
@@ -872,7 +882,7 @@ fn render_test_method(
             if arg.arg_type == "json_object" {
                 let val = super::resolve_field(&fixture.input, &arg.field);
                 if !val.is_null() {
-                    let normalized = super::normalize_json_keys_to_snake_case(val);
+                    let normalized = super::transform_json_keys_for_language(val, "snake_case");
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                     let var_name = &arg.name;
                     let _ = writeln!(
