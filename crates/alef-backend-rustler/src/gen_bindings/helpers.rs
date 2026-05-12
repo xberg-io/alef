@@ -243,6 +243,16 @@ pub(super) fn gen_native_ex(
         last_was_multiline = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], last_was_multiline);
     }
 
+    // Stubs for *_from_json helper NIFs (generated for all serde-capable types)
+    for typ in api.types.iter().filter(|t| {
+        !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde && !exclude_types.contains(t.name.as_str())
+    }) {
+        let from_json_fn_name = format!("{}_from_json", typ.name.to_snake_case());
+        // *_from_json takes a JSON string and returns Result<Type, String>
+        let params = vec!["_json".to_string()];
+        last_was_multiline = write_nif_stub(&mut out, &from_json_fn_name, &params, last_was_multiline);
+    }
+
     out.push_str(&template_env::render(
         "native_module_footer.jinja",
         minijinja::context! {},

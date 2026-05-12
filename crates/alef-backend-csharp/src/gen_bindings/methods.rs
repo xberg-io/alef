@@ -10,6 +10,7 @@ use super::{
 };
 use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
+use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
@@ -28,6 +29,7 @@ pub(super) fn gen_wrapper_class(
     streaming_methods: &HashSet<String>,
     _streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -58,16 +60,28 @@ pub(super) fn gen_wrapper_class(
 
     // Generate wrapper methods for functions
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
-        out.push_str(&gen_wrapper_function(
-            func,
-            exception_name,
-            prefix,
-            &enum_names,
-            &true_opaque_types,
-            bridge_param_names,
-            bridge_type_aliases,
-            has_visitor_callbacks,
-        ));
+        // Check if this function has a bridge_field binding (e.g., visitor field on options)
+        let bridge_field = find_bridge_field(func, &api.types, trait_bridges);
+        if let Some(bm) = bridge_field {
+            out.push_str(&gen_bridge_field_wrapper_function(
+                func,
+                &bm,
+                exception_name,
+                &enum_names,
+                &true_opaque_types,
+            ));
+        } else {
+            out.push_str(&gen_wrapper_function(
+                func,
+                exception_name,
+                prefix,
+                &enum_names,
+                &true_opaque_types,
+                bridge_param_names,
+                bridge_type_aliases,
+                has_visitor_callbacks,
+            ));
+        }
     }
 
     // Generate wrapper methods for type methods (prefixed with type name to avoid collisions).
@@ -491,6 +505,228 @@ fn gen_wrapper_function(
         emit_return_statement(&mut out, &func.return_type);
     }
 
+    out.push_str("    }\n\n");
+
+    out
+}
+
+/// Generate a wrapper function for a function with a bridge field binding (e.g., visitor on options).
+///
+/// This handles functions where a trait bridge is injected into a struct field rather than
+/// as a function parameter. The pattern:
+/// 1. Extract the bridge value from the wrapped type (e.g., visitor from IHtmlVisitor)
+/// 2. Serialize the options struct to JSON (skipping the bridge field)
+/// 3. Deserialize into a native options handle
+/// 4. If bridge present, create a bridge, inject into options, call convert, free bridge
+/// 5. Otherwise, just call convert directly
+fn gen_bridge_field_wrapper_function(
+    func: &FunctionDef,
+    bridge_match: &alef_codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
+    _exception_name: &str,
+    _enum_names: &HashSet<String>,
+    _true_opaque_types: &HashSet<String>,
+) -> String {
+    let mut out = String::with_capacity(2048);
+
+    // Visible params (bridge field is embedded in the options param)
+    let visible_params: Vec<alef_core::ir::ParamDef> = func
+        .params
+        .iter()
+        .cloned()
+        .collect();
+
+    // XML doc comment
+    doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ");
+    for param in &visible_params {
+        if !func.doc.is_empty() {
+            let param_name = param.name.to_lower_camel_case();
+            let optional_text = if param.optional { "Optional." } else { "" };
+            out.push_str(&format!(
+                "    /// <param name=\"{param_name}\">{optional_text}</param>\n"
+            ));
+        }
+    }
+
+    out.push_str("    public static ");
+
+    // Return type
+    if func.is_async {
+        if func.return_type == TypeRef::Unit {
+            out.push_str("async Task");
+        } else {
+            let return_type = csharp_type(&func.return_type);
+            out.push_str(&format!("async Task<{return_type}>"));
+        }
+    } else if func.return_type == TypeRef::Unit {
+        out.push_str("void");
+    } else {
+        out.push_str(&csharp_type(&func.return_type));
+    }
+
+    out.push(' ');
+    out.push_str(&to_csharp_name(&func.name));
+    out.push('(');
+
+    // Parameters (all visible, since bridge is embedded in options param)
+    for (i, param) in visible_params.iter().enumerate() {
+        let param_name = param.name.to_lower_camel_case();
+        let param_type = csharp_type(&param.ty);
+        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
+        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
+            out.push_str(&format!("{param_type}? {param_name}"));
+        } else {
+            out.push_str(&format!("{param_type} {param_name}"));
+        }
+
+        if i < visible_params.len() - 1 {
+            out.push_str(", ");
+        }
+    }
+    out.push_str(")\n    {\n");
+
+    // Extract the bridge field value and options parameter name
+    let options_param = &bridge_match.param_name;
+    let options_param_camel = options_param.to_lower_camel_case();
+    let field_name = &bridge_match.field_name;
+    let field_name_pascal = to_csharp_name(field_name);
+
+    // Extract bridge from options (must be optional)
+    out.push_str(&format!(
+        "        var {field_name} = {options_param_camel}?.{field_name_pascal};\n"
+    ));
+
+    // Serialize options to JSON (excluding bridge field via JsonIgnore)
+    out.push_str(&format!(
+        "        var {options_param_camel}Json = {options_param_camel} != null ? JsonSerializer.Serialize({options_param_camel}, JsonOptions) : \"null\";\n"
+    ));
+
+    // Deserialize into native options handle
+    out.push_str(&format!(
+        "        var {options_param_camel}Handle = NativeMethods.ConversionOptionsFromJson({options_param_camel}Json);\n"
+    ));
+
+    // If-bridge-present logic
+    out.push_str(&format!("        try\n        {{\n            if ({field_name} != null)\n            {{\n"));
+    out.push_str(&format!(
+        "                using var bridge = new HtmlVisitorBridge({field_name});\n"
+    ));
+    out.push_str(&format!(
+        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n"
+    ));
+    out.push_str(&format!(
+        "                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n"
+    ));
+    out.push_str(&format!("                try\n                {{\n"));
+
+    // Call native function with injected bridge
+    let cs_native_name = to_csharp_name(&func.name);
+    out.push_str(&format!(
+        "                    NativeMethods.ConversionOptionsSetVisitor({options_param_camel}Handle, bridgeHandle);\n"
+    ));
+
+    // Build the native call
+    if func.return_type != TypeRef::Unit {
+        out.push_str("                    var nativeResult = ");
+    } else {
+        out.push_str("                    ");
+    }
+
+    out.push_str(&format!("NativeMethods.{cs_native_name}("));
+
+    // Build call args (non-options params for convert, or all params if not convert-like)
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .filter_map(|p| {
+            if p.name == *options_param {
+                return Some(format!("{options_param_camel}Handle"));
+            }
+            Some(format!("{}", p.name.to_lower_camel_case()))
+        })
+        .collect();
+
+    for (i, arg) in call_args.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(arg);
+    }
+    out.push_str(");\n");
+
+    // Error check
+    if func.return_type != TypeRef::Unit {
+        out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
+    }
+
+    // Handle return value (simplified for now - assumes ConversionResult-like marshalling)
+    if func.return_type != TypeRef::Unit {
+        out.push_str(&format!(
+            "                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n"
+        ));
+        out.push_str(&format!(
+            "                    NativeMethods.FreeString(jsonPtr);\n"
+        ));
+        out.push_str(&format!(
+            "                    NativeMethods.ConversionResultFree(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n"
+        ));
+    }
+
+    out.push_str("                }\n");
+    out.push_str("                finally\n");
+    out.push_str("                {\n");
+    out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+    out.push_str("            else\n");
+    out.push_str("            {\n");
+
+    // Call without bridge
+    if func.return_type != TypeRef::Unit {
+        out.push_str("                var nativeResult = ");
+    } else {
+        out.push_str("                ");
+    }
+
+    out.push_str(&format!("NativeMethods.{cs_native_name}("));
+    for (i, arg) in call_args.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(arg);
+    }
+    out.push_str(");\n");
+
+    if func.return_type != TypeRef::Unit {
+        out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str(&format!(
+            "                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                var json = Marshal.PtrToStringUTF8(jsonPtr);\n"
+        ));
+        out.push_str(&format!(
+            "                NativeMethods.FreeString(jsonPtr);\n"
+        ));
+        out.push_str(&format!(
+            "                NativeMethods.ConversionResultFree(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n"
+        ));
+    }
+
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("        finally\n");
+    out.push_str("        {\n");
+    out.push_str(&format!("            NativeMethods.ConversionOptionsFree({options_param_camel}Handle);\n"));
+    out.push_str("        }\n");
     out.push_str("    }\n\n");
 
     out

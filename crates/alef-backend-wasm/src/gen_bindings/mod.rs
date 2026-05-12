@@ -395,8 +395,30 @@ impl Backend for WasmBackend {
                     continue;
                 }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                let options_field_bridge = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                    // Only use the options-field path when the bridge field actually survives
+                    // into the binding struct.
+                    .filter(|(_, bridge_cfg)| {
+                        let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
+                        let Some(options_type) = bridge_cfg.options_type.as_deref() else { return false; };
+                        api.types
+                            .iter()
+                            .filter(|t| t.name == options_type)
+                            .flat_map(|t| t.fields.iter())
+                            .any(|f| f.cfg.is_none() && f.name == field_name)
+                    });
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                        func,
+                        param_idx,
+                        bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                        &prefix,
+                    ));
+                } else if let Some((param_idx, bridge_cfg)) = options_field_bridge {
+                    builder.add_item(&crate::trait_bridge::gen_options_field_bridge_function(
                         func,
                         param_idx,
                         bridge_cfg,

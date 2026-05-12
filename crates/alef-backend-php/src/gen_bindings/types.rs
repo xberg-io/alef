@@ -203,11 +203,10 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        // No rename_all here: PHP class fields keep their core snake_case names so
-        // serde round-trips losslessly through `kreuzberg::Foo` (which is also snake_case).
-        // This lets us serialize the PHP-side config to JSON and deserialize it as the
-        // core config without any field-name translation.
-        serde_struct_attrs.push("serde(default)");
+        // Add rename_all = "camelCase" so PHP can pass camelCase JSON (e.g., includeDocumentStructure)
+        // while the Rust struct keeps snake_case field names. This allows round-tripping through
+        // the core config which also expects camelCase JSON in its public API.
+        serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,
@@ -601,10 +600,9 @@ fn gen_struct_methods_impl(
 
     // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
     // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
+    // Include cfg-gated fields: if a field is present in the generated struct (because its
+    // feature is enabled), it should be accessible via PHP.
     for field in &typ.fields {
-        if field.cfg.is_some() {
-            continue;
-        }
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
             // ext-php-rs derives the PHP property name from the Rust method ident (stripping `get_`),

@@ -71,14 +71,18 @@ pub(crate) fn gen_record_type(
         // default Jackson behaviour for this field only.
         let needs_bytes_int_serialize = !f.optional && matches!(&f.ty, TypeRef::Bytes);
 
-        // When the language convention is camelCase but the JSON wire format uses
-        // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
-        // so Jackson serialises/deserialises using the correct snake_case key.
-        // Also emit @JsonProperty when an explicit `#[serde(rename = "...")]` is set on
-        // the core field, so the Java field can be named ergonomically (e.g. `tool_type`)
-        // while serializing as the wire name (e.g. `"type"`).
+        // When a field has an explicit `#[serde(rename = "...")]`, use that wire name.
+        // Otherwise, for fields with underscores (snake_case Rust names), emit the camelCase
+        // version as the @JsonProperty so Jackson matches against camelCase JSON keys.
+        // This aligns with the fixture convention (includeDocumentStructure) and common JSON API style.
         let has_json_property = (lang_rename_all == "camelCase" && f.name.contains('_')) || f.serde_rename.is_some();
-        let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
+        let json_property_name = f.serde_rename.clone().unwrap_or_else(|| {
+            if f.name.contains('_') {
+                f.name.to_lower_camel_case()
+            } else {
+                f.name.clone()
+            }
+        });
         let has_nullable = f.optional;
 
         let mut decl = String::new();
@@ -1422,15 +1426,9 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         // Emit `@JsonProperty(<wire-name>)` so Jackson's BuilderBasedDeserializer matches
         // the wire key to this builder field. Required in two cases:
         //   1. Explicit `#[serde(rename = "...")]` (e.g. `tool_type` → wire `"type"`).
-        //   2. The Rust source name does not roundtrip cleanly through Jackson's
-        //      `PropertyNamingStrategies.SNAKE_CASE` from the camelCase Java field name.
-        //      For example `x_robots_tag` (Rust) becomes `xRobotsTag` (Java) which Jackson
-        //      converts back as `xrobots_tag` (no underscore between single-letter prefix
-        //      and the next token), causing `Unrecognized field "x_robots_tag"`. Emitting
-        //      the explicit annotation for every snake_cased Rust name makes the builder
-        //      tolerant of any `PropertyNamingStrategy` (or none) on the consuming
-        //      ObjectMapper. Without this, deserializing a chunk like `{"type":"function"}`
-        //      into StreamToolCallBuilder fails with "Unrecognized field 'type'".
+        //   2. Rust fields with underscores (snake_case names) that need camelCase in JSON.
+        //      We convert to camelCase to match the fixture convention and common JSON API style
+        //      (e.g. `include_document_structure` → `includeDocumentStructure`).
         let wire_name: Option<String> = if is_flattened_json {
             // Flatten fields have no single wire name — the matching
             // `@JsonAnySetter` setter intercepts every unknown sibling field.
@@ -1438,7 +1436,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
         } else if let Some(rename) = &field.serde_rename {
             Some(rename.clone())
         } else if field.name.contains('_') {
-            Some(field.name.clone())
+            Some(field.name.to_lower_camel_case())
         } else {
             None
         };

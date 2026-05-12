@@ -836,12 +836,16 @@ pub fn gen_options_field_bridge_function(
     // undefined/null (no options) or an options object (with or without visitor).
     // Even if the IR marks the param as non-optional (e.g. because has_default types
     // get their Option<> stripped during IR parsing), we force Option<T> behavior here.
-    let is_param_optional = true;
 
     // Whether the IR already marks the options param as Optional<T>.
     let ir_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list; force the options param to Option<T> if the IR didn't already.
+    // Name of the visitor parameter that will be appended to the function signature.
+    let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
+    let field_name = bridge_cfg.resolved_options_field().unwrap_or(visitor_kwarg);
+
+    // Build parameter list; force the options param to Option<T> if the IR didn't already,
+    // and append the visitor parameter.
     let params_str = {
         let mut sig_parts = vec![];
         for (i, p) in func.params.iter().enumerate() {
@@ -852,6 +856,8 @@ pub fn gen_options_field_bridge_function(
                 sig_parts.push(format!("{}: {ty}", p.name));
             }
         }
+        // Append visitor parameter (always optional for JS compatibility)
+        sig_parts.push(format!("{visitor_kwarg}: Option<napi::bindgen_prelude::Object>"));
         sig_parts.join(", ")
     };
 
@@ -860,48 +866,34 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // Generate visitor extraction and bridge creation
-    let visitor_extract = if is_param_optional {
-        crate::template_env::render(
-            "options_visitor_extract_optional.jinja",
-            minijinja::context! {
-                options_name => options_name,
-                struct_name => struct_name,
-                handle_path => handle_path,
-            },
-        )
-    } else {
-        crate::template_env::render(
-            "options_visitor_extract_required.jinja",
-            minijinja::context! {
-                options_name => options_name,
-                struct_name => struct_name,
-                handle_path => handle_path,
-            },
-        )
-    };
+    // Generate visitor wrapping (wrap the visitor parameter into a VisitorHandle).
+    // This mirrors PyO3's approach: take visitor as a separate parameter and wrap it.
+    let visitor_wrap = format!(
+        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n    \
+         let bridge = {struct_name}::new(v);\n    \
+         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+         }});"
+    );
 
-    // Generate options conversion with visitor preservation.
-    // To avoid the From impl dropping the visitor field (it's marked as Default::default()),
-    // we clear it from the cloned options before conversion, then re-inject the extracted handle.
-    // This ensures the bridge wrapper survives the conversion.
-    let options_convert = if is_param_optional {
-        crate::template_env::render(
-            "options_convert_optional.jinja",
-            minijinja::context! {
-                options_name => options_name,
-                core_import => core_import,
-            },
-        )
-    } else {
-        crate::template_env::render(
-            "options_convert_required.jinja",
-            minijinja::context! {
-                options_name => options_name,
-                core_import => core_import,
-            },
-        )
-    };
+    // Generate options conversion with visitor injection.
+    // Unlike the template-based approach that tries to extract visitor from options,
+    // we inject the wrapped handle into options before conversion.
+    let options_convert = format!(
+        "let {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
+         o.{field_name} = None;\n    \
+         let mut result: {core_import}::ConversionOptions = o.into();\n    \
+         result.{field_name} = {visitor_kwarg}_handle.clone();\n    \
+         result\n    \
+         }}).or_else(|| {{\n    \
+         if {visitor_kwarg}_handle.is_some() {{\n    \
+         let mut opts = {core_import}::ConversionOptions::default();\n    \
+         opts.{field_name} = {visitor_kwarg}_handle.clone();\n    \
+         Some(opts)\n    \
+         }} else {{\n    \
+         None\n    \
+         }}\n    \
+         }});"
+    );
 
     // Build call args, replacing options param with the _core version
     let call_args: String = func
@@ -965,14 +957,16 @@ pub fn gen_options_field_bridge_function(
         _ => "val".to_string(),
     };
 
-    let body = render_bridge_function_body(
-        func.error_type.is_some(),
-        &return_wrap,
-        &visitor_extract,
-        &options_convert,
-        &core_call,
-        err_conv,
-    );
+    // Build function body with visitor wrapping and options conversion.
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}{err_conv}")
+        } else {
+            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
+        }
+    } else {
+        format!("{visitor_wrap}\n    {options_convert}\n    {core_call}")
+    };
 
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {

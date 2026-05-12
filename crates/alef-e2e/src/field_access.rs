@@ -919,7 +919,21 @@ fn render_rust_with_optionals(
                 path_so_far.push_str(name);
                 out.push('.');
                 out.push_str(&name.to_snake_case());
-                out.push_str(&format!("[{index}]"));
+                // Option<Vec<T>>: must unwrap the Option before indexing.
+                // Check both "name" (bare) and "name[0]" (indexed) forms since the
+                // optional_fields registry may use either convention.
+                let path_with_idx = format!("{path_so_far}[0]");
+                let is_opt = optional_fields.contains(&path_so_far) || optional_fields.contains(path_with_idx.as_str());
+                if is_opt {
+                    out.push_str(&format!(".as_ref().unwrap()[{index}]"));
+                } else {
+                    out.push_str(&format!("[{index}]"));
+                }
+                // Record the normalised "[0]" suffix in path_so_far so that deeper
+                // optional-field keys which include explicit indices (e.g.
+                // "choices[0].message.tool_calls") continue to match when we check
+                // subsequent segments.
+                path_so_far.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -929,7 +943,10 @@ fn render_rust_with_optionals(
                 out.push('.');
                 out.push_str(&field.to_snake_case());
                 if key.chars().all(|c| c.is_ascii_digit()) {
-                    let is_opt = optional_fields.contains(&path_so_far);
+                    // Check optional both with and without the numeric index suffix.
+                    let path_with_idx = format!("{path_so_far}[0]");
+                    let is_opt =
+                        optional_fields.contains(&path_so_far) || optional_fields.contains(path_with_idx.as_str());
                     if is_opt {
                         out.push_str(&format!(".as_ref().unwrap()[{key}]"));
                     } else {

@@ -263,9 +263,11 @@ pub fn render_assertion(
         Some(f) if !f.is_empty() => {
             if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
                 local_var.clone()
-            } else if result_is_simple {
+            } else if result_is_simple && !f.starts_with("error.") {
                 // Plain return type (String, Vec<T>, etc.) has no struct fields.
                 // Use the result variable directly so assertions operate on the value itself.
+                // Exception: error.* fields must resolve against the Err value, not the
+                // plain result variable, even when the success type is simple (e.g. Bytes).
                 effective_result_var.clone()
             } else if f == result_var {
                 // Sentinel: fixture uses `field: "result"` (or matches the result variable name)

@@ -176,6 +176,7 @@ impl Backend for CsharpBackend {
                 &streaming_methods,
                 &streaming_methods_meta,
                 &exclude_functions,
+                &config.trait_bridges,
             )),
             generated_header: true,
         });

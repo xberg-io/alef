@@ -687,10 +687,7 @@ fn render_test_method(
     // Otherwise fall back to free-function call (Kreuzberg / non-client-factory libraries).
     let has_mock = fixture.mock_response.is_some();
     let (call_setup, call_expr) = if let Some(_factory) = client_factory {
-        let env_key = format!(
-            "MOCK_SERVER_{}",
-            fixture.id.to_ascii_uppercase().replace('-', "_")
-        );
+        let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
         let mock_url = if fixture.has_host_root_route() {
             format!(
                 "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{}\")",
@@ -846,9 +843,7 @@ fn build_args_and_setup(
                     "ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\")"
                 )
             } else {
-                format!(
-                    "ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\""
-                )
+                format!("ProcessInfo.processInfo.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\"")
             };
             setup_lines.push(format!("let {} = {url_expr}", arg.name));
             parts.push(arg.name.clone());

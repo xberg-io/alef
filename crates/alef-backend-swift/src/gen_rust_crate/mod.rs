@@ -412,6 +412,7 @@ fn emit_lib_rs(
             &source_crate,
             &enum_names,
             &visible_type_names,
+            &type_paths,
         ));
         out.push('\n');
     }

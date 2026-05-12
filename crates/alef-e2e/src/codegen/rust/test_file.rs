@@ -515,11 +515,12 @@ pub fn render_test_function(
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
-        // Check if any assertion is NOT an error assertion (i.e., accesses fields on the Ok value).
-        let has_non_error_assertions = fixture
-            .assertions
-            .iter()
-            .any(|a| !matches!(a.assertion_type.as_str(), "error" | "not_error"));
+        // Check if any assertion accesses fields on the Ok value (not error-path fields).
+        // Assertions on `error.*` fields access the Err value and do not need `result_ok`.
+        let has_non_error_assertions = fixture.assertions.iter().any(|a| {
+            !matches!(a.assertion_type.as_str(), "error" | "not_error")
+                && !a.field.as_ref().is_some_and(|f| f.starts_with("error."))
+        });
         // When returns_result=true and there are field assertions (non-error), we need to
         // handle the Result wrapper: unwrap Ok for field assertions, extract Err for error assertions.
         if returns_result && has_non_error_assertions {
@@ -552,7 +553,15 @@ pub fn render_test_function(
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
     // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
-    let is_streaming = fixture.is_streaming_mock();
+    // Also treat fixtures with streaming-virtual-field assertions as streaming so the
+    // collect snippet is emitted (handles empty_stream and similar edge-case fixtures
+    // whose mock_response has no stream_chunks but whose assertions reference `chunks`).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
     // Name of the stream-level variable (the raw stream returned by the call).
     let stream_var = "stream";
     // Name of the collected-list variable produced by draining the stream.

@@ -409,8 +409,9 @@ impl StreamingFieldResolver {
 
             "finish_reason" => Some(match lang {
                 "rust" => {
+                    // FinishReason is an enum (not Deref<str>); convert via Display.
                     format!(
-                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_deref()).unwrap_or(\"\")"
+                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_ref().map(|r| r.to_string())).unwrap_or_default()"
                     )
                 }
                 "go" => {
@@ -464,6 +465,55 @@ impl StreamingFieldResolver {
             _ => {
                 // Check for deep-nested path with a streaming-virtual root.
                 if let Some((root, tail)) = split_streaming_deep_path(field) {
+                    // Rust-specific: StreamToolCall.function is Option<StreamFunctionCall>
+                    // and StreamFunctionCall.name is Option<String>.  Direct field access
+                    // on an Option fails at compile time.  Rewrite deep paths of the form
+                    // `tool_calls[N].function.name` / `tool_calls[N].function.arguments`
+                    // into a monadic chain so the expression type-checks.
+                    if lang == "rust" && root == "tool_calls" {
+                        let root_expr = Self::accessor(root, lang, chunks_var)?;
+                        // Parse the tail to extract index and sub-fields.
+                        let segs = parse_tail(tail);
+                        // Expect the tail to start with an index segment.
+                        if let Some(TailSeg::Index(idx)) = segs.first() {
+                            let base = format!("{root_expr}[{idx}]");
+                            // Collect the remaining field names after the index.
+                            let sub_fields: Vec<&str> = segs[1..]
+                                .iter()
+                                .filter_map(|s| {
+                                    if let TailSeg::Field(name) = s {
+                                        Some(name.as_str())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            // Build an Option-aware chain for known StreamToolCall fields.
+                            let expr = match sub_fields.as_slice() {
+                                // tool_calls[N].function.name → monadic chain through Option<StreamFunctionCall>
+                                ["function", "name"] => {
+                                    format!("{base}.function.as_ref().and_then(|f| f.name.as_deref()).unwrap_or(\"\")")
+                                }
+                                // tool_calls[N].function.arguments
+                                ["function", "arguments"] => {
+                                    format!(
+                                        "{base}.function.as_ref().and_then(|f| f.arguments.as_deref()).unwrap_or(\"\")"
+                                    )
+                                }
+                                // tool_calls[N].id
+                                ["id"] => {
+                                    format!("{base}.id.as_deref().unwrap_or(\"\")")
+                                }
+                                // tool_calls[N].function (bare)
+                                ["function"] => {
+                                    format!("{base}.function.as_ref().unwrap()")
+                                }
+                                // Fallback: use generic deep tail (may not type-check for all paths)
+                                _ => render_deep_tail(&base, tail, lang),
+                            };
+                            return Some(expr);
+                        }
+                    }
                     let root_expr = Self::accessor(root, lang, chunks_var)?;
                     Some(render_deep_tail(&root_expr, tail, lang))
                 } else {
@@ -481,7 +531,7 @@ impl StreamingFieldResolver {
     pub fn collect_snippet(lang: &str, stream_var: &str, chunks_var: &str) -> Option<String> {
         match lang {
             "rust" => Some(format!(
-                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await;"
+                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Result<Vec<_>, _>>({stream_var}).await.expect(\"stream error\");"
             )),
             "go" => Some(format!(
                 "var {chunks_var} []pkg.ChatCompletionChunk\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
@@ -705,6 +755,10 @@ mod tests {
         let snip = StreamingFieldResolver::collect_snippet("rust", "result", "chunks").unwrap();
         assert!(snip.contains("tokio_stream::StreamExt::collect"), "rust: {snip}");
         assert!(snip.contains("let chunks"), "rust: {snip}");
+        assert!(
+            snip.contains("Result<Vec<_"),
+            "rust collect must unwrap Results: {snip}"
+        );
     }
 
     #[test]
@@ -831,8 +885,13 @@ mod tests {
     fn deep_tool_calls_function_name_snapshot_rust_kotlin_ts() {
         let rust = StreamingFieldResolver::accessor("tool_calls[0].function.name", "rust", "chunks")
             .expect("rust deep path must resolve");
-        // Rust: flat_map root → [0] → .function → .name  (snake_case)
-        assert!(rust.contains("[0].function.name"), "rust deep path: {rust}");
+        // Rust: flat_map root → [0] → Option-aware chain for function.name
+        // StreamToolCall.function is Option<StreamFunctionCall> and name is Option<String>,
+        // so the expression uses and_then chains rather than direct field access.
+        assert!(
+            rust.contains("[0].function.as_ref().and_then(|f| f.name.as_deref()).unwrap_or(\"\")"),
+            "rust deep path: {rust}"
+        );
 
         let kotlin = StreamingFieldResolver::accessor("tool_calls[0].function.name", "kotlin", "chunks")
             .expect("kotlin deep path must resolve");

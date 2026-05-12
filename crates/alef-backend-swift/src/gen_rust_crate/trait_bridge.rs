@@ -213,6 +213,7 @@ pub(crate) fn emit_trait_bridge_wrapper(
     source_crate: &str,
     enum_names: &HashSet<&str>,
     visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     let trait_name = &trait_def.name;
@@ -283,7 +284,11 @@ pub(crate) fn emit_trait_bridge_wrapper(
         };
 
         // Build the call arguments — convert bridge types back to what the trait expects.
-        let call_args: Vec<String> = method.params.iter().map(trait_call_arg).collect();
+        let call_args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| trait_call_arg(p, visible_type_names))
+            .collect();
         let call_args_str = call_args.join(", ");
         let source_call = format!("this.0.{method_name}({call_args_str})");
 
@@ -322,8 +327,10 @@ fn bridge_type_for_trait_method(ty: &TypeRef, visible_type_names: &HashSet<&str>
 
 /// Build the call-site argument expression for a trait method parameter.
 /// JSON-bridged params are deserialized; Path params are converted to PathBuf/Path;
-/// Named types are passed through directly (they are not bridge wrappers in trait context).
-pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef) -> String {
+/// Named types visible in the bridge are passed through wrapper newtypes (extract `.0`);
+/// Named types NOT in `visible_type_names` (excluded internal types) are JSON-bridged as `String`
+/// at the boundary and deserialised here back to the source type.
+pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef, visible_type_names: &HashSet<&str>) -> String {
     let name = p.name.to_snake_case();
 
     // JSON-bridged types: deserialize from the bridged String.
@@ -348,6 +355,20 @@ pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef) -> String {
             return format!("std::path::Path::new(&{name})");
         }
         return format!("std::path::PathBuf::from({name})");
+    }
+
+    // Named types not in the visible set (e.g. excluded internal types like `InternalDocument`)
+    // are JSON-bridged as `String` at the boundary. Deserialise back to the source type — the
+    // type must implement `serde::Deserialize` (true for all kreuzberg internal types passed
+    // across plugin trait method boundaries).
+    if let TypeRef::Named(named) = &p.ty {
+        if !visible_type_names.contains(named.as_str()) {
+            let deser = format!("serde_json::from_str::<{named}>(&{name}).expect(\"valid JSON for {name}\")");
+            if p.is_ref {
+                return format!("&{deser}");
+            }
+            return deser;
+        }
     }
 
     // Named types in trait bridges are swift-bridge wrapper newtypes (e.g. `OcrConfig` wrapper
